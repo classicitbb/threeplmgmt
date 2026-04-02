@@ -112,10 +112,10 @@ function renderField(field: FieldDefinition, form: ReturnType<typeof useForm<Rec
   );
 }
 
-function ResourceFormDialog<T extends keyof Database["public"]["Tables"]>({
+function ResourceFormDialog({
   resource,
 }: {
-  resource: ResourceDefinition<T>;
+  resource: ResourceDefinition;
 }) {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
