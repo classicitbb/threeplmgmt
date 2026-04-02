@@ -95,18 +95,19 @@ set email = excluded.email,
     raw_user_meta_data = excluded.raw_user_meta_data,
     updated_at = excluded.updated_at;
 
-insert into public.profiles (id, email, full_name, active)
+insert into public.profiles (id, email, full_name, active, approved)
 values
-  ('11111111-1111-1111-1111-111111111111', 'admin@warehousewizard.local', 'System Admin', true),
-  ('22222222-2222-2222-2222-222222222222', 'manager@warehousewizard.local', 'Shanice Jordan', true),
-  ('33333333-3333-3333-3333-333333333333', 'clerk@warehousewizard.local', 'Darnell Clarke', true),
-  ('44444444-4444-4444-4444-444444444444', 'operator@warehousewizard.local', 'Kemar Holder', true),
-  ('55555555-5555-5555-5555-555555555555', 'driver@warehousewizard.local', 'Janelle Ifill', true),
-  ('66666666-6666-6666-6666-666666666666', 'supervisor@warehousewizard.local', 'Andre Wilde', true)
+  ('11111111-1111-1111-1111-111111111111', 'admin@warehousewizard.local', 'System Admin', true, true),
+  ('22222222-2222-2222-2222-222222222222', 'manager@warehousewizard.local', 'Shanice Jordan', true, true),
+  ('33333333-3333-3333-3333-333333333333', 'clerk@warehousewizard.local', 'Darnell Clarke', true, true),
+  ('44444444-4444-4444-4444-444444444444', 'operator@warehousewizard.local', 'Kemar Holder', true, true),
+  ('55555555-5555-5555-5555-555555555555', 'driver@warehousewizard.local', 'Janelle Ifill', true, true),
+  ('66666666-6666-6666-6666-666666666666', 'supervisor@warehousewizard.local', 'Andre Wilde', true, true)
 on conflict (id) do update
 set email = excluded.email,
     full_name = excluded.full_name,
     active = excluded.active,
+    approved = excluded.approved,
     updated_at = timezone('utc', now());
 
 do $$

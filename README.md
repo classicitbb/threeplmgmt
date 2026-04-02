@@ -18,14 +18,14 @@ Warehouse Wizard is a production-oriented internal WMS-lite app for a 3PL-style 
 1. Install dependencies:
    `npm install`
 2. Copy `.env.example` to `.env` and fill in your Supabase values.
-3. Run the migration in `supabase/migrations/20260402093000_init_wms.sql`.
+3. Run all SQL files in `supabase/migrations/` in timestamp order.
 4. Run the seed in `supabase/seed.sql`.
 5. Start the app:
    `npm run dev`
 
 ## Supabase Notes
 
-- The migration creates the required core tables, enums, helper functions, views, storage buckets, indexes, and RLS policies.
+- The migrations create the required core tables, enums, helper functions, views, storage buckets, indexes, profile approval fields, and RLS policies.
 - New auth users automatically get a `profiles` row through `handle_new_user()`.
 - Roles are assigned through `roles` and `user_roles`.
 - Storage buckets are created for `labels`, `imports`, and `attachments`.

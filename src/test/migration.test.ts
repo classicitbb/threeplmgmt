@@ -10,6 +10,10 @@ const helpMigration = readFileSync(
   path.resolve(process.cwd(), "supabase/migrations/20260402193000_help_archive_reset_setup.sql"),
   "utf8",
 );
+const approvalRlsMigration = readFileSync(
+  path.resolve(process.cwd(), "supabase/migrations/20260402195000_fix_profile_approval_and_admin_rls.sql"),
+  "utf8",
+);
 
 describe("init_wms migration", () => {
   it("creates the core warehouse tables", () => {
@@ -41,5 +45,19 @@ describe("help/archive/setup migration", () => {
     expect(helpMigration).toContain("add column if not exists is_hidden boolean not null default false");
     expect(helpMigration).toContain("create or replace function public.reset_wms_data()");
     expect(helpMigration).toContain("create or replace function public.run_warehouse_setup");
+  });
+});
+
+describe("profile approval and admin rls migration", () => {
+  it("adds profile approval fields needed by the app", () => {
+    expect(approvalRlsMigration).toContain("add column if not exists phone text");
+    expect(approvalRlsMigration).toContain("add column if not exists approved boolean not null default false");
+    expect(approvalRlsMigration).toContain("update public.profiles p");
+  });
+
+  it("restores admin write access to user_roles under RLS", () => {
+    expect(approvalRlsMigration).toContain("create policy \"Admins can insert user_roles\"");
+    expect(approvalRlsMigration).toContain("create policy \"Admins can update user_roles\"");
+    expect(approvalRlsMigration).toContain("create policy \"Admins can delete user_roles\"");
   });
 });
