@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useForm } from "react-hook-form";
+import { useForm, type UseFormReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Camera, Download, Loader2, LogOut, Menu, Plus, Printer, Search, Upload } from "lucide-react";
 import { toast } from "sonner";
@@ -10,7 +10,6 @@ import { z } from "zod";
 import { useAuth } from "@/hooks/use-auth";
 import {
   NAVIGATION,
-  RESOURCE_DEFINITIONS,
   ROLE_LABELS,
   type AppRoute,
   type FieldDefinition,
@@ -46,7 +45,7 @@ import {
   transferSchema,
   upsertRecord,
 } from "@/lib/wms-core";
-import type { Database, Tables } from "@/integrations/supabase/types";
+
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -58,7 +57,6 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -128,10 +126,10 @@ function renderField(field: FieldDefinition, form: ReturnType<typeof useForm<Rec
   );
 }
 
-function ResourceFormDialog<T extends keyof Database["public"]["Tables"]>({
+function ResourceFormDialog({
   resource,
 }: {
-  resource: ResourceDefinition<T>;
+  resource: ResourceDefinition;
 }) {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -262,10 +260,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function ResourcePage<T extends keyof Database["public"]["Tables"]>({
+export function ResourcePage({
   resource,
 }: {
-  resource: ResourceDefinition<T>;
+  resource: ResourceDefinition;
 }) {
   const { data = [], isLoading } = useQuery({
     queryKey: [resource.table],
@@ -350,7 +348,7 @@ export function ResourcePage<T extends keyof Database["public"]["Tables"]>({
   );
 }
 
-function ImportButton<T extends keyof Database["public"]["Tables"]>({ resource }: { resource: ResourceDefinition<T> }) {
+function ImportButton({ resource }: { resource: ResourceDefinition }) {
   return (
     <Button
       variant="outline"
@@ -516,7 +514,7 @@ function TextField({
   label,
   type = "text",
 }: {
-  form: ReturnType<typeof useForm<Record<string, unknown>>>;
+  form: UseFormReturn<any>;
   name: string;
   label: string;
   type?: string;
@@ -529,7 +527,7 @@ function TextField({
         <FormItem>
           <FormLabel>{label}</FormLabel>
           <FormControl>
-            <Input {...field} type={type} value={field.value ?? ""} />
+            <Input {...field} type={type} value={(field.value as string | number | readonly string[] | undefined) ?? ""} />
           </FormControl>
           <FormMessage />
         </FormItem>
@@ -544,7 +542,7 @@ function SelectField({
   label,
   options,
 }: {
-  form: ReturnType<typeof useForm<Record<string, unknown>>>;
+  form: UseFormReturn<any>;
   name: string;
   label: string;
   options: Array<{ label: string; value: string }>;
@@ -556,7 +554,7 @@ function SelectField({
       render={({ field }) => (
         <FormItem>
           <FormLabel>{label}</FormLabel>
-          <Select onValueChange={field.onChange} defaultValue={field.value}>
+          <Select onValueChange={field.onChange} value={(field.value as string | undefined) ?? undefined}>
             <FormControl>
               <SelectTrigger>
                 <SelectValue placeholder={`Select ${label.toLowerCase()}`} />
@@ -612,7 +610,7 @@ export function PutawayTasksPage() {
         ) : data.length === 0 ? (
           <Card><CardContent className="p-6 text-sm text-muted-foreground">No putaway tasks ready.</CardContent></Card>
         ) : (
-          data.map((task) => {
+          data.map((task: any) => {
             const localState = scanState[task.id] ?? { pallet: "", location: "" };
             return (
               <Card key={task.id}>
@@ -622,7 +620,7 @@ export function PutawayTasksPage() {
                     <Badge>{task.status}</Badge>
                   </CardTitle>
                   <CardDescription>
-                    Suggested location: {(task.locations as Tables<"locations"> | null)?.code ?? "Request alternative"}
+                    Suggested location: {(task.locations as any)?.code ?? "Request alternative"}
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
@@ -667,7 +665,7 @@ export function PutawayTasksPage() {
 
 export function InventorySearchPage() {
   const [searchTerm, setSearchTerm] = useState("");
-  const [status, setStatus] = useState<"all" | Tables<"inventory_balances">["status"]>("all");
+  const [status, setStatus] = useState<string>("all");
   const { data: options } = useQuery({ queryKey: ["options"], queryFn: fetchOptions });
   const [warehouseId, setWarehouseId] = useState("");
 
@@ -800,7 +798,7 @@ export function PickListsPage() {
         <TabsTrigger value="create">Create Pick List</TabsTrigger>
       </TabsList>
       <TabsContent value="lists" className="grid gap-4">
-        {pickLists.map((pickList) => (
+        {pickLists.map((pickList: any) => (
           <Card key={pickList.id}>
             <CardHeader>
               <CardTitle className="flex items-center justify-between gap-4">
@@ -811,7 +809,7 @@ export function PickListsPage() {
             </CardHeader>
             <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="text-sm text-muted-foreground">
-                {(pickList.pick_tasks as Tables<"pick_tasks">[] | undefined)?.length ?? 0} tasks
+                {(pickList.pick_tasks as any[] | undefined)?.length ?? 0} tasks
               </div>
               <Button asChild className="w-full sm:w-auto" variant="outline">
                 <Link to={`/pick-lists/${pickList.id}`}>Execute</Link>
@@ -954,7 +952,7 @@ export function TransfersPage() {
         </CardContent>
       </Card>
       <div className="grid min-w-0 gap-4">
-        {transfers.map((transfer) => (
+        {transfers.map((transfer: any) => (
           <Card key={transfer.id}>
             <CardHeader>
               <CardTitle className="flex items-center justify-between gap-4">
@@ -1027,7 +1025,7 @@ export function CycleCountsPage() {
         </CardContent>
       </Card>
       <div className="grid min-w-0 gap-4">
-        {counts.map((count) => (
+        {counts.map((count: any) => (
           <Card key={count.id}>
             <CardHeader>
               <CardTitle className="flex items-center justify-between gap-4">
@@ -1036,7 +1034,7 @@ export function CycleCountsPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="grid gap-3">
-              {((count.cycle_count_lines as Tables<"cycle_count_lines">[] | undefined) ?? []).map((line) => (
+              {((count.cycle_count_lines as any[] | undefined) ?? []).map((line: any) => (
                 <div key={line.id} className="flex flex-col gap-2 sm:flex-row sm:items-center">
                   <span className="min-w-0 flex-1 text-sm text-muted-foreground">Expected {formatNumber(line.expected_quantity)}</span>
                   <Input
@@ -1109,7 +1107,7 @@ export function StatusPage() {
           <CardTitle>Controlled stock</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-3">
-          {data.map((row) => (
+          {data.map((row: any) => (
             <div key={row.inventory_balance_id} className="flex items-center justify-between rounded-lg border border-border p-3">
               <div>
                 <p className="font-medium">{row.sku}</p>
@@ -1160,7 +1158,7 @@ export function ReportsPage() {
             <CardTitle>Occupancy view</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-2">
-            {(data?.occupancy ?? []).slice(0, 12).map((location) => (
+            {(data?.occupancy ?? []).slice(0, 12).map((location: any) => (
               <div key={location.location_id} className="flex items-center justify-between rounded-lg border border-border px-3 py-2">
                 <div>
                   <p>{location.location_code}</p>
@@ -1179,7 +1177,7 @@ export function ReportsPage() {
           <CardTitle>Recent movements</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-2">
-          {(data?.audits ?? []).map((audit) => (
+          {(data?.audits ?? []).map((audit: any) => (
             <div key={audit.id} className="rounded-lg border border-border px-3 py-2 text-sm">
               <div className="flex items-center justify-between gap-4">
                 <span className="font-medium">{audit.event_type}</span>
@@ -1242,7 +1240,7 @@ export function UsersRolesPage() {
           <CardTitle>Current access</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-3">
-          {(options?.userRoles ?? []).map((userRole) => (
+          {(options?.userRoles ?? []).map((userRole: any) => (
             <div key={userRole.id} className="flex items-center justify-between rounded-lg border border-border px-3 py-2">
               <div>
                 <p className="font-medium">{options?.profiles.find((profile) => profile.id === userRole.user_id)?.full_name ?? userRole.user_id}</p>

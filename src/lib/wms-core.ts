@@ -2,12 +2,23 @@ import { z } from "zod";
 import { format } from "date-fns";
 
 import { supabase } from "@/integrations/supabase/client";
-import type { Database, Enums, Json, Tables, TablesInsert, TablesUpdate, Views } from "@/integrations/supabase/types";
 
-export type RoleCode = Enums<"app_role_code">;
-export type InventoryStatus = Enums<"inventory_status">;
-export type TaskStatus = Enums<"task_status">;
-export type TemperatureClass = Enums<"temperature_class">;
+// Helper to bypass strict Supabase typing for tables not yet in the schema.
+// Once all WMS tables are migrated, this can be replaced with direct db() calls.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const db = supabase.from.bind(supabase) as (table: string) => any;
+// These types will come from the DB once all WMS tables are created.
+// For now we define them locally so the code compiles.
+export type RoleCode =
+  | "admin"
+  | "warehouse_manager"
+  | "inventory_clerk"
+  | "warehouse_operator"
+  | "dispatch_driver";
+
+export type InventoryStatus = string;
+export type TaskStatus = string;
+export type TemperatureClass = string;
 
 export type AppRoute =
   | "/"
@@ -41,7 +52,7 @@ export type FieldDefinition = {
   required?: boolean;
 };
 
-export type ResourceDefinition<T extends keyof Database["public"]["Tables"]> = {
+export type ResourceDefinition<T extends string = string> = {
   table: T;
   title: string;
   description: string;
@@ -98,7 +109,7 @@ const tempOptions: FieldDefinition["options"] = [
   { label: "Frozen", value: "frozen" },
 ];
 
-const taskStatusOptions: FieldDefinition["options"] = [
+export const taskStatusOptions: FieldDefinition["options"] = [
   { label: "Draft", value: "draft" },
   { label: "Queued", value: "queued" },
   { label: "Assigned", value: "assigned" },
@@ -108,7 +119,7 @@ const taskStatusOptions: FieldDefinition["options"] = [
   { label: "Exception", value: "exception" },
 ];
 
-export const RESOURCE_DEFINITIONS: Record<string, ResourceDefinition<keyof Database["public"]["Tables"]>> = {
+export const RESOURCE_DEFINITIONS: Record<string, ResourceDefinition> = {
   warehouses: {
     table: "warehouses",
     title: "Warehouses",
@@ -242,6 +253,13 @@ export const loginSchema = z.object({
   password: z.string().min(8),
 });
 
+export const signUpSchema = z.object({
+  fullName: z.string().min(2, "Name is required"),
+  email: z.string().email(),
+  phone: z.string().min(6, "Phone number is required"),
+  password: z.string().min(8, "Password must be at least 8 characters"),
+});
+
 export const receivingSchema = z.object({
   receipt_type: z.enum(["po", "transfer", "manual"]),
   reference_number: z.string().min(2),
@@ -347,7 +365,7 @@ export function parseCsv(text: string) {
 export function validatePutawayAssignment(input: {
   productTemperature: TemperatureClass;
   locationTemperature: TemperatureClass;
-  locationStatus: Enums<"location_status">;
+  locationStatus: string;
   locationMaxPallets: number;
   occupiedPallets: number;
   mixedSkuAllowed: boolean;
@@ -368,12 +386,12 @@ export function validatePutawayAssignment(input: {
   return { valid: true, reason: "Assignment valid" };
 }
 
-export async function listRecords<T extends keyof Database["public"]["Tables"]>(
-  table: T,
+export async function listRecords(
+  table: string,
   select = "*",
   orderBy?: { column: string; ascending?: boolean },
 ) {
-  let query = supabase.from(table).select(select);
+  let query = (supabase.from as any)(table).select(select);
 
   if (orderBy) {
     query = query.order(orderBy.column, { ascending: orderBy.ascending ?? true });
@@ -381,20 +399,20 @@ export async function listRecords<T extends keyof Database["public"]["Tables"]>(
 
   const { data, error } = await query;
   if (error) throw error;
-  return (data ?? []) as Tables<T>[];
+  return (data ?? []) as any[];
 }
 
-export async function upsertRecord<T extends keyof Database["public"]["Tables"]>(
-  table: T,
-  payload: TablesInsert<T> | TablesUpdate<T>,
+export async function upsertRecord(
+  table: string,
+  payload: Record<string, unknown>,
 ) {
-  const { data, error } = await supabase.from(table).upsert(payload as never).select().single();
+  const { data, error } = await (supabase.from as any)(table).upsert(payload as never).select().single();
   if (error) throw error;
-  return data as Tables<T>;
+  return data as any;
 }
 
-export async function deleteRecord<T extends keyof Database["public"]["Tables"]>(table: T, id: string) {
-  const { error } = await supabase.from(table).delete().eq("id", id);
+export async function deleteRecord(table: string, id: string) {
+  const { error } = await (supabase.from as any)(table).delete().eq("id", id);
   if (error) throw error;
 }
 
@@ -409,7 +427,7 @@ export async function fetchOptions() {
     listRecords("pallets"),
     listRecords("profiles"),
     listRecords("roles"),
-    supabase.from("user_roles").select("*, roles(code, name)").then(({ data, error }) => {
+    db("user_roles").select("*, roles(code, name)").then(({ data, error }: { data: any; error: any }) => {
       if (error) throw error;
       return data ?? [];
     }),
@@ -423,8 +441,7 @@ function buildPalletCode(prefix: string) {
 }
 
 async function resolveInventoryLot(payload: z.infer<typeof receivingSchema>) {
-  const lotMatch = await supabase
-    .from("inventory_lots")
+  const lotMatch = await db("inventory_lots")
     .select("*")
     .eq("product_id", payload.product_id)
     .eq("client_id", payload.client_id)
@@ -436,8 +453,7 @@ async function resolveInventoryLot(payload: z.infer<typeof receivingSchema>) {
     return lotMatch.data;
   }
 
-  const { data, error } = await supabase
-    .from("inventory_lots")
+  const { data, error } = await db("inventory_lots")
     .insert({
       product_id: payload.product_id,
       client_id: payload.client_id,
@@ -455,8 +471,8 @@ async function resolveInventoryLot(payload: z.infer<typeof receivingSchema>) {
   return data;
 }
 
-async function createLabelRecord(label_type: Enums<"label_type">, entityId: string, labelCode: string) {
-  const { error } = await supabase.from("barcode_labels").insert({
+async function createLabelRecord(label_type: string, entityId: string, labelCode: string) {
+  const { error } = await db("barcode_labels").insert({
     label_type,
     entity_id: entityId,
     label_code: labelCode,
@@ -471,8 +487,7 @@ export async function createReceiptFlow(input: z.infer<typeof receivingSchema>) 
   const receiptNumber = buildPalletCode("RCT");
   const palletCode = buildPalletCode("PLT");
 
-  const { data: product, error: productError } = await supabase
-    .from("products")
+  const { data: product, error: productError } = await db("products")
     .select("*")
     .eq("id", payload.product_id)
     .single();
@@ -480,7 +495,7 @@ export async function createReceiptFlow(input: z.infer<typeof receivingSchema>) 
   if (productError) throw productError;
 
   const { data: packagingProfile } = payload.packaging_profile_id
-    ? await supabase.from("product_packaging_profiles").select("*").eq("id", payload.packaging_profile_id).single()
+    ? await db("product_packaging_profiles").select("*").eq("id", payload.packaging_profile_id).single()
     : { data: null };
 
   const receipt = await upsertRecord("receipts", {
@@ -537,7 +552,7 @@ export async function createReceiptFlow(input: z.infer<typeof receivingSchema>) 
     expiry_date: lot.expiry_date,
   });
 
-  const suggestions = await supabase.rpc("directed_putaway_candidates", { in_pallet_id: pallet.id });
+  const suggestions = await (supabase.rpc as any)("directed_putaway_candidates", { in_pallet_id: pallet.id });
   if (suggestions.error) throw suggestions.error;
   const topSuggestion = suggestions.data?.[0] ?? null;
 
@@ -549,7 +564,7 @@ export async function createReceiptFlow(input: z.infer<typeof receivingSchema>) 
     status: "queued",
   });
 
-  await supabase.rpc("log_audit_event", {
+  await (supabase.rpc as any)("log_audit_event", {
     in_event_type: "receipt",
     in_entity_table: "pallets",
     in_entity_id: pallet.id,
@@ -559,7 +574,7 @@ export async function createReceiptFlow(input: z.infer<typeof receivingSchema>) 
       receipt_id: receipt.id,
       receipt_line_id: receiptLine.id,
       quantity: payload.quantity,
-    } satisfies Json,
+    } as any,
   });
 
   await createLabelRecord("pallet", pallet.id, palletCode);
@@ -572,7 +587,7 @@ export async function searchInventory(filters: {
   warehouseId?: string;
   status?: InventoryStatus | "all";
 }) {
-  let query = supabase.from("inventory_search_view").select("*");
+  let query = db("inventory_search_view").select("*");
 
   if (filters.search) {
     query = query.or(
@@ -599,22 +614,21 @@ export async function searchInventory(filters: {
 
   const { data, error } = await query.order("received_at", { ascending: false });
   if (error) throw error;
-  return (data ?? []) as Views<"inventory_search_view">[];
+  return (data ?? []) as any[];
 }
 
 export async function getInventoryDetail(balanceId: string) {
-  const { data: balance, error: balanceError } = await supabase
-    .from("inventory_balances")
+  const { data: balance, error: balanceError } = await db("inventory_balances")
     .select("*")
     .eq("id", balanceId)
     .single();
   if (balanceError) throw balanceError;
 
   const [{ data: pallet }, { data: audit }, { data: lot }] = await Promise.all([
-    supabase.from("pallets").select("*").eq("id", balance.pallet_id).single(),
-    supabase.from("audit_events").select("*").eq("pallet_id", balance.pallet_id).order("created_at", { ascending: false }),
+    db("pallets").select("*").eq("id", balance.pallet_id).single(),
+    db("audit_events").select("*").eq("pallet_id", balance.pallet_id).order("created_at", { ascending: false }),
     balance.inventory_lot_id
-      ? supabase.from("inventory_lots").select("*").eq("id", balance.inventory_lot_id).single()
+      ? db("inventory_lots").select("*").eq("id", balance.inventory_lot_id).single()
       : Promise.resolve({ data: null, error: null }),
   ]);
 
@@ -627,8 +641,7 @@ export async function getInventoryDetail(balanceId: string) {
 }
 
 export async function getPutawayTasks(userId?: string) {
-  let query = supabase
-    .from("putaway_tasks")
+  let query = db("putaway_tasks")
     .select("*, pallets(*), locations: suggested_location_id(*)")
     .order("created_at", { ascending: false });
 
@@ -642,28 +655,25 @@ export async function getPutawayTasks(userId?: string) {
 }
 
 export async function confirmPutaway(taskId: string, scannedPalletBarcode: string, scannedLocationCode: string) {
-  const { data: task, error: taskError } = await supabase
-    .from("putaway_tasks")
+  const { data: task, error: taskError } = await db("putaway_tasks")
     .select("*, pallets(*), locations: suggested_location_id(*), products: pallets(product_id)")
     .eq("id", taskId)
     .single();
 
   if (taskError) throw taskError;
 
-  const pallet = task.pallets as Tables<"pallets"> | null;
+  const pallet = task.pallets as any;
   if (!pallet || pallet.pallet_barcode !== scannedPalletBarcode) {
     throw new Error("Scanned pallet barcode does not match the task pallet.");
   }
 
-  const { data: location, error: locationError } = await supabase
-    .from("locations")
+  const { data: location, error: locationError } = await db("locations")
     .select("*")
     .eq("code", scannedLocationCode)
     .single();
   if (locationError) throw locationError;
 
-  const { data: product, error: productError } = await supabase
-    .from("products")
+  const { data: product, error: productError } = await db("products")
     .select("*")
     .eq("id", pallet.product_id)
     .single();
@@ -684,8 +694,7 @@ export async function confirmPutaway(taskId: string, scannedPalletBarcode: strin
   }
 
   await Promise.all([
-    supabase
-      .from("pallets")
+    db("pallets")
       .update({
         current_location_id: location.id,
         current_warehouse_id: location.warehouse_id,
@@ -694,8 +703,7 @@ export async function confirmPutaway(taskId: string, scannedPalletBarcode: strin
         available_quantity: pallet.quantity,
       })
       .eq("id", pallet.id),
-    supabase
-      .from("inventory_balances")
+    db("inventory_balances")
       .update({
         warehouse_id: location.warehouse_id,
         zone_id: location.zone_id,
@@ -704,8 +712,7 @@ export async function confirmPutaway(taskId: string, scannedPalletBarcode: strin
         available_quantity: pallet.quantity,
       })
       .eq("pallet_id", pallet.id),
-    supabase
-      .from("putaway_tasks")
+    db("putaway_tasks")
       .update({
         status: "completed",
         completed_at: new Date().toISOString(),
@@ -713,7 +720,7 @@ export async function confirmPutaway(taskId: string, scannedPalletBarcode: strin
       .eq("id", taskId),
   ]);
 
-  await supabase.rpc("log_audit_event", {
+  await (supabase.rpc as any)("log_audit_event", {
     in_event_type: "putaway",
     in_entity_table: "putaway_tasks",
     in_entity_id: taskId,
@@ -723,15 +730,14 @@ export async function confirmPutaway(taskId: string, scannedPalletBarcode: strin
     in_metadata: {
       location_code: location.code,
       pallet_barcode: pallet.pallet_barcode,
-    } satisfies Json,
+    } as any,
   });
 }
 
 async function selectPickCandidates(productId: string, warehouseId: string, quantity: number) {
-  const { data: product } = await supabase.from("products").select("*").eq("id", productId).single();
+  const { data: product } = await db("products").select("*").eq("id", productId).single();
 
-  const { data, error } = await supabase
-    .from("inventory_search_view")
+  const { data, error } = await db("inventory_search_view")
     .select("*")
     .eq("product_id", productId)
     .eq("warehouse_id", warehouseId)
@@ -746,7 +752,7 @@ async function selectPickCandidates(productId: string, warehouseId: string, quan
     return left.received_at.localeCompare(right.received_at);
   });
 
-  const chosen: Views<"inventory_search_view">[] = [];
+  const chosen: any[] = [];
   let remaining = quantity;
   for (const candidate of candidates) {
     if (remaining <= 0) break;
@@ -808,8 +814,7 @@ export async function createPickListFlow(input: z.infer<typeof pickListSchema>) 
 }
 
 export async function listPickLists() {
-  const { data, error } = await supabase
-    .from("pick_lists")
+  const { data, error } = await db("pick_lists")
     .select("*, pick_tasks(*)")
     .order("created_at", { ascending: false });
   if (error) throw error;
@@ -818,9 +823,8 @@ export async function listPickLists() {
 
 export async function getPickExecution(pickListId: string) {
   const [pickList, pickTasks] = await Promise.all([
-    supabase.from("pick_lists").select("*").eq("id", pickListId).single(),
-    supabase
-      .from("pick_tasks")
+    db("pick_lists").select("*").eq("id", pickListId).single(),
+    db("pick_tasks")
       .select("*")
       .eq("pick_list_id", pickListId)
       .order("created_at", { ascending: true }),
@@ -836,8 +840,7 @@ export async function getPickExecution(pickListId: string) {
 }
 
 export async function confirmPickTask(taskId: string, scannedLocation: string, scannedPallet: string, confirmedQuantity: number, shortReason?: string) {
-  const { data: task, error: taskError } = await supabase
-    .from("pick_tasks")
+  const { data: task, error: taskError } = await db("pick_tasks")
     .select("*")
     .eq("id", taskId)
     .single();
@@ -848,8 +851,8 @@ export async function confirmPickTask(taskId: string, scannedLocation: string, s
   }
 
   const [{ data: pallet, error: palletError }, { data: balance, error: balanceError }] = await Promise.all([
-    supabase.from("pallets").select("*").eq("id", task.pallet_id).single(),
-    supabase.from("inventory_balances").select("*").eq("pallet_id", task.pallet_id).single(),
+    db("pallets").select("*").eq("id", task.pallet_id).single(),
+    db("inventory_balances").select("*").eq("pallet_id", task.pallet_id).single(),
   ]);
 
   if (palletError) throw palletError;
@@ -859,7 +862,7 @@ export async function confirmPickTask(taskId: string, scannedLocation: string, s
   }
 
   const location = balance.location_id
-    ? await supabase.from("locations").select("*").eq("id", balance.location_id).single()
+    ? await db("locations").select("*").eq("id", balance.location_id).single()
     : { data: null, error: null };
   if (location.error) throw location.error;
   if (location.data && location.data.code !== scannedLocation) {
@@ -870,8 +873,7 @@ export async function confirmPickTask(taskId: string, scannedLocation: string, s
   const nextStatus: InventoryStatus = nextAvailable === 0 ? "picked" : "available";
 
   await Promise.all([
-    supabase
-      .from("pick_tasks")
+    db("pick_tasks")
       .update({
         confirmed_quantity: confirmedQuantity,
         short_reason: shortReason ?? null,
@@ -879,15 +881,13 @@ export async function confirmPickTask(taskId: string, scannedLocation: string, s
         completed_at: new Date().toISOString(),
       })
       .eq("id", taskId),
-    supabase
-      .from("pallets")
+    db("pallets")
       .update({
         available_quantity: nextAvailable,
         status: nextStatus,
       })
       .eq("id", pallet.id),
-    supabase
-      .from("inventory_balances")
+    db("inventory_balances")
       .update({
         available_quantity: nextAvailable,
         status: nextStatus,
@@ -895,7 +895,7 @@ export async function confirmPickTask(taskId: string, scannedLocation: string, s
       .eq("id", balance.id),
   ]);
 
-  await supabase.rpc("log_audit_event", {
+  await (supabase.rpc as any)("log_audit_event", {
     in_event_type: "pick",
     in_entity_table: "pick_tasks",
     in_entity_id: taskId,
@@ -905,7 +905,7 @@ export async function confirmPickTask(taskId: string, scannedLocation: string, s
     in_metadata: {
       confirmed_quantity: confirmedQuantity,
       short_reason: shortReason ?? null,
-    } satisfies Json,
+    } as any,
   });
 }
 
@@ -920,7 +920,7 @@ export async function createTransferFlow(input: z.infer<typeof transferSchema>) 
     notes: payload.notes || null,
   });
 
-  const { data: pallet, error: palletError } = await supabase.from("pallets").select("*").eq("id", payload.pallet_id).single();
+  const { data: pallet, error: palletError } = await db("pallets").select("*").eq("id", payload.pallet_id).single();
   if (palletError) throw palletError;
 
   await upsertRecord("transfer_lines", {
@@ -947,35 +947,33 @@ export async function createTransferFlow(input: z.infer<typeof transferSchema>) 
 }
 
 export async function dispatchTransfer(transferId: string) {
-  const { data: lines, error: linesError } = await supabase.from("transfer_lines").select("*").eq("transfer_id", transferId);
+  const { data: lines, error: linesError } = await db("transfer_lines").select("*").eq("transfer_id", transferId);
   if (linesError) throw linesError;
 
   for (const line of lines ?? []) {
     if (!line.pallet_id) continue;
     await Promise.all([
-      supabase.from("pallets").update({ status: "in_transit", current_location_id: null }).eq("id", line.pallet_id),
-      supabase.from("inventory_balances").update({ status: "in_transit", location_id: null, zone_id: null }).eq("pallet_id", line.pallet_id),
+      db("pallets").update({ status: "in_transit", current_location_id: null }).eq("id", line.pallet_id),
+      db("inventory_balances").update({ status: "in_transit", location_id: null, zone_id: null }).eq("pallet_id", line.pallet_id),
     ]);
   }
 
-  await supabase.from("transfers").update({ status: "in_progress", dispatched_at: new Date().toISOString() }).eq("id", transferId);
+  await db("transfers").update({ status: "in_progress", dispatched_at: new Date().toISOString() }).eq("id", transferId);
 }
 
 export async function receiveTransfer(transferId: string) {
-  const { data: transfer, error: transferError } = await supabase.from("transfers").select("*").eq("id", transferId).single();
+  const { data: transfer, error: transferError } = await db("transfers").select("*").eq("id", transferId).single();
   if (transferError) throw transferError;
-  const { data: lines, error: linesError } = await supabase.from("transfer_lines").select("*").eq("transfer_id", transferId);
+  const { data: lines, error: linesError } = await db("transfer_lines").select("*").eq("transfer_id", transferId);
   if (linesError) throw linesError;
 
   for (const line of lines ?? []) {
     if (!line.pallet_id) continue;
     await Promise.all([
-      supabase
-        .from("pallets")
+      db("pallets")
         .update({ current_warehouse_id: transfer.destination_warehouse_id, status: "receiving", current_location_id: null, is_stored: false })
         .eq("id", line.pallet_id),
-      supabase
-        .from("inventory_balances")
+      db("inventory_balances")
         .update({ warehouse_id: transfer.destination_warehouse_id, status: "receiving", location_id: null, zone_id: null })
         .eq("pallet_id", line.pallet_id),
       upsertRecord("putaway_tasks", {
@@ -987,11 +985,11 @@ export async function receiveTransfer(transferId: string) {
     ]);
   }
 
-  await supabase.from("transfers").update({ status: "completed", received_at: new Date().toISOString() }).eq("id", transferId);
+  await db("transfers").update({ status: "completed", received_at: new Date().toISOString() }).eq("id", transferId);
 }
 
 export async function listTransfers() {
-  const { data, error } = await supabase.from("transfers").select("*, transfer_lines(*)").order("created_at", { ascending: false });
+  const { data, error } = await db("transfers").select("*, transfer_lines(*)").order("created_at", { ascending: false });
   if (error) throw error;
   return data ?? [];
 }
@@ -1008,7 +1006,7 @@ export async function createCycleCountFlow(input: z.infer<typeof cycleCountSchem
     variance_threshold_percent: payload.variance_threshold_percent,
   });
 
-  let balanceQuery = supabase.from("inventory_balances").select("*").eq("warehouse_id", payload.warehouse_id);
+  let balanceQuery = db("inventory_balances").select("*").eq("warehouse_id", payload.warehouse_id);
   if (payload.location_id) balanceQuery = balanceQuery.eq("location_id", payload.location_id);
   if (payload.zone_id) balanceQuery = balanceQuery.eq("zone_id", payload.zone_id);
   if (payload.product_id) balanceQuery = balanceQuery.eq("product_id", payload.product_id);
@@ -1035,20 +1033,19 @@ export async function createCycleCountFlow(input: z.infer<typeof cycleCountSchem
 }
 
 export async function listCycleCounts() {
-  const { data, error } = await supabase.from("cycle_counts").select("*, cycle_count_lines(*)").order("created_at", { ascending: false });
+  const { data, error } = await db("cycle_counts").select("*, cycle_count_lines(*)").order("created_at", { ascending: false });
   if (error) throw error;
   return data ?? [];
 }
 
 export async function submitCycleCountLine(lineId: string, countedQuantity: number) {
-  const { data: line, error: lineError } = await supabase.from("cycle_count_lines").select("*").eq("id", lineId).single();
+  const { data: line, error: lineError } = await db("cycle_count_lines").select("*").eq("id", lineId).single();
   if (lineError) throw lineError;
 
   const varianceQuantity = countedQuantity - line.expected_quantity;
   const variancePercent = line.expected_quantity === 0 ? 0 : Math.abs((varianceQuantity / line.expected_quantity) * 100);
 
-  await supabase
-    .from("cycle_count_lines")
+  await db("cycle_count_lines")
     .update({
       counted_quantity: countedQuantity,
       variance_quantity: varianceQuantity,
@@ -1059,8 +1056,8 @@ export async function submitCycleCountLine(lineId: string, countedQuantity: numb
 
   if (line.pallet_id) {
     await Promise.all([
-      supabase.from("pallets").update({ quantity: countedQuantity, available_quantity: countedQuantity }).eq("id", line.pallet_id),
-      supabase.from("inventory_balances").update({ quantity: countedQuantity, available_quantity: countedQuantity }).eq("pallet_id", line.pallet_id),
+      db("pallets").update({ quantity: countedQuantity, available_quantity: countedQuantity }).eq("id", line.pallet_id),
+      db("inventory_balances").update({ quantity: countedQuantity, available_quantity: countedQuantity }).eq("pallet_id", line.pallet_id),
       upsertRecord("stock_adjustments", {
         adjustment_number: buildPalletCode("ADJ"),
         pallet_id: line.pallet_id,
@@ -1073,8 +1070,7 @@ export async function submitCycleCountLine(lineId: string, countedQuantity: numb
 }
 
 export async function listStatusPallets() {
-  const { data, error } = await supabase
-    .from("inventory_search_view")
+  const { data, error } = await db("inventory_search_view")
     .select("*")
     .in("status", ["hold", "quarantine", "damaged", "missing"])
     .order("received_at", { ascending: false });
@@ -1084,12 +1080,12 @@ export async function listStatusPallets() {
 
 export async function changePalletStatus(input: z.infer<typeof statusChangeSchema>) {
   const payload = statusChangeSchema.parse(input);
-  const { data: balance, error: balanceError } = await supabase.from("inventory_balances").select("*").eq("pallet_id", payload.pallet_id).single();
+  const { data: balance, error: balanceError } = await db("inventory_balances").select("*").eq("pallet_id", payload.pallet_id).single();
   if (balanceError) throw balanceError;
 
   await Promise.all([
-    supabase.from("pallets").update({ status: payload.new_status }).eq("id", payload.pallet_id),
-    supabase.from("inventory_balances").update({ status: payload.new_status }).eq("id", balance.id),
+    db("pallets").update({ status: payload.new_status }).eq("id", payload.pallet_id),
+    db("inventory_balances").update({ status: payload.new_status }).eq("id", balance.id),
     upsertRecord("stock_adjustments", {
       adjustment_number: buildPalletCode("STS"),
       pallet_id: payload.pallet_id,
@@ -1102,7 +1098,7 @@ export async function changePalletStatus(input: z.infer<typeof statusChangeSchem
     }),
   ]);
 
-  await supabase.rpc("log_audit_event", {
+  await (supabase.rpc as any)("log_audit_event", {
     in_event_type: "status_change",
     in_entity_table: "pallets",
     in_entity_id: payload.pallet_id,
@@ -1112,16 +1108,16 @@ export async function changePalletStatus(input: z.infer<typeof statusChangeSchem
       old_status: balance.status,
       new_status: payload.new_status,
       reason: payload.reason,
-    } satisfies Json,
+    } as any,
   });
 }
 
 export async function getDashboardMetrics() {
   const [balances, receipts, putawayTasks, pickLists] = await Promise.all([
-    supabase.from("inventory_balances").select("*"),
-    supabase.from("receipts").select("*").in("status", ["draft", "queued", "assigned", "in_progress"]),
-    supabase.from("putaway_tasks").select("*").in("status", ["queued", "assigned", "in_progress", "exception"]),
-    supabase.from("pick_lists").select("*").in("status", ["draft", "queued", "assigned", "in_progress", "exception"]),
+    db("inventory_balances").select("*"),
+    db("receipts").select("*").in("status", ["draft", "queued", "assigned", "in_progress"]),
+    db("putaway_tasks").select("*").in("status", ["queued", "assigned", "in_progress", "exception"]),
+    db("pick_lists").select("*").in("status", ["draft", "queued", "assigned", "in_progress", "exception"]),
   ]);
 
   if (balances.error) throw balances.error;
@@ -1130,28 +1126,28 @@ export async function getDashboardMetrics() {
   if (pickLists.error) throw pickLists.error;
 
   const balanceRows = balances.data ?? [];
-  const coolRows = balanceRows.filter((row) => row.zone_id);
+  const coolRows = balanceRows.filter((row: any) => row.zone_id);
 
   return {
     totalPallets: balanceRows.length,
-    availablePallets: balanceRows.filter((row) => row.status === "available").length,
+    availablePallets: balanceRows.filter((row: any) => row.status === "available").length,
     coolZoneOccupancy: coolRows.length,
     openReceipts: receipts.data?.length ?? 0,
     openPutawayTasks: putawayTasks.data?.length ?? 0,
     openPickLists: pickLists.data?.length ?? 0,
-    holdStock: balanceRows.filter((row) => row.status === "hold").length,
-    quarantineStock: balanceRows.filter((row) => row.status === "quarantine").length,
+    holdStock: balanceRows.filter((row: any) => row.status === "hold").length,
+    quarantineStock: balanceRows.filter((row: any) => row.status === "quarantine").length,
   } satisfies DashboardMetrics;
 }
 
 export async function getReportData() {
   const [balances, occupancy, audits, clients, warehouses, cycleCounts] = await Promise.all([
-    supabase.from("inventory_search_view").select("*"),
-    supabase.from("location_occupancy_view").select("*"),
-    supabase.from("audit_events").select("*").order("created_at", { ascending: false }).limit(12),
-    supabase.from("clients").select("*"),
-    supabase.from("warehouses").select("*"),
-    supabase.from("cycle_count_lines").select("*").order("updated_at", { ascending: false }).limit(12),
+    db("inventory_search_view").select("*"),
+    db("location_occupancy_view").select("*"),
+    db("audit_events").select("*").order("created_at", { ascending: false }).limit(12),
+    db("clients").select("*"),
+    db("warehouses").select("*"),
+    db("cycle_count_lines").select("*").order("updated_at", { ascending: false }).limit(12),
   ]);
 
   if (balances.error) throw balances.error;
@@ -1171,7 +1167,7 @@ export async function getReportData() {
   };
 }
 
-export async function importCsvToResource(resource: ResourceDefinition<keyof Database["public"]["Tables"]>, file: File) {
+export async function importCsvToResource(resource: ResourceDefinition, file: File) {
   const text = await file.text();
   const rows = parseCsv(text);
   const errors: Array<Record<string, string | number>> = [];
@@ -1187,7 +1183,7 @@ export async function importCsvToResource(resource: ResourceDefinition<keyof Dat
     }
 
     try {
-      await supabase.from(resource.table).upsert(row as never);
+      await db(resource.table).upsert(row as never);
     } catch (error) {
       errors.push({ row: index + 2, error: error instanceof Error ? error.message : "Import failed" });
     }
