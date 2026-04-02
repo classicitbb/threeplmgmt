@@ -45,7 +45,7 @@ import {
   transferSchema,
   upsertRecord,
 } from "@/lib/wms-core";
-import type { Tables } from "@/integrations/supabase/types";
+
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
