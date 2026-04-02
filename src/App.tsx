@@ -353,11 +353,11 @@ function ResourceRoutes() {
       <Route element={<RequireAuth />}>
         <Route element={<ProtectedLayout />}>
           <Route path="/dashboard" element={<DashboardPage />} />
-          <Route path="/warehouses" element={<ResourcePage resource={resources.warehouses} />} />
-          <Route path="/zones" element={<ResourcePage resource={resources.zones} />} />
-          <Route path="/locations" element={<ResourcePage resource={resources.locations} />} />
-          <Route path="/products" element={<ResourcePage resource={resources.products} />} />
-          <Route path="/packaging-profiles" element={<ResourcePage resource={resources.packagingProfiles} />} />
+          <Route path="/warehouses" element={<ResourcePage resource={resources.warehouses as any} />} />
+          <Route path="/zones" element={<ResourcePage resource={resources.zones as any} />} />
+          <Route path="/locations" element={<ResourcePage resource={resources.locations as any} />} />
+          <Route path="/products" element={<ResourcePage resource={resources.products as any} />} />
+          <Route path="/packaging-profiles" element={<ResourcePage resource={resources.packagingProfiles as any} />} />
           <Route path="/receiving" element={<ReceivingPage />} />
           <Route path="/putaway-tasks" element={<PutawayTasksPage />} />
           <Route path="/inventory-search" element={<InventorySearchPage />} />
