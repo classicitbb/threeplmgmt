@@ -437,7 +437,7 @@ export function DashboardPage() {
 
 export function ReceivingPage() {
   const queryClient = useQueryClient();
-  const { data: options } = useQuery({ queryKey: ["options"], queryFn: fetchOptions });
+  const { data: options } = useQuery({ queryKey: ["options"], queryFn: () => fetchOptions() });
   const form = useForm<z.infer<typeof receivingSchema>>({
     resolver: zodResolver(receivingSchema),
     defaultValues: {
