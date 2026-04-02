@@ -221,7 +221,7 @@ function PickExecutionPage() {
   const queryClient = useQueryClient();
   const { data } = useQuery<PickExecutionData>({
     queryKey: ["pick-execution", pickListId],
-    queryFn: async () => (await getPickExecution(pickListId)) as PickExecutionData,
+    queryFn: async () => (await getPickExecution(pickListId)) as unknown as PickExecutionData,
     enabled: Boolean(pickListId),
   });
 
