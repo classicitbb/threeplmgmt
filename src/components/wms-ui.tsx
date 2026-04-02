@@ -1008,7 +1008,7 @@ export function CycleCountsPage() {
         </CardContent>
       </Card>
       <div className="grid gap-4">
-        {counts.map((count) => (
+        {counts.map((count: any) => (
           <Card key={count.id}>
             <CardHeader>
               <CardTitle className="flex items-center justify-between gap-4">
