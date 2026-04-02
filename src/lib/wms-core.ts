@@ -4,8 +4,9 @@ import { format } from "date-fns";
 import { supabase } from "@/integrations/supabase/client";
 
 // Helper to bypass strict Supabase typing for tables not yet in the schema.
-// Once all WMS tables are migrated, this can be replaced with direct db() calls.
-const db = supabase.from.bind(supabase) as (table: string) => ReturnType<typeof supabase.from>;
+// Once all WMS tables are migrated, this can be replaced with direct supabase.from() calls.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const db = supabase.from.bind(supabase) as (table: string) => any;
 // These types will come from the DB once all WMS tables are created.
 // For now we define them locally so the code compiles.
 export type RoleCode =

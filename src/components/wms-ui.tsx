@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useForm, type FieldValues, type Path, type UseFormReturn } from "react-hook-form";
+import { useForm, type UseFormReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Camera, Download, Loader2, LogOut, Menu, Plus, Printer, Search, Upload } from "lucide-react";
 import { toast } from "sonner";
