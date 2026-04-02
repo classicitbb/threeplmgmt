@@ -905,7 +905,7 @@ export function PickListsPage() {
 
 export function TransfersPage() {
   const queryClient = useQueryClient();
-  const { data: options } = useQuery({ queryKey: ["options"], queryFn: fetchOptions });
+  const { data: options } = useQuery({ queryKey: ["options"], queryFn: () => fetchOptions() });
   const { data: transfers = [] } = useQuery({ queryKey: ["transfers"], queryFn: listTransfers });
   const form = useForm<z.infer<typeof transferSchema>>({
     resolver: zodResolver(transferSchema),
