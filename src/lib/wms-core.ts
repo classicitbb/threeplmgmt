@@ -713,7 +713,7 @@ export async function confirmPutaway(taskId: string, scannedPalletBarcode: strin
       .eq("id", taskId),
   ]);
 
-  await supabase.rpc("log_audit_event", {
+  await (supabase.rpc as any)("log_audit_event", {
     in_event_type: "putaway",
     in_entity_table: "putaway_tasks",
     in_entity_id: taskId,
@@ -723,7 +723,7 @@ export async function confirmPutaway(taskId: string, scannedPalletBarcode: strin
     in_metadata: {
       location_code: location.code,
       pallet_barcode: pallet.pallet_barcode,
-    } satisfies Json,
+    } as any,
   });
 }
 
