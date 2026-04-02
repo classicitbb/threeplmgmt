@@ -2,12 +2,19 @@ import { z } from "zod";
 import { format } from "date-fns";
 
 import { supabase } from "@/integrations/supabase/client";
-import type { Database, Enums, Json, Tables, TablesInsert, TablesUpdate, Views } from "@/integrations/supabase/types";
 
-export type RoleCode = Enums<"app_role_code">;
-export type InventoryStatus = Enums<"inventory_status">;
-export type TaskStatus = Enums<"task_status">;
-export type TemperatureClass = Enums<"temperature_class">;
+// These types will come from the DB once all WMS tables are created.
+// For now we define them locally so the code compiles.
+export type RoleCode =
+  | "admin"
+  | "warehouse_manager"
+  | "inventory_clerk"
+  | "warehouse_operator"
+  | "dispatch_driver";
+
+export type InventoryStatus = string;
+export type TaskStatus = string;
+export type TemperatureClass = string;
 
 export type AppRoute =
   | "/"
