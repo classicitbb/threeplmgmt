@@ -1,0 +1,33 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { describe, expect, it } from "vitest";
+
+const migration = readFileSync(
+  path.resolve(process.cwd(), "supabase/migrations/20260402093000_init_wms.sql"),
+  "utf8",
+);
+
+describe("init_wms migration", () => {
+  it("creates the core warehouse tables", () => {
+    expect(migration).toContain("create table public.warehouses");
+    expect(migration).toContain("create table public.locations");
+    expect(migration).toContain("create table public.products");
+    expect(migration).toContain("create table public.pallets");
+    expect(migration).toContain("create table public.inventory_balances");
+    expect(migration).toContain("create table public.pick_tasks");
+  });
+
+  it("enables row level security and role-based policies", () => {
+    expect(migration).toContain("alter table public.pallets enable row level security");
+    expect(migration).toContain("create policy \"putaway tasks read assigned\"");
+    expect(migration).toContain("create policy \"pick tasks read assigned\"");
+    expect(migration).toContain("create policy \"roles admin manage\"");
+  });
+
+  it("defines helper views and RPCs for operations", () => {
+    expect(migration).toContain("create or replace function public.directed_putaway_candidates");
+    expect(migration).toContain("create or replace view public.inventory_search_view");
+    expect(migration).toContain("create or replace view public.location_occupancy_view");
+    expect(migration).toContain("insert into storage.buckets");
+  });
+});
