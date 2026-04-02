@@ -358,7 +358,7 @@ export function parseCsv(text: string) {
 export function validatePutawayAssignment(input: {
   productTemperature: TemperatureClass;
   locationTemperature: TemperatureClass;
-  locationStatus: Enums<"location_status">;
+  locationStatus: string;
   locationMaxPallets: number;
   occupiedPallets: number;
   mixedSkuAllowed: boolean;
@@ -464,7 +464,7 @@ async function resolveInventoryLot(payload: z.infer<typeof receivingSchema>) {
   return data;
 }
 
-async function createLabelRecord(label_type: Enums<"label_type">, entityId: string, labelCode: string) {
+async function createLabelRecord(label_type: string, entityId: string, labelCode: string) {
   const { error } = await db("barcode_labels").insert({
     label_type,
     entity_id: entityId,
@@ -607,7 +607,7 @@ export async function searchInventory(filters: {
 
   const { data, error } = await query.order("received_at", { ascending: false });
   if (error) throw error;
-  return (data ?? []) as Views<"inventory_search_view">[];
+  return (data ?? []) as any[];
 }
 
 export async function getInventoryDetail(balanceId: string) {
@@ -745,7 +745,7 @@ async function selectPickCandidates(productId: string, warehouseId: string, quan
     return left.received_at.localeCompare(right.received_at);
   });
 
-  const chosen: Views<"inventory_search_view">[] = [];
+  const chosen: any[] = [];
   let remaining = quantity;
   for (const candidate of candidates) {
     if (remaining <= 0) break;
