@@ -375,12 +375,12 @@ export function validatePutawayAssignment(input: {
   return { valid: true, reason: "Assignment valid" };
 }
 
-export async function listRecords<T extends keyof Database["public"]["Tables"]>(
-  table: T,
+export async function listRecords(
+  table: string,
   select = "*",
   orderBy?: { column: string; ascending?: boolean },
 ) {
-  let query = supabase.from(table).select(select);
+  let query = (supabase.from as any)(table).select(select);
 
   if (orderBy) {
     query = query.order(orderBy.column, { ascending: orderBy.ascending ?? true });
@@ -388,20 +388,20 @@ export async function listRecords<T extends keyof Database["public"]["Tables"]>(
 
   const { data, error } = await query;
   if (error) throw error;
-  return (data ?? []) as Tables<T>[];
+  return (data ?? []) as any[];
 }
 
-export async function upsertRecord<T extends keyof Database["public"]["Tables"]>(
-  table: T,
-  payload: TablesInsert<T> | TablesUpdate<T>,
+export async function upsertRecord(
+  table: string,
+  payload: Record<string, unknown>,
 ) {
-  const { data, error } = await supabase.from(table).upsert(payload as never).select().single();
+  const { data, error } = await (supabase.from as any)(table).upsert(payload as never).select().single();
   if (error) throw error;
-  return data as Tables<T>;
+  return data as any;
 }
 
-export async function deleteRecord<T extends keyof Database["public"]["Tables"]>(table: T, id: string) {
-  const { error } = await supabase.from(table).delete().eq("id", id);
+export async function deleteRecord(table: string, id: string) {
+  const { error } = await (supabase.from as any)(table).delete().eq("id", id);
   if (error) throw error;
 }
 
