@@ -99,14 +99,60 @@ function RequireAuth({ allowedRoles }: { allowedRoles?: Array<"admin" | "warehou
 
 function LoginPage() {
   const auth = useAuth();
-  const form = useForm({
+  const [mode, setMode] = useState<"login" | "signup">("login");
+
+  const loginForm = useForm({
     resolver: zodResolver(loginSchema),
     defaultValues: { email: "", password: "" },
   });
 
-  const mutation = useMutation({
-    mutationFn: async (values: { email: string; password: string }) => auth.signIn(values.email, values.password),
+  const signUpForm = useForm({
+    resolver: zodResolver(signUpSchema),
+    defaultValues: { fullName: "", email: "", phone: "", password: "" },
+  });
+
+  const loginMutation = useMutation({
+    mutationFn: async (values: { email: string; password: string }) => {
+      const { error, data } = await supabase.auth.signInWithPassword({ email: values.email, password: values.password });
+      if (error) throw error;
+      // Check if user is approved
+      const { data: profile } = await supabase.from("profiles").select("approved").eq("id", data.user.id).maybeSingle();
+      if (profile && !profile.approved) {
+        await supabase.auth.signOut();
+        throw new Error("Your account is pending admin approval.");
+      }
+    },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Sign in failed"),
+  });
+
+  const signUpMutation = useMutation({
+    mutationFn: async (values: { fullName: string; email: string; phone: string; password: string }) => {
+      const { error } = await supabase.auth.signUp({
+        email: values.email,
+        password: values.password,
+        options: {
+          data: { full_name: values.fullName, phone: values.phone },
+        },
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Account created! Please wait for admin approval before signing in.");
+      setMode("login");
+      signUpForm.reset();
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Sign up failed"),
+  });
+
+  const appleMutation = useMutation({
+    mutationFn: async () => {
+      const result = await lovable.auth.signInWithOAuth("apple", {
+        redirect_uri: window.location.origin,
+      });
+      if (result.error) throw result.error;
+      if (result.redirected) return;
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Apple sign in failed"),
   });
 
   if (auth.session) {
@@ -118,43 +164,66 @@ function LoginPage() {
       <Card className="w-full max-w-md">
         <CardHeader>
           <CardTitle>Warehouse Wizard</CardTitle>
-          <CardDescription>Internal warehouse management for receiving, putaway, picking, and transfers.</CardDescription>
+          <CardDescription>
+            {mode === "login"
+              ? "Sign in to access warehouse management."
+              : "Create an account. Admin approval is required before you can sign in."}
+          </CardDescription>
         </CardHeader>
-        <CardContent>
-          <Form {...form}>
-            <form className="flex flex-col gap-4" onSubmit={form.handleSubmit((values) => mutation.mutate(values))}>
-              <FormField
-                control={form.control}
-                name="email"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Email</FormLabel>
-                    <FormControl>
-                      <Input {...field} type="email" />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="password"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Password</FormLabel>
-                    <FormControl>
-                      <Input {...field} type="password" />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <Button type="submit" disabled={mutation.isPending}>
-                {mutation.isPending ? <Loader2 className="animate-spin" /> : null}
-                Sign in
-              </Button>
-            </form>
-          </Form>
+        <CardContent className="flex flex-col gap-4">
+          {mode === "login" ? (
+            <Form {...loginForm}>
+              <form className="flex flex-col gap-4" onSubmit={loginForm.handleSubmit((v) => loginMutation.mutate(v))}>
+                <FormField control={loginForm.control} name="email" render={({ field }) => (
+                  <FormItem><FormLabel>Email</FormLabel><FormControl><Input {...field} type="email" /></FormControl><FormMessage /></FormItem>
+                )} />
+                <FormField control={loginForm.control} name="password" render={({ field }) => (
+                  <FormItem><FormLabel>Password</FormLabel><FormControl><Input {...field} type="password" /></FormControl><FormMessage /></FormItem>
+                )} />
+                <Button type="submit" disabled={loginMutation.isPending}>
+                  {loginMutation.isPending ? <Loader2 className="animate-spin mr-2 h-4 w-4" /> : null}
+                  Sign in
+                </Button>
+              </form>
+            </Form>
+          ) : (
+            <Form {...signUpForm}>
+              <form className="flex flex-col gap-4" onSubmit={signUpForm.handleSubmit((v) => signUpMutation.mutate(v))}>
+                <FormField control={signUpForm.control} name="fullName" render={({ field }) => (
+                  <FormItem><FormLabel>Full Name</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
+                )} />
+                <FormField control={signUpForm.control} name="email" render={({ field }) => (
+                  <FormItem><FormLabel>Email</FormLabel><FormControl><Input {...field} type="email" /></FormControl><FormMessage /></FormItem>
+                )} />
+                <FormField control={signUpForm.control} name="phone" render={({ field }) => (
+                  <FormItem><FormLabel>Phone Number</FormLabel><FormControl><Input {...field} type="tel" /></FormControl><FormMessage /></FormItem>
+                )} />
+                <FormField control={signUpForm.control} name="password" render={({ field }) => (
+                  <FormItem><FormLabel>Password</FormLabel><FormControl><Input {...field} type="password" /></FormControl><FormMessage /></FormItem>
+                )} />
+                <Button type="submit" disabled={signUpMutation.isPending}>
+                  {signUpMutation.isPending ? <Loader2 className="animate-spin mr-2 h-4 w-4" /> : null}
+                  Create Account
+                </Button>
+              </form>
+            </Form>
+          )}
+
+          <div className="relative my-2">
+            <div className="absolute inset-0 flex items-center"><span className="w-full border-t border-border" /></div>
+            <div className="relative flex justify-center text-xs uppercase"><span className="bg-card px-2 text-muted-foreground">or</span></div>
+          </div>
+
+          <Button variant="outline" className="w-full" onClick={() => appleMutation.mutate()} disabled={appleMutation.isPending}>
+            {appleMutation.isPending ? <Loader2 className="animate-spin mr-2 h-4 w-4" /> : (
+              <svg className="mr-2 h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M17.05 20.28c-.98.95-2.05.88-3.08.4-1.09-.5-2.08-.48-3.24 0-1.44.62-2.2.44-3.06-.4C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z" /></svg>
+            )}
+            Sign in with Apple
+          </Button>
+
+          <Button variant="link" className="text-sm" onClick={() => setMode(mode === "login" ? "signup" : "login")}>
+            {mode === "login" ? "Don't have an account? Sign up" : "Already have an account? Sign in"}
+          </Button>
         </CardContent>
       </Card>
     </div>
