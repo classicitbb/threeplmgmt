@@ -500,8 +500,8 @@ function TextField({
   label,
   type = "text",
 }: {
-  form: UseFormReturn<TFieldValues>;
-  name: Path<TFieldValues>;
+  form: UseFormReturn<FieldValues>;
+  name: Path<FieldValues>;
   label: string;
   type?: string;
 }) {
