@@ -935,7 +935,7 @@ export function TransfersPage() {
         </CardContent>
       </Card>
       <div className="grid gap-4">
-        {transfers.map((transfer) => (
+        {transfers.map((transfer: any) => (
           <Card key={transfer.id}>
             <CardHeader>
               <CardTitle className="flex items-center justify-between gap-4">
