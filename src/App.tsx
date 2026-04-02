@@ -61,7 +61,7 @@ type InventoryDetailData = {
 };
 
 type PickExecutionData = {
-  pickTasks: Tables<"pick_tasks">[];
+  pickTasks: any[];
 };
 
 function RequireAuth({ allowedRoles }: { allowedRoles?: Array<"admin" | "warehouse_manager" | "inventory_clerk" | "warehouse_operator" | "dispatch_driver"> }) {
