@@ -1178,7 +1178,7 @@ export async function getReportData() {
   };
 }
 
-export async function importCsvToResource(resource: ResourceDefinition<keyof Database["public"]["Tables"]>, file: File) {
+export async function importCsvToResource(resource: ResourceDefinition, file: File) {
   const text = await file.text();
   const rows = parseCsv(text);
   const errors: Array<Record<string, string | number>> = [];
