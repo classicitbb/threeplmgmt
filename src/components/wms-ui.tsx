@@ -1141,7 +1141,7 @@ export function ReportsPage() {
             <CardTitle>Occupancy view</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-2">
-            {(data?.occupancy ?? []).slice(0, 12).map((location) => (
+            {(data?.occupancy ?? []).slice(0, 12).map((location: any) => (
               <div key={location.location_id} className="flex items-center justify-between rounded-lg border border-border px-3 py-2">
                 <div>
                   <p>{location.location_code}</p>
