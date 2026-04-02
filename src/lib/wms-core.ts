@@ -545,7 +545,7 @@ export async function createReceiptFlow(input: z.infer<typeof receivingSchema>) 
     expiry_date: lot.expiry_date,
   });
 
-  const suggestions = await supabase.rpc("directed_putaway_candidates", { in_pallet_id: pallet.id });
+  const suggestions = await (supabase.rpc as any)("directed_putaway_candidates", { in_pallet_id: pallet.id });
   if (suggestions.error) throw suggestions.error;
   const topSuggestion = suggestions.data?.[0] ?? null;
 
