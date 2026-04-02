@@ -888,7 +888,7 @@ export async function confirmPickTask(taskId: string, scannedLocation: string, s
       .eq("id", balance.id),
   ]);
 
-  await supabase.rpc("log_audit_event", {
+  await (supabase.rpc as any)("log_audit_event", {
     in_event_type: "pick",
     in_entity_table: "pick_tasks",
     in_entity_id: taskId,
@@ -898,7 +898,7 @@ export async function confirmPickTask(taskId: string, scannedLocation: string, s
     in_metadata: {
       confirmed_quantity: confirmedQuantity,
       short_reason: shortReason ?? null,
-    } satisfies Json,
+    } as any,
   });
 }
 
