@@ -18,6 +18,9 @@ export default defineConfig(({ mode }) => ({
     VitePWA({
       registerType: "autoUpdate",
       includeAssets: ["favicon.ico", "robots.txt", "icon.svg", "icon-maskable.svg"],
+      workbox: {
+        navigateFallbackDenylist: [/^\/~oauth/],
+      },
       manifest: {
         name: "Warehouse Wizard WMS",
         short_name: "WarehouseWizard",
