@@ -1017,7 +1017,7 @@ export function CycleCountsPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="grid gap-3">
-              {((count.cycle_count_lines as Tables<"cycle_count_lines">[] | undefined) ?? []).map((line) => (
+              {((count.cycle_count_lines as any[] | undefined) ?? []).map((line: any) => (
                 <div key={line.id} className="flex items-center gap-2">
                   <span className="min-w-0 flex-1 text-sm text-muted-foreground">Expected {formatNumber(line.expected_quantity)}</span>
                   <Input
