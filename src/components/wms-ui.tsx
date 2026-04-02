@@ -606,7 +606,7 @@ export function PutawayTasksPage() {
                     <Badge>{task.status}</Badge>
                   </CardTitle>
                   <CardDescription>
-                    Suggested location: {(task.locations as Tables<"locations"> | null)?.code ?? "Request alternative"}
+                    Suggested location: {(task.locations as any)?.code ?? "Request alternative"}
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="grid gap-3 md:grid-cols-[1fr_1fr_auto]">
