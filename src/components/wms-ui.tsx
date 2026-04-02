@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useForm } from "react-hook-form";
+import { useForm, type FieldValues, type Path, type UseFormReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Camera, Download, Loader2, LogOut, Menu, Plus, Printer, Search, Upload } from "lucide-react";
 import { toast } from "sonner";
@@ -10,7 +10,6 @@ import { z } from "zod";
 import { useAuth } from "@/hooks/use-auth";
 import {
   NAVIGATION,
-  RESOURCE_DEFINITIONS,
   ROLE_LABELS,
   type AppRoute,
   type FieldDefinition,
@@ -58,7 +57,6 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -502,8 +500,8 @@ function TextField({
   label,
   type = "text",
 }: {
-  form: ReturnType<typeof useForm<Record<string, unknown>>>;
-  name: string;
+  form: UseFormReturn<TFieldValues>;
+  name: Path<TFieldValues>;
   label: string;
   type?: string;
 }) {
@@ -515,7 +513,7 @@ function TextField({
         <FormItem>
           <FormLabel>{label}</FormLabel>
           <FormControl>
-            <Input {...field} type={type} value={field.value ?? ""} />
+            <Input {...field} type={type} value={(field.value as string | number | readonly string[] | undefined) ?? ""} />
           </FormControl>
           <FormMessage />
         </FormItem>
@@ -530,8 +528,8 @@ function SelectField({
   label,
   options,
 }: {
-  form: ReturnType<typeof useForm<Record<string, unknown>>>;
-  name: string;
+  form: UseFormReturn<TFieldValues>;
+  name: Path<TFieldValues>;
   label: string;
   options: Array<{ label: string; value: string }>;
 }) {
@@ -542,7 +540,7 @@ function SelectField({
       render={({ field }) => (
         <FormItem>
           <FormLabel>{label}</FormLabel>
-          <Select onValueChange={field.onChange} defaultValue={field.value}>
+          <Select onValueChange={field.onChange} value={(field.value as string | undefined) ?? undefined}>
             <FormControl>
               <SelectTrigger>
                 <SelectValue placeholder={`Select ${label.toLowerCase()}`} />
