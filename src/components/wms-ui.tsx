@@ -528,8 +528,8 @@ function SelectField({
   label,
   options,
 }: {
-  form: UseFormReturn<FieldValues>;
-  name: Path<FieldValues>;
+  form: UseFormReturn<any>;
+  name: string;
   label: string;
   options: Array<{ label: string; value: string }>;
 }) {
