@@ -115,7 +115,7 @@ const taskStatusOptions: FieldDefinition["options"] = [
   { label: "Exception", value: "exception" },
 ];
 
-export const RESOURCE_DEFINITIONS: Record<string, ResourceDefinition<keyof Database["public"]["Tables"]>> = {
+export const RESOURCE_DEFINITIONS: Record<string, ResourceDefinition> = {
   warehouses: {
     table: "warehouses",
     title: "Warehouses",
