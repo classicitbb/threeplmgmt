@@ -1273,7 +1273,9 @@ export function SettingsPage() {
                     ? "Operational control across all warehouse functions"
                     : role === "inventory_clerk"
                       ? "Receiving, counts, search, and routine moves"
-                      : "Assigned task execution and limited search"}
+                      : role === "dispatch_driver"
+                        ? "Transfer sign-off and inter-warehouse handoff visibility"
+                        : "Assigned task execution and limited search"}
               </p>
             </div>
           ))}

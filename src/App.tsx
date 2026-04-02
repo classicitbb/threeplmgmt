@@ -37,7 +37,7 @@ import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
 
-function RequireAuth({ allowedRoles }: { allowedRoles?: Array<"admin" | "warehouse_manager" | "inventory_clerk" | "warehouse_operator"> }) {
+function RequireAuth({ allowedRoles }: { allowedRoles?: Array<"admin" | "warehouse_manager" | "inventory_clerk" | "warehouse_operator" | "dispatch_driver"> }) {
   const auth = useAuth();
 
   if (auth.loading) {

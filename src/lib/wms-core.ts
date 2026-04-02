@@ -70,6 +70,7 @@ export const ROLE_LABELS: Record<RoleCode, string> = {
   warehouse_manager: "Warehouse Manager",
   inventory_clerk: "Inventory Clerk",
   warehouse_operator: "Warehouse Operator",
+  dispatch_driver: "Dispatch Driver",
 };
 
 export const NAVIGATION: Array<{ label: string; to: AppRoute; roles: RoleCode[] }> = [

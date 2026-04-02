@@ -16,7 +16,8 @@ type RoleCode =
   | "admin"
   | "warehouse_manager"
   | "inventory_clerk"
-  | "warehouse_operator";
+  | "warehouse_operator"
+  | "dispatch_driver";
 
 type AuthContextValue = {
   loading: boolean;

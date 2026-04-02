@@ -1313,7 +1313,7 @@ export type Database = {
       };
     };
     Enums: {
-      app_role_code: "admin" | "warehouse_manager" | "inventory_clerk" | "warehouse_operator";
+      app_role_code: "admin" | "warehouse_manager" | "inventory_clerk" | "warehouse_operator" | "dispatch_driver";
       temperature_class: "ambient" | "cool" | "frozen";
       location_type: "rack" | "staging" | "quarantine" | "dispatch" | "receiving" | "floor" | "returns";
       location_status: "active" | "blocked" | "maintenance" | "disabled";
