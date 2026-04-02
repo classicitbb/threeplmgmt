@@ -1091,7 +1091,7 @@ export async function changePalletStatus(input: z.infer<typeof statusChangeSchem
     }),
   ]);
 
-  await supabase.rpc("log_audit_event", {
+  await (supabase.rpc as any)("log_audit_event", {
     in_event_type: "status_change",
     in_entity_table: "pallets",
     in_entity_id: payload.pallet_id,
@@ -1101,7 +1101,7 @@ export async function changePalletStatus(input: z.infer<typeof statusChangeSchem
       old_status: balance.status,
       new_status: payload.new_status,
       reason: payload.reason,
-    } satisfies Json,
+    } as any,
   });
 }
 
