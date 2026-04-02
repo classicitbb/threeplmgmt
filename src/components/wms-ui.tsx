@@ -1090,7 +1090,7 @@ export function StatusPage() {
           <CardTitle>Controlled stock</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-3">
-          {data.map((row) => (
+          {data.map((row: any) => (
             <div key={row.inventory_balance_id} className="flex items-center justify-between rounded-lg border border-border p-3">
               <div>
                 <p className="font-medium">{row.sku}</p>
