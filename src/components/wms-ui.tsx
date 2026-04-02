@@ -1,9 +1,9 @@
 import { useMemo, useState } from "react";
-import { Link, NavLink, useLocation } from "react-router-dom";
+import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm, type UseFormReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Camera, Download, Loader2, LogOut, Menu, Plus, Printer, Search, Upload } from "lucide-react";
+import { Camera, Download, Eye, EyeOff, Loader2, LogOut, Menu, Plus, Printer, RotateCcw, Search, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { z } from "zod";
 
@@ -22,7 +22,7 @@ import {
   createTransferFlow,
   dispatchTransfer,
   cycleCountSchema,
-  deleteRecord,
+  resetWmsData,
   downloadCsv,
   fetchOptions,
   formatDate,
@@ -40,13 +40,17 @@ import {
   receivingSchema,
   receiveTransfer,
   searchInventory,
+  setProfileActive,
   statusChangeSchema,
+  setResourceVisibility,
+  setUserRoleVisibility,
   submitCycleCountLine,
   transferSchema,
   upsertRecord,
 } from "@/lib/wms-core";
 
 import { cn } from "@/lib/utils";
+import { HelpSidebar } from "@/components/help-sidebar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -239,19 +243,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Internal Operations</p>
               <p className="text-sm text-muted-foreground">All critical actions are audit-backed and role-gated.</p>
             </div>
-            <Sheet>
-              <SheetTrigger asChild>
-                <Button className="lg:hidden" size="icon" variant="outline">
-                  <Menu />
-                </Button>
-              </SheetTrigger>
-              <SheetContent side="left" className="p-0">
-                <SheetHeader className="sr-only">
-                  <SheetTitle>Navigation</SheetTitle>
-                </SheetHeader>
-                {navigation}
-              </SheetContent>
-            </Sheet>
+            <div className="flex items-center gap-2">
+              <HelpSidebar pathname={pathname} />
+              <Sheet>
+                <SheetTrigger asChild>
+                  <Button className="lg:hidden" size="icon" variant="outline">
+                    <Menu />
+                  </Button>
+                </SheetTrigger>
+                <SheetContent side="left" className="p-0">
+                  <SheetHeader className="sr-only">
+                    <SheetTitle>Navigation</SheetTitle>
+                  </SheetHeader>
+                  {navigation}
+                </SheetContent>
+              </Sheet>
+            </div>
           </header>
           <div className="flex-1 min-w-0 px-4 py-4 sm:px-5 lg:px-6">{children}</div>
         </main>
@@ -265,9 +272,13 @@ export function ResourcePage({
 }: {
   resource: ResourceDefinition;
 }) {
+  const [includeHidden, setIncludeHidden] = useState(false);
   const { data = [], isLoading } = useQuery({
-    queryKey: [resource.table],
-    queryFn: () => listRecords(resource.table, resource.select ?? "*", resource.orderBy),
+    queryKey: [resource.table, includeHidden],
+    queryFn: () => listRecords(resource.table, resource.select ?? "*", resource.orderBy, {
+      includeHidden,
+      archiveField: resource.archiveField,
+    }),
   });
   const queryClient = useQueryClient();
 
@@ -285,6 +296,12 @@ export function ResourcePage({
               Export CSV
             </Button>
           ) : null}
+          {resource.supportsHide ? (
+            <Button variant="outline" onClick={() => setIncludeHidden((current) => !current)}>
+              {includeHidden ? <EyeOff data-icon="inline-start" /> : <Eye data-icon="inline-start" />}
+              {includeHidden ? "Hide archived" : "Show archived"}
+            </Button>
+          ) : null}
           {resource.importable ? <ImportButton resource={resource} /> : null}
           <ResourceFormDialog resource={resource} />
         </div>
@@ -299,19 +316,19 @@ export function ResourcePage({
                   {resource.fields.map((field) => (
                     <TableHead key={field.name}>{field.label}</TableHead>
                   ))}
-                  <TableHead className="w-24">Delete</TableHead>
+                  {resource.supportsHide ? <TableHead className="w-32">Visibility</TableHead> : null}
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {isLoading ? (
                   <TableRow>
-                    <TableCell className="h-24 text-center text-muted-foreground" colSpan={resource.fields.length + 1}>
+                    <TableCell className="h-24 text-center text-muted-foreground" colSpan={resource.fields.length + (resource.supportsHide ? 1 : 0)}>
                       Loading {resource.title.toLowerCase()}...
                     </TableCell>
                   </TableRow>
                 ) : data.length === 0 ? (
                   <TableRow>
-                    <TableCell className="h-24 text-center text-muted-foreground" colSpan={resource.fields.length + 1}>
+                    <TableCell className="h-24 text-center text-muted-foreground" colSpan={resource.fields.length + (resource.supportsHide ? 1 : 0)}>
                       No {resource.title.toLowerCase()} found.
                     </TableCell>
                   </TableRow>
@@ -321,21 +338,27 @@ export function ResourcePage({
                       {resource.fields.map((field) => (
                         <TableCell key={field.name}>{String((row as Record<string, unknown>)[field.name] ?? "—")}</TableCell>
                       ))}
-                      <TableCell>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={async () => {
-                            const id = (row as { id?: string }).id;
-                            if (!id) return;
-                            await deleteRecord(resource.table, id);
-                            toast.success(`${resource.singular} deleted`);
-                            queryClient.invalidateQueries({ queryKey: [resource.table] });
-                          }}
-                        >
-                          Delete
-                        </Button>
-                      </TableCell>
+                      {resource.supportsHide ? (
+                        <TableCell>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={async () => {
+                              const record = row as Record<string, unknown> & { id?: string };
+                              const id = record.id;
+                              if (!id || !resource.archiveField) return;
+                              const hidden = resource.archiveField === "active" ? record.active !== false : record.is_hidden === true;
+                              await setResourceVisibility(resource.table, id, resource.archiveField, !hidden, !hidden ? "Hidden from UI" : undefined);
+                              toast.success(hidden ? `${resource.singular} restored` : `${resource.singular} hidden`);
+                              queryClient.invalidateQueries({ queryKey: [resource.table] });
+                            }}
+                          >
+                            {((resource.archiveField === "active" ? (row as Record<string, unknown>).active !== false : (row as Record<string, unknown>).is_hidden === true))
+                              ? "Restore"
+                              : "Hide"}
+                          </Button>
+                        </TableCell>
+                      ) : null}
                     </TableRow>
                   ))
                 )}
@@ -1194,7 +1217,8 @@ export function ReportsPage() {
 
 export function UsersRolesPage() {
   const queryClient = useQueryClient();
-  const { data: options } = useQuery({ queryKey: ["options"], queryFn: fetchOptions });
+  const [includeHidden, setIncludeHidden] = useState(false);
+  const { data: options } = useQuery({ queryKey: ["options", includeHidden], queryFn: () => fetchOptions(includeHidden) });
   const [selectedProfile, setSelectedProfile] = useState("");
   const [selectedRole, setSelectedRole] = useState("");
 
@@ -1202,6 +1226,22 @@ export function UsersRolesPage() {
     mutationFn: async () => upsertRecord("user_roles", { user_id: selectedProfile, role_id: selectedRole }),
     onSuccess: async () => {
       toast.success("Role assigned");
+      await queryClient.invalidateQueries({ queryKey: ["options"] });
+    },
+  });
+
+  const visibilityMutation = useMutation({
+    mutationFn: async ({ userRoleId, hidden }: { userRoleId: string; hidden: boolean }) => setUserRoleVisibility(userRoleId, hidden, hidden ? "Access hidden from user management" : undefined),
+    onSuccess: async (_, variables) => {
+      toast.success(variables.hidden ? "Role assignment hidden" : "Role assignment restored");
+      await queryClient.invalidateQueries({ queryKey: ["options"] });
+    },
+  });
+
+  const profileMutation = useMutation({
+    mutationFn: async ({ profileId, active }: { profileId: string; active: boolean }) => setProfileActive(profileId, active),
+    onSuccess: async (_, variables) => {
+      toast.success(variables.active ? "Profile enabled" : "Profile disabled");
       await queryClient.invalidateQueries({ queryKey: ["options"] });
     },
   });
@@ -1233,6 +1273,9 @@ export function UsersRolesPage() {
           <Button disabled={!selectedProfile || !selectedRole} onClick={() => assignMutation.mutate()}>
             Assign role
           </Button>
+          <Button variant="outline" onClick={() => setIncludeHidden((current) => !current)}>
+            {includeHidden ? "Hide archived access" : "Show archived access"}
+          </Button>
         </CardContent>
       </Card>
       <Card>
@@ -1241,12 +1284,35 @@ export function UsersRolesPage() {
         </CardHeader>
         <CardContent className="grid gap-3">
           {(options?.userRoles ?? []).map((userRole: any) => (
-            <div key={userRole.id} className="flex items-center justify-between rounded-lg border border-border px-3 py-2">
-              <div>
+            <div key={userRole.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border px-3 py-3">
+              <div className="min-w-0">
                 <p className="font-medium">{options?.profiles.find((profile) => profile.id === userRole.user_id)?.full_name ?? userRole.user_id}</p>
                 <p className="text-xs text-muted-foreground">{options?.profiles.find((profile) => profile.id === userRole.user_id)?.email ?? ""}</p>
               </div>
-              <Badge>{(userRole.roles as { name?: string; code?: string } | null)?.name ?? (userRole.roles as { code?: string } | null)?.code ?? "Role"}</Badge>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant={userRole.is_hidden ? "secondary" : "default"}>
+                  {(userRole.roles as { name?: string; code?: string } | null)?.name ?? (userRole.roles as { code?: string } | null)?.code ?? "Role"}
+                </Badge>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => visibilityMutation.mutate({ userRoleId: userRole.id, hidden: !userRole.is_hidden })}
+                >
+                  {userRole.is_hidden ? "Restore access" : "Hide access"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() =>
+                    profileMutation.mutate({
+                      profileId: userRole.user_id,
+                      active: !(options?.profiles.find((profile) => profile.id === userRole.user_id)?.active ?? true),
+                    })
+                  }
+                >
+                  {(options?.profiles.find((profile) => profile.id === userRole.user_id)?.active ?? true) ? "Disable profile" : "Enable profile"}
+                </Button>
+              </div>
             </div>
           ))}
         </CardContent>
@@ -1257,20 +1323,40 @@ export function UsersRolesPage() {
 
 export function SettingsPage() {
   const { roles } = useAuth();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+
+  const resetMutation = useMutation({
+    mutationFn: resetWmsData,
+    onSuccess: async () => {
+      toast.success("Environment reset complete. Launching the warehouse setup wizard.");
+      await queryClient.invalidateQueries();
+      navigate("/setup-wizard");
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Reset failed"),
+  });
 
   return (
     <div className="grid gap-6 xl:grid-cols-2">
       <Card>
         <CardHeader>
           <CardTitle>Environment & Setup</CardTitle>
-          <CardDescription>Operational settings live in warehouse, zone, location, product, and role records.</CardDescription>
+          <CardDescription>Use the setup wizard to build the warehouse structure and seed operational starter data.</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-3 text-sm text-muted-foreground">
-          <p>1. Run the Supabase migration and seed.</p>
-          <p>2. Create auth users in Supabase Auth or let SSO users sign in once.</p>
-          <p>3. Assign roles on the Users page.</p>
-          <p>4. Load warehouse master data via the setup pages or CSV import.</p>
-          <p>5. Operators can then receive, put away, pick, transfer, and count from live data.</p>
+          <p>1. Keep users and role assignments in place.</p>
+          <p>2. Launch the warehouse setup wizard to define warehouses, zones, and location rules.</p>
+          <p>3. Seed starter operational data so receiving, putaway, picking, transfers, and counts can be tested immediately.</p>
+          <div className="flex flex-wrap gap-2 pt-2">
+            <Button asChild>
+              <Link to="/setup-wizard">Open warehouse setup wizard</Link>
+            </Button>
+            <Button variant="destructive" onClick={() => resetMutation.mutate()} disabled={resetMutation.isPending || !roles.includes("admin")}>
+              {resetMutation.isPending ? <Loader2 className="animate-spin" /> : <RotateCcw data-icon="inline-start" />}
+              Reset all
+            </Button>
+          </div>
+          {!roles.includes("admin") ? <p>Only admins can run Reset All.</p> : null}
         </CardContent>
       </Card>
       <Card>

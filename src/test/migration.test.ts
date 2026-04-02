@@ -6,6 +6,10 @@ const migration = readFileSync(
   path.resolve(process.cwd(), "supabase/migrations/20260402093000_init_wms.sql"),
   "utf8",
 );
+const helpMigration = readFileSync(
+  path.resolve(process.cwd(), "supabase/migrations/20260402193000_help_archive_reset_setup.sql"),
+  "utf8",
+);
 
 describe("init_wms migration", () => {
   it("creates the core warehouse tables", () => {
@@ -29,5 +33,13 @@ describe("init_wms migration", () => {
     expect(migration).toContain("create or replace view public.inventory_search_view");
     expect(migration).toContain("create or replace view public.location_occupancy_view");
     expect(migration).toContain("insert into storage.buckets");
+  });
+});
+
+describe("help/archive/setup migration", () => {
+  it("adds archive fields and admin rpc entry points", () => {
+    expect(helpMigration).toContain("add column if not exists is_hidden boolean not null default false");
+    expect(helpMigration).toContain("create or replace function public.reset_wms_data()");
+    expect(helpMigration).toContain("create or replace function public.run_warehouse_setup");
   });
 });

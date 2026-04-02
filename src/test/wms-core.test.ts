@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { parseCsv, validatePutawayAssignment } from "@/lib/wms-core";
+import { createDefaultWarehouseSetupPayload, parseCsv, validatePutawayAssignment } from "@/lib/wms-core";
 
 describe("parseCsv", () => {
   it("maps header names to row values", () => {
@@ -43,5 +43,16 @@ describe("validatePutawayAssignment", () => {
     });
 
     expect(result.valid).toBe(true);
+  });
+});
+
+describe("createDefaultWarehouseSetupPayload", () => {
+  it("provides a decision-complete starter payload for the wizard", () => {
+    const payload = createDefaultWarehouseSetupPayload();
+
+    expect(payload.warehouses.length).toBeGreaterThan(0);
+    expect(payload.zones.length).toBeGreaterThan(0);
+    expect(payload.locationTemplates.length).toBeGreaterThan(0);
+    expect(payload.locationTemplates.every((template) => template.warehouseCode && template.zoneCode)).toBe(true);
   });
 });

@@ -37,6 +37,8 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import NotFound from "./pages/NotFound";
+import HelpCenterPage from "./pages/HelpCenter";
+import SetupWizardPage from "./pages/SetupWizardPage";
 
 const queryClient = new QueryClient();
 
@@ -473,6 +475,8 @@ function ResourceRoutes() {
           <Route path="/reports" element={<ReportsPage />} />
           <Route path="/users" element={<UsersRolesPage />} />
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/help" element={<HelpCenterPage />} />
+          <Route path="/setup-wizard" element={<SetupWizardPage />} />
         </Route>
         <Route path="/inventory/:balanceId" element={<InventoryDetailPage />} />
         <Route path="/pick-lists/:pickListId" element={<PickExecutionPage />} />

@@ -39,9 +39,12 @@ export type AppRoute =
   | "/status"
   | "/reports"
   | "/users"
-  | "/settings";
+  | "/settings"
+  | "/help"
+  | "/setup-wizard";
 
 type FieldType = "text" | "textarea" | "number" | "select" | "boolean" | "date";
+type ArchiveField = "active" | "is_hidden";
 
 export type FieldDefinition = {
   name: string;
@@ -63,6 +66,48 @@ export type ResourceDefinition<T extends string = string> = {
   roles: RoleCode[];
   importable?: boolean;
   exportable?: boolean;
+  helpId: string;
+  supportsHide?: boolean;
+  archiveField?: ArchiveField;
+};
+
+export type WarehouseSetupWarehouse = {
+  code: string;
+  name: string;
+  city: string;
+  country: string;
+  hasCoolZone: boolean;
+};
+
+export type WarehouseSetupZone = {
+  warehouseCode: string;
+  code: string;
+  name: string;
+  temperatureClass: TemperatureClass;
+  isStaging: boolean;
+  isDispatch: boolean;
+  isQuarantine: boolean;
+  sortOrder: number;
+};
+
+export type WarehouseLocationTemplate = {
+  warehouseCode: string;
+  zoneCode: string;
+  aisleCount: number;
+  baysPerAisle: number;
+  levels: number;
+  maxPallets: number;
+  locationType: string;
+  temperatureClass: TemperatureClass;
+  mixedSkuAllowed: boolean;
+  mixedLotAllowed: boolean;
+  status: string;
+};
+
+export type WarehouseSetupPayload = {
+  warehouses: WarehouseSetupWarehouse[];
+  zones: WarehouseSetupZone[];
+  locationTemplates: WarehouseLocationTemplate[];
 };
 
 export type DashboardMetrics = {
@@ -101,6 +146,7 @@ export const NAVIGATION: Array<{ label: string; to: AppRoute; roles: RoleCode[] 
   { label: "Reports", to: "/reports", roles: ["admin", "warehouse_manager", "inventory_clerk"] },
   { label: "Users", to: "/users", roles: ["admin"] },
   { label: "Settings", to: "/settings", roles: ["admin", "warehouse_manager"] },
+  { label: "Help", to: "/help", roles: ["admin", "warehouse_manager", "inventory_clerk", "warehouse_operator", "dispatch_driver"] },
 ];
 
 const tempOptions: FieldDefinition["options"] = [
@@ -125,10 +171,13 @@ export const RESOURCE_DEFINITIONS: Record<string, ResourceDefinition> = {
     title: "Warehouses",
     description: "Maintain the physical warehouse network and warehouse-level flags.",
     singular: "warehouse",
+    helpId: "warehouses",
     roles: ["admin", "warehouse_manager"],
     orderBy: { column: "code" },
     importable: false,
     exportable: true,
+    supportsHide: true,
+    archiveField: "active",
     fields: [
       { name: "code", label: "Code", type: "text", required: true },
       { name: "name", label: "Name", type: "text", required: true },
@@ -143,10 +192,13 @@ export const RESOURCE_DEFINITIONS: Record<string, ResourceDefinition> = {
     title: "Zones",
     description: "Ambient, cool, staging, and quarantine zones inside each warehouse.",
     singular: "zone",
+    helpId: "zones",
     roles: ["admin", "warehouse_manager"],
     orderBy: { column: "code" },
     importable: false,
     exportable: true,
+    supportsHide: true,
+    archiveField: "is_hidden",
     fields: [
       { name: "warehouse_id", label: "Warehouse ID", type: "text", required: true },
       { name: "code", label: "Code", type: "text", required: true },
@@ -162,10 +214,13 @@ export const RESOURCE_DEFINITIONS: Record<string, ResourceDefinition> = {
     title: "Locations",
     description: "Rack, staging, and quarantine locations with capacity and sequencing.",
     singular: "location",
+    helpId: "locations",
     roles: ["admin", "warehouse_manager"],
     orderBy: { column: "code" },
     importable: true,
     exportable: true,
+    supportsHide: true,
+    archiveField: "is_hidden",
     fields: [
       { name: "warehouse_id", label: "Warehouse ID", type: "text", required: true },
       { name: "zone_id", label: "Zone ID", type: "text", required: true },
@@ -202,10 +257,13 @@ export const RESOURCE_DEFINITIONS: Record<string, ResourceDefinition> = {
     title: "Products",
     description: "Manage owner-specific SKUs, barcodes, dimensions, and rotation policy.",
     singular: "product",
+    helpId: "products",
     roles: ["admin", "warehouse_manager", "inventory_clerk"],
     orderBy: { column: "sku" },
     importable: true,
     exportable: true,
+    supportsHide: true,
+    archiveField: "active",
     fields: [
       { name: "sku", label: "SKU", type: "text", required: true },
       { name: "barcode", label: "Barcode", type: "text" },
@@ -229,10 +287,13 @@ export const RESOURCE_DEFINITIONS: Record<string, ResourceDefinition> = {
     title: "Packaging Profiles",
     description: "Unit, carton, pallet, and custom packed forms for each product.",
     singular: "packaging profile",
+    helpId: "packaging-profiles",
     roles: ["admin", "warehouse_manager", "inventory_clerk"],
     orderBy: { column: "profile_name" },
     importable: true,
     exportable: true,
+    supportsHide: true,
+    archiveField: "is_hidden",
     fields: [
       { name: "product_id", label: "Product ID", type: "text", required: true },
       { name: "profile_name", label: "Profile name", type: "text", required: true },
@@ -386,16 +447,35 @@ export function validatePutawayAssignment(input: {
   return { valid: true, reason: "Assignment valid" };
 }
 
+function applyArchiveFilter(
+  query: any,
+  archiveField?: ArchiveField,
+  includeHidden = false,
+) {
+  if (includeHidden || !archiveField) {
+    return query;
+  }
+
+  if (archiveField === "active") {
+    return query.eq("active", true);
+  }
+
+  return query.eq("is_hidden", false);
+}
+
 export async function listRecords(
   table: string,
   select = "*",
   orderBy?: { column: string; ascending?: boolean },
+  options?: { includeHidden?: boolean; archiveField?: ArchiveField },
 ) {
   let query = (supabase.from as any)(table).select(select);
 
   if (orderBy) {
     query = query.order(orderBy.column, { ascending: orderBy.ascending ?? true });
   }
+
+  query = applyArchiveFilter(query, options?.archiveField, options?.includeHidden);
 
   const { data, error } = await query;
   if (error) throw error;
@@ -416,24 +496,145 @@ export async function deleteRecord(table: string, id: string) {
   if (error) throw error;
 }
 
-export async function fetchOptions() {
+export async function setResourceVisibility(
+  table: string,
+  id: string,
+  archiveField: ArchiveField,
+  hidden: boolean,
+  reason?: string,
+) {
+  const payload =
+    archiveField === "active"
+      ? { active: !hidden }
+      : {
+          is_hidden: hidden,
+          hidden_at: hidden ? new Date().toISOString() : null,
+          hidden_reason: hidden ? reason ?? null : null,
+        };
+
+  const { error } = await (supabase.from as any)(table).update(payload).eq("id", id);
+  if (error) throw error;
+}
+
+export async function setProfileActive(profileId: string, active: boolean) {
+  const { error } = await (supabase.from as any)("profiles").update({ active }).eq("id", profileId);
+  if (error) throw error;
+}
+
+export async function setUserRoleVisibility(userRoleId: string, hidden: boolean, reason?: string) {
+  const { error } = await (supabase.from as any)("user_roles")
+    .update({
+      is_hidden: hidden,
+      hidden_at: hidden ? new Date().toISOString() : null,
+      hidden_reason: hidden ? reason ?? null : null,
+    })
+    .eq("id", userRoleId);
+  if (error) throw error;
+}
+
+export async function fetchOptions(includeHidden = false) {
   const [warehouses, zones, locations, clients, products, packagingProfiles, pallets, profiles, roles, userRoles] = await Promise.all([
-    listRecords("warehouses"),
-    listRecords("zones"),
-    listRecords("locations"),
+    listRecords("warehouses", "*", undefined, { includeHidden, archiveField: "active" }),
+    listRecords("zones", "*", undefined, { includeHidden, archiveField: "is_hidden" }),
+    listRecords("locations", "*", undefined, { includeHidden, archiveField: "is_hidden" }),
     listRecords("clients"),
-    listRecords("products"),
-    listRecords("product_packaging_profiles"),
+    listRecords("products", "*", undefined, { includeHidden, archiveField: "active" }),
+    listRecords("product_packaging_profiles", "*", undefined, { includeHidden, archiveField: "is_hidden" }),
     listRecords("pallets"),
-    listRecords("profiles"),
+    listRecords("profiles", "*", undefined, includeHidden ? undefined : { archiveField: "active" }),
     listRecords("roles"),
-    db("user_roles").select("*, roles(code, name)").then(({ data, error }: { data: any; error: any }) => {
+    applyArchiveFilter(db("user_roles").select("*, roles(code, name)"), "is_hidden", includeHidden).then(({ data, error }: { data: any; error: any }) => {
       if (error) throw error;
       return data ?? [];
     }),
   ]);
 
   return { warehouses, zones, locations, clients, products, packagingProfiles, pallets, profiles, roles, userRoles };
+}
+
+export function createDefaultWarehouseSetupPayload(): WarehouseSetupPayload {
+  const warehouses: WarehouseSetupWarehouse[] = [
+    { code: "MAIN", name: "Main Warehouse", city: "Bridgetown", country: "Barbados", hasCoolZone: true },
+  ];
+
+  const zones: WarehouseSetupZone[] = [
+    { warehouseCode: "MAIN", code: "STG", name: "Staging", temperatureClass: "ambient", isStaging: true, isDispatch: false, isQuarantine: false, sortOrder: 10 },
+    { warehouseCode: "MAIN", code: "DSP", name: "Dispatch", temperatureClass: "ambient", isStaging: false, isDispatch: true, isQuarantine: false, sortOrder: 20 },
+    { warehouseCode: "MAIN", code: "QTN", name: "Quarantine", temperatureClass: "ambient", isStaging: false, isDispatch: false, isQuarantine: true, sortOrder: 30 },
+    { warehouseCode: "MAIN", code: "COOL", name: "Cool Storage", temperatureClass: "cool", isStaging: false, isDispatch: false, isQuarantine: false, sortOrder: 40 },
+  ];
+
+  const locationTemplates: WarehouseLocationTemplate[] = [
+    {
+      warehouseCode: "MAIN",
+      zoneCode: "STG",
+      aisleCount: 1,
+      baysPerAisle: 6,
+      levels: 1,
+      maxPallets: 4,
+      locationType: "staging",
+      temperatureClass: "ambient",
+      mixedSkuAllowed: true,
+      mixedLotAllowed: true,
+      status: "active",
+    },
+    {
+      warehouseCode: "MAIN",
+      zoneCode: "DSP",
+      aisleCount: 1,
+      baysPerAisle: 4,
+      levels: 1,
+      maxPallets: 3,
+      locationType: "dispatch",
+      temperatureClass: "ambient",
+      mixedSkuAllowed: true,
+      mixedLotAllowed: true,
+      status: "active",
+    },
+    {
+      warehouseCode: "MAIN",
+      zoneCode: "QTN",
+      aisleCount: 1,
+      baysPerAisle: 4,
+      levels: 1,
+      maxPallets: 1,
+      locationType: "quarantine",
+      temperatureClass: "ambient",
+      mixedSkuAllowed: false,
+      mixedLotAllowed: false,
+      status: "active",
+    },
+    {
+      warehouseCode: "MAIN",
+      zoneCode: "COOL",
+      aisleCount: 2,
+      baysPerAisle: 8,
+      levels: 3,
+      maxPallets: 1,
+      locationType: "rack",
+      temperatureClass: "cool",
+      mixedSkuAllowed: false,
+      mixedLotAllowed: false,
+      status: "active",
+    },
+  ];
+
+  return { warehouses, zones, locationTemplates };
+}
+
+export async function resetWmsData() {
+  const { data, error } = await (supabase.rpc as any)("reset_wms_data");
+  if (error) throw error;
+  return data;
+}
+
+export async function runWarehouseSetup(setupPayload: WarehouseSetupPayload, seedMode = "starter_ops") {
+  const { data, error } = await (supabase.rpc as any)("run_warehouse_setup", {
+    setup_payload: setupPayload,
+    seed_mode: seedMode,
+  });
+  if (error) throw error;
+  return data;
 }
 
 function buildPalletCode(prefix: string) {

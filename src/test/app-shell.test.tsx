@@ -28,6 +28,7 @@ describe("AppShell", () => {
 
     expect(screen.getByText("Dashboard")).toBeInTheDocument();
     expect(screen.getByText("Warehouses")).toBeInTheDocument();
+    expect(screen.getAllByText("Help").length).toBeGreaterThan(0);
     expect(screen.queryByText("Users")).not.toBeInTheDocument();
   });
 });
