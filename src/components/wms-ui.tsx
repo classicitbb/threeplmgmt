@@ -528,8 +528,8 @@ function SelectField({
   label,
   options,
 }: {
-  form: UseFormReturn<TFieldValues>;
-  name: Path<TFieldValues>;
+  form: UseFormReturn<FieldValues>;
+  name: Path<FieldValues>;
   label: string;
   options: Array<{ label: string; value: string }>;
 }) {
