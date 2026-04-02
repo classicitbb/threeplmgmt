@@ -557,7 +557,7 @@ export async function createReceiptFlow(input: z.infer<typeof receivingSchema>) 
     status: "queued",
   });
 
-  await supabase.rpc("log_audit_event", {
+  await (supabase.rpc as any)("log_audit_event", {
     in_event_type: "receipt",
     in_entity_table: "pallets",
     in_entity_id: pallet.id,
@@ -567,7 +567,7 @@ export async function createReceiptFlow(input: z.infer<typeof receivingSchema>) 
       receipt_id: receipt.id,
       receipt_line_id: receiptLine.id,
       quantity: payload.quantity,
-    } satisfies Json,
+    } as any,
   });
 
   await createLabelRecord("pallet", pallet.id, palletCode);
