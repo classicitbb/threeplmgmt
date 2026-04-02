@@ -109,7 +109,7 @@ const tempOptions: FieldDefinition["options"] = [
   { label: "Frozen", value: "frozen" },
 ];
 
-const taskStatusOptions: FieldDefinition["options"] = [
+export const taskStatusOptions: FieldDefinition["options"] = [
   { label: "Draft", value: "draft" },
   { label: "Queued", value: "queued" },
   { label: "Assigned", value: "assigned" },
@@ -420,7 +420,7 @@ export async function fetchOptions() {
     listRecords("pallets"),
     listRecords("profiles"),
     listRecords("roles"),
-    db("user_roles").select("*, roles(code, name)").then(({ data, error }) => {
+    db("user_roles").select("*, roles(code, name)").then(({ data, error }: { data: any; error: any }) => {
       if (error) throw error;
       return data ?? [];
     }),
@@ -545,7 +545,7 @@ export async function createReceiptFlow(input: z.infer<typeof receivingSchema>) 
     expiry_date: lot.expiry_date,
   });
 
-  const suggestions = await supabase.rpc("directed_putaway_candidates", { in_pallet_id: pallet.id });
+  const suggestions = await (supabase.rpc as any)("directed_putaway_candidates", { in_pallet_id: pallet.id });
   if (suggestions.error) throw suggestions.error;
   const topSuggestion = suggestions.data?.[0] ?? null;
 
@@ -557,7 +557,7 @@ export async function createReceiptFlow(input: z.infer<typeof receivingSchema>) 
     status: "queued",
   });
 
-  await supabase.rpc("log_audit_event", {
+  await (supabase.rpc as any)("log_audit_event", {
     in_event_type: "receipt",
     in_entity_table: "pallets",
     in_entity_id: pallet.id,
@@ -567,7 +567,7 @@ export async function createReceiptFlow(input: z.infer<typeof receivingSchema>) 
       receipt_id: receipt.id,
       receipt_line_id: receiptLine.id,
       quantity: payload.quantity,
-    } satisfies Json,
+    } as any,
   });
 
   await createLabelRecord("pallet", pallet.id, palletCode);
@@ -713,7 +713,7 @@ export async function confirmPutaway(taskId: string, scannedPalletBarcode: strin
       .eq("id", taskId),
   ]);
 
-  await supabase.rpc("log_audit_event", {
+  await (supabase.rpc as any)("log_audit_event", {
     in_event_type: "putaway",
     in_entity_table: "putaway_tasks",
     in_entity_id: taskId,
@@ -723,7 +723,7 @@ export async function confirmPutaway(taskId: string, scannedPalletBarcode: strin
     in_metadata: {
       location_code: location.code,
       pallet_barcode: pallet.pallet_barcode,
-    } satisfies Json,
+    } as any,
   });
 }
 
@@ -888,7 +888,7 @@ export async function confirmPickTask(taskId: string, scannedLocation: string, s
       .eq("id", balance.id),
   ]);
 
-  await supabase.rpc("log_audit_event", {
+  await (supabase.rpc as any)("log_audit_event", {
     in_event_type: "pick",
     in_entity_table: "pick_tasks",
     in_entity_id: taskId,
@@ -898,7 +898,7 @@ export async function confirmPickTask(taskId: string, scannedLocation: string, s
     in_metadata: {
       confirmed_quantity: confirmedQuantity,
       short_reason: shortReason ?? null,
-    } satisfies Json,
+    } as any,
   });
 }
 
@@ -1091,7 +1091,7 @@ export async function changePalletStatus(input: z.infer<typeof statusChangeSchem
     }),
   ]);
 
-  await supabase.rpc("log_audit_event", {
+  await (supabase.rpc as any)("log_audit_event", {
     in_event_type: "status_change",
     in_entity_table: "pallets",
     in_entity_id: payload.pallet_id,
@@ -1101,7 +1101,7 @@ export async function changePalletStatus(input: z.infer<typeof statusChangeSchem
       old_status: balance.status,
       new_status: payload.new_status,
       reason: payload.reason,
-    } satisfies Json,
+    } as any,
   });
 }
 
@@ -1119,17 +1119,17 @@ export async function getDashboardMetrics() {
   if (pickLists.error) throw pickLists.error;
 
   const balanceRows = balances.data ?? [];
-  const coolRows = balanceRows.filter((row) => row.zone_id);
+  const coolRows = balanceRows.filter((row: any) => row.zone_id);
 
   return {
     totalPallets: balanceRows.length,
-    availablePallets: balanceRows.filter((row) => row.status === "available").length,
+    availablePallets: balanceRows.filter((row: any) => row.status === "available").length,
     coolZoneOccupancy: coolRows.length,
     openReceipts: receipts.data?.length ?? 0,
     openPutawayTasks: putawayTasks.data?.length ?? 0,
     openPickLists: pickLists.data?.length ?? 0,
-    holdStock: balanceRows.filter((row) => row.status === "hold").length,
-    quarantineStock: balanceRows.filter((row) => row.status === "quarantine").length,
+    holdStock: balanceRows.filter((row: any) => row.status === "hold").length,
+    quarantineStock: balanceRows.filter((row: any) => row.status === "quarantine").length,
   } satisfies DashboardMetrics;
 }
 

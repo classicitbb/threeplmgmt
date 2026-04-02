@@ -596,7 +596,7 @@ export function PutawayTasksPage() {
         ) : data.length === 0 ? (
           <Card><CardContent className="p-6 text-sm text-muted-foreground">No putaway tasks ready.</CardContent></Card>
         ) : (
-          data.map((task) => {
+          data.map((task: any) => {
             const localState = scanState[task.id] ?? { pallet: "", location: "" };
             return (
               <Card key={task.id}>
@@ -781,7 +781,7 @@ export function PickListsPage() {
         <TabsTrigger value="create">Create Pick List</TabsTrigger>
       </TabsList>
       <TabsContent value="lists" className="grid gap-4">
-        {pickLists.map((pickList) => (
+        {pickLists.map((pickList: any) => (
           <Card key={pickList.id}>
             <CardHeader>
               <CardTitle className="flex items-center justify-between gap-4">
@@ -935,7 +935,7 @@ export function TransfersPage() {
         </CardContent>
       </Card>
       <div className="grid gap-4">
-        {transfers.map((transfer) => (
+        {transfers.map((transfer: any) => (
           <Card key={transfer.id}>
             <CardHeader>
               <CardTitle className="flex items-center justify-between gap-4">
@@ -1008,7 +1008,7 @@ export function CycleCountsPage() {
         </CardContent>
       </Card>
       <div className="grid gap-4">
-        {counts.map((count) => (
+        {counts.map((count: any) => (
           <Card key={count.id}>
             <CardHeader>
               <CardTitle className="flex items-center justify-between gap-4">
@@ -1090,7 +1090,7 @@ export function StatusPage() {
           <CardTitle>Controlled stock</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-3">
-          {data.map((row) => (
+          {data.map((row: any) => (
             <div key={row.inventory_balance_id} className="flex items-center justify-between rounded-lg border border-border p-3">
               <div>
                 <p className="font-medium">{row.sku}</p>
@@ -1141,7 +1141,7 @@ export function ReportsPage() {
             <CardTitle>Occupancy view</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-2">
-            {(data?.occupancy ?? []).slice(0, 12).map((location) => (
+            {(data?.occupancy ?? []).slice(0, 12).map((location: any) => (
               <div key={location.location_id} className="flex items-center justify-between rounded-lg border border-border px-3 py-2">
                 <div>
                   <p>{location.location_code}</p>
@@ -1160,7 +1160,7 @@ export function ReportsPage() {
           <CardTitle>Recent movements</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-2">
-          {(data?.audits ?? []).map((audit) => (
+          {(data?.audits ?? []).map((audit: any) => (
             <div key={audit.id} className="rounded-lg border border-border px-3 py-2 text-sm">
               <div className="flex items-center justify-between gap-4">
                 <span className="font-medium">{audit.event_type}</span>
@@ -1223,7 +1223,7 @@ export function UsersRolesPage() {
           <CardTitle>Current access</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-3">
-          {(options?.userRoles ?? []).map((userRole) => (
+          {(options?.userRoles ?? []).map((userRole: any) => (
             <div key={userRole.id} className="flex items-center justify-between rounded-lg border border-border px-3 py-2">
               <div>
                 <p className="font-medium">{options?.profiles.find((profile) => profile.id === userRole.user_id)?.full_name ?? userRole.user_id}</p>
