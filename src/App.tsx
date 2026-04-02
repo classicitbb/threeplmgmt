@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { BrowserRouter, Link, Navigate, Outlet, Route, Routes, useParams } from "react-router-dom";
+import { BrowserRouter, Navigate, Outlet, Route, Routes, useParams } from "react-router-dom";
 import { QueryClient, QueryClientProvider, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -7,7 +7,7 @@ import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
-import { confirmPickTask, formatDate, formatNumber, getInventoryDetail, getPickExecution, loginSchema } from "@/lib/wms-core";
+import { confirmPickTask, formatDate, formatNumber, getInventoryDetail, getPickExecution, loginSchema, RESOURCE_DEFINITIONS } from "@/lib/wms-core";
 import {
   AppShell,
   DashboardPage,
@@ -24,6 +24,7 @@ import {
   UsersRolesPage,
   CycleCountsPage,
 } from "@/components/wms-ui";
+import type { Tables } from "@/integrations/supabase/types";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -36,6 +37,32 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
+
+type InventoryDetailData = {
+  balance: {
+    status: string;
+    quantity: number;
+    available_quantity: number;
+  };
+  pallet: {
+    pallet_code: string | null;
+  } | null;
+  lot: {
+    expiry_date: string | null;
+    lot_number: string | null;
+    batch_number: string | null;
+  } | null;
+  audit: Array<{
+    id: string;
+    event_type: string;
+    created_at: string;
+    entity_table: string;
+  }>;
+};
+
+type PickExecutionData = {
+  pickTasks: Tables<"pick_tasks">[];
+};
 
 function RequireAuth({ allowedRoles }: { allowedRoles?: Array<"admin" | "warehouse_manager" | "inventory_clerk" | "warehouse_operator" | "dispatch_driver"> }) {
   const auth = useAuth();
@@ -134,9 +161,9 @@ function LoginPage() {
 
 function InventoryDetailPage() {
   const { balanceId = "" } = useParams();
-  const { data, isLoading } = useQuery({
+  const { data, isLoading } = useQuery<InventoryDetailData>({
     queryKey: ["inventory-detail", balanceId],
-    queryFn: () => getInventoryDetail(balanceId),
+    queryFn: async () => (await getInventoryDetail(balanceId)) as InventoryDetailData,
     enabled: Boolean(balanceId),
   });
 
@@ -192,9 +219,9 @@ function InventoryDetailPage() {
 function PickExecutionPage() {
   const { pickListId = "" } = useParams();
   const queryClient = useQueryClient();
-  const { data } = useQuery({
+  const { data } = useQuery<PickExecutionData>({
     queryKey: ["pick-execution", pickListId],
-    queryFn: () => getPickExecution(pickListId),
+    queryFn: async () => (await getPickExecution(pickListId)) as PickExecutionData,
     enabled: Boolean(pickListId),
   });
 
