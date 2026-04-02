@@ -596,7 +596,7 @@ export function PutawayTasksPage() {
         ) : data.length === 0 ? (
           <Card><CardContent className="p-6 text-sm text-muted-foreground">No putaway tasks ready.</CardContent></Card>
         ) : (
-          data.map((task) => {
+          data.map((task: any) => {
             const localState = scanState[task.id] ?? { pallet: "", location: "" };
             return (
               <Card key={task.id}>
