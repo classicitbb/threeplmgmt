@@ -81,6 +81,22 @@ function RequireAuth({ allowedRoles }: { allowedRoles?: Array<"admin" | "warehou
     return <Navigate to="/login" replace />;
   }
 
+  if (auth.profile && !auth.profile.approved) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background p-4">
+        <Card className="w-full max-w-md text-center">
+          <CardHeader>
+            <CardTitle>Pending Approval</CardTitle>
+            <CardDescription>Your account is awaiting admin approval. You will be notified when access is granted.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button variant="outline" onClick={() => auth.signOut()}>Sign out</Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   if (allowedRoles && !auth.hasRole(allowedRoles)) {
     return (
       <AppShell>
