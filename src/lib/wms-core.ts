@@ -48,7 +48,7 @@ export type FieldDefinition = {
   required?: boolean;
 };
 
-export type ResourceDefinition<T extends keyof Database["public"]["Tables"]> = {
+export type ResourceDefinition<T extends string = string> = {
   table: T;
   title: string;
   description: string;
