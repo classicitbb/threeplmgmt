@@ -781,7 +781,7 @@ export function PickListsPage() {
         <TabsTrigger value="create">Create Pick List</TabsTrigger>
       </TabsList>
       <TabsContent value="lists" className="grid gap-4">
-        {pickLists.map((pickList) => (
+        {pickLists.map((pickList: any) => (
           <Card key={pickList.id}>
             <CardHeader>
               <CardTitle className="flex items-center justify-between gap-4">
