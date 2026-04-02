@@ -1160,7 +1160,7 @@ export function ReportsPage() {
           <CardTitle>Recent movements</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-2">
-          {(data?.audits ?? []).map((audit) => (
+          {(data?.audits ?? []).map((audit: any) => (
             <div key={audit.id} className="rounded-lg border border-border px-3 py-2 text-sm">
               <div className="flex items-center justify-between gap-4">
                 <span className="font-medium">{audit.event_type}</span>
