@@ -4,7 +4,7 @@ import { format } from "date-fns";
 import { supabase } from "@/integrations/supabase/client";
 
 // Helper to bypass strict Supabase typing for tables not yet in the schema.
-// Once all WMS tables are migrated, this can be replaced with direct supabase.from() calls.
+// Once all WMS tables are migrated, this can be replaced with direct db() calls.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db = supabase.from.bind(supabase) as (table: string) => any;
 // These types will come from the DB once all WMS tables are created.
@@ -434,8 +434,7 @@ function buildPalletCode(prefix: string) {
 }
 
 async function resolveInventoryLot(payload: z.infer<typeof receivingSchema>) {
-  const lotMatch = await supabase
-    .from("inventory_lots")
+  const lotMatch = await db("inventory_lots")
     .select("*")
     .eq("product_id", payload.product_id)
     .eq("client_id", payload.client_id)
@@ -447,8 +446,7 @@ async function resolveInventoryLot(payload: z.infer<typeof receivingSchema>) {
     return lotMatch.data;
   }
 
-  const { data, error } = await supabase
-    .from("inventory_lots")
+  const { data, error } = await db("inventory_lots")
     .insert({
       product_id: payload.product_id,
       client_id: payload.client_id,
@@ -482,8 +480,7 @@ export async function createReceiptFlow(input: z.infer<typeof receivingSchema>) 
   const receiptNumber = buildPalletCode("RCT");
   const palletCode = buildPalletCode("PLT");
 
-  const { data: product, error: productError } = await supabase
-    .from("products")
+  const { data: product, error: productError } = await db("products")
     .select("*")
     .eq("id", payload.product_id)
     .single();
@@ -614,8 +611,7 @@ export async function searchInventory(filters: {
 }
 
 export async function getInventoryDetail(balanceId: string) {
-  const { data: balance, error: balanceError } = await supabase
-    .from("inventory_balances")
+  const { data: balance, error: balanceError } = await db("inventory_balances")
     .select("*")
     .eq("id", balanceId)
     .single();
@@ -638,8 +634,7 @@ export async function getInventoryDetail(balanceId: string) {
 }
 
 export async function getPutawayTasks(userId?: string) {
-  let query = supabase
-    .from("putaway_tasks")
+  let query = db("putaway_tasks")
     .select("*, pallets(*), locations: suggested_location_id(*)")
     .order("created_at", { ascending: false });
 
@@ -653,8 +648,7 @@ export async function getPutawayTasks(userId?: string) {
 }
 
 export async function confirmPutaway(taskId: string, scannedPalletBarcode: string, scannedLocationCode: string) {
-  const { data: task, error: taskError } = await supabase
-    .from("putaway_tasks")
+  const { data: task, error: taskError } = await db("putaway_tasks")
     .select("*, pallets(*), locations: suggested_location_id(*), products: pallets(product_id)")
     .eq("id", taskId)
     .single();
@@ -666,15 +660,13 @@ export async function confirmPutaway(taskId: string, scannedPalletBarcode: strin
     throw new Error("Scanned pallet barcode does not match the task pallet.");
   }
 
-  const { data: location, error: locationError } = await supabase
-    .from("locations")
+  const { data: location, error: locationError } = await db("locations")
     .select("*")
     .eq("code", scannedLocationCode)
     .single();
   if (locationError) throw locationError;
 
-  const { data: product, error: productError } = await supabase
-    .from("products")
+  const { data: product, error: productError } = await db("products")
     .select("*")
     .eq("id", pallet.product_id)
     .single();
@@ -695,8 +687,7 @@ export async function confirmPutaway(taskId: string, scannedPalletBarcode: strin
   }
 
   await Promise.all([
-    supabase
-      .from("pallets")
+    db("pallets")
       .update({
         current_location_id: location.id,
         current_warehouse_id: location.warehouse_id,
@@ -705,8 +696,7 @@ export async function confirmPutaway(taskId: string, scannedPalletBarcode: strin
         available_quantity: pallet.quantity,
       })
       .eq("id", pallet.id),
-    supabase
-      .from("inventory_balances")
+    db("inventory_balances")
       .update({
         warehouse_id: location.warehouse_id,
         zone_id: location.zone_id,
@@ -715,8 +705,7 @@ export async function confirmPutaway(taskId: string, scannedPalletBarcode: strin
         available_quantity: pallet.quantity,
       })
       .eq("pallet_id", pallet.id),
-    supabase
-      .from("putaway_tasks")
+    db("putaway_tasks")
       .update({
         status: "completed",
         completed_at: new Date().toISOString(),
@@ -741,8 +730,7 @@ export async function confirmPutaway(taskId: string, scannedPalletBarcode: strin
 async function selectPickCandidates(productId: string, warehouseId: string, quantity: number) {
   const { data: product } = await db("products").select("*").eq("id", productId).single();
 
-  const { data, error } = await supabase
-    .from("inventory_search_view")
+  const { data, error } = await db("inventory_search_view")
     .select("*")
     .eq("product_id", productId)
     .eq("warehouse_id", warehouseId)
@@ -819,8 +807,7 @@ export async function createPickListFlow(input: z.infer<typeof pickListSchema>) 
 }
 
 export async function listPickLists() {
-  const { data, error } = await supabase
-    .from("pick_lists")
+  const { data, error } = await db("pick_lists")
     .select("*, pick_tasks(*)")
     .order("created_at", { ascending: false });
   if (error) throw error;
@@ -830,8 +817,7 @@ export async function listPickLists() {
 export async function getPickExecution(pickListId: string) {
   const [pickList, pickTasks] = await Promise.all([
     db("pick_lists").select("*").eq("id", pickListId).single(),
-    supabase
-      .from("pick_tasks")
+    db("pick_tasks")
       .select("*")
       .eq("pick_list_id", pickListId)
       .order("created_at", { ascending: true }),
@@ -847,8 +833,7 @@ export async function getPickExecution(pickListId: string) {
 }
 
 export async function confirmPickTask(taskId: string, scannedLocation: string, scannedPallet: string, confirmedQuantity: number, shortReason?: string) {
-  const { data: task, error: taskError } = await supabase
-    .from("pick_tasks")
+  const { data: task, error: taskError } = await db("pick_tasks")
     .select("*")
     .eq("id", taskId)
     .single();
@@ -881,8 +866,7 @@ export async function confirmPickTask(taskId: string, scannedLocation: string, s
   const nextStatus: InventoryStatus = nextAvailable === 0 ? "picked" : "available";
 
   await Promise.all([
-    supabase
-      .from("pick_tasks")
+    db("pick_tasks")
       .update({
         confirmed_quantity: confirmedQuantity,
         short_reason: shortReason ?? null,
@@ -890,15 +874,13 @@ export async function confirmPickTask(taskId: string, scannedLocation: string, s
         completed_at: new Date().toISOString(),
       })
       .eq("id", taskId),
-    supabase
-      .from("pallets")
+    db("pallets")
       .update({
         available_quantity: nextAvailable,
         status: nextStatus,
       })
       .eq("id", pallet.id),
-    supabase
-      .from("inventory_balances")
+    db("inventory_balances")
       .update({
         available_quantity: nextAvailable,
         status: nextStatus,
@@ -981,12 +963,10 @@ export async function receiveTransfer(transferId: string) {
   for (const line of lines ?? []) {
     if (!line.pallet_id) continue;
     await Promise.all([
-      supabase
-        .from("pallets")
+      db("pallets")
         .update({ current_warehouse_id: transfer.destination_warehouse_id, status: "receiving", current_location_id: null, is_stored: false })
         .eq("id", line.pallet_id),
-      supabase
-        .from("inventory_balances")
+      db("inventory_balances")
         .update({ warehouse_id: transfer.destination_warehouse_id, status: "receiving", location_id: null, zone_id: null })
         .eq("pallet_id", line.pallet_id),
       upsertRecord("putaway_tasks", {
@@ -1058,8 +1038,7 @@ export async function submitCycleCountLine(lineId: string, countedQuantity: numb
   const varianceQuantity = countedQuantity - line.expected_quantity;
   const variancePercent = line.expected_quantity === 0 ? 0 : Math.abs((varianceQuantity / line.expected_quantity) * 100);
 
-  await supabase
-    .from("cycle_count_lines")
+  await db("cycle_count_lines")
     .update({
       counted_quantity: countedQuantity,
       variance_quantity: varianceQuantity,
@@ -1084,8 +1063,7 @@ export async function submitCycleCountLine(lineId: string, countedQuantity: numb
 }
 
 export async function listStatusPallets() {
-  const { data, error } = await supabase
-    .from("inventory_search_view")
+  const { data, error } = await db("inventory_search_view")
     .select("*")
     .in("status", ["hold", "quarantine", "damaged", "missing"])
     .order("received_at", { ascending: false });
