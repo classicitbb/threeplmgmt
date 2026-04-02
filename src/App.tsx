@@ -163,7 +163,7 @@ function InventoryDetailPage() {
   const { balanceId = "" } = useParams();
   const { data, isLoading } = useQuery<InventoryDetailData>({
     queryKey: ["inventory-detail", balanceId],
-    queryFn: async () => (await getInventoryDetail(balanceId)) as InventoryDetailData,
+    queryFn: async () => (await getInventoryDetail(balanceId)) as unknown as InventoryDetailData,
     enabled: Boolean(balanceId),
   });
 
