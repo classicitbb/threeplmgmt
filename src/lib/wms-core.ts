@@ -1119,7 +1119,7 @@ export async function getDashboardMetrics() {
   if (pickLists.error) throw pickLists.error;
 
   const balanceRows = balances.data ?? [];
-  const coolRows = balanceRows.filter((row) => row.zone_id);
+  const coolRows = balanceRows.filter((row: any) => row.zone_id);
 
   return {
     totalPallets: balanceRows.length,
