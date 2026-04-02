@@ -689,7 +689,7 @@ export function PutawayTasksPage() {
 export function InventorySearchPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [status, setStatus] = useState<string>("all");
-  const { data: options } = useQuery({ queryKey: ["options"], queryFn: fetchOptions });
+  const { data: options } = useQuery({ queryKey: ["options"], queryFn: () => fetchOptions() });
   const [warehouseId, setWarehouseId] = useState("");
 
   const { data = [], isLoading } = useQuery({
