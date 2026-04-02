@@ -788,7 +788,7 @@ export function InventorySearchPage() {
 
 export function PickListsPage() {
   const queryClient = useQueryClient();
-  const { data: options } = useQuery({ queryKey: ["options"], queryFn: fetchOptions });
+  const { data: options } = useQuery({ queryKey: ["options"], queryFn: () => fetchOptions() });
   const { data: pickLists = [] } = useQuery({ queryKey: ["pick-lists"], queryFn: listPickLists });
   const form = useForm<z.infer<typeof pickListSchema>>({
     resolver: zodResolver(pickListSchema),
