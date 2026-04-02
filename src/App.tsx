@@ -171,6 +171,17 @@ function LoginPage() {
     onError: (error) => toast.error(error instanceof Error ? error.message : "Apple sign in failed"),
   });
 
+  const googleMutation = useMutation({
+    mutationFn: async () => {
+      const result = await lovable.auth.signInWithOAuth("google", {
+        redirect_uri: window.location.origin,
+      });
+      if (result.error) throw result.error;
+      if (result.redirected) return;
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Google sign in failed"),
+  });
+
   if (auth.session) {
     return <Navigate to="/dashboard" replace />;
   }
