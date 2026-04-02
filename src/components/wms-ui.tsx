@@ -246,10 +246,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function ResourcePage<T extends keyof Database["public"]["Tables"]>({
+export function ResourcePage({
   resource,
 }: {
-  resource: ResourceDefinition<T>;
+  resource: ResourceDefinition;
 }) {
   const { data = [], isLoading } = useQuery({
     queryKey: [resource.table],
