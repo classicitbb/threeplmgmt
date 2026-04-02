@@ -334,7 +334,7 @@ export function ResourcePage({
   );
 }
 
-function ImportButton<T extends keyof Database["public"]["Tables"]>({ resource }: { resource: ResourceDefinition<T> }) {
+function ImportButton({ resource }: { resource: ResourceDefinition }) {
   return (
     <Button
       variant="outline"
