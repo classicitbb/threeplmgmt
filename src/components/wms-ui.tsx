@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useForm, type FieldValues, type Path, type UseFormReturn } from "react-hook-form";
+import { useForm, type UseFormReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Camera, Download, Loader2, LogOut, Menu, Plus, Printer, Search, Upload } from "lucide-react";
 import { toast } from "sonner";
@@ -45,7 +45,7 @@ import {
   transferSchema,
   upsertRecord,
 } from "@/lib/wms-core";
-import type { Database, Tables } from "@/integrations/supabase/types";
+
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -112,10 +112,10 @@ function renderField(field: FieldDefinition, form: ReturnType<typeof useForm<Rec
   );
 }
 
-function ResourceFormDialog<T extends keyof Database["public"]["Tables"]>({
+function ResourceFormDialog({
   resource,
 }: {
-  resource: ResourceDefinition<T>;
+  resource: ResourceDefinition;
 }) {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -246,10 +246,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function ResourcePage<T extends keyof Database["public"]["Tables"]>({
+export function ResourcePage({
   resource,
 }: {
-  resource: ResourceDefinition<T>;
+  resource: ResourceDefinition;
 }) {
   const { data = [], isLoading } = useQuery({
     queryKey: [resource.table],
@@ -334,7 +334,7 @@ export function ResourcePage<T extends keyof Database["public"]["Tables"]>({
   );
 }
 
-function ImportButton<T extends keyof Database["public"]["Tables"]>({ resource }: { resource: ResourceDefinition<T> }) {
+function ImportButton({ resource }: { resource: ResourceDefinition }) {
   return (
     <Button
       variant="outline"
@@ -500,8 +500,8 @@ function TextField({
   label,
   type = "text",
 }: {
-  form: UseFormReturn<TFieldValues>;
-  name: Path<TFieldValues>;
+  form: UseFormReturn<any>;
+  name: string;
   label: string;
   type?: string;
 }) {
@@ -528,8 +528,8 @@ function SelectField({
   label,
   options,
 }: {
-  form: UseFormReturn<TFieldValues>;
-  name: Path<TFieldValues>;
+  form: UseFormReturn<any>;
+  name: string;
   label: string;
   options: Array<{ label: string; value: string }>;
 }) {
@@ -606,7 +606,7 @@ export function PutawayTasksPage() {
                     <Badge>{task.status}</Badge>
                   </CardTitle>
                   <CardDescription>
-                    Suggested location: {(task.locations as Tables<"locations"> | null)?.code ?? "Request alternative"}
+                    Suggested location: {(task.locations as any)?.code ?? "Request alternative"}
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="grid gap-3 md:grid-cols-[1fr_1fr_auto]">
@@ -648,7 +648,7 @@ export function PutawayTasksPage() {
 
 export function InventorySearchPage() {
   const [searchTerm, setSearchTerm] = useState("");
-  const [status, setStatus] = useState<"all" | Tables<"inventory_balances">["status"]>("all");
+  const [status, setStatus] = useState<string>("all");
   const { data: options } = useQuery({ queryKey: ["options"], queryFn: fetchOptions });
   const [warehouseId, setWarehouseId] = useState("");
 
@@ -792,7 +792,7 @@ export function PickListsPage() {
             </CardHeader>
             <CardContent className="flex items-center justify-between gap-4">
               <div className="text-sm text-muted-foreground">
-                {(pickList.pick_tasks as Tables<"pick_tasks">[] | undefined)?.length ?? 0} tasks
+                {(pickList.pick_tasks as any[] | undefined)?.length ?? 0} tasks
               </div>
               <Button asChild variant="outline">
                 <Link to={`/pick-lists/${pickList.id}`}>Execute</Link>
@@ -1017,7 +1017,7 @@ export function CycleCountsPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="grid gap-3">
-              {((count.cycle_count_lines as Tables<"cycle_count_lines">[] | undefined) ?? []).map((line) => (
+              {((count.cycle_count_lines as any[] | undefined) ?? []).map((line: any) => (
                 <div key={line.id} className="flex items-center gap-2">
                   <span className="min-w-0 flex-1 text-sm text-muted-foreground">Expected {formatNumber(line.expected_quantity)}</span>
                   <Input

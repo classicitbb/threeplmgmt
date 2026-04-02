@@ -24,7 +24,7 @@ import {
   UsersRolesPage,
   CycleCountsPage,
 } from "@/components/wms-ui";
-import type { Tables } from "@/integrations/supabase/types";
+
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -61,7 +61,7 @@ type InventoryDetailData = {
 };
 
 type PickExecutionData = {
-  pickTasks: Tables<"pick_tasks">[];
+  pickTasks: any[];
 };
 
 function RequireAuth({ allowedRoles }: { allowedRoles?: Array<"admin" | "warehouse_manager" | "inventory_clerk" | "warehouse_operator" | "dispatch_driver"> }) {
@@ -163,7 +163,7 @@ function InventoryDetailPage() {
   const { balanceId = "" } = useParams();
   const { data, isLoading } = useQuery<InventoryDetailData>({
     queryKey: ["inventory-detail", balanceId],
-    queryFn: async () => (await getInventoryDetail(balanceId)) as InventoryDetailData,
+    queryFn: async () => (await getInventoryDetail(balanceId)) as unknown as InventoryDetailData,
     enabled: Boolean(balanceId),
   });
 
@@ -221,7 +221,7 @@ function PickExecutionPage() {
   const queryClient = useQueryClient();
   const { data } = useQuery<PickExecutionData>({
     queryKey: ["pick-execution", pickListId],
-    queryFn: async () => (await getPickExecution(pickListId)) as PickExecutionData,
+    queryFn: async () => (await getPickExecution(pickListId)) as unknown as PickExecutionData,
     enabled: Boolean(pickListId),
   });
 
@@ -265,7 +265,7 @@ function PickTaskCard({
   task,
   onConfirm,
 }: {
-  task: Tables<"pick_tasks">;
+  task: any;
   onConfirm: (payload: { taskId: string; locationCode: string; palletBarcode: string; quantity: number; shortReason?: string }) => void;
 }) {
   const form = useForm({
@@ -353,11 +353,11 @@ function ResourceRoutes() {
       <Route element={<RequireAuth />}>
         <Route element={<ProtectedLayout />}>
           <Route path="/dashboard" element={<DashboardPage />} />
-          <Route path="/warehouses" element={<ResourcePage resource={resources.warehouses} />} />
-          <Route path="/zones" element={<ResourcePage resource={resources.zones} />} />
-          <Route path="/locations" element={<ResourcePage resource={resources.locations} />} />
-          <Route path="/products" element={<ResourcePage resource={resources.products} />} />
-          <Route path="/packaging-profiles" element={<ResourcePage resource={resources.packagingProfiles} />} />
+          <Route path="/warehouses" element={<ResourcePage resource={resources.warehouses as any} />} />
+          <Route path="/zones" element={<ResourcePage resource={resources.zones as any} />} />
+          <Route path="/locations" element={<ResourcePage resource={resources.locations as any} />} />
+          <Route path="/products" element={<ResourcePage resource={resources.products as any} />} />
+          <Route path="/packaging-profiles" element={<ResourcePage resource={resources.packagingProfiles as any} />} />
           <Route path="/receiving" element={<ReceivingPage />} />
           <Route path="/putaway-tasks" element={<PutawayTasksPage />} />
           <Route path="/inventory-search" element={<InventorySearchPage />} />
