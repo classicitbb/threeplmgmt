@@ -109,7 +109,7 @@ const tempOptions: FieldDefinition["options"] = [
   { label: "Frozen", value: "frozen" },
 ];
 
-const taskStatusOptions: FieldDefinition["options"] = [
+export const taskStatusOptions: FieldDefinition["options"] = [
   { label: "Draft", value: "draft" },
   { label: "Queued", value: "queued" },
   { label: "Assigned", value: "assigned" },
