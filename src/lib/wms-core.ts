@@ -253,6 +253,13 @@ export const loginSchema = z.object({
   password: z.string().min(8),
 });
 
+export const signUpSchema = z.object({
+  fullName: z.string().min(2, "Name is required"),
+  email: z.string().email(),
+  phone: z.string().min(6, "Phone number is required"),
+  password: z.string().min(8, "Password must be at least 8 characters"),
+});
+
 export const receivingSchema = z.object({
   receipt_type: z.enum(["po", "transfer", "manual"]),
   reference_number: z.string().min(2),

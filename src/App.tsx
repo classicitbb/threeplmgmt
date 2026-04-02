@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { BrowserRouter, Navigate, Outlet, Route, Routes, useParams } from "react-router-dom";
 import { QueryClient, QueryClientProvider, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
@@ -7,7 +7,9 @@ import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
-import { confirmPickTask, formatDate, formatNumber, getInventoryDetail, getPickExecution, loginSchema, RESOURCE_DEFINITIONS } from "@/lib/wms-core";
+import { supabase } from "@/integrations/supabase/client";
+import { lovable } from "@/integrations/lovable/index";
+import { confirmPickTask, formatDate, formatNumber, getInventoryDetail, getPickExecution, loginSchema, signUpSchema, RESOURCE_DEFINITIONS } from "@/lib/wms-core";
 import {
   AppShell,
   DashboardPage,
