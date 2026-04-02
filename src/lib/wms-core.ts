@@ -657,7 +657,7 @@ export async function confirmPutaway(taskId: string, scannedPalletBarcode: strin
 
   if (taskError) throw taskError;
 
-  const pallet = task.pallets as Tables<"pallets"> | null;
+  const pallet = task.pallets as any;
   if (!pallet || pallet.pallet_barcode !== scannedPalletBarcode) {
     throw new Error("Scanned pallet barcode does not match the task pallet.");
   }
