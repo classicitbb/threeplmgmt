@@ -997,7 +997,7 @@ export function TransfersPage() {
 
 export function CycleCountsPage() {
   const queryClient = useQueryClient();
-  const { data: options } = useQuery({ queryKey: ["options"], queryFn: fetchOptions });
+  const { data: options } = useQuery({ queryKey: ["options"], queryFn: () => fetchOptions() });
   const { data: counts = [] } = useQuery({ queryKey: ["cycle-counts"], queryFn: listCycleCounts });
   const form = useForm<z.infer<typeof cycleCountSchema>>({
     resolver: zodResolver(cycleCountSchema),
