@@ -420,7 +420,7 @@ export async function fetchOptions() {
     listRecords("pallets"),
     listRecords("profiles"),
     listRecords("roles"),
-    db("user_roles").select("*, roles(code, name)").then(({ data, error }) => {
+    db("user_roles").select("*, roles(code, name)").then(({ data, error }: { data: any; error: any }) => {
       if (error) throw error;
       return data ?? [];
     }),
