@@ -437,7 +437,7 @@ export function DashboardPage() {
 
 export function ReceivingPage() {
   const queryClient = useQueryClient();
-  const { data: options } = useQuery({ queryKey: ["options"], queryFn: fetchOptions });
+  const { data: options } = useQuery({ queryKey: ["options"], queryFn: () => fetchOptions() });
   const form = useForm<z.infer<typeof receivingSchema>>({
     resolver: zodResolver(receivingSchema),
     defaultValues: {
@@ -689,7 +689,7 @@ export function PutawayTasksPage() {
 export function InventorySearchPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [status, setStatus] = useState<string>("all");
-  const { data: options } = useQuery({ queryKey: ["options"], queryFn: fetchOptions });
+  const { data: options } = useQuery({ queryKey: ["options"], queryFn: () => fetchOptions() });
   const [warehouseId, setWarehouseId] = useState("");
 
   const { data = [], isLoading } = useQuery({
@@ -788,7 +788,7 @@ export function InventorySearchPage() {
 
 export function PickListsPage() {
   const queryClient = useQueryClient();
-  const { data: options } = useQuery({ queryKey: ["options"], queryFn: fetchOptions });
+  const { data: options } = useQuery({ queryKey: ["options"], queryFn: () => fetchOptions() });
   const { data: pickLists = [] } = useQuery({ queryKey: ["pick-lists"], queryFn: listPickLists });
   const form = useForm<z.infer<typeof pickListSchema>>({
     resolver: zodResolver(pickListSchema),
@@ -905,7 +905,7 @@ export function PickListsPage() {
 
 export function TransfersPage() {
   const queryClient = useQueryClient();
-  const { data: options } = useQuery({ queryKey: ["options"], queryFn: fetchOptions });
+  const { data: options } = useQuery({ queryKey: ["options"], queryFn: () => fetchOptions() });
   const { data: transfers = [] } = useQuery({ queryKey: ["transfers"], queryFn: listTransfers });
   const form = useForm<z.infer<typeof transferSchema>>({
     resolver: zodResolver(transferSchema),
@@ -997,7 +997,7 @@ export function TransfersPage() {
 
 export function CycleCountsPage() {
   const queryClient = useQueryClient();
-  const { data: options } = useQuery({ queryKey: ["options"], queryFn: fetchOptions });
+  const { data: options } = useQuery({ queryKey: ["options"], queryFn: () => fetchOptions() });
   const { data: counts = [] } = useQuery({ queryKey: ["cycle-counts"], queryFn: listCycleCounts });
   const form = useForm<z.infer<typeof cycleCountSchema>>({
     resolver: zodResolver(cycleCountSchema),
