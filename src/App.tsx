@@ -24,7 +24,7 @@ import {
   UsersRolesPage,
   CycleCountsPage,
 } from "@/components/wms-ui";
-import type { Tables } from "@/integrations/supabase/types";
+import type { ResourceDefinition } from "@/lib/wms-core";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
