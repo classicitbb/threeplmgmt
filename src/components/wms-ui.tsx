@@ -792,7 +792,7 @@ export function PickListsPage() {
             </CardHeader>
             <CardContent className="flex items-center justify-between gap-4">
               <div className="text-sm text-muted-foreground">
-                {(pickList.pick_tasks as Tables<"pick_tasks">[] | undefined)?.length ?? 0} tasks
+                {(pickList.pick_tasks as any[] | undefined)?.length ?? 0} tasks
               </div>
               <Button asChild variant="outline">
                 <Link to={`/pick-lists/${pickList.id}`}>Execute</Link>
