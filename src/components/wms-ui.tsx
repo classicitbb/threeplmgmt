@@ -1223,7 +1223,7 @@ export function UsersRolesPage() {
           <CardTitle>Current access</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-3">
-          {(options?.userRoles ?? []).map((userRole) => (
+          {(options?.userRoles ?? []).map((userRole: any) => (
             <div key={userRole.id} className="flex items-center justify-between rounded-lg border border-border px-3 py-2">
               <div>
                 <p className="font-medium">{options?.profiles.find((profile) => profile.id === userRole.user_id)?.full_name ?? userRole.user_id}</p>

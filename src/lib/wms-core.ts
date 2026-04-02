@@ -1123,13 +1123,13 @@ export async function getDashboardMetrics() {
 
   return {
     totalPallets: balanceRows.length,
-    availablePallets: balanceRows.filter((row) => row.status === "available").length,
+    availablePallets: balanceRows.filter((row: any) => row.status === "available").length,
     coolZoneOccupancy: coolRows.length,
     openReceipts: receipts.data?.length ?? 0,
     openPutawayTasks: putawayTasks.data?.length ?? 0,
     openPickLists: pickLists.data?.length ?? 0,
-    holdStock: balanceRows.filter((row) => row.status === "hold").length,
-    quarantineStock: balanceRows.filter((row) => row.status === "quarantine").length,
+    holdStock: balanceRows.filter((row: any) => row.status === "hold").length,
+    quarantineStock: balanceRows.filter((row: any) => row.status === "quarantine").length,
   } satisfies DashboardMetrics;
 }
 
