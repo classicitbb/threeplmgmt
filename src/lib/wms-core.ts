@@ -4,7 +4,7 @@ import { format } from "date-fns";
 import { supabase } from "@/integrations/supabase/client";
 
 // Helper to bypass strict Supabase typing for tables not yet in the schema.
-// Once all WMS tables are migrated, this can be replaced with direct supabase.from() calls.
+// Once all WMS tables are migrated, this can be replaced with direct db() calls.
 const db = supabase.from.bind(supabase) as (table: string) => ReturnType<typeof supabase.from>;
 // These types will come from the DB once all WMS tables are created.
 // For now we define them locally so the code compiles.
@@ -419,7 +419,7 @@ export async function fetchOptions() {
     listRecords("pallets"),
     listRecords("profiles"),
     listRecords("roles"),
-    supabase.from("user_roles").select("*, roles(code, name)").then(({ data, error }) => {
+    db("user_roles").select("*, roles(code, name)").then(({ data, error }) => {
       if (error) throw error;
       return data ?? [];
     }),
@@ -466,7 +466,7 @@ async function resolveInventoryLot(payload: z.infer<typeof receivingSchema>) {
 }
 
 async function createLabelRecord(label_type: Enums<"label_type">, entityId: string, labelCode: string) {
-  const { error } = await supabase.from("barcode_labels").insert({
+  const { error } = await db("barcode_labels").insert({
     label_type,
     entity_id: entityId,
     label_code: labelCode,
@@ -490,7 +490,7 @@ export async function createReceiptFlow(input: z.infer<typeof receivingSchema>) 
   if (productError) throw productError;
 
   const { data: packagingProfile } = payload.packaging_profile_id
-    ? await supabase.from("product_packaging_profiles").select("*").eq("id", payload.packaging_profile_id).single()
+    ? await db("product_packaging_profiles").select("*").eq("id", payload.packaging_profile_id).single()
     : { data: null };
 
   const receipt = await upsertRecord("receipts", {
@@ -582,7 +582,7 @@ export async function searchInventory(filters: {
   warehouseId?: string;
   status?: InventoryStatus | "all";
 }) {
-  let query = supabase.from("inventory_search_view").select("*");
+  let query = db("inventory_search_view").select("*");
 
   if (filters.search) {
     query = query.or(
@@ -621,10 +621,10 @@ export async function getInventoryDetail(balanceId: string) {
   if (balanceError) throw balanceError;
 
   const [{ data: pallet }, { data: audit }, { data: lot }] = await Promise.all([
-    supabase.from("pallets").select("*").eq("id", balance.pallet_id).single(),
-    supabase.from("audit_events").select("*").eq("pallet_id", balance.pallet_id).order("created_at", { ascending: false }),
+    db("pallets").select("*").eq("id", balance.pallet_id).single(),
+    db("audit_events").select("*").eq("pallet_id", balance.pallet_id).order("created_at", { ascending: false }),
     balance.inventory_lot_id
-      ? supabase.from("inventory_lots").select("*").eq("id", balance.inventory_lot_id).single()
+      ? db("inventory_lots").select("*").eq("id", balance.inventory_lot_id).single()
       : Promise.resolve({ data: null, error: null }),
   ]);
 
@@ -738,7 +738,7 @@ export async function confirmPutaway(taskId: string, scannedPalletBarcode: strin
 }
 
 async function selectPickCandidates(productId: string, warehouseId: string, quantity: number) {
-  const { data: product } = await supabase.from("products").select("*").eq("id", productId).single();
+  const { data: product } = await db("products").select("*").eq("id", productId).single();
 
   const { data, error } = await supabase
     .from("inventory_search_view")
@@ -828,7 +828,7 @@ export async function listPickLists() {
 
 export async function getPickExecution(pickListId: string) {
   const [pickList, pickTasks] = await Promise.all([
-    supabase.from("pick_lists").select("*").eq("id", pickListId).single(),
+    db("pick_lists").select("*").eq("id", pickListId).single(),
     supabase
       .from("pick_tasks")
       .select("*")
@@ -858,8 +858,8 @@ export async function confirmPickTask(taskId: string, scannedLocation: string, s
   }
 
   const [{ data: pallet, error: palletError }, { data: balance, error: balanceError }] = await Promise.all([
-    supabase.from("pallets").select("*").eq("id", task.pallet_id).single(),
-    supabase.from("inventory_balances").select("*").eq("pallet_id", task.pallet_id).single(),
+    db("pallets").select("*").eq("id", task.pallet_id).single(),
+    db("inventory_balances").select("*").eq("pallet_id", task.pallet_id).single(),
   ]);
 
   if (palletError) throw palletError;
@@ -869,7 +869,7 @@ export async function confirmPickTask(taskId: string, scannedLocation: string, s
   }
 
   const location = balance.location_id
-    ? await supabase.from("locations").select("*").eq("id", balance.location_id).single()
+    ? await db("locations").select("*").eq("id", balance.location_id).single()
     : { data: null, error: null };
   if (location.error) throw location.error;
   if (location.data && location.data.code !== scannedLocation) {
@@ -930,7 +930,7 @@ export async function createTransferFlow(input: z.infer<typeof transferSchema>) 
     notes: payload.notes || null,
   });
 
-  const { data: pallet, error: palletError } = await supabase.from("pallets").select("*").eq("id", payload.pallet_id).single();
+  const { data: pallet, error: palletError } = await db("pallets").select("*").eq("id", payload.pallet_id).single();
   if (palletError) throw palletError;
 
   await upsertRecord("transfer_lines", {
@@ -957,24 +957,24 @@ export async function createTransferFlow(input: z.infer<typeof transferSchema>) 
 }
 
 export async function dispatchTransfer(transferId: string) {
-  const { data: lines, error: linesError } = await supabase.from("transfer_lines").select("*").eq("transfer_id", transferId);
+  const { data: lines, error: linesError } = await db("transfer_lines").select("*").eq("transfer_id", transferId);
   if (linesError) throw linesError;
 
   for (const line of lines ?? []) {
     if (!line.pallet_id) continue;
     await Promise.all([
-      supabase.from("pallets").update({ status: "in_transit", current_location_id: null }).eq("id", line.pallet_id),
-      supabase.from("inventory_balances").update({ status: "in_transit", location_id: null, zone_id: null }).eq("pallet_id", line.pallet_id),
+      db("pallets").update({ status: "in_transit", current_location_id: null }).eq("id", line.pallet_id),
+      db("inventory_balances").update({ status: "in_transit", location_id: null, zone_id: null }).eq("pallet_id", line.pallet_id),
     ]);
   }
 
-  await supabase.from("transfers").update({ status: "in_progress", dispatched_at: new Date().toISOString() }).eq("id", transferId);
+  await db("transfers").update({ status: "in_progress", dispatched_at: new Date().toISOString() }).eq("id", transferId);
 }
 
 export async function receiveTransfer(transferId: string) {
-  const { data: transfer, error: transferError } = await supabase.from("transfers").select("*").eq("id", transferId).single();
+  const { data: transfer, error: transferError } = await db("transfers").select("*").eq("id", transferId).single();
   if (transferError) throw transferError;
-  const { data: lines, error: linesError } = await supabase.from("transfer_lines").select("*").eq("transfer_id", transferId);
+  const { data: lines, error: linesError } = await db("transfer_lines").select("*").eq("transfer_id", transferId);
   if (linesError) throw linesError;
 
   for (const line of lines ?? []) {
@@ -997,11 +997,11 @@ export async function receiveTransfer(transferId: string) {
     ]);
   }
 
-  await supabase.from("transfers").update({ status: "completed", received_at: new Date().toISOString() }).eq("id", transferId);
+  await db("transfers").update({ status: "completed", received_at: new Date().toISOString() }).eq("id", transferId);
 }
 
 export async function listTransfers() {
-  const { data, error } = await supabase.from("transfers").select("*, transfer_lines(*)").order("created_at", { ascending: false });
+  const { data, error } = await db("transfers").select("*, transfer_lines(*)").order("created_at", { ascending: false });
   if (error) throw error;
   return data ?? [];
 }
@@ -1018,7 +1018,7 @@ export async function createCycleCountFlow(input: z.infer<typeof cycleCountSchem
     variance_threshold_percent: payload.variance_threshold_percent,
   });
 
-  let balanceQuery = supabase.from("inventory_balances").select("*").eq("warehouse_id", payload.warehouse_id);
+  let balanceQuery = db("inventory_balances").select("*").eq("warehouse_id", payload.warehouse_id);
   if (payload.location_id) balanceQuery = balanceQuery.eq("location_id", payload.location_id);
   if (payload.zone_id) balanceQuery = balanceQuery.eq("zone_id", payload.zone_id);
   if (payload.product_id) balanceQuery = balanceQuery.eq("product_id", payload.product_id);
@@ -1045,13 +1045,13 @@ export async function createCycleCountFlow(input: z.infer<typeof cycleCountSchem
 }
 
 export async function listCycleCounts() {
-  const { data, error } = await supabase.from("cycle_counts").select("*, cycle_count_lines(*)").order("created_at", { ascending: false });
+  const { data, error } = await db("cycle_counts").select("*, cycle_count_lines(*)").order("created_at", { ascending: false });
   if (error) throw error;
   return data ?? [];
 }
 
 export async function submitCycleCountLine(lineId: string, countedQuantity: number) {
-  const { data: line, error: lineError } = await supabase.from("cycle_count_lines").select("*").eq("id", lineId).single();
+  const { data: line, error: lineError } = await db("cycle_count_lines").select("*").eq("id", lineId).single();
   if (lineError) throw lineError;
 
   const varianceQuantity = countedQuantity - line.expected_quantity;
@@ -1069,8 +1069,8 @@ export async function submitCycleCountLine(lineId: string, countedQuantity: numb
 
   if (line.pallet_id) {
     await Promise.all([
-      supabase.from("pallets").update({ quantity: countedQuantity, available_quantity: countedQuantity }).eq("id", line.pallet_id),
-      supabase.from("inventory_balances").update({ quantity: countedQuantity, available_quantity: countedQuantity }).eq("pallet_id", line.pallet_id),
+      db("pallets").update({ quantity: countedQuantity, available_quantity: countedQuantity }).eq("id", line.pallet_id),
+      db("inventory_balances").update({ quantity: countedQuantity, available_quantity: countedQuantity }).eq("pallet_id", line.pallet_id),
       upsertRecord("stock_adjustments", {
         adjustment_number: buildPalletCode("ADJ"),
         pallet_id: line.pallet_id,
@@ -1094,12 +1094,12 @@ export async function listStatusPallets() {
 
 export async function changePalletStatus(input: z.infer<typeof statusChangeSchema>) {
   const payload = statusChangeSchema.parse(input);
-  const { data: balance, error: balanceError } = await supabase.from("inventory_balances").select("*").eq("pallet_id", payload.pallet_id).single();
+  const { data: balance, error: balanceError } = await db("inventory_balances").select("*").eq("pallet_id", payload.pallet_id).single();
   if (balanceError) throw balanceError;
 
   await Promise.all([
-    supabase.from("pallets").update({ status: payload.new_status }).eq("id", payload.pallet_id),
-    supabase.from("inventory_balances").update({ status: payload.new_status }).eq("id", balance.id),
+    db("pallets").update({ status: payload.new_status }).eq("id", payload.pallet_id),
+    db("inventory_balances").update({ status: payload.new_status }).eq("id", balance.id),
     upsertRecord("stock_adjustments", {
       adjustment_number: buildPalletCode("STS"),
       pallet_id: payload.pallet_id,
@@ -1128,10 +1128,10 @@ export async function changePalletStatus(input: z.infer<typeof statusChangeSchem
 
 export async function getDashboardMetrics() {
   const [balances, receipts, putawayTasks, pickLists] = await Promise.all([
-    supabase.from("inventory_balances").select("*"),
-    supabase.from("receipts").select("*").in("status", ["draft", "queued", "assigned", "in_progress"]),
-    supabase.from("putaway_tasks").select("*").in("status", ["queued", "assigned", "in_progress", "exception"]),
-    supabase.from("pick_lists").select("*").in("status", ["draft", "queued", "assigned", "in_progress", "exception"]),
+    db("inventory_balances").select("*"),
+    db("receipts").select("*").in("status", ["draft", "queued", "assigned", "in_progress"]),
+    db("putaway_tasks").select("*").in("status", ["queued", "assigned", "in_progress", "exception"]),
+    db("pick_lists").select("*").in("status", ["draft", "queued", "assigned", "in_progress", "exception"]),
   ]);
 
   if (balances.error) throw balances.error;
@@ -1156,12 +1156,12 @@ export async function getDashboardMetrics() {
 
 export async function getReportData() {
   const [balances, occupancy, audits, clients, warehouses, cycleCounts] = await Promise.all([
-    supabase.from("inventory_search_view").select("*"),
-    supabase.from("location_occupancy_view").select("*"),
-    supabase.from("audit_events").select("*").order("created_at", { ascending: false }).limit(12),
-    supabase.from("clients").select("*"),
-    supabase.from("warehouses").select("*"),
-    supabase.from("cycle_count_lines").select("*").order("updated_at", { ascending: false }).limit(12),
+    db("inventory_search_view").select("*"),
+    db("location_occupancy_view").select("*"),
+    db("audit_events").select("*").order("created_at", { ascending: false }).limit(12),
+    db("clients").select("*"),
+    db("warehouses").select("*"),
+    db("cycle_count_lines").select("*").order("updated_at", { ascending: false }).limit(12),
   ]);
 
   if (balances.error) throw balances.error;
@@ -1197,7 +1197,7 @@ export async function importCsvToResource(resource: ResourceDefinition, file: Fi
     }
 
     try {
-      await supabase.from(resource.table).upsert(row as never);
+      await db(resource.table).upsert(row as never);
     } catch (error) {
       errors.push({ row: index + 2, error: error instanceof Error ? error.message : "Import failed" });
     }
