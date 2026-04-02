@@ -265,7 +265,7 @@ function PickTaskCard({
   task,
   onConfirm,
 }: {
-  task: Tables<"pick_tasks">;
+  task: any;
   onConfirm: (payload: { taskId: string; locationCode: string; palletBarcode: string; quantity: number; shortReason?: string }) => void;
 }) {
   const form = useForm({
