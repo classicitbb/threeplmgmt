@@ -66,6 +66,20 @@ import { Textarea } from "@/components/ui/textarea";
 
 const baseFormSchema = z.record(z.any());
 
+function TableFrame({
+  children,
+  className,
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <ScrollArea className={cn("h-[min(65vh,36rem)] w-full", className)}>
+      <div className="min-w-0">{children}</div>
+    </ScrollArea>
+  );
+}
+
 function renderField(field: FieldDefinition, form: ReturnType<typeof useForm<Record<string, unknown>>>) {
   return (
     <FormField
@@ -219,11 +233,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen bg-background">
-      <div className="mx-auto grid min-h-screen max-w-[1600px] grid-cols-1 lg:grid-cols-[280px_1fr]">
+      <div className="grid min-h-screen w-full grid-cols-1 lg:grid-cols-[280px_minmax(0,1fr)]">
         <aside className="hidden border-r border-border lg:block">{navigation}</aside>
-        <main className="flex min-h-screen flex-col">
-          <header className="sticky top-0 z-20 flex items-center justify-between border-b border-border bg-background/85 px-4 py-3 backdrop-blur lg:px-6">
-            <div>
+        <main className="flex min-h-screen min-w-0 flex-col">
+          <header className="sticky top-0 z-20 flex flex-wrap items-start justify-between gap-3 border-b border-border bg-background/85 px-4 py-3 backdrop-blur sm:items-center lg:px-6">
+            <div className="min-w-0">
               <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Internal Operations</p>
               <p className="text-sm text-muted-foreground">All critical actions are audit-backed and role-gated.</p>
             </div>
@@ -241,7 +255,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </SheetContent>
             </Sheet>
           </header>
-          <div className="flex-1 p-4 lg:p-6">{children}</div>
+          <div className="flex-1 min-w-0 px-4 py-4 sm:px-5 lg:px-6">{children}</div>
         </main>
       </div>
     </div>
@@ -280,7 +294,7 @@ export function ResourcePage<T extends keyof Database["public"]["Tables"]>({
 
       <Card>
         <CardContent className="p-0">
-          <ScrollArea className="w-full">
+          <TableFrame>
             <Table>
               <TableHeader>
                 <TableRow>
@@ -329,7 +343,7 @@ export function ResourcePage<T extends keyof Database["public"]["Tables"]>({
                 )}
               </TableBody>
             </Table>
-          </ScrollArea>
+          </TableFrame>
         </CardContent>
       </Card>
     </div>
@@ -429,15 +443,15 @@ export function ReceivingPage() {
   });
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-      <Card>
+    <div className="grid min-w-0 gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(20rem,0.8fr)]">
+      <Card className="min-w-0">
         <CardHeader>
           <CardTitle>Receive Stock</CardTitle>
           <CardDescription>Create a pallet, print the label, and launch directed putaway in one flow.</CardDescription>
         </CardHeader>
         <CardContent>
           <Form {...form}>
-            <form className="grid gap-4 md:grid-cols-2" onSubmit={form.handleSubmit((values) => mutation.mutate(values))}>
+            <form className="grid gap-4 sm:grid-cols-2" onSubmit={form.handleSubmit((values) => mutation.mutate(values))}>
               <SelectField form={form} name="receipt_type" label="Receipt type" options={[
                 { label: "Manual", value: "manual" },
                 { label: "PO", value: "po" },
@@ -459,7 +473,7 @@ export function ReceivingPage() {
               <TextField form={form} name="override_width" label="Override width" type="number" />
               <TextField form={form} name="override_height" label="Override height" type="number" />
               <TextField form={form} name="override_weight" label="Override weight" type="number" />
-              <Button className="md:col-span-2" type="submit" disabled={mutation.isPending}>
+              <Button className="w-full sm:col-span-2" type="submit" disabled={mutation.isPending}>
                 {mutation.isPending ? <Loader2 className="animate-spin" /> : null}
                 Receive and create pallet
               </Button>
@@ -468,7 +482,7 @@ export function ReceivingPage() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="min-w-0">
         <CardHeader>
           <CardTitle>Scan & Print</CardTitle>
           <CardDescription>Browser camera scan is device-dependent. Manual fallback is always available.</CardDescription>
@@ -480,9 +494,9 @@ export function ReceivingPage() {
               Camera scanning can be added by enabling `BarcodeDetector` on supported mobile browsers.
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Input value={manualBarcode} onChange={(event) => setManualBarcode(event.target.value)} placeholder="Latest pallet barcode" />
-            <Button variant="outline" onClick={() => window.print()}>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <Input className="min-w-0" value={manualBarcode} onChange={(event) => setManualBarcode(event.target.value)} placeholder="Latest pallet barcode" />
+            <Button className="w-full sm:w-auto" variant="outline" onClick={() => window.print()}>
               <Printer data-icon="inline-start" />
               Print
             </Button>
@@ -611,8 +625,9 @@ export function PutawayTasksPage() {
                     Suggested location: {(task.locations as Tables<"locations"> | null)?.code ?? "Request alternative"}
                   </CardDescription>
                 </CardHeader>
-                <CardContent className="grid gap-3 md:grid-cols-[1fr_1fr_auto]">
+                <CardContent className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
                   <Input
+                    className="min-w-0"
                     placeholder="Scan pallet barcode"
                     value={localState.pallet}
                     onChange={(event) =>
@@ -623,6 +638,7 @@ export function PutawayTasksPage() {
                     }
                   />
                   <Input
+                    className="min-w-0"
                     placeholder="Scan location barcode"
                     value={localState.location}
                     onChange={(event) =>
@@ -633,6 +649,7 @@ export function PutawayTasksPage() {
                     }
                   />
                   <Button
+                    className="w-full lg:w-auto"
                     disabled={mutation.isPending}
                     onClick={() => mutation.mutate({ taskId: task.id, pallet: localState.pallet, location: localState.location })}
                   >
@@ -666,10 +683,10 @@ export function InventorySearchPage() {
         <p className="text-sm text-muted-foreground">Search by SKU, pallet, barcode, lot, batch, expiry, owner, or location.</p>
       </div>
       <Card>
-        <CardContent className="grid gap-3 p-4 md:grid-cols-[2fr_1fr_1fr]">
+        <CardContent className="grid gap-3 p-4 lg:grid-cols-[minmax(0,2fr)_minmax(12rem,1fr)_minmax(12rem,1fr)]">
           <div className="relative">
             <Search className="absolute left-3 top-3 text-muted-foreground" />
-            <Input className="pl-10" value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Search inventory" />
+            <Input className="min-w-0 pl-10" value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Search inventory" />
           </div>
           <Select onValueChange={setWarehouseId} value={warehouseId}>
             <SelectTrigger>
@@ -698,7 +715,7 @@ export function InventorySearchPage() {
       </Card>
       <Card>
         <CardContent className="p-0">
-          <ScrollArea>
+          <TableFrame>
             <Table>
               <TableHeader>
                 <TableRow>
@@ -741,7 +758,7 @@ export function InventorySearchPage() {
                 )}
               </TableBody>
             </Table>
-          </ScrollArea>
+          </TableFrame>
         </CardContent>
       </Card>
     </div>
@@ -778,7 +795,7 @@ export function PickListsPage() {
         <h2 className="text-2xl font-semibold">Pick Lists</h2>
         <p className="text-sm text-muted-foreground">Release outbound work and execute scan-confirmed picks.</p>
       </div>
-      <TabsList className="w-fit">
+      <TabsList className="grid h-auto w-full grid-cols-2 sm:w-fit">
         <TabsTrigger value="lists">Active Lists</TabsTrigger>
         <TabsTrigger value="create">Create Pick List</TabsTrigger>
       </TabsList>
@@ -792,11 +809,11 @@ export function PickListsPage() {
               </CardTitle>
               <CardDescription>{pickList.notes || "Released outbound work"}</CardDescription>
             </CardHeader>
-            <CardContent className="flex items-center justify-between gap-4">
+            <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="text-sm text-muted-foreground">
                 {(pickList.pick_tasks as Tables<"pick_tasks">[] | undefined)?.length ?? 0} tasks
               </div>
-              <Button asChild variant="outline">
+              <Button asChild className="w-full sm:w-auto" variant="outline">
                 <Link to={`/pick-lists/${pickList.id}`}>Execute</Link>
               </Button>
             </CardContent>
@@ -807,7 +824,7 @@ export function PickListsPage() {
         <Card>
           <CardContent className="p-6">
             <Form {...form}>
-              <form className="grid gap-4 md:grid-cols-2" onSubmit={form.handleSubmit((values) => mutation.mutate(values))}>
+              <form className="grid gap-4 lg:grid-cols-2" onSubmit={form.handleSubmit((values) => mutation.mutate(values))}>
                 <SelectField form={form} name="warehouse_id" label="Warehouse" options={(options?.warehouses ?? []).map((warehouse) => ({ label: warehouse.name, value: warehouse.id }))} />
                 <SelectField form={form} name="client_id" label="Client" options={(options?.clients ?? []).map((client) => ({ label: client.name, value: client.id }))} />
                 <TextField form={form} name="order_number" label="Order number" />
@@ -816,7 +833,7 @@ export function PickListsPage() {
                   control={form.control}
                   name="notes"
                   render={({ field }) => (
-                    <FormItem className="md:col-span-2">
+                    <FormItem className="lg:col-span-2">
                       <FormLabel>Notes</FormLabel>
                       <FormControl>
                         <Textarea {...field} value={field.value ?? ""} />
@@ -824,13 +841,13 @@ export function PickListsPage() {
                     </FormItem>
                   )}
                 />
-                <Card className="md:col-span-2">
+                <Card className="lg:col-span-2">
                   <CardHeader>
                     <CardTitle className="text-base">Order lines</CardTitle>
                   </CardHeader>
                   <CardContent className="grid gap-3">
                     {lines.map((_, index) => (
-                      <div key={index} className="grid gap-3 md:grid-cols-[2fr_1fr_auto]">
+                      <div key={index} className="grid gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(8rem,1fr)_auto]">
                         <SelectField
                           form={form}
                           name={`lines.${index}.product_id`}
@@ -839,7 +856,7 @@ export function PickListsPage() {
                         />
                         <TextField form={form} name={`lines.${index}.quantity`} label="Qty" type="number" />
                         <Button
-                          className="mt-auto"
+                          className="w-full lg:mt-auto lg:w-auto"
                           type="button"
                           variant="outline"
                           onClick={() => form.setValue("lines", lines.filter((_, currentIndex) => currentIndex !== index))}
@@ -853,7 +870,7 @@ export function PickListsPage() {
                     </Button>
                   </CardContent>
                 </Card>
-                <Button className="md:col-span-2" type="submit" disabled={mutation.isPending}>
+                <Button className="w-full lg:col-span-2" type="submit" disabled={mutation.isPending}>
                   Release pick list
                 </Button>
               </form>
@@ -902,8 +919,8 @@ export function TransfersPage() {
   });
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
-      <Card>
+    <div className="grid min-w-0 gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+      <Card className="min-w-0">
         <CardHeader>
           <CardTitle>Create Transfer</CardTitle>
           <CardDescription>Preserve pallet identity, lot data, ownership, and audit history.</CardDescription>
@@ -931,24 +948,24 @@ export function TransfersPage() {
                   </FormItem>
                 )}
               />
-              <Button type="submit" disabled={createMutation.isPending}>Create transfer</Button>
+              <Button className="w-full sm:w-auto" type="submit" disabled={createMutation.isPending}>Create transfer</Button>
             </form>
           </Form>
         </CardContent>
       </Card>
-      <div className="grid gap-4">
+      <div className="grid min-w-0 gap-4">
         {transfers.map((transfer) => (
           <Card key={transfer.id}>
             <CardHeader>
               <CardTitle className="flex items-center justify-between gap-4">
-                <span>{transfer.transfer_number}</span>
+                <span className="min-w-0 break-all">{transfer.transfer_number}</span>
                 <Badge>{transfer.status}</Badge>
               </CardTitle>
               <CardDescription>{transfer.notes || "Pallet transfer"}</CardDescription>
             </CardHeader>
-            <CardContent className="flex flex-wrap gap-2">
-              <Button variant="outline" onClick={() => dispatchMutation.mutate(transfer.id)}>Dispatch</Button>
-              <Button onClick={() => receiveMutation.mutate(transfer.id)}>Receive</Button>
+            <CardContent className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+              <Button className="w-full sm:w-auto" variant="outline" onClick={() => dispatchMutation.mutate(transfer.id)}>Dispatch</Button>
+              <Button className="w-full sm:w-auto" onClick={() => receiveMutation.mutate(transfer.id)}>Receive</Button>
             </CardContent>
           </Card>
         ))}
@@ -984,8 +1001,8 @@ export function CycleCountsPage() {
   });
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
-      <Card>
+    <div className="grid min-w-0 gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+      <Card className="min-w-0">
         <CardHeader>
           <CardTitle>Create Count</CardTitle>
           <CardDescription>Generate location, zone, SKU, or spot counts with approval thresholds.</CardDescription>
@@ -1004,26 +1021,26 @@ export function CycleCountsPage() {
               <SelectField form={form} name="location_id" label="Location" options={(options?.locations ?? []).map((location) => ({ label: location.code, value: location.id }))} />
               <SelectField form={form} name="product_id" label="Product" options={(options?.products ?? []).map((product) => ({ label: product.sku, value: product.id }))} />
               <TextField form={form} name="variance_threshold_percent" label="Variance threshold %" type="number" />
-              <Button type="submit">Generate count</Button>
+              <Button className="w-full sm:w-auto" type="submit">Generate count</Button>
             </form>
           </Form>
         </CardContent>
       </Card>
-      <div className="grid gap-4">
+      <div className="grid min-w-0 gap-4">
         {counts.map((count) => (
           <Card key={count.id}>
             <CardHeader>
               <CardTitle className="flex items-center justify-between gap-4">
-                <span>{count.count_number}</span>
+                <span className="min-w-0 break-all">{count.count_number}</span>
                 <Badge>{count.status}</Badge>
               </CardTitle>
             </CardHeader>
             <CardContent className="grid gap-3">
               {((count.cycle_count_lines as Tables<"cycle_count_lines">[] | undefined) ?? []).map((line) => (
-                <div key={line.id} className="flex items-center gap-2">
+                <div key={line.id} className="flex flex-col gap-2 sm:flex-row sm:items-center">
                   <span className="min-w-0 flex-1 text-sm text-muted-foreground">Expected {formatNumber(line.expected_quantity)}</span>
                   <Input
-                    className="w-28"
+                    className="w-full sm:w-28"
                     defaultValue={line.counted_quantity}
                     type="number"
                     onBlur={(event) => submitMutation.mutate({ lineId: line.id, quantity: Number(event.target.value) })}

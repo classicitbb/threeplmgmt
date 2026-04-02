@@ -142,8 +142,8 @@ function InventoryDetailPage() {
 
   return (
     <AppShell>
-      <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
-        <Card>
+      <div className="grid min-w-0 gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+        <Card className="min-w-0">
           <CardHeader>
             <CardTitle>Inventory Detail</CardTitle>
             <CardDescription>Pallet, lot, status, and location context.</CardDescription>
@@ -164,7 +164,7 @@ function InventoryDetailPage() {
             ) : null}
           </CardContent>
         </Card>
-        <Card>
+        <Card className="min-w-0">
           <CardHeader>
             <CardTitle>Movement History</CardTitle>
           </CardHeader>
@@ -254,7 +254,7 @@ function PickTaskCard({
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center justify-between gap-4">
-          <span>{task.task_number}</span>
+          <span className="min-w-0 break-all">{task.task_number}</span>
           <Badge>{task.status}</Badge>
         </CardTitle>
         <CardDescription>Requested quantity: {formatNumber(task.requested_quantity)}</CardDescription>
@@ -262,7 +262,7 @@ function PickTaskCard({
       <CardContent>
         <Form {...form}>
           <form
-            className="grid gap-4 md:grid-cols-4"
+            className="grid gap-4 lg:grid-cols-4"
             onSubmit={form.handleSubmit((values) =>
               onConfirm({
                 taskId: task.id,
@@ -285,7 +285,7 @@ function PickTaskCard({
             <FormField control={form.control} name="shortReason" render={({ field }) => (
               <FormItem><FormLabel>Short reason</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>
             )} />
-            <Button className="md:col-span-4" type="submit">Confirm pick</Button>
+            <Button className="w-full lg:col-span-4" type="submit">Confirm pick</Button>
           </form>
         </Form>
       </CardContent>
