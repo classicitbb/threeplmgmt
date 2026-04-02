@@ -2029,7 +2029,8 @@ export type Database = {
       }
     }
     Functions: {
-      [_ in never]: never
+      has_role: { Args: { _role: string; _user_id: string }; Returns: boolean }
+      is_approved: { Args: never; Returns: boolean }
     }
     Enums: {
       count_scope: "location" | "zone" | "sku" | "spot"
