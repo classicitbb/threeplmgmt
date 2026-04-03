@@ -196,29 +196,30 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const items = NAVIGATION.filter((item) => item.roles.some((role) => roles.includes(role)));
 
   const navigation = (
-    <div className="flex h-full flex-col gap-4 bg-card/60 p-4 backdrop-blur">
+    <div className="flex h-full flex-col gap-4 overflow-hidden bg-card/60 p-4 backdrop-blur">
       <div className="rounded-xl border border-border bg-background/80 p-4">
         <p className="text-xs uppercase tracking-[0.24em] text-muted-foreground">Warehouse Wizard</p>
         <h1 className="mt-2 text-xl font-semibold">WMS Lite</h1>
-        <p className="mt-1 text-sm text-muted-foreground">2-warehouse, scan-first control room</p>
       </div>
-      <nav className="flex flex-1 flex-col gap-1">
-        {items.map((item) => (
-          <NavLink
-            key={item.to}
-            className={({ isActive }) =>
-              cn(
-                "rounded-lg px-3 py-2 text-sm transition-colors",
-                isActive || pathname === item.to
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:bg-secondary hover:text-foreground",
-              )
-            }
-            to={item.to}
-          >
-            {item.label}
-          </NavLink>
-        ))}
+      <nav className="flex-1 overflow-y-auto pr-1">
+        <div className="flex flex-col gap-1">
+          {items.map((item) => (
+            <NavLink
+              key={item.to}
+              className={({ isActive }) =>
+                cn(
+                  "rounded-lg px-3 py-2 text-sm transition-colors",
+                  isActive || pathname === item.to
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:bg-secondary hover:text-foreground",
+                )
+              }
+              to={item.to}
+            >
+              {item.label}
+            </NavLink>
+          ))}
+        </div>
       </nav>
       <Card>
         <CardContent className="flex flex-col gap-2 p-4">
@@ -234,10 +235,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   );
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="grid min-h-screen w-full grid-cols-1 lg:grid-cols-[280px_minmax(0,1fr)]">
-        <aside className="hidden border-r border-border lg:block">{navigation}</aside>
-        <main className="flex min-h-screen min-w-0 flex-col">
+    <div className="h-screen overflow-hidden bg-background">
+      <div className="grid h-full w-full grid-cols-1 overflow-hidden lg:grid-cols-[280px_minmax(0,1fr)]">
+        <aside className="hidden h-full overflow-hidden border-r border-border lg:block">{navigation}</aside>
+        <main className="flex min-h-0 min-w-0 flex-col overflow-hidden">
           <header className="sticky top-0 z-20 flex flex-wrap items-start justify-between gap-3 border-b border-border bg-background/85 px-4 py-3 backdrop-blur sm:items-center lg:px-6">
             <div className="min-w-0">
               <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Internal Operations</p>
@@ -260,7 +261,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </Sheet>
             </div>
           </header>
-          <div className="flex-1 min-w-0 px-4 py-4 sm:px-5 lg:px-6">{children}</div>
+          <div className="flex-1 min-h-0 min-w-0 overflow-y-auto px-4 py-4 sm:px-5 lg:px-6">{children}</div>
         </main>
       </div>
     </div>

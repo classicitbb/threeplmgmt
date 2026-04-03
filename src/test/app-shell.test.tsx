@@ -31,4 +31,22 @@ describe("AppShell", () => {
     expect(screen.getAllByText("Help").length).toBeGreaterThan(0);
     expect(screen.queryByText("Users")).not.toBeInTheDocument();
   });
+
+  it("keeps the page title compact and uses a dedicated scroll container for body content", () => {
+    const { container } = render(
+      <MemoryRouter initialEntries={["/dashboard"]}>
+        <AppShell>
+          <div>Content</div>
+        </AppShell>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText("WMS Lite")).toBeInTheDocument();
+    expect(screen.queryByText("2-warehouse, scan-first control room")).not.toBeInTheDocument();
+
+    const bodyScrollRegion = container.querySelector(".overflow-y-auto.px-4.py-4");
+    expect(bodyScrollRegion).not.toBeNull();
+    expect(bodyScrollRegion?.className).toContain("flex-1");
+    expect(bodyScrollRegion?.className).toContain("min-h-0");
+  });
 });
