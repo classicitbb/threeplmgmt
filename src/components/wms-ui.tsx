@@ -51,6 +51,7 @@ import {
 
 import { cn } from "@/lib/utils";
 import { HelpSidebar } from "@/components/help-sidebar";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -192,8 +193,16 @@ function ResourceFormDialog({
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { pathname } = useLocation();
-  const { profile, roles, signOut } = useAuth();
+  const { profile, roles, signOut, user } = useAuth();
   const items = NAVIGATION.filter((item) => item.roles.some((role) => roles.includes(role)));
+  const displayName = profile?.full_name?.trim() || user?.email || "Warehouse User";
+  const userMeta = user?.email || roles.map((role) => ROLE_LABELS[role]).join(" • ");
+  const initials = displayName
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("") || "WU";
 
   const navigation = (
     <div className="flex h-full flex-col gap-4 bg-card/60 p-4 backdrop-blur">
@@ -220,16 +229,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </NavLink>
         ))}
       </nav>
-      <Card>
-        <CardContent className="flex flex-col gap-2 p-4">
-          <p className="text-sm font-medium">{profile?.full_name ?? "Warehouse User"}</p>
-          <p className="text-xs text-muted-foreground">{roles.map((role) => ROLE_LABELS[role]).join(" • ")}</p>
-          <Button className="justify-start" variant="outline" onClick={() => void signOut()}>
-            <LogOut data-icon="inline-start" />
-            Sign out
-          </Button>
-        </CardContent>
-      </Card>
     </div>
   );
 
@@ -243,8 +242,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Internal Operations</p>
               <p className="text-sm text-muted-foreground">All critical actions are audit-backed and role-gated.</p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center justify-end gap-2 sm:gap-3">
               <HelpSidebar pathname={pathname} />
+              <div className="flex items-center gap-3 rounded-xl border border-border bg-card/80 px-3 py-2 shadow-sm">
+                <Avatar className="h-9 w-9">
+                  <AvatarFallback className="bg-primary/10 text-xs font-semibold text-primary">{initials}</AvatarFallback>
+                </Avatar>
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">{displayName}</p>
+                  <p className="truncate text-xs text-muted-foreground">{userMeta}</p>
+                </div>
+                <Button className="shrink-0" variant="outline" onClick={() => void signOut()}>
+                  <LogOut data-icon="inline-start" />
+                  Sign out
+                </Button>
+              </div>
               <Sheet>
                 <SheetTrigger asChild>
                   <Button className="lg:hidden" size="icon" variant="outline">
