@@ -19,4 +19,11 @@ describe("help content", () => {
     expect(searchHelpArticles("zpl").some((article) => article.id === "zebra-printing")).toBe(true);
     expect(searchHelpArticles("warehouse brain").some((article) => article.id === "warehouse-brain")).toBe(true);
   });
+
+  it("documents badges, lean controls, templates, and references", () => {
+    expect(searchHelpArticles("badge").some((article) => article.id === "user-management")).toBe(true);
+    expect(searchHelpArticles("csv").some((article) => article.id === "product-mastery")).toBe(true);
+    expect(searchHelpArticles("5s").some((article) => article.id === "lean-standard-work")).toBe(true);
+    expect(searchHelpArticles("gs1").some((article) => article.references?.some((reference) => reference.url.includes("gs1.org")))).toBe(true);
+  });
 });

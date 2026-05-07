@@ -71,6 +71,17 @@ export type ResourceDefinition<T extends string = string> = {
   archiveField?: ArchiveField;
 };
 
+export type ProfileUpdateInput = {
+  profileId: string;
+  full_name: string;
+  phone?: string | null;
+  default_warehouse_id?: string | null;
+  active: boolean;
+  approved: boolean;
+  user_code?: string | null;
+  badge_code?: string | null;
+};
+
 export type WarehouseSetupWarehouse = {
   code: string;
   name: string;
@@ -130,7 +141,7 @@ export const ROLE_LABELS: Record<RoleCode, string> = {
 };
 
 export const NAVIGATION: Array<{ label: string; to: AppRoute; roles: RoleCode[] }> = [
-  { label: "Dashboard", to: "/dashboard", roles: ["admin", "warehouse_manager", "inventory_clerk", "warehouse_operator"] },
+  { label: "Dashboard", to: "/dashboard", roles: ["admin", "warehouse_manager", "inventory_clerk", "warehouse_operator", "dispatch_driver"] },
   { label: "Warehouses", to: "/warehouses", roles: ["admin", "warehouse_manager"] },
   { label: "Zones", to: "/zones", roles: ["admin", "warehouse_manager"] },
   { label: "Locations", to: "/locations", roles: ["admin", "warehouse_manager"] },
@@ -140,7 +151,7 @@ export const NAVIGATION: Array<{ label: string; to: AppRoute; roles: RoleCode[] 
   { label: "Putaway", to: "/putaway-tasks", roles: ["admin", "warehouse_manager", "inventory_clerk", "warehouse_operator"] },
   { label: "Inventory", to: "/inventory-search", roles: ["admin", "warehouse_manager", "inventory_clerk", "warehouse_operator"] },
   { label: "Pick Lists", to: "/pick-lists", roles: ["admin", "warehouse_manager", "warehouse_operator"] },
-  { label: "Transfers", to: "/transfers", roles: ["admin", "warehouse_manager", "inventory_clerk"] },
+  { label: "Transfers", to: "/transfers", roles: ["admin", "warehouse_manager", "inventory_clerk", "dispatch_driver"] },
   { label: "Cycle Counts", to: "/cycle-counts", roles: ["admin", "warehouse_manager", "inventory_clerk", "warehouse_operator"] },
   { label: "Statuses", to: "/status", roles: ["admin", "warehouse_manager", "inventory_clerk"] },
   { label: "Reports", to: "/reports", roles: ["admin", "warehouse_manager", "inventory_clerk"] },
@@ -410,6 +421,49 @@ export function downloadCsv(filename: string, rows: Array<Record<string, unknown
   URL.revokeObjectURL(link.href);
 }
 
+export function downloadCsvTemplate(resource: ResourceDefinition) {
+  const rows = [
+    resource.fields.map((field) => field.name),
+    resource.fields.map((field) => field.label),
+    resource.fields.map((field) => templateExampleValue(resource.table, field)),
+    resource.fields.map((field) => (field.required ? "required" : "optional")),
+  ];
+  const csv = rows.map((row) => row.map((value) => JSON.stringify(value ?? "")).join(",")).join("\n");
+
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = `${resource.table}-import-template.csv`;
+  link.click();
+  URL.revokeObjectURL(link.href);
+}
+
+function templateExampleValue(resourceTable: string, field: FieldDefinition) {
+  if (field.name.endsWith("_id")) return `replace-with-${field.name}`;
+  if (field.type === "boolean") return "true";
+  if (field.type === "number") return field.name.includes("sequence") ? "10" : "1";
+  if (field.type === "select") return field.options?.[0]?.value ?? "";
+
+  const examples: Record<string, Record<string, string>> = {
+    locations: {
+      code: "MAIN-STG-A-01-L01",
+      aisle: "A",
+      bay: "01",
+      status: "active",
+    },
+    products: {
+      sku: "SKU-EXAMPLE-001",
+      barcode: "0123456789012",
+      name: "Example Product",
+      description: "Imported product master record",
+      product_family: "Ambient",
+      rotation_method: "fifo",
+    },
+  };
+
+  return examples[resourceTable]?.[field.name] ?? "";
+}
+
 export function parseCsv(text: string) {
   const [headerLine, ...lines] = text.split(/\r?\n/).filter(Boolean);
   const headers = headerLine.split(",").map((value) => value.trim());
@@ -519,6 +573,27 @@ export async function setResourceVisibility(
 export async function setProfileActive(profileId: string, active: boolean) {
   const { error } = await (supabase.from as any)("profiles").update({ active }).eq("id", profileId);
   if (error) throw error;
+  await logUserActivity("user_access_change", "profiles", profileId, { active });
+}
+
+export async function updateProfileDetails(input: ProfileUpdateInput) {
+  const payload = {
+    full_name: input.full_name,
+    phone: input.phone || null,
+    default_warehouse_id: input.default_warehouse_id || null,
+    active: input.active,
+    approved: input.approved,
+    user_code: input.user_code || null,
+    badge_code: input.badge_code || null,
+  };
+
+  const { error } = await (supabase.from as any)("profiles").update(payload).eq("id", input.profileId);
+  if (error) throw error;
+  await logUserActivity("user_access_change", "profiles", input.profileId, {
+    fields: Object.keys(payload),
+    approved: input.approved,
+    active: input.active,
+  });
 }
 
 export async function setUserRoleVisibility(userRoleId: string, hidden: boolean, reason?: string) {
@@ -530,6 +605,7 @@ export async function setUserRoleVisibility(userRoleId: string, hidden: boolean,
     })
     .eq("id", userRoleId);
   if (error) throw error;
+  await logUserActivity("user_access_change", "user_roles", userRoleId, { hidden, reason: reason ?? null });
 }
 
 export async function fetchOptions(includeHidden = false) {
@@ -550,6 +626,46 @@ export async function fetchOptions(includeHidden = false) {
   ]);
 
   return { warehouses, zones, locations, clients, products, packagingProfiles, pallets, profiles, roles, userRoles };
+}
+
+export async function listUserActivities(limit = 25) {
+  const { data, error } = await db("audit_events")
+    .select("*, profiles:actor_user_id(full_name, email)")
+    .in("entity_table", ["profiles", "user_roles"])
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function resolveLoginCode(loginCode: string) {
+  const { data, error } = await (supabase.rpc as any)("resolve_login_code", {
+    in_login_code: loginCode.trim(),
+  });
+  if (error) throw error;
+  return data as string | null;
+}
+
+export async function recordUserSignIn(method: "email" | "code" | "badge") {
+  await logUserActivity("user_sign_in", "profiles", undefined, { method });
+}
+
+async function logUserActivity(
+  eventType: string,
+  entityTable: string,
+  entityId?: string,
+  metadata?: Record<string, unknown>,
+) {
+  const { data: userData } = await supabase.auth.getUser();
+  const actorId = userData.user?.id;
+  if (!actorId) return;
+
+  await (supabase.rpc as any)("log_audit_event", {
+    in_event_type: eventType,
+    in_entity_table: entityTable,
+    in_entity_id: entityId ?? actorId,
+    in_metadata: metadata ?? {},
+  });
 }
 
 export function createDefaultWarehouseSetupPayload(): WarehouseSetupPayload {
@@ -1147,7 +1263,39 @@ export async function createTransferFlow(input: z.infer<typeof transferSchema>) 
   return transfer;
 }
 
-export async function dispatchTransfer(transferId: string) {
+export async function dispatchTransfer(transferId: string, driverSignoffCode: string) {
+  const { data: userData } = await supabase.auth.getUser();
+  const actorId = userData.user?.id;
+  if (!actorId) throw new Error("Sign in is required before dispatch.");
+
+  const normalizedCode = driverSignoffCode.trim();
+  if (!normalizedCode) throw new Error("Driver sign-off code is required before departure.");
+
+  const { data: profile, error: profileError } = await db("profiles")
+    .select("id, full_name, user_code, badge_code")
+    .eq("id", actorId)
+    .single();
+  if (profileError) throw profileError;
+
+  if (profile.user_code !== normalizedCode && profile.badge_code !== normalizedCode) {
+    throw new Error("Driver sign-off code did not match the signed-in user.");
+  }
+
+  const { data: roleRows, error: roleError } = await db("user_roles")
+    .select("roles!inner(code)")
+    .eq("user_id", actorId)
+    .eq("is_hidden", false);
+  if (roleError) throw roleError;
+  const allowedToSign = (roleRows ?? []).some((row: { roles?: { code?: string } }) =>
+    ["dispatch_driver", "warehouse_manager", "admin"].includes(row.roles?.code),
+  );
+  if (!allowedToSign) {
+    throw new Error("Only dispatch drivers, managers, or admins can sign off transfer departure.");
+  }
+
+  const { data: transfer, error: transferError } = await db("transfers").select("*").eq("id", transferId).single();
+  if (transferError) throw transferError;
+
   const { data: lines, error: linesError } = await db("transfer_lines").select("*").eq("transfer_id", transferId);
   if (linesError) throw linesError;
 
@@ -1159,7 +1307,28 @@ export async function dispatchTransfer(transferId: string) {
     ]);
   }
 
-  await db("transfers").update({ status: "in_progress", dispatched_at: new Date().toISOString() }).eq("id", transferId);
+  const dispatchedAt = new Date().toISOString();
+  await db("transfers")
+    .update({
+      status: "in_progress",
+      dispatched_at: dispatchedAt,
+      dispatch_signed_off_by: actorId,
+      dispatch_signed_off_at: dispatchedAt,
+      dispatch_signoff_code: normalizedCode,
+    })
+    .eq("id", transferId);
+
+  await (supabase.rpc as any)("log_audit_event", {
+    in_event_type: "transfer_driver_signoff",
+    in_entity_table: "transfers",
+    in_entity_id: transferId,
+    in_warehouse_id: transfer.source_warehouse_id,
+    in_metadata: {
+      transfer_number: transfer.transfer_number,
+      transfer_type: transfer.transfer_type,
+      signed_off_by: profile.full_name ?? actorId,
+    },
+  });
 }
 
 export async function receiveTransfer(transferId: string) {

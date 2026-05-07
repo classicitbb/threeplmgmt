@@ -6,14 +6,14 @@
 2. Run `supabase/seed.sql` for a starter warehouse network, clients, products, and packaging profiles.
 3. Create or invite users in Supabase Auth.
 4. Have each user sign in once so their `profiles` row is created automatically.
-5. Open the `Users` page and assign each user one or more roles.
+5. Open the `Users` page, approve the user, assign one or more roles, and issue a short user code plus optional badge code.
 
 ## Master Data Sequence
 
 1. Confirm both warehouses on the `Warehouses` page.
 2. Create or adjust `Zones`.
-3. Load `Locations` by form entry or CSV import.
-4. Create `Products`.
+3. Load `Locations` by form entry or CSV import. Use the in-app template button before importing.
+4. Create `Products`. Use the in-app template button before importing.
 5. Create `Packaging Profiles`.
 
 ## Operator Flow
@@ -21,7 +21,7 @@
 1. `Receiving`: create the receipt, pallet, lot, and putaway task.
 2. `Putaway Tasks`: scan pallet barcode, scan location barcode, confirm storage.
 3. `Pick Lists`: managers release work, operators execute tasks from the pick execution route.
-4. `Transfers`: create transfer request, dispatch, receive, then complete destination putaway.
+4. `Transfers`: create transfer request, scan/enter the driver's code for departure sign-off, dispatch, receive, then complete destination putaway.
 5. `Cycle Counts`: generate count sheets and submit counted quantities.
 6. `Statuses`: move pallets into hold, quarantine, damaged, available, or missing with an audit reason.
 
@@ -31,6 +31,7 @@
 - Stock is not stored until pallet barcode and location barcode are both confirmed.
 - Picking is FEFO for expirable SKUs and FIFO for non-expirable SKUs.
 - Status changes and movements are written to `audit_events`.
+- Sign-ins, user edits, role changes, and transfer departure sign-offs are written to `audit_events`.
 - Users are authorized through Supabase RLS, not just hidden navigation.
 
 ## Enterprise Go-Live Checklist
@@ -52,3 +53,13 @@
 ## API and Integration Notes
 
 See `docs/api-v1.md` for the versioned API contract, NetSuite adapter defaults, webhook expectations, and label generation behavior.
+
+## Enterprise Migration Order
+
+Run the enterprise migrations in separate SQL Editor executions:
+
+1. `supabase/migrations/20260507123000_enterprise_wms_extensions_part1_schema.sql`
+2. `supabase/migrations/20260507123100_enterprise_wms_extensions_part2_policies_seed.sql`
+3. `supabase/migrations/20260507124500_user_badges_activity_transfer_signoff.sql`
+
+Part 1 creates types, tables, and indexes. Part 2 enables RLS, creates policies, and inserts default report and ZPL label definitions. The final migration adds user codes, badge codes, activity event types, and transfer departure sign-off fields.

@@ -3,7 +3,7 @@ import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm, type UseFormReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { BarChart3, Bot, Camera, ClipboardCheck, Download, Eye, EyeOff, Forklift, Loader2, LogOut, Menu, Plus, Printer, RadioTower, RotateCcw, Search, Truck, Upload } from "lucide-react";
+import { BarChart3, Bot, Boxes, Building2, Camera, ClipboardCheck, ClipboardList, Download, Eye, EyeOff, FileDown, Forklift, HelpCircle, Home, LayoutDashboard, Loader2, LogOut, MapPinned, Menu, Package, PanelLeftClose, PanelLeftOpen, Plus, Printer, RadioTower, RotateCcw, Search, Settings, ShieldCheck, Tags, Truck, Upload, Users } from "lucide-react";
 import { toast } from "sonner";
 import { z } from "zod";
 
@@ -24,6 +24,7 @@ import {
   cycleCountSchema,
   resetWmsData,
   downloadCsv,
+  downloadCsvTemplate,
   fetchOptions,
   formatDate,
   formatNumber,
@@ -31,6 +32,7 @@ import {
   getPutawayTasks,
   getReportData,
   importCsvToResource,
+  listUserActivities,
   listCycleCounts,
   listPickLists,
   listRecords,
@@ -41,6 +43,7 @@ import {
   receiveTransfer,
   searchInventory,
   setProfileActive,
+  updateProfileDetails,
   statusChangeSchema,
   setResourceVisibility,
   setUserRoleVisibility,
@@ -75,8 +78,60 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/co
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 const baseFormSchema = z.record(z.any());
+const appTitle = "Warehouse Wizard Enterprise WMS";
+
+type ProfileRow = {
+  id: string;
+  email?: string | null;
+  full_name?: string | null;
+  phone?: string | null;
+  default_warehouse_id?: string | null;
+  active?: boolean | null;
+  approved?: boolean | null;
+  user_code?: string | null;
+  badge_code?: string | null;
+};
+
+type WarehouseOption = {
+  id: string;
+  name: string;
+};
+
+type UserActivityRow = {
+  id: string;
+  event_type: string;
+  entity_table: string;
+  actor_user_id?: string | null;
+  created_at: string;
+  profiles?: { full_name?: string | null; email?: string | null } | null;
+};
+
+const navIcons: Record<AppRoute, typeof LayoutDashboard> = {
+  "/": Home,
+  "/dashboard": LayoutDashboard,
+  "/warehouses": Building2,
+  "/zones": Boxes,
+  "/locations": MapPinned,
+  "/products": Package,
+  "/packaging-profiles": Tags,
+  "/receiving": Download,
+  "/putaway-tasks": Forklift,
+  "/inventory-search": Search,
+  "/inventory/:balanceId": Search,
+  "/pick-lists": ClipboardList,
+  "/pick-lists/:pickListId": ClipboardList,
+  "/transfers": Truck,
+  "/cycle-counts": ClipboardCheck,
+  "/status": ShieldCheck,
+  "/reports": BarChart3,
+  "/users": Users,
+  "/settings": Settings,
+  "/help": HelpCircle,
+  "/setup-wizard": Settings,
+};
 
 function TableFrame({
   children,
@@ -203,6 +258,7 @@ function ResourceFormDialog({
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { pathname } = useLocation();
   const { profile, roles, signOut, user } = useAuth();
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const items = NAVIGATION.filter((item) => item.roles.some((role) => roles.includes(role)));
   const displayName = profile?.full_name?.trim() || user?.email || "Warehouse User";
   const userMeta = user?.email || roles.map((role) => ROLE_LABELS[role]).join(" • ");
@@ -214,29 +270,47 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     .join("") || "WU";
 
   const navigation = (
-    <div className="flex h-full flex-col gap-4 overflow-hidden bg-card/60 p-4 backdrop-blur">
-      <div className="rounded-xl border border-border bg-background/80 p-4">
-        <p className="text-xs uppercase tracking-[0.24em] text-muted-foreground">Warehouse Wizard</p>
-        <h1 className="mt-2 text-xl font-semibold">WMS Lite</h1>
-      </div>
+    <div className={cn("flex h-full flex-col gap-3 overflow-hidden bg-card/60 p-3 backdrop-blur", sidebarCollapsed && "items-center")}>
+      <Button
+        className="hidden h-11 w-11 shrink-0 lg:inline-flex"
+        size="icon"
+        variant="outline"
+        onClick={() => setSidebarCollapsed((current) => !current)}
+        aria-label={sidebarCollapsed ? "Expand navigation" : "Collapse navigation"}
+      >
+        {sidebarCollapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
+      </Button>
       <nav className="flex-1 overflow-y-auto pr-1">
-        <div className="flex flex-col gap-1">
-          {items.map((item) => (
-            <NavLink
-              key={item.to}
-              className={({ isActive }) =>
-                cn(
-                  "rounded-lg px-3 py-2 text-sm transition-colors",
-                  isActive || pathname === item.to
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:bg-secondary hover:text-foreground",
-                )
-              }
-              to={item.to}
-            >
-              {item.label}
-            </NavLink>
-          ))}
+        <div className="flex flex-col gap-1.5">
+          {items.map((item) => {
+            const Icon = navIcons[item.to] ?? LayoutDashboard;
+            const link = (
+              <NavLink
+                key={item.to}
+                className={({ isActive }) =>
+                  cn(
+                    "flex min-h-12 items-center gap-3 rounded-lg px-3 text-sm font-medium transition-colors",
+                    sidebarCollapsed && "h-12 w-12 justify-center px-0",
+                    isActive || pathname === item.to
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:bg-secondary hover:text-foreground",
+                  )
+                }
+                to={item.to}
+                aria-label={item.label}
+              >
+                <Icon className="h-5 w-5 shrink-0" />
+                {sidebarCollapsed ? null : <span className="truncate">{item.label}</span>}
+              </NavLink>
+            );
+
+            return sidebarCollapsed ? (
+              <Tooltip key={item.to}>
+                <TooltipTrigger asChild>{link}</TooltipTrigger>
+                <TooltipContent side="right">{item.label}</TooltipContent>
+              </Tooltip>
+            ) : link;
+          })}
         </div>
       </nav>
     </div>
@@ -244,44 +318,49 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="h-screen overflow-hidden bg-background">
-      <div className="grid h-full w-full grid-cols-1 overflow-hidden lg:grid-cols-[280px_minmax(0,1fr)]">
+      <div
+        className={cn(
+          "grid h-full w-full grid-cols-1 grid-rows-[auto_minmax(0,1fr)] overflow-hidden lg:grid-cols-[280px_minmax(0,1fr)]",
+          sidebarCollapsed && "lg:grid-cols-[76px_minmax(0,1fr)]",
+        )}
+      >
+        <header className="col-span-full flex flex-wrap items-center justify-between gap-3 border-b border-border bg-background/90 px-4 py-3 backdrop-blur lg:px-6">
+          <div className="min-w-0">
+            <h1 className="truncate text-lg font-semibold sm:text-xl">{appTitle}</h1>
+            <p className="text-xs text-muted-foreground sm:text-sm">Scan-first warehouse control, role-gated and audit-backed.</p>
+          </div>
+          <div className="flex flex-wrap items-center justify-end gap-2 sm:gap-3">
+            <HelpSidebar pathname={pathname} />
+            <div className="flex min-w-0 items-center gap-3 rounded-lg border border-border bg-card/80 px-3 py-2 shadow-sm">
+              <Avatar className="h-9 w-9">
+                <AvatarFallback className="bg-primary/10 text-xs font-semibold text-primary">{initials}</AvatarFallback>
+              </Avatar>
+              <div className="hidden min-w-0 sm:block">
+                <p className="truncate text-sm font-medium">{displayName}</p>
+                <p className="truncate text-xs text-muted-foreground">{userMeta}</p>
+              </div>
+              <Button className="h-10 shrink-0" variant="outline" onClick={() => void signOut()}>
+                <LogOut data-icon="inline-start" />
+                <span className="hidden sm:inline">Sign out</span>
+              </Button>
+            </div>
+            <Sheet>
+              <SheetTrigger asChild>
+                <Button className="h-11 w-11 lg:hidden" size="icon" variant="outline">
+                  <Menu />
+                </Button>
+              </SheetTrigger>
+              <SheetContent side="left" className="w-[18rem] p-0">
+                <SheetHeader className="sr-only">
+                  <SheetTitle>Navigation</SheetTitle>
+                </SheetHeader>
+                {navigation}
+              </SheetContent>
+            </Sheet>
+          </div>
+        </header>
         <aside className="hidden h-full overflow-hidden border-r border-border lg:block">{navigation}</aside>
         <main className="flex min-h-0 min-w-0 flex-col overflow-hidden">
-          <header className="sticky top-0 z-20 flex flex-wrap items-start justify-between gap-3 border-b border-border bg-background/85 px-4 py-3 backdrop-blur sm:items-center lg:px-6">
-            <div className="min-w-0">
-              <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Internal Operations</p>
-              <p className="text-sm text-muted-foreground">All critical actions are audit-backed and role-gated.</p>
-            </div>
-            <div className="flex flex-wrap items-center justify-end gap-2 sm:gap-3">
-              <HelpSidebar pathname={pathname} />
-              <div className="flex items-center gap-3 rounded-xl border border-border bg-card/80 px-3 py-2 shadow-sm">
-                <Avatar className="h-9 w-9">
-                  <AvatarFallback className="bg-primary/10 text-xs font-semibold text-primary">{initials}</AvatarFallback>
-                </Avatar>
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium">{displayName}</p>
-                  <p className="truncate text-xs text-muted-foreground">{userMeta}</p>
-                </div>
-                <Button className="shrink-0" variant="outline" onClick={() => void signOut()}>
-                  <LogOut data-icon="inline-start" />
-                  Sign out
-                </Button>
-              </div>
-              <Sheet>
-                <SheetTrigger asChild>
-                  <Button className="lg:hidden" size="icon" variant="outline">
-                    <Menu />
-                  </Button>
-                </SheetTrigger>
-                <SheetContent side="left" className="p-0">
-                  <SheetHeader className="sr-only">
-                    <SheetTitle>Navigation</SheetTitle>
-                  </SheetHeader>
-                  {navigation}
-                </SheetContent>
-              </Sheet>
-            </div>
-          </header>
           <div className="flex-1 min-h-0 min-w-0 overflow-y-auto px-4 py-4 sm:px-5 lg:px-6">{children}</div>
         </main>
       </div>
@@ -395,29 +474,35 @@ export function ResourcePage({
 
 function ImportButton({ resource }: { resource: ResourceDefinition }) {
   return (
-    <Button
-      variant="outline"
-      onClick={() => {
-        const input = document.createElement("input");
-        input.type = "file";
-        input.accept = ".csv";
-        input.onchange = async () => {
-          const file = input.files?.[0];
-          if (!file) return;
-          const errors = await importCsvToResource(resource, file);
-          if (errors.length > 0) {
-            downloadCsv(`${resource.table}-errors.csv`, errors);
-            toast.error(`Imported with ${errors.length} row errors`);
-          } else {
-            toast.success(`${resource.title} imported`);
-          }
-        };
-        input.click();
-      }}
-    >
-      <Upload data-icon="inline-start" />
-      Import CSV
-    </Button>
+    <>
+      <Button variant="outline" onClick={() => downloadCsvTemplate(resource)}>
+        <FileDown data-icon="inline-start" />
+        Template
+      </Button>
+      <Button
+        variant="outline"
+        onClick={() => {
+          const input = document.createElement("input");
+          input.type = "file";
+          input.accept = ".csv";
+          input.onchange = async () => {
+            const file = input.files?.[0];
+            if (!file) return;
+            const errors = await importCsvToResource(resource, file);
+            if (errors.length > 0) {
+              downloadCsv(`${resource.table}-errors.csv`, errors);
+              toast.error(`Imported with ${errors.length} row errors`);
+            } else {
+              toast.success(`${resource.title} imported`);
+            }
+          };
+          input.click();
+        }}
+      >
+        <Upload data-icon="inline-start" />
+        Import CSV
+      </Button>
+    </>
   );
 }
 
@@ -1127,6 +1212,7 @@ export function TransfersPage() {
   const queryClient = useQueryClient();
   const { data: options } = useQuery({ queryKey: ["options"], queryFn: () => fetchOptions() });
   const { data: transfers = [] } = useQuery({ queryKey: ["transfers"], queryFn: listTransfers });
+  const [signoffCodes, setSignoffCodes] = useState<Record<string, string>>({});
   const form = useForm<z.infer<typeof transferSchema>>({
     resolver: zodResolver(transferSchema),
   });
@@ -1141,11 +1227,12 @@ export function TransfersPage() {
   });
 
   const dispatchMutation = useMutation({
-    mutationFn: async (transferId: string) => dispatchTransfer(transferId),
+    mutationFn: async (transferId: string) => dispatchTransfer(transferId, signoffCodes[transferId] ?? ""),
     onSuccess: async () => {
-      toast.success("Transfer dispatched");
+      toast.success("Driver departure signed off and transfer dispatched");
       await queryClient.invalidateQueries({ queryKey: ["transfers"] });
     },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Transfer dispatch failed"),
   });
 
   const receiveMutation = useMutation({
@@ -1202,11 +1289,29 @@ export function TransfersPage() {
                 <span className="min-w-0 break-all">{transfer.transfer_number}</span>
                 <Badge>{transfer.status}</Badge>
               </CardTitle>
-              <CardDescription>{transfer.notes || "Pallet transfer"}</CardDescription>
+              <CardDescription>
+                {transfer.notes || "Pallet transfer"}
+                {transfer.dispatch_signed_off_at ? ` · departed ${formatDate(transfer.dispatch_signed_off_at)}` : ""}
+              </CardDescription>
             </CardHeader>
-            <CardContent className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-              <Button className="w-full sm:w-auto" variant="outline" onClick={() => dispatchMutation.mutate(transfer.id)}>Dispatch</Button>
-              <Button className="w-full sm:w-auto" onClick={() => receiveMutation.mutate(transfer.id)}>Receive</Button>
+            <CardContent className="grid gap-3">
+              <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-end">
+                <div>
+                  <label className="text-sm font-medium" htmlFor={`signoff-${transfer.id}`}>Driver departure code</label>
+                  <Input
+                    id={`signoff-${transfer.id}`}
+                    className="mt-1"
+                    placeholder="Scan badge or enter user code"
+                    value={signoffCodes[transfer.id] ?? ""}
+                    onChange={(event) => setSignoffCodes((current) => ({ ...current, [transfer.id]: event.target.value }))}
+                  />
+                </div>
+                <Button className="w-full sm:w-auto" variant="outline" onClick={() => dispatchMutation.mutate(transfer.id)} disabled={transfer.status === "completed"}>
+                  Dispatch
+                </Button>
+                <Button className="w-full sm:w-auto" onClick={() => receiveMutation.mutate(transfer.id)}>Receive</Button>
+              </div>
+              <p className="text-xs text-muted-foreground">Departure requires the signed-in driver/admin/manager to scan their badge or enter their user code before stock can leave.</p>
             </CardContent>
           </Card>
         ))}
@@ -1485,6 +1590,7 @@ export function UsersRolesPage() {
   const queryClient = useQueryClient();
   const [includeHidden, setIncludeHidden] = useState(false);
   const { data: options } = useQuery({ queryKey: ["options", includeHidden], queryFn: () => fetchOptions(includeHidden) });
+  const { data: activities = [] } = useQuery({ queryKey: ["user-activities"], queryFn: () => listUserActivities() });
   const [selectedProfile, setSelectedProfile] = useState("");
   const [selectedRole, setSelectedRole] = useState("");
 
@@ -1510,6 +1616,18 @@ export function UsersRolesPage() {
       toast.success(variables.active ? "Profile enabled" : "Profile disabled");
       await queryClient.invalidateQueries({ queryKey: ["options"] });
     },
+  });
+
+  const profileEditMutation = useMutation({
+    mutationFn: updateProfileDetails,
+    onSuccess: async () => {
+      toast.success("User profile updated");
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["options"] }),
+        queryClient.invalidateQueries({ queryKey: ["user-activities"] }),
+      ]);
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Profile update failed"),
   });
 
   return (
@@ -1542,6 +1660,22 @@ export function UsersRolesPage() {
           <Button variant="outline" onClick={() => setIncludeHidden((current) => !current)}>
             {includeHidden ? "Hide archived access" : "Show archived access"}
           </Button>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>Editable users</CardTitle>
+          <CardDescription>Admins approve users, assign operational roles, issue user codes, and badge identifiers.</CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-3">
+          {((options?.profiles ?? []) as ProfileRow[]).map((profile) => (
+            <UserProfileEditor
+              key={profile.id}
+              profile={profile}
+              warehouses={options?.warehouses ?? []}
+              onSave={(values) => profileEditMutation.mutate(values)}
+            />
+          ))}
         </CardContent>
       </Card>
       <Card>
@@ -1583,7 +1717,114 @@ export function UsersRolesPage() {
           ))}
         </CardContent>
       </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>User activities</CardTitle>
+          <CardDescription>Profile, sign-in, and role changes are recorded for management review.</CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-2">
+          {(activities as UserActivityRow[]).map((activity) => (
+            <div key={activity.id} className="rounded-lg border border-border px-3 py-2 text-sm">
+              <div className="flex items-center justify-between gap-3">
+                <span className="font-medium">{activity.event_type}</span>
+                <span className="text-xs text-muted-foreground">{formatDate(activity.created_at)}</span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {activity.profiles?.full_name ?? activity.actor_user_id ?? "System"} · {activity.entity_table}
+              </p>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
     </div>
+  );
+}
+
+function UserProfileEditor({
+  profile,
+  warehouses,
+  onSave,
+}: {
+  profile: ProfileRow;
+  warehouses: WarehouseOption[];
+  onSave: (values: Parameters<typeof updateProfileDetails>[0]) => void;
+}) {
+  const [values, setValues] = useState({
+    full_name: profile.full_name ?? "",
+    phone: profile.phone ?? "",
+    default_warehouse_id: profile.default_warehouse_id ?? "",
+    active: profile.active ?? true,
+    approved: profile.approved ?? false,
+    user_code: profile.user_code ?? "",
+    badge_code: profile.badge_code ?? "",
+  });
+
+  return (
+    <Dialog>
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border px-3 py-3">
+        <div className="min-w-0">
+          <p className="font-medium">{profile.full_name ?? profile.email ?? profile.id}</p>
+          <p className="text-xs text-muted-foreground">{profile.email} · {profile.user_code ?? "no code"}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Badge variant={profile.approved ? "default" : "secondary"}>{profile.approved ? "Approved" : "Pending"}</Badge>
+          <DialogTrigger asChild>
+            <Button size="sm" variant="outline">Edit</Button>
+          </DialogTrigger>
+        </div>
+      </div>
+      <DialogContent className="max-h-[90vh] overflow-hidden sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Edit user</DialogTitle>
+          <DialogDescription>Identity is controlled by Supabase Auth; operational access is controlled here by admins.</DialogDescription>
+        </DialogHeader>
+        <ScrollArea className="max-h-[70vh] pr-4">
+          <div className="grid gap-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid gap-2">
+                <label className="text-sm font-medium">Full name</label>
+                <Input value={values.full_name} onChange={(event) => setValues((current) => ({ ...current, full_name: event.target.value }))} />
+              </div>
+              <div className="grid gap-2">
+                <label className="text-sm font-medium">Phone</label>
+                <Input value={values.phone} onChange={(event) => setValues((current) => ({ ...current, phone: event.target.value }))} />
+              </div>
+              <div className="grid gap-2">
+                <label className="text-sm font-medium">User code</label>
+                <Input value={values.user_code} onChange={(event) => setValues((current) => ({ ...current, user_code: event.target.value }))} />
+              </div>
+              <div className="grid gap-2">
+                <label className="text-sm font-medium">Badge code</label>
+                <Input value={values.badge_code} onChange={(event) => setValues((current) => ({ ...current, badge_code: event.target.value }))} />
+              </div>
+              <div className="grid gap-2 sm:col-span-2">
+                <label className="text-sm font-medium">Default warehouse</label>
+                <Select value={values.default_warehouse_id || "none"} onValueChange={(value) => setValues((current) => ({ ...current, default_warehouse_id: value === "none" ? "" : value }))}>
+                  <SelectTrigger><SelectValue placeholder="Select default warehouse" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No default warehouse</SelectItem>
+                    {warehouses.map((warehouse) => (
+                      <SelectItem key={warehouse.id} value={warehouse.id}>{warehouse.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <label className="flex items-center gap-3 rounded-md border border-border px-3 py-2 text-sm">
+                <Checkbox checked={values.active} onCheckedChange={(checked) => setValues((current) => ({ ...current, active: Boolean(checked) }))} />
+                Active
+              </label>
+              <label className="flex items-center gap-3 rounded-md border border-border px-3 py-2 text-sm">
+                <Checkbox checked={values.approved} onCheckedChange={(checked) => setValues((current) => ({ ...current, approved: Boolean(checked) }))} />
+                Approved
+              </label>
+            </div>
+            <Button onClick={() => onSave({ profileId: profile.id, ...values })}>Save user</Button>
+          </div>
+        </ScrollArea>
+      </DialogContent>
+    </Dialog>
   );
 }
 

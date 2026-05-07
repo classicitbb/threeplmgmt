@@ -41,7 +41,7 @@ describe("AppShell", () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByText("WMS Lite")).toBeInTheDocument();
+    expect(screen.getByText("Warehouse Wizard Enterprise WMS")).toBeInTheDocument();
     expect(screen.queryByText("2-warehouse, scan-first control room")).not.toBeInTheDocument();
 
     const bodyScrollRegion = container.querySelector(".overflow-y-auto.px-4.py-4");

@@ -27,8 +27,21 @@ Warehouse Wizard is a production-oriented internal WMS app for a 3PL-style wareh
 
 - The migrations create the required core tables, enums, helper functions, views, storage buckets, indexes, profile approval fields, and RLS policies.
 - New auth users automatically get a `profiles` row through `handle_new_user()`.
-- Roles are assigned through `roles` and `user_roles`.
+- Roles are assigned through `roles` and `user_roles`; admins approve, edit, disable, and badge/code-enable users from `/users`.
 - Storage buckets are created for `labels`, `imports`, and `attachments`.
+
+## Seeded Test Users
+
+All seeded users use password `Warehouse123!`. They can sign in by email, user code, or badge code.
+
+| Role | Email | User code | Badge code |
+| --- | --- | --- | --- |
+| Admin | `admin@warehousewizard.local` | `ADMIN01` | `BADGE-ADMIN01` |
+| Warehouse Manager | `manager@warehousewizard.local` | `MGR01` | `BADGE-MGR01` |
+| Inventory Clerk | `clerk@warehousewizard.local` | `CLK01` | `BADGE-CLK01` |
+| Warehouse Operator | `operator@warehousewizard.local` | `OPR01` | `BADGE-OPR01` |
+| Dispatch Driver | `driver@warehousewizard.local` | `DRV01` | `BADGE-DRV01` |
+| Warehouse Supervisor | `supervisor@warehousewizard.local` | `SUP01` | `BADGE-SUP01` |
 
 ## Key Routes
 
@@ -58,7 +71,7 @@ Warehouse Wizard is a production-oriented internal WMS app for a 3PL-style wareh
 - Putaway confirms both pallet barcode and location barcode before stock becomes available.
 - Inventory search reads from `inventory_search_view`.
 - Pick list creation allocates from available inventory and creates pick tasks.
-- Transfers preserve pallet identity and create follow-on tasks.
+- Transfers preserve pallet identity, require driver departure sign-off before dispatch, and create follow-on tasks.
 - Cycle counts generate count lines and write adjustment records for variances.
 - Status changes write audit entries and stock adjustment records.
 - The dashboard has Floor, Dock, and Office modes for operator start-of-shift work, staged delivery handoff, and management monitoring.
@@ -72,6 +85,7 @@ Warehouse Wizard is a production-oriented internal WMS app for a 3PL-style wareh
 - NetSuite-first integration model through `integration_connections`, `external_record_links`, `integration_sync_jobs`, payload logs, and dead letters.
 - Zebra-first printing model through `label_templates`, `printer_stations`, and `print_jobs`.
 - Warehouse Brain recommendation storage through `ai_recommendations`.
+- Enterprise migrations are split into `20260507123000_enterprise_wms_extensions_part1_schema.sql`, `20260507123100_enterprise_wms_extensions_part2_policies_seed.sql`, and `20260507124500_user_badges_activity_transfer_signoff.sql` for easier Supabase SQL Editor execution.
 
 ## Commands
 

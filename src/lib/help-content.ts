@@ -3,6 +3,12 @@ export type HelpSection = {
   content: string[];
 };
 
+export type HelpReference = {
+  label: string;
+  url: string;
+  reason: string;
+};
+
 export type HelpArticle = {
   id: string;
   title: string;
@@ -10,6 +16,8 @@ export type HelpArticle = {
   audience: string;
   keywords: string[];
   sections: HelpSection[];
+  acronyms?: Record<string, string>;
+  references?: HelpReference[];
 };
 
 export type RouteHelpDefinition = {
@@ -30,7 +38,7 @@ const routeHelpDefinitions: Record<string, RouteHelpDefinition> = {
     keyActions: ["Review pallet counts and open work", "Spot hold/quarantine stock", "Watch occupancy trends"],
     commonMistakes: ["Using dashboard totals as a substitute for task execution detail", "Ignoring hold/quarantine trends before releasing work"],
     permissions: "Visible to admins, managers, clerks, and operators.",
-    wikiArticleIds: ["enterprise-dashboard-modes", "warehouse-brain", "reporting-basics"],
+    wikiArticleIds: ["enterprise-dashboard-modes", "warehouse-brain", "lean-standard-work", "reporting-basics"],
   },
   warehouses: {
     id: "warehouses",
@@ -223,14 +231,19 @@ export const helpArticles: HelpArticle[] = [
   },
   {
     id: "user-management",
-    title: "Users, Roles, and Access Removal",
+    title: "Users, Roles, Badges, and Access Removal",
     module: "users",
     audience: "Admins",
-    keywords: ["users", "roles", "remove access", "disable profile", "restore"],
+    keywords: ["users", "roles", "remove access", "disable profile", "restore", "badge", "user code", "activity"],
     sections: [
-      { title: "Role Assignment", content: ["Users appear after first sign-in and can then receive one or more roles.", "Role assignments should be hidden or restored, not deleted outright, so access history is preserved."] },
-      { title: "Profile Control", content: ["Disable a profile when the person should not sign in.", "Use role hiding when the person should remain active but lose one area of access."] },
+      { title: "Admin Control Model", content: ["Users are not self-authorizing. An admin approves the profile, assigns roles, issues a short user code, and may issue a scannable badge code for shared warehouse tablets.", "The user code is shorter than an email address because operators wearing gloves or working at a dock need fewer keystrokes. Passwords are still required so a lost badge is not enough to sign in."] },
+      { title: "Role Assignment", content: ["Assign the smallest role that lets the person complete their standard work. Operators see execution queues; clerks see receiving, counts, product data, and inventory; drivers see transfer handoff; admins keep full access.", "Role assignments should be hidden or restored, not deleted outright, so access history is preserved."] },
+      { title: "Profile Control", content: ["Disable a profile when the person should not sign in. Hide a role assignment when the person remains active but should lose one area of access.", "Every profile or role change is written to activities so supervisors can answer who changed access, when, and why."] },
     ],
+    acronyms: {
+      SSO: "Single sign-on. Badge/code login behaves like SSO for the floor but remains built into the WMS.",
+      WMS: "Warehouse management system.",
+    },
   },
   {
     id: "receiving-flow",
@@ -280,10 +293,17 @@ export const helpArticles: HelpArticle[] = [
     title: "Warehouse Transfers",
     module: "transfers",
     audience: "Managers, clerks, and dispatch staff",
-    keywords: ["transfer", "dispatch", "receive", "inter-warehouse", "in transit"],
+    keywords: ["transfer", "dispatch", "receive", "inter-warehouse", "intra-warehouse", "in transit", "driver signoff"],
     sections: [
-      { title: "Transfer Stages", content: ["Transfers move a pallet from source warehouse, to in-transit, then to receiving at the destination.", "Destination receipt should be followed by directed putaway."] },
+      { title: "Transfer Stages", content: ["Transfers move a pallet from source warehouse, to in-transit, then to receiving at the destination. The source record, destination record, pallet identity, and lot identity stay connected.", "Destination receipt should be followed by directed putaway so inventory does not sit invisible in a receiving lane."] },
+      { title: "Driver Departure Sign-Off", content: ["Before dispatch, the driver scans their badge or enters their user code. This creates a signed handoff that stock has physically departed.", "This control prevents the waste loop where the system says a pallet is in transit while the pallet is still in staging, loaded on the wrong vehicle, or awaiting paperwork."] },
+      { title: "Lean Reasoning", content: ["Treat transfer departure as a quality gate: scan pallet, validate route, sign off driver, then move to in-transit. The extra seconds prevent motion, waiting, searching, and correction work later.", "If a transfer is blocked, stop the flow visibly instead of dispatching a bad load. That is an Andon-style escalation while the problem is still cheap to fix."] },
     ],
+    acronyms: {
+      FEFO: "First Expired, First Out.",
+      FIFO: "First In, First Out.",
+      Andon: "A lean visual control that signals a problem and prompts rapid response.",
+    },
   },
   {
     id: "cycle-counts",
@@ -292,7 +312,16 @@ export const helpArticles: HelpArticle[] = [
     audience: "Clerks, operators, and supervisors",
     keywords: ["cycle count", "variance", "count sheet", "stock check"],
     sections: [
-      { title: "Counting Rules", content: ["Cycle counts can target a location, zone, SKU, or spot check.", "Entered quantities update stock and create adjustment records when variances exist."] },
+      { title: "Counting Rules", content: ["Cycle counts can target a location, zone, SKU, or spot check. High-value, high-risk, and high-velocity stock should be counted more often than slow, stable stock.", "Entered quantities update stock and create adjustment records when variances exist. Variance is evidence of a broken handoff somewhere in receiving, putaway, picking, transfer, or status control."] },
+      { title: "Six Sigma View", content: ["DPMO is a defect-per-million-opportunities signal. In WMS terms, a defect can be a wrong location, wrong quantity, missing pallet, or wrong status.", "Use DMAIC thinking: define the defect, measure where it happens, analyze the cause, improve the process, and control it with scans, roles, labels, and standard work."] },
+    ],
+    acronyms: {
+      DPMO: "Defects per million opportunities.",
+      DMAIC: "Define, Measure, Analyze, Improve, Control.",
+      SKU: "Stock keeping unit.",
+    },
+    references: [
+      { label: "ASCM Supply Chain Dictionary", url: "https://learn.ascm.org/sfc/servlet.shepherd/document/download/069R3000006PlDHIA0?operationContext=S1", reason: "Useful for standard inventory and cycle-count terminology." },
     ],
   },
   {
@@ -332,8 +361,14 @@ export const helpArticles: HelpArticle[] = [
     audience: "Admins and warehouse managers",
     keywords: ["locations", "generation", "aisles", "bays", "levels", "capacity"],
     sections: [
-      { title: "Templates", content: ["Location templates generate consistent codes and capacities across a zone.", "Aisle, bay, and level counts should match the real warehouse footprint you want operators to use."] },
+      { title: "Templates", content: ["Location templates generate consistent codes and capacities across a zone. Codes should be readable in the aisle and sortable in the system.", "Aisle, bay, and level counts should match the real warehouse footprint you want operators to use. Never create virtual locations that operators cannot physically find."] },
+      { title: "Import Template", content: ["Use the CSV template for bulk location creation when you already know the warehouse and zone IDs. Required fields prevent partial locations from entering directed work.", "Sequence fields should reflect walking and travel paths. Good sequencing removes motion waste by guiding putaway and picking through a sensible route."] },
     ],
+    acronyms: {
+      CSV: "Comma-separated values file.",
+      ID: "Unique database identifier.",
+      WIP: "Work in process.",
+    },
   },
   {
     id: "product-mastery",
@@ -342,8 +377,15 @@ export const helpArticles: HelpArticle[] = [
     audience: "Clerks and supervisors",
     keywords: ["products", "sku", "master data", "rotation", "temperature"],
     sections: [
-      { title: "Critical Fields", content: ["The most important product controls are owner, rotation method, temperature requirement, and tracking flags.", "Discontinued products should be hidden rather than deleted."] },
+      { title: "Critical Fields", content: ["The most important product controls are owner, rotation method, temperature requirement, and tracking flags. These fields drive receiving checks, putaway location eligibility, pick rotation, labels, and reports.", "Discontinued products should be hidden rather than deleted so historical receipts, picks, counts, and transfers still explain themselves."] },
+      { title: "Import Template", content: ["Use the CSV template before importing products. Fill required identifiers first: SKU, name, client owner, temperature requirement, rotation method, and active flag.", "Do not import unknown temperature or rotation values. Bad master data creates waste immediately because every downstream scan asks the system to enforce the wrong rule."] },
     ],
+    acronyms: {
+      SKU: "Stock keeping unit.",
+      CSV: "Comma-separated values file.",
+      FEFO: "First Expired, First Out.",
+      FIFO: "First In, First Out.",
+    },
   },
   {
     id: "packaging-profiles",
@@ -375,7 +417,16 @@ export const helpArticles: HelpArticle[] = [
     keywords: ["zebra", "zpl", "labels", "printer station", "barcode", "reprint"],
     sections: [
       { title: "Printer Model", content: ["Enterprise printing is ZPL-first. Printer stations, templates, print jobs, and failures are tracked so labels can be reprinted with an audit trail.", "Browser printing remains useful for office fallback but should not be the primary warehouse station path."] },
-      { title: "Label Standards", content: ["Use Code 128-compatible pallet, location, carton, pick list, transfer, and count sheet labels.", "Keep barcode values short, unique, and aligned with NetSuite item/location identifiers where possible."] },
+      { title: "Label Standards", content: ["Use Code 128-compatible pallet, location, carton, pick list, transfer, and count sheet labels. For customer-facing logistics labels, GS1-128 is the common standards path.", "Keep barcode values short, unique, and aligned with NetSuite item/location identifiers where possible. Warehouse labels should scan quickly and print reliably before they try to carry every possible data point."] },
+    ],
+    acronyms: {
+      ZPL: "Zebra Programming Language.",
+      GS1: "Global standards organization for supply chain identifiers and barcodes.",
+      SSCC: "Serial Shipping Container Code.",
+    },
+    references: [
+      { label: "GS1 Barcode Standards", url: "https://www.gs1.org/standards/barcodes", reason: "Primary source for barcode symbologies and GS1 standards." },
+      { label: "GS1 Logistic Label Guideline", url: "https://www.gs1.org/standards/gs1-logistic-label-guideline/1-3", reason: "Reference for logistics labels, GS1-128 usage, and scanner expectations." },
     ],
   },
   {
@@ -398,6 +449,26 @@ export const helpArticles: HelpArticle[] = [
     sections: [
       { title: "What It Watches", content: ["The Warehouse Brain reviews live inventory, open work, holds, quarantine, expiration dates, cycle-count variance, dock status, and role context.", "Recommendations must explain the reason and next action so humans stay in control."] },
       { title: "Daily Review", content: ["Review recommendations at shift start, before wave release, and during end-of-day management checks.", "Accept, dismiss, or resolve recommendations with reason codes once the backing database workflow is enabled."] },
+    ],
+  },
+  {
+    id: "lean-standard-work",
+    title: "Lean Warehouse Standard Work",
+    module: "dashboard",
+    audience: "Managers and supervisors",
+    keywords: ["lean", "5s", "standard work", "waste", "andon", "kaizen", "six sigma"],
+    sections: [
+      { title: "Why It Matters", content: ["The WMS should make the correct action the easiest action. Scan prompts, role-specific screens, templates, sign-offs, and activity logs exist to remove ambiguity, not to add bureaucracy.", "Standard work means every shift receives, puts away, picks, transfers, counts, and changes status the same controlled way unless a supervisor deliberately changes the process."] },
+      { title: "Waste Removal", content: ["The biggest warehouse wastes are searching, walking, waiting, re-keying, rechecking, correcting, and explaining what happened after the fact.", "Role-specific UI reduces over-processing. CSV templates reduce defects at import. Badge/code login reduces time at shared devices. Driver sign-off prevents invisible transport errors."] },
+      { title: "5S Connection", content: ["5S becomes real when locations are named, labels scan, blocked stock is visible, and each person has clear responsibility for sustaining the process.", "Use dashboard exceptions as a daily 5S audit signal: blocked locations, quarantine buildup, missing stock, and repeated scan failures indicate where standard work is slipping."] },
+    ],
+    acronyms: {
+      "5S": "Sort, Set in order, Shine, Standardize, Sustain.",
+      WMS: "Warehouse management system.",
+      UI: "User interface.",
+    },
+    references: [
+      { label: "EPA Lean 5S Overview", url: "https://www.epa.gov/sustainability/lean-thinking-and-methods-5s", reason: "Clear public reference for 5S, workplace organization, waste, and standard work." },
     ],
   },
 ];
