@@ -14,6 +14,51 @@ export type Database = {
   }
   public: {
     Tables: {
+      ai_recommendations: {
+        Row: {
+          acted_at: string | null
+          acted_by: string | null
+          audience: Database["public"]["Enums"]["app_role_code"][]
+          context: Json
+          created_at: string
+          id: string
+          next_action: string
+          reason: string
+          recommendation_key: string
+          severity: string
+          status: Database["public"]["Enums"]["recommendation_status"]
+          title: string
+        }
+        Insert: {
+          acted_at?: string | null
+          acted_by?: string | null
+          audience: Database["public"]["Enums"]["app_role_code"][]
+          context?: Json
+          created_at?: string
+          id?: string
+          next_action: string
+          reason: string
+          recommendation_key: string
+          severity: string
+          status?: Database["public"]["Enums"]["recommendation_status"]
+          title: string
+        }
+        Update: {
+          acted_at?: string | null
+          acted_by?: string | null
+          audience?: Database["public"]["Enums"]["app_role_code"][]
+          context?: Json
+          created_at?: string
+          id?: string
+          next_action?: string
+          reason?: string
+          recommendation_key?: string
+          severity?: string
+          status?: Database["public"]["Enums"]["recommendation_status"]
+          title?: string
+        }
+        Relationships: []
+      }
       audit_events: {
         Row: {
           actor_user_id: string | null
@@ -341,6 +386,245 @@ export type Database = {
           },
         ]
       }
+      dock_appointments: {
+        Row: {
+          appointment_number: string
+          carrier: string | null
+          created_at: string
+          dock_door: string
+          driver_name: string | null
+          id: string
+          scheduled_at: string
+          status: Database["public"]["Enums"]["task_status"]
+          warehouse_id: string | null
+        }
+        Insert: {
+          appointment_number: string
+          carrier?: string | null
+          created_at?: string
+          dock_door: string
+          driver_name?: string | null
+          id?: string
+          scheduled_at: string
+          status?: Database["public"]["Enums"]["task_status"]
+          warehouse_id?: string | null
+        }
+        Update: {
+          appointment_number?: string
+          carrier?: string | null
+          created_at?: string
+          dock_door?: string
+          driver_name?: string | null
+          id?: string
+          scheduled_at?: string
+          status?: Database["public"]["Enums"]["task_status"]
+          warehouse_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dock_appointments_warehouse_id_fkey"
+            columns: ["warehouse_id"]
+            isOneToOne: false
+            referencedRelation: "warehouses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      external_record_links: {
+        Row: {
+          external_id: string
+          external_record_type: string
+          external_url: string | null
+          id: string
+          last_synced_at: string | null
+          local_id: string
+          local_table: string
+          system: Database["public"]["Enums"]["integration_system"]
+        }
+        Insert: {
+          external_id: string
+          external_record_type: string
+          external_url?: string | null
+          id?: string
+          last_synced_at?: string | null
+          local_id: string
+          local_table: string
+          system: Database["public"]["Enums"]["integration_system"]
+        }
+        Update: {
+          external_id?: string
+          external_record_type?: string
+          external_url?: string | null
+          id?: string
+          last_synced_at?: string | null
+          local_id?: string
+          local_table?: string
+          system?: Database["public"]["Enums"]["integration_system"]
+        }
+        Relationships: []
+      }
+      integration_connections: {
+        Row: {
+          base_url: string | null
+          config: Json
+          created_at: string
+          created_by: string | null
+          enabled: boolean
+          id: string
+          name: string
+          system: Database["public"]["Enums"]["integration_system"]
+          updated_at: string
+        }
+        Insert: {
+          base_url?: string | null
+          config?: Json
+          created_at?: string
+          created_by?: string | null
+          enabled?: boolean
+          id?: string
+          name: string
+          system: Database["public"]["Enums"]["integration_system"]
+          updated_at?: string
+        }
+        Update: {
+          base_url?: string | null
+          config?: Json
+          created_at?: string
+          created_by?: string | null
+          enabled?: boolean
+          id?: string
+          name?: string
+          system?: Database["public"]["Enums"]["integration_system"]
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      integration_dead_letters: {
+        Row: {
+          created_at: string
+          id: string
+          payload: Json
+          reason: string
+          resolved_at: string | null
+          resolved_by: string | null
+          sync_job_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          payload?: Json
+          reason: string
+          resolved_at?: string | null
+          resolved_by?: string | null
+          sync_job_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          payload?: Json
+          reason?: string
+          resolved_at?: string | null
+          resolved_by?: string | null
+          sync_job_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "integration_dead_letters_sync_job_id_fkey"
+            columns: ["sync_job_id"]
+            isOneToOne: false
+            referencedRelation: "integration_sync_jobs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      integration_payload_logs: {
+        Row: {
+          created_at: string
+          direction: string
+          http_status: number | null
+          id: string
+          payload: Json
+          response: Json | null
+          sync_job_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          direction: string
+          http_status?: number | null
+          id?: string
+          payload: Json
+          response?: Json | null
+          sync_job_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          direction?: string
+          http_status?: number | null
+          id?: string
+          payload?: Json
+          response?: Json | null
+          sync_job_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "integration_payload_logs_sync_job_id_fkey"
+            columns: ["sync_job_id"]
+            isOneToOne: false
+            referencedRelation: "integration_sync_jobs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      integration_sync_jobs: {
+        Row: {
+          attempts: number
+          connection_id: string | null
+          created_at: string
+          error_message: string | null
+          id: string
+          idempotency_key: string
+          job_type: string
+          payload: Json
+          result: Json | null
+          status: Database["public"]["Enums"]["integration_job_status"]
+          updated_at: string
+        }
+        Insert: {
+          attempts?: number
+          connection_id?: string | null
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          idempotency_key: string
+          job_type: string
+          payload?: Json
+          result?: Json | null
+          status?: Database["public"]["Enums"]["integration_job_status"]
+          updated_at?: string
+        }
+        Update: {
+          attempts?: number
+          connection_id?: string | null
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          idempotency_key?: string
+          job_type?: string
+          payload?: Json
+          result?: Json | null
+          status?: Database["public"]["Enums"]["integration_job_status"]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "integration_sync_jobs_connection_id_fkey"
+            columns: ["connection_id"]
+            isOneToOne: false
+            referencedRelation: "integration_connections"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       inventory_balances: {
         Row: {
           available_quantity: number
@@ -520,6 +804,39 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      label_templates: {
+        Row: {
+          active: boolean
+          code: string
+          created_at: string
+          id: string
+          label_type: Database["public"]["Enums"]["label_type"]
+          printer_language: string
+          template_body: string
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          code: string
+          created_at?: string
+          id?: string
+          label_type: Database["public"]["Enums"]["label_type"]
+          printer_language?: string
+          template_body: string
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          code?: string
+          created_at?: string
+          id?: string
+          label_type?: Database["public"]["Enums"]["label_type"]
+          printer_language?: string
+          template_body?: string
+          updated_at?: string
+        }
+        Relationships: []
       }
       locations: {
         Row: {
@@ -1175,6 +1492,114 @@ export type Database = {
           },
         ]
       }
+      print_jobs: {
+        Row: {
+          barcode_label_id: string | null
+          created_at: string
+          error_message: string | null
+          id: string
+          label_template_id: string | null
+          printed_at: string | null
+          printer_station_id: string | null
+          requested_by: string | null
+          sent_at: string | null
+          status: Database["public"]["Enums"]["print_job_status"]
+          zpl_payload: string
+        }
+        Insert: {
+          barcode_label_id?: string | null
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          label_template_id?: string | null
+          printed_at?: string | null
+          printer_station_id?: string | null
+          requested_by?: string | null
+          sent_at?: string | null
+          status?: Database["public"]["Enums"]["print_job_status"]
+          zpl_payload: string
+        }
+        Update: {
+          barcode_label_id?: string | null
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          label_template_id?: string | null
+          printed_at?: string | null
+          printer_station_id?: string | null
+          requested_by?: string | null
+          sent_at?: string | null
+          status?: Database["public"]["Enums"]["print_job_status"]
+          zpl_payload?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "print_jobs_barcode_label_id_fkey"
+            columns: ["barcode_label_id"]
+            isOneToOne: false
+            referencedRelation: "barcode_labels"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "print_jobs_label_template_id_fkey"
+            columns: ["label_template_id"]
+            isOneToOne: false
+            referencedRelation: "label_templates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "print_jobs_printer_station_id_fkey"
+            columns: ["printer_station_id"]
+            isOneToOne: false
+            referencedRelation: "printer_stations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      printer_stations: {
+        Row: {
+          active: boolean
+          code: string
+          created_at: string
+          id: string
+          name: string
+          network_address: string | null
+          printer_language: string
+          updated_at: string
+          warehouse_id: string | null
+        }
+        Insert: {
+          active?: boolean
+          code: string
+          created_at?: string
+          id?: string
+          name: string
+          network_address?: string | null
+          printer_language?: string
+          updated_at?: string
+          warehouse_id?: string | null
+        }
+        Update: {
+          active?: boolean
+          code?: string
+          created_at?: string
+          id?: string
+          name?: string
+          network_address?: string | null
+          printer_language?: string
+          updated_at?: string
+          warehouse_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "printer_stations_warehouse_id_fkey"
+            columns: ["warehouse_id"]
+            isOneToOne: false
+            referencedRelation: "warehouses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       product_packaging_profiles: {
         Row: {
           barcode: string | null
@@ -1452,6 +1877,63 @@ export type Database = {
           },
         ]
       }
+      quality_inspections: {
+        Row: {
+          completed_at: string | null
+          corrective_action: string | null
+          created_at: string
+          disposition: Database["public"]["Enums"]["quality_disposition"]
+          id: string
+          inspected_by: string | null
+          inspection_number: string
+          pallet_id: string | null
+          pass_fail_criteria: Json
+          receipt_id: string | null
+          root_cause_code: string | null
+        }
+        Insert: {
+          completed_at?: string | null
+          corrective_action?: string | null
+          created_at?: string
+          disposition?: Database["public"]["Enums"]["quality_disposition"]
+          id?: string
+          inspected_by?: string | null
+          inspection_number: string
+          pallet_id?: string | null
+          pass_fail_criteria?: Json
+          receipt_id?: string | null
+          root_cause_code?: string | null
+        }
+        Update: {
+          completed_at?: string | null
+          corrective_action?: string | null
+          created_at?: string
+          disposition?: Database["public"]["Enums"]["quality_disposition"]
+          id?: string
+          inspected_by?: string | null
+          inspection_number?: string
+          pallet_id?: string | null
+          pass_fail_criteria?: Json
+          receipt_id?: string | null
+          root_cause_code?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quality_inspections_pallet_id_fkey"
+            columns: ["pallet_id"]
+            isOneToOne: false
+            referencedRelation: "pallets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quality_inspections_receipt_id_fkey"
+            columns: ["receipt_id"]
+            isOneToOne: false
+            referencedRelation: "receipts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       receipt_lines: {
         Row: {
           client_id: string | null
@@ -1612,6 +2094,231 @@ export type Database = {
           },
         ]
       }
+      replenishment_tasks: {
+        Row: {
+          assigned_user_id: string | null
+          completed_at: string | null
+          created_at: string
+          from_location_id: string | null
+          id: string
+          product_id: string | null
+          reorder_point: number
+          status: Database["public"]["Enums"]["task_status"]
+          target_quantity: number
+          task_number: string
+          to_location_id: string | null
+          warehouse_id: string | null
+        }
+        Insert: {
+          assigned_user_id?: string | null
+          completed_at?: string | null
+          created_at?: string
+          from_location_id?: string | null
+          id?: string
+          product_id?: string | null
+          reorder_point?: number
+          status?: Database["public"]["Enums"]["task_status"]
+          target_quantity?: number
+          task_number: string
+          to_location_id?: string | null
+          warehouse_id?: string | null
+        }
+        Update: {
+          assigned_user_id?: string | null
+          completed_at?: string | null
+          created_at?: string
+          from_location_id?: string | null
+          id?: string
+          product_id?: string | null
+          reorder_point?: number
+          status?: Database["public"]["Enums"]["task_status"]
+          target_quantity?: number
+          task_number?: string
+          to_location_id?: string | null
+          warehouse_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "replenishment_tasks_from_location_id_fkey"
+            columns: ["from_location_id"]
+            isOneToOne: false
+            referencedRelation: "location_occupancy_view"
+            referencedColumns: ["location_id"]
+          },
+          {
+            foreignKeyName: "replenishment_tasks_from_location_id_fkey"
+            columns: ["from_location_id"]
+            isOneToOne: false
+            referencedRelation: "locations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "replenishment_tasks_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "replenishment_tasks_to_location_id_fkey"
+            columns: ["to_location_id"]
+            isOneToOne: false
+            referencedRelation: "location_occupancy_view"
+            referencedColumns: ["location_id"]
+          },
+          {
+            foreignKeyName: "replenishment_tasks_to_location_id_fkey"
+            columns: ["to_location_id"]
+            isOneToOne: false
+            referencedRelation: "locations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "replenishment_tasks_warehouse_id_fkey"
+            columns: ["warehouse_id"]
+            isOneToOne: false
+            referencedRelation: "warehouses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      report_definitions: {
+        Row: {
+          active: boolean
+          audience: Database["public"]["Enums"]["app_role_code"][]
+          code: string
+          columns: Json
+          created_at: string
+          created_by: string | null
+          filters: Json
+          id: string
+          name: string
+          schedule_cron: string | null
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          audience?: Database["public"]["Enums"]["app_role_code"][]
+          code: string
+          columns?: Json
+          created_at?: string
+          created_by?: string | null
+          filters?: Json
+          id?: string
+          name: string
+          schedule_cron?: string | null
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          audience?: Database["public"]["Enums"]["app_role_code"][]
+          code?: string
+          columns?: Json
+          created_at?: string
+          created_by?: string | null
+          filters?: Json
+          id?: string
+          name?: string
+          schedule_cron?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      report_exports: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          error_message: string | null
+          file_path: string | null
+          id: string
+          report_definition_id: string | null
+          requested_by: string | null
+          row_count: number | null
+          status: string
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          error_message?: string | null
+          file_path?: string | null
+          id?: string
+          report_definition_id?: string | null
+          requested_by?: string | null
+          row_count?: number | null
+          status?: string
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          error_message?: string | null
+          file_path?: string | null
+          id?: string
+          report_definition_id?: string | null
+          requested_by?: string | null
+          row_count?: number | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "report_exports_report_definition_id_fkey"
+            columns: ["report_definition_id"]
+            isOneToOne: false
+            referencedRelation: "report_definitions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      return_authorizations: {
+        Row: {
+          client_id: string | null
+          completed_at: string | null
+          created_at: string
+          disposition: Database["public"]["Enums"]["quality_disposition"]
+          id: string
+          reason: string | null
+          rma_number: string
+          status: Database["public"]["Enums"]["task_status"]
+          warehouse_id: string | null
+        }
+        Insert: {
+          client_id?: string | null
+          completed_at?: string | null
+          created_at?: string
+          disposition?: Database["public"]["Enums"]["quality_disposition"]
+          id?: string
+          reason?: string | null
+          rma_number: string
+          status?: Database["public"]["Enums"]["task_status"]
+          warehouse_id?: string | null
+        }
+        Update: {
+          client_id?: string | null
+          completed_at?: string | null
+          created_at?: string
+          disposition?: Database["public"]["Enums"]["quality_disposition"]
+          id?: string
+          reason?: string | null
+          rma_number?: string
+          status?: Database["public"]["Enums"]["task_status"]
+          warehouse_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "return_authorizations_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "return_authorizations_warehouse_id_fkey"
+            columns: ["warehouse_id"]
+            isOneToOne: false
+            referencedRelation: "warehouses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       roles: {
         Row: {
           code: string
@@ -1635,6 +2342,57 @@ export type Database = {
           name?: string
         }
         Relationships: []
+      }
+      staging_loads: {
+        Row: {
+          blocker: string | null
+          created_at: string
+          dock_appointment_id: string | null
+          id: string
+          load_sequence: number
+          pick_list_id: string | null
+          route_code: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          blocker?: string | null
+          created_at?: string
+          dock_appointment_id?: string | null
+          id?: string
+          load_sequence?: number
+          pick_list_id?: string | null
+          route_code: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          blocker?: string | null
+          created_at?: string
+          dock_appointment_id?: string | null
+          id?: string
+          load_sequence?: number
+          pick_list_id?: string | null
+          route_code?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "staging_loads_dock_appointment_id_fkey"
+            columns: ["dock_appointment_id"]
+            isOneToOne: false
+            referencedRelation: "dock_appointments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "staging_loads_pick_list_id_fkey"
+            columns: ["pick_list_id"]
+            isOneToOne: false
+            referencedRelation: "pick_lists"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       stock_adjustments: {
         Row: {
@@ -1915,6 +2673,42 @@ export type Database = {
         }
         Relationships: []
       }
+      work_templates: {
+        Row: {
+          active: boolean
+          code: string
+          created_at: string
+          id: string
+          priority: number
+          query_rules: Json
+          step_rules: Json
+          updated_at: string
+          workflow: string
+        }
+        Insert: {
+          active?: boolean
+          code: string
+          created_at?: string
+          id?: string
+          priority?: number
+          query_rules?: Json
+          step_rules?: Json
+          updated_at?: string
+          workflow: string
+        }
+        Update: {
+          active?: boolean
+          code?: string
+          created_at?: string
+          id?: string
+          priority?: number
+          query_rules?: Json
+          step_rules?: Json
+          updated_at?: string
+          workflow?: string
+        }
+        Relationships: []
+      }
       zones: {
         Row: {
           code: string
@@ -2029,11 +2823,28 @@ export type Database = {
       }
     }
     Functions: {
+      has_any_role: {
+        Args: { _roles: Database["public"]["Enums"]["app_role_code"][] }
+        Returns: boolean
+      }
       has_role: { Args: { _role: string; _user_id: string }; Returns: boolean }
       is_approved: { Args: never; Returns: boolean }
     }
     Enums: {
+      app_role_code:
+        | "admin"
+        | "warehouse_manager"
+        | "inventory_clerk"
+        | "warehouse_operator"
+        | "dispatch_driver"
       count_scope: "location" | "zone" | "sku" | "spot"
+      integration_job_status:
+        | "queued"
+        | "running"
+        | "succeeded"
+        | "failed"
+        | "dead_letter"
+      integration_system: "netsuite" | "generic_rest"
       inventory_status:
         | "receiving"
         | "available"
@@ -2044,6 +2855,13 @@ export type Database = {
         | "missing"
         | "in_transit"
         | "shipped"
+      label_type:
+        | "pallet"
+        | "location"
+        | "carton"
+        | "count_sheet"
+        | "pick_list"
+        | "transfer_document"
       location_type:
         | "rack"
         | "staging"
@@ -2052,7 +2870,17 @@ export type Database = {
         | "floor"
         | "dock"
         | "other"
+      print_job_status: "queued" | "sent" | "printed" | "failed" | "cancelled"
+      quality_disposition:
+        | "pending"
+        | "pass"
+        | "fail"
+        | "hold"
+        | "release"
+        | "scrap"
+        | "return_to_vendor"
       receipt_type: "po" | "transfer" | "return" | "other"
+      recommendation_status: "open" | "accepted" | "dismissed" | "resolved"
       rotation_method: "fifo" | "fefo" | "lifo"
       task_status:
         | "draft"
@@ -2190,7 +3018,22 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
+      app_role_code: [
+        "admin",
+        "warehouse_manager",
+        "inventory_clerk",
+        "warehouse_operator",
+        "dispatch_driver",
+      ],
       count_scope: ["location", "zone", "sku", "spot"],
+      integration_job_status: [
+        "queued",
+        "running",
+        "succeeded",
+        "failed",
+        "dead_letter",
+      ],
+      integration_system: ["netsuite", "generic_rest"],
       inventory_status: [
         "receiving",
         "available",
@@ -2202,6 +3045,14 @@ export const Constants = {
         "in_transit",
         "shipped",
       ],
+      label_type: [
+        "pallet",
+        "location",
+        "carton",
+        "count_sheet",
+        "pick_list",
+        "transfer_document",
+      ],
       location_type: [
         "rack",
         "staging",
@@ -2211,7 +3062,18 @@ export const Constants = {
         "dock",
         "other",
       ],
+      print_job_status: ["queued", "sent", "printed", "failed", "cancelled"],
+      quality_disposition: [
+        "pending",
+        "pass",
+        "fail",
+        "hold",
+        "release",
+        "scrap",
+        "return_to_vendor",
+      ],
       receipt_type: ["po", "transfer", "return", "other"],
+      recommendation_status: ["open", "accepted", "dismissed", "resolved"],
       rotation_method: ["fifo", "fefo", "lifo"],
       task_status: [
         "draft",
