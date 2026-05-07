@@ -596,6 +596,30 @@ export async function updateProfileDetails(input: ProfileUpdateInput) {
   });
 }
 
+export type AdminInviteUserInput = {
+  email: string;
+  full_name: string;
+  password: string;
+  role_code?: string;
+  warehouse_id?: string;
+};
+
+export async function adminInviteUser(input: AdminInviteUserInput): Promise<string> {
+  const { data, error } = await (supabase.rpc as any)("admin_invite_user", {
+    in_email: input.email.toLowerCase().trim(),
+    in_full_name: input.full_name.trim(),
+    in_password: input.password,
+    in_role_code: input.role_code ?? null,
+    in_warehouse_id: input.warehouse_id ?? null,
+  });
+  if (error) throw error;
+  await logUserActivity("user_invited", "profiles", data, {
+    email: input.email,
+    role: input.role_code ?? null,
+  });
+  return data as string;
+}
+
 export async function setUserRoleVisibility(userRoleId: string, hidden: boolean, reason?: string) {
   const { error } = await (supabase.from as any)("user_roles")
     .update({
