@@ -53,6 +53,48 @@ import SetupWizardPage from "./pages/SetupWizardPage";
 
 const queryClient = new QueryClient();
 
+function friendlyAuthError(error: unknown, context: "login" | "signup" | "code" | "oauth"): string {
+  const raw = error instanceof Error ? error.message : String(error ?? "");
+  const msg = raw.toLowerCase();
+  if (!raw) {
+    return context === "signup" ? "Sign up failed. Please try again." : "Sign in failed. Please try again.";
+  }
+  if (msg.includes("pending admin approval")) return raw;
+  if (msg.includes("invalid login") || msg.includes("invalid_credentials") || msg.includes("invalid credentials")) {
+    return "The email or password you entered is incorrect. Please try again.";
+  }
+  if (msg.includes("no active approved user") || msg.includes("matched that code")) {
+    return "We couldn't find an approved user matching that code or badge.";
+  }
+  if (msg.includes("email not confirmed") || msg.includes("not confirmed")) {
+    return "Please verify your email address before signing in.";
+  }
+  if (msg.includes("user already registered") || msg.includes("already registered") || msg.includes("already exists")) {
+    return "An account with this email already exists. Try signing in instead.";
+  }
+  if (msg.includes("weak password") || msg.includes("password should be") || msg.includes("password is too")) {
+    return "Please choose a stronger password (at least 8 characters with letters and numbers).";
+  }
+  if (msg.includes("pwned") || msg.includes("compromised")) {
+    return "This password has been found in a data breach. Please choose a different one.";
+  }
+  if (msg.includes("rate limit") || msg.includes("too many")) {
+    return "Too many attempts. Please wait a minute and try again.";
+  }
+  if (msg.includes("network") || msg.includes("failed to fetch")) {
+    return "Network error — check your connection and try again.";
+  }
+  if (msg.includes("database error") || msg.includes("unexpected_failure") || msg.includes("schema")) {
+    return "Sign-in is temporarily unavailable. Please try again in a moment.";
+  }
+  if (msg.includes("invalid email")) return "Please enter a valid email address.";
+  if (msg.includes("refresh token")) return "Your session expired. Please sign in again.";
+  if (msg.includes("popup") || msg.includes("cancelled") || msg.includes("canceled")) {
+    return "Sign-in was cancelled. Please try again.";
+  }
+  return raw;
+}
+
 type InventoryDetailData = {
   balance: {
     status: string;
