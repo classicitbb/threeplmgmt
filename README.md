@@ -34,6 +34,8 @@ Warehouse Wizard is a production-oriented internal WMS app for a 3PL-style wareh
 
 All seeded users use password `Warehouse123!`. They can sign in by email, user code, or badge code.
 
+This recovery PR intentionally keeps the enterprise WMS gap-review work and the later user-role/sign-off work together so deployments pick up the full warehouse flow: dashboard modes, NetSuite/ZPL foundations, CSV templates, badge login, editable users, transfer sign-off, role-specific navigation, and expanded help guidance.
+
 | Role | Email | User code | Badge code |
 | --- | --- | --- | --- |
 | Admin | `admin@warehousewizard.local` | `ADMIN01` | `BADGE-ADMIN01` |
