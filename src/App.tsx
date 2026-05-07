@@ -53,6 +53,48 @@ import SetupWizardPage from "./pages/SetupWizardPage";
 
 const queryClient = new QueryClient();
 
+function friendlyAuthError(error: unknown, context: "login" | "signup" | "code" | "oauth"): string {
+  const raw = error instanceof Error ? error.message : String(error ?? "");
+  const msg = raw.toLowerCase();
+  if (!raw) {
+    return context === "signup" ? "Sign up failed. Please try again." : "Sign in failed. Please try again.";
+  }
+  if (msg.includes("pending admin approval")) return raw;
+  if (msg.includes("invalid login") || msg.includes("invalid_credentials") || msg.includes("invalid credentials")) {
+    return "The email or password you entered is incorrect. Please try again.";
+  }
+  if (msg.includes("no active approved user") || msg.includes("matched that code")) {
+    return "We couldn't find an approved user matching that code or badge.";
+  }
+  if (msg.includes("email not confirmed") || msg.includes("not confirmed")) {
+    return "Please verify your email address before signing in.";
+  }
+  if (msg.includes("user already registered") || msg.includes("already registered") || msg.includes("already exists")) {
+    return "An account with this email already exists. Try signing in instead.";
+  }
+  if (msg.includes("weak password") || msg.includes("password should be") || msg.includes("password is too")) {
+    return "Please choose a stronger password (at least 8 characters with letters and numbers).";
+  }
+  if (msg.includes("pwned") || msg.includes("compromised")) {
+    return "This password has been found in a data breach. Please choose a different one.";
+  }
+  if (msg.includes("rate limit") || msg.includes("too many")) {
+    return "Too many attempts. Please wait a minute and try again.";
+  }
+  if (msg.includes("network") || msg.includes("failed to fetch")) {
+    return "Network error — check your connection and try again.";
+  }
+  if (msg.includes("database error") || msg.includes("unexpected_failure") || msg.includes("schema")) {
+    return "Sign-in is temporarily unavailable. Please try again in a moment.";
+  }
+  if (msg.includes("invalid email")) return "Please enter a valid email address.";
+  if (msg.includes("refresh token")) return "Your session expired. Please sign in again.";
+  if (msg.includes("popup") || msg.includes("cancelled") || msg.includes("canceled")) {
+    return "Sign-in was cancelled. Please try again.";
+  }
+  return raw;
+}
+
 type InventoryDetailData = {
   balance: {
     status: string;
@@ -163,7 +205,7 @@ function LoginPage() {
       await auth.signIn(identifier, values.password);
       await recordUserSignIn(method);
     },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Sign in failed"),
+    onError: (error) => toast.error(friendlyAuthError(error, "login")),
   });
 
   const signUpMutation = useMutation({
@@ -182,18 +224,7 @@ function LoginPage() {
       setMode("login");
       signUpForm.reset();
     },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Sign up failed"),
-  });
-
-  const appleMutation = useMutation({
-    mutationFn: async () => {
-      const result = await lovable.auth.signInWithOAuth("apple", {
-        redirect_uri: window.location.origin,
-      });
-      if (result.error) throw result.error;
-      if (result.redirected) return;
-    },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Apple sign in failed"),
+    onError: (error) => toast.error(friendlyAuthError(error, "signup")),
   });
 
   const googleMutation = useMutation({
@@ -204,7 +235,7 @@ function LoginPage() {
       if (result.error) throw result.error;
       if (result.redirected) return;
     },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Google sign in failed"),
+    onError: (error) => toast.error(friendlyAuthError(error, "oauth")),
   });
 
   if (auth.session) {
@@ -365,22 +396,6 @@ function LoginPage() {
               </svg>
             )}
             Sign in with Google
-          </Button>
-
-          <Button
-            variant="outline"
-            className="w-full"
-            onClick={() => appleMutation.mutate()}
-            disabled={appleMutation.isPending}
-          >
-            {appleMutation.isPending ? (
-              <Loader2 className="animate-spin mr-2 h-4 w-4" />
-            ) : (
-              <svg className="mr-2 h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M17.05 20.28c-.98.95-2.05.88-3.08.4-1.09-.5-2.08-.48-3.24 0-1.44.62-2.2.44-3.06-.4C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z" />
-              </svg>
-            )}
-            Sign in with Apple
           </Button>
 
           <Button variant="link" className="text-sm" onClick={() => setMode(mode === "login" ? "signup" : "login")}>
