@@ -214,10 +214,10 @@ function LoginPage() {
     <div className="flex min-h-screen items-center justify-center bg-background p-4">
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle>Warehouse Wizard</CardTitle>
+          <CardTitle>Warehouse Wizard Enterprise WMS</CardTitle>
           <CardDescription>
             {mode === "login"
-              ? "Sign in to access warehouse management."
+              ? "Sign in with an admin-approved email, user code, or scanned badge."
               : "Create an account. Admin approval is required before you can sign in."}
           </CardDescription>
         </CardHeader>
