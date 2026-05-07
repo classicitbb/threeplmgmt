@@ -341,6 +341,201 @@ export type Database = {
           },
         ]
       }
+      external_record_links: {
+        Row: {
+          external_id: string
+          external_record_type: string
+          external_url: string | null
+          id: string
+          last_synced_at: string | null
+          local_id: string
+          local_table: string
+          system: Database["public"]["Enums"]["integration_system"]
+        }
+        Insert: {
+          external_id: string
+          external_record_type: string
+          external_url?: string | null
+          id?: string
+          last_synced_at?: string | null
+          local_id: string
+          local_table: string
+          system: Database["public"]["Enums"]["integration_system"]
+        }
+        Update: {
+          external_id?: string
+          external_record_type?: string
+          external_url?: string | null
+          id?: string
+          last_synced_at?: string | null
+          local_id?: string
+          local_table?: string
+          system?: Database["public"]["Enums"]["integration_system"]
+        }
+        Relationships: []
+      }
+      integration_connections: {
+        Row: {
+          base_url: string | null
+          config: Json
+          created_at: string
+          created_by: string | null
+          enabled: boolean
+          id: string
+          name: string
+          system: Database["public"]["Enums"]["integration_system"]
+          updated_at: string
+        }
+        Insert: {
+          base_url?: string | null
+          config?: Json
+          created_at?: string
+          created_by?: string | null
+          enabled?: boolean
+          id?: string
+          name: string
+          system: Database["public"]["Enums"]["integration_system"]
+          updated_at?: string
+        }
+        Update: {
+          base_url?: string | null
+          config?: Json
+          created_at?: string
+          created_by?: string | null
+          enabled?: boolean
+          id?: string
+          name?: string
+          system?: Database["public"]["Enums"]["integration_system"]
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      integration_dead_letters: {
+        Row: {
+          created_at: string
+          id: string
+          payload: Json
+          reason: string
+          resolved_at: string | null
+          resolved_by: string | null
+          sync_job_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          payload?: Json
+          reason: string
+          resolved_at?: string | null
+          resolved_by?: string | null
+          sync_job_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          payload?: Json
+          reason?: string
+          resolved_at?: string | null
+          resolved_by?: string | null
+          sync_job_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "integration_dead_letters_sync_job_id_fkey"
+            columns: ["sync_job_id"]
+            isOneToOne: false
+            referencedRelation: "integration_sync_jobs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      integration_payload_logs: {
+        Row: {
+          created_at: string
+          direction: string
+          http_status: number | null
+          id: string
+          payload: Json
+          response: Json | null
+          sync_job_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          direction: string
+          http_status?: number | null
+          id?: string
+          payload: Json
+          response?: Json | null
+          sync_job_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          direction?: string
+          http_status?: number | null
+          id?: string
+          payload?: Json
+          response?: Json | null
+          sync_job_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "integration_payload_logs_sync_job_id_fkey"
+            columns: ["sync_job_id"]
+            isOneToOne: false
+            referencedRelation: "integration_sync_jobs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      integration_sync_jobs: {
+        Row: {
+          attempts: number
+          connection_id: string | null
+          created_at: string
+          error_message: string | null
+          id: string
+          idempotency_key: string
+          job_type: string
+          payload: Json
+          result: Json | null
+          status: Database["public"]["Enums"]["integration_job_status"]
+          updated_at: string
+        }
+        Insert: {
+          attempts?: number
+          connection_id?: string | null
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          idempotency_key: string
+          job_type: string
+          payload?: Json
+          result?: Json | null
+          status?: Database["public"]["Enums"]["integration_job_status"]
+          updated_at?: string
+        }
+        Update: {
+          attempts?: number
+          connection_id?: string | null
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          idempotency_key?: string
+          job_type?: string
+          payload?: Json
+          result?: Json | null
+          status?: Database["public"]["Enums"]["integration_job_status"]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "integration_sync_jobs_connection_id_fkey"
+            columns: ["connection_id"]
+            isOneToOne: false
+            referencedRelation: "integration_connections"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       inventory_balances: {
         Row: {
           available_quantity: number
@@ -520,6 +715,39 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      label_templates: {
+        Row: {
+          active: boolean
+          code: string
+          created_at: string
+          id: string
+          label_type: Database["public"]["Enums"]["label_type"]
+          printer_language: string
+          template_body: string
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          code: string
+          created_at?: string
+          id?: string
+          label_type: Database["public"]["Enums"]["label_type"]
+          printer_language?: string
+          template_body: string
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          code?: string
+          created_at?: string
+          id?: string
+          label_type?: Database["public"]["Enums"]["label_type"]
+          printer_language?: string
+          template_body?: string
+          updated_at?: string
+        }
+        Relationships: []
       }
       locations: {
         Row: {
@@ -1175,6 +1403,114 @@ export type Database = {
           },
         ]
       }
+      print_jobs: {
+        Row: {
+          barcode_label_id: string | null
+          created_at: string
+          error_message: string | null
+          id: string
+          label_template_id: string | null
+          printed_at: string | null
+          printer_station_id: string | null
+          requested_by: string | null
+          sent_at: string | null
+          status: Database["public"]["Enums"]["print_job_status"]
+          zpl_payload: string
+        }
+        Insert: {
+          barcode_label_id?: string | null
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          label_template_id?: string | null
+          printed_at?: string | null
+          printer_station_id?: string | null
+          requested_by?: string | null
+          sent_at?: string | null
+          status?: Database["public"]["Enums"]["print_job_status"]
+          zpl_payload: string
+        }
+        Update: {
+          barcode_label_id?: string | null
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          label_template_id?: string | null
+          printed_at?: string | null
+          printer_station_id?: string | null
+          requested_by?: string | null
+          sent_at?: string | null
+          status?: Database["public"]["Enums"]["print_job_status"]
+          zpl_payload?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "print_jobs_barcode_label_id_fkey"
+            columns: ["barcode_label_id"]
+            isOneToOne: false
+            referencedRelation: "barcode_labels"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "print_jobs_label_template_id_fkey"
+            columns: ["label_template_id"]
+            isOneToOne: false
+            referencedRelation: "label_templates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "print_jobs_printer_station_id_fkey"
+            columns: ["printer_station_id"]
+            isOneToOne: false
+            referencedRelation: "printer_stations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      printer_stations: {
+        Row: {
+          active: boolean
+          code: string
+          created_at: string
+          id: string
+          name: string
+          network_address: string | null
+          printer_language: string
+          updated_at: string
+          warehouse_id: string | null
+        }
+        Insert: {
+          active?: boolean
+          code: string
+          created_at?: string
+          id?: string
+          name: string
+          network_address?: string | null
+          printer_language?: string
+          updated_at?: string
+          warehouse_id?: string | null
+        }
+        Update: {
+          active?: boolean
+          code?: string
+          created_at?: string
+          id?: string
+          name?: string
+          network_address?: string | null
+          printer_language?: string
+          updated_at?: string
+          warehouse_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "printer_stations_warehouse_id_fkey"
+            columns: ["warehouse_id"]
+            isOneToOne: false
+            referencedRelation: "warehouses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       product_packaging_profiles: {
         Row: {
           barcode: string | null
@@ -1612,6 +1948,92 @@ export type Database = {
           },
         ]
       }
+      report_definitions: {
+        Row: {
+          active: boolean
+          audience: Database["public"]["Enums"]["app_role_code"][]
+          code: string
+          columns: Json
+          created_at: string
+          created_by: string | null
+          filters: Json
+          id: string
+          name: string
+          schedule_cron: string | null
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          audience?: Database["public"]["Enums"]["app_role_code"][]
+          code: string
+          columns?: Json
+          created_at?: string
+          created_by?: string | null
+          filters?: Json
+          id?: string
+          name: string
+          schedule_cron?: string | null
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          audience?: Database["public"]["Enums"]["app_role_code"][]
+          code?: string
+          columns?: Json
+          created_at?: string
+          created_by?: string | null
+          filters?: Json
+          id?: string
+          name?: string
+          schedule_cron?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      report_exports: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          error_message: string | null
+          file_path: string | null
+          id: string
+          report_definition_id: string | null
+          requested_by: string | null
+          row_count: number | null
+          status: string
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          error_message?: string | null
+          file_path?: string | null
+          id?: string
+          report_definition_id?: string | null
+          requested_by?: string | null
+          row_count?: number | null
+          status?: string
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          error_message?: string | null
+          file_path?: string | null
+          id?: string
+          report_definition_id?: string | null
+          requested_by?: string | null
+          row_count?: number | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "report_exports_report_definition_id_fkey"
+            columns: ["report_definition_id"]
+            isOneToOne: false
+            referencedRelation: "report_definitions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       roles: {
         Row: {
           code: string
@@ -2033,7 +2455,20 @@ export type Database = {
       is_approved: { Args: never; Returns: boolean }
     }
     Enums: {
+      app_role_code:
+        | "admin"
+        | "warehouse_manager"
+        | "inventory_clerk"
+        | "warehouse_operator"
+        | "dispatch_driver"
       count_scope: "location" | "zone" | "sku" | "spot"
+      integration_job_status:
+        | "queued"
+        | "running"
+        | "succeeded"
+        | "failed"
+        | "dead_letter"
+      integration_system: "netsuite" | "generic_rest"
       inventory_status:
         | "receiving"
         | "available"
@@ -2044,6 +2479,13 @@ export type Database = {
         | "missing"
         | "in_transit"
         | "shipped"
+      label_type:
+        | "pallet"
+        | "location"
+        | "carton"
+        | "count_sheet"
+        | "pick_list"
+        | "transfer_document"
       location_type:
         | "rack"
         | "staging"
@@ -2052,7 +2494,17 @@ export type Database = {
         | "floor"
         | "dock"
         | "other"
+      print_job_status: "queued" | "sent" | "printed" | "failed" | "cancelled"
+      quality_disposition:
+        | "pending"
+        | "pass"
+        | "fail"
+        | "hold"
+        | "release"
+        | "scrap"
+        | "return_to_vendor"
       receipt_type: "po" | "transfer" | "return" | "other"
+      recommendation_status: "open" | "accepted" | "dismissed" | "resolved"
       rotation_method: "fifo" | "fefo" | "lifo"
       task_status:
         | "draft"
@@ -2190,7 +2642,22 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
+      app_role_code: [
+        "admin",
+        "warehouse_manager",
+        "inventory_clerk",
+        "warehouse_operator",
+        "dispatch_driver",
+      ],
       count_scope: ["location", "zone", "sku", "spot"],
+      integration_job_status: [
+        "queued",
+        "running",
+        "succeeded",
+        "failed",
+        "dead_letter",
+      ],
+      integration_system: ["netsuite", "generic_rest"],
       inventory_status: [
         "receiving",
         "available",
@@ -2202,6 +2669,14 @@ export const Constants = {
         "in_transit",
         "shipped",
       ],
+      label_type: [
+        "pallet",
+        "location",
+        "carton",
+        "count_sheet",
+        "pick_list",
+        "transfer_document",
+      ],
       location_type: [
         "rack",
         "staging",
@@ -2211,7 +2686,18 @@ export const Constants = {
         "dock",
         "other",
       ],
+      print_job_status: ["queued", "sent", "printed", "failed", "cancelled"],
+      quality_disposition: [
+        "pending",
+        "pass",
+        "fail",
+        "hold",
+        "release",
+        "scrap",
+        "return_to_vendor",
+      ],
       receipt_type: ["po", "transfer", "return", "other"],
+      recommendation_status: ["open", "accepted", "dismissed", "resolved"],
       rotation_method: ["fifo", "fefo", "lifo"],
       task_status: [
         "draft",
