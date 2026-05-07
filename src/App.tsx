@@ -205,7 +205,7 @@ function LoginPage() {
       await auth.signIn(identifier, values.password);
       await recordUserSignIn(method);
     },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Sign in failed"),
+    onError: (error) => toast.error(friendlyAuthError(error, "login")),
   });
 
   const signUpMutation = useMutation({
@@ -224,18 +224,7 @@ function LoginPage() {
       setMode("login");
       signUpForm.reset();
     },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Sign up failed"),
-  });
-
-  const appleMutation = useMutation({
-    mutationFn: async () => {
-      const result = await lovable.auth.signInWithOAuth("apple", {
-        redirect_uri: window.location.origin,
-      });
-      if (result.error) throw result.error;
-      if (result.redirected) return;
-    },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Apple sign in failed"),
+    onError: (error) => toast.error(friendlyAuthError(error, "signup")),
   });
 
   const googleMutation = useMutation({
@@ -246,7 +235,7 @@ function LoginPage() {
       if (result.error) throw result.error;
       if (result.redirected) return;
     },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Google sign in failed"),
+    onError: (error) => toast.error(friendlyAuthError(error, "oauth")),
   });
 
   if (auth.session) {
