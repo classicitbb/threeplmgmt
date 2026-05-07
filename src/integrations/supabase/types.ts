@@ -14,6 +14,51 @@ export type Database = {
   }
   public: {
     Tables: {
+      ai_recommendations: {
+        Row: {
+          acted_at: string | null
+          acted_by: string | null
+          audience: Database["public"]["Enums"]["app_role_code"][]
+          context: Json
+          created_at: string
+          id: string
+          next_action: string
+          reason: string
+          recommendation_key: string
+          severity: string
+          status: Database["public"]["Enums"]["recommendation_status"]
+          title: string
+        }
+        Insert: {
+          acted_at?: string | null
+          acted_by?: string | null
+          audience: Database["public"]["Enums"]["app_role_code"][]
+          context?: Json
+          created_at?: string
+          id?: string
+          next_action: string
+          reason: string
+          recommendation_key: string
+          severity: string
+          status?: Database["public"]["Enums"]["recommendation_status"]
+          title: string
+        }
+        Update: {
+          acted_at?: string | null
+          acted_by?: string | null
+          audience?: Database["public"]["Enums"]["app_role_code"][]
+          context?: Json
+          created_at?: string
+          id?: string
+          next_action?: string
+          reason?: string
+          recommendation_key?: string
+          severity?: string
+          status?: Database["public"]["Enums"]["recommendation_status"]
+          title?: string
+        }
+        Relationships: []
+      }
       audit_events: {
         Row: {
           actor_user_id: string | null
@@ -337,6 +382,50 @@ export type Database = {
             columns: ["zone_id"]
             isOneToOne: false
             referencedRelation: "zones"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      dock_appointments: {
+        Row: {
+          appointment_number: string
+          carrier: string | null
+          created_at: string
+          dock_door: string
+          driver_name: string | null
+          id: string
+          scheduled_at: string
+          status: Database["public"]["Enums"]["task_status"]
+          warehouse_id: string | null
+        }
+        Insert: {
+          appointment_number: string
+          carrier?: string | null
+          created_at?: string
+          dock_door: string
+          driver_name?: string | null
+          id?: string
+          scheduled_at: string
+          status?: Database["public"]["Enums"]["task_status"]
+          warehouse_id?: string | null
+        }
+        Update: {
+          appointment_number?: string
+          carrier?: string | null
+          created_at?: string
+          dock_door?: string
+          driver_name?: string | null
+          id?: string
+          scheduled_at?: string
+          status?: Database["public"]["Enums"]["task_status"]
+          warehouse_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dock_appointments_warehouse_id_fkey"
+            columns: ["warehouse_id"]
+            isOneToOne: false
+            referencedRelation: "warehouses"
             referencedColumns: ["id"]
           },
         ]
@@ -1788,6 +1877,63 @@ export type Database = {
           },
         ]
       }
+      quality_inspections: {
+        Row: {
+          completed_at: string | null
+          corrective_action: string | null
+          created_at: string
+          disposition: Database["public"]["Enums"]["quality_disposition"]
+          id: string
+          inspected_by: string | null
+          inspection_number: string
+          pallet_id: string | null
+          pass_fail_criteria: Json
+          receipt_id: string | null
+          root_cause_code: string | null
+        }
+        Insert: {
+          completed_at?: string | null
+          corrective_action?: string | null
+          created_at?: string
+          disposition?: Database["public"]["Enums"]["quality_disposition"]
+          id?: string
+          inspected_by?: string | null
+          inspection_number: string
+          pallet_id?: string | null
+          pass_fail_criteria?: Json
+          receipt_id?: string | null
+          root_cause_code?: string | null
+        }
+        Update: {
+          completed_at?: string | null
+          corrective_action?: string | null
+          created_at?: string
+          disposition?: Database["public"]["Enums"]["quality_disposition"]
+          id?: string
+          inspected_by?: string | null
+          inspection_number?: string
+          pallet_id?: string | null
+          pass_fail_criteria?: Json
+          receipt_id?: string | null
+          root_cause_code?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quality_inspections_pallet_id_fkey"
+            columns: ["pallet_id"]
+            isOneToOne: false
+            referencedRelation: "pallets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quality_inspections_receipt_id_fkey"
+            columns: ["receipt_id"]
+            isOneToOne: false
+            referencedRelation: "receipts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       receipt_lines: {
         Row: {
           client_id: string | null
@@ -1948,6 +2094,94 @@ export type Database = {
           },
         ]
       }
+      replenishment_tasks: {
+        Row: {
+          assigned_user_id: string | null
+          completed_at: string | null
+          created_at: string
+          from_location_id: string | null
+          id: string
+          product_id: string | null
+          reorder_point: number
+          status: Database["public"]["Enums"]["task_status"]
+          target_quantity: number
+          task_number: string
+          to_location_id: string | null
+          warehouse_id: string | null
+        }
+        Insert: {
+          assigned_user_id?: string | null
+          completed_at?: string | null
+          created_at?: string
+          from_location_id?: string | null
+          id?: string
+          product_id?: string | null
+          reorder_point?: number
+          status?: Database["public"]["Enums"]["task_status"]
+          target_quantity?: number
+          task_number: string
+          to_location_id?: string | null
+          warehouse_id?: string | null
+        }
+        Update: {
+          assigned_user_id?: string | null
+          completed_at?: string | null
+          created_at?: string
+          from_location_id?: string | null
+          id?: string
+          product_id?: string | null
+          reorder_point?: number
+          status?: Database["public"]["Enums"]["task_status"]
+          target_quantity?: number
+          task_number?: string
+          to_location_id?: string | null
+          warehouse_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "replenishment_tasks_from_location_id_fkey"
+            columns: ["from_location_id"]
+            isOneToOne: false
+            referencedRelation: "location_occupancy_view"
+            referencedColumns: ["location_id"]
+          },
+          {
+            foreignKeyName: "replenishment_tasks_from_location_id_fkey"
+            columns: ["from_location_id"]
+            isOneToOne: false
+            referencedRelation: "locations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "replenishment_tasks_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "replenishment_tasks_to_location_id_fkey"
+            columns: ["to_location_id"]
+            isOneToOne: false
+            referencedRelation: "location_occupancy_view"
+            referencedColumns: ["location_id"]
+          },
+          {
+            foreignKeyName: "replenishment_tasks_to_location_id_fkey"
+            columns: ["to_location_id"]
+            isOneToOne: false
+            referencedRelation: "locations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "replenishment_tasks_warehouse_id_fkey"
+            columns: ["warehouse_id"]
+            isOneToOne: false
+            referencedRelation: "warehouses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       report_definitions: {
         Row: {
           active: boolean
@@ -2034,6 +2268,57 @@ export type Database = {
           },
         ]
       }
+      return_authorizations: {
+        Row: {
+          client_id: string | null
+          completed_at: string | null
+          created_at: string
+          disposition: Database["public"]["Enums"]["quality_disposition"]
+          id: string
+          reason: string | null
+          rma_number: string
+          status: Database["public"]["Enums"]["task_status"]
+          warehouse_id: string | null
+        }
+        Insert: {
+          client_id?: string | null
+          completed_at?: string | null
+          created_at?: string
+          disposition?: Database["public"]["Enums"]["quality_disposition"]
+          id?: string
+          reason?: string | null
+          rma_number: string
+          status?: Database["public"]["Enums"]["task_status"]
+          warehouse_id?: string | null
+        }
+        Update: {
+          client_id?: string | null
+          completed_at?: string | null
+          created_at?: string
+          disposition?: Database["public"]["Enums"]["quality_disposition"]
+          id?: string
+          reason?: string | null
+          rma_number?: string
+          status?: Database["public"]["Enums"]["task_status"]
+          warehouse_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "return_authorizations_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "return_authorizations_warehouse_id_fkey"
+            columns: ["warehouse_id"]
+            isOneToOne: false
+            referencedRelation: "warehouses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       roles: {
         Row: {
           code: string
@@ -2057,6 +2342,57 @@ export type Database = {
           name?: string
         }
         Relationships: []
+      }
+      staging_loads: {
+        Row: {
+          blocker: string | null
+          created_at: string
+          dock_appointment_id: string | null
+          id: string
+          load_sequence: number
+          pick_list_id: string | null
+          route_code: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          blocker?: string | null
+          created_at?: string
+          dock_appointment_id?: string | null
+          id?: string
+          load_sequence?: number
+          pick_list_id?: string | null
+          route_code: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          blocker?: string | null
+          created_at?: string
+          dock_appointment_id?: string | null
+          id?: string
+          load_sequence?: number
+          pick_list_id?: string | null
+          route_code?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "staging_loads_dock_appointment_id_fkey"
+            columns: ["dock_appointment_id"]
+            isOneToOne: false
+            referencedRelation: "dock_appointments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "staging_loads_pick_list_id_fkey"
+            columns: ["pick_list_id"]
+            isOneToOne: false
+            referencedRelation: "pick_lists"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       stock_adjustments: {
         Row: {
@@ -2337,6 +2673,42 @@ export type Database = {
         }
         Relationships: []
       }
+      work_templates: {
+        Row: {
+          active: boolean
+          code: string
+          created_at: string
+          id: string
+          priority: number
+          query_rules: Json
+          step_rules: Json
+          updated_at: string
+          workflow: string
+        }
+        Insert: {
+          active?: boolean
+          code: string
+          created_at?: string
+          id?: string
+          priority?: number
+          query_rules?: Json
+          step_rules?: Json
+          updated_at?: string
+          workflow: string
+        }
+        Update: {
+          active?: boolean
+          code?: string
+          created_at?: string
+          id?: string
+          priority?: number
+          query_rules?: Json
+          step_rules?: Json
+          updated_at?: string
+          workflow?: string
+        }
+        Relationships: []
+      }
       zones: {
         Row: {
           code: string
@@ -2451,6 +2823,10 @@ export type Database = {
       }
     }
     Functions: {
+      has_any_role: {
+        Args: { _roles: Database["public"]["Enums"]["app_role_code"][] }
+        Returns: boolean
+      }
       has_role: { Args: { _role: string; _user_id: string }; Returns: boolean }
       is_approved: { Args: never; Returns: boolean }
     }
