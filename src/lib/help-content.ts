@@ -30,7 +30,7 @@ const routeHelpDefinitions: Record<string, RouteHelpDefinition> = {
     keyActions: ["Review pallet counts and open work", "Spot hold/quarantine stock", "Watch occupancy trends"],
     commonMistakes: ["Using dashboard totals as a substitute for task execution detail", "Ignoring hold/quarantine trends before releasing work"],
     permissions: "Visible to admins, managers, clerks, and operators.",
-    wikiArticleIds: ["dashboard-overview", "reporting-basics"],
+    wikiArticleIds: ["enterprise-dashboard-modes", "warehouse-brain", "reporting-basics"],
   },
   warehouses: {
     id: "warehouses",
@@ -84,7 +84,7 @@ const routeHelpDefinitions: Record<string, RouteHelpDefinition> = {
     keyActions: ["Create receipt and pallet records", "Capture lot/expiry details", "Launch directed putaway"],
     commonMistakes: ["Skipping reference numbers", "Receiving cool-chain items without proper profile or zone setup"],
     permissions: "Used by admins, managers, and inventory clerks.",
-    wikiArticleIds: ["receiving-flow"],
+    wikiArticleIds: ["receiving-flow", "zebra-printing"],
   },
   putaway: {
     id: "putaway",
@@ -147,7 +147,7 @@ const routeHelpDefinitions: Record<string, RouteHelpDefinition> = {
     keyActions: ["Review stock by warehouse", "Check occupancy", "Monitor recent movements"],
     commonMistakes: ["Treating snapshots as substitutes for transactional detail", "Ignoring audit trends"],
     permissions: "Visible to admins, managers, and clerks.",
-    wikiArticleIds: ["reporting-basics"],
+    wikiArticleIds: ["reporting-basics", "warehouse-brain", "enterprise-dashboard-modes"],
   },
   users: {
     id: "users",
@@ -165,7 +165,7 @@ const routeHelpDefinitions: Record<string, RouteHelpDefinition> = {
     keyActions: ["Review setup guidance", "Launch the warehouse setup wizard", "Run Reset All with confirmation"],
     commonMistakes: ["Running reset without understanding that warehouse/setup data will be rebuilt", "Skipping the wizard after reset"],
     permissions: "Visible to admins and warehouse managers. Reset is admin-only.",
-    wikiArticleIds: ["settings-reset", "warehouse-setup"],
+    wikiArticleIds: ["settings-reset", "warehouse-setup", "netsuite-integration", "zebra-printing"],
   },
   help: {
     id: "help",
@@ -353,6 +353,51 @@ export const helpArticles: HelpArticle[] = [
     keywords: ["packaging", "profiles", "each", "case", "pallet", "barcode"],
     sections: [
       { title: "Purpose", content: ["Packaging profiles connect the physical unit of measure to receiving and handling behavior.", "Keep one default profile for each commonly received pack style."] },
+    ],
+  },
+  {
+    id: "enterprise-dashboard-modes",
+    title: "Enterprise Dashboard Modes",
+    module: "dashboard",
+    audience: "Operators, supervisors, and managers",
+    keywords: ["floor mode", "dock handoff", "office dashboard", "dumbwaiter", "andon", "widgets"],
+    sections: [
+      { title: "Floor Mode", content: ["Use Floor mode at shift start on tablets or shared workstations.", "The large workflow cards point operators to scan-confirmed putaway, picking, exception, and setup work."] },
+      { title: "Dock Handoff", content: ["Dock mode is the dumbwaiter-style board for staged outbound goods.", "Loads are grouped by ready, called, loading, blocked, and loaded so delivery handoff starts from a clear status lane."] },
+      { title: "Office Monitoring", content: ["Office mode is for managers watching fill level, inventory turn signals, expiration risk, DPMO, setup readiness, and Warehouse Brain recommendations."] },
+    ],
+  },
+  {
+    id: "zebra-printing",
+    title: "Zebra ZPL Printing Setup",
+    module: "receiving",
+    audience: "Admins and inventory clerks",
+    keywords: ["zebra", "zpl", "labels", "printer station", "barcode", "reprint"],
+    sections: [
+      { title: "Printer Model", content: ["Enterprise printing is ZPL-first. Printer stations, templates, print jobs, and failures are tracked so labels can be reprinted with an audit trail.", "Browser printing remains useful for office fallback but should not be the primary warehouse station path."] },
+      { title: "Label Standards", content: ["Use Code 128-compatible pallet, location, carton, pick list, transfer, and count sheet labels.", "Keep barcode values short, unique, and aligned with NetSuite item/location identifiers where possible."] },
+    ],
+  },
+  {
+    id: "netsuite-integration",
+    title: "NetSuite Integration Setup",
+    module: "settings",
+    audience: "Admins and IT",
+    keywords: ["netsuite", "api", "integration", "sync", "webhook", "external id"],
+    sections: [
+      { title: "First Adapter", content: ["NetSuite is the first-class ERP adapter for item, purchase order, item receipt, sales order, transfer order, fulfillment, and inventory adjustment sync.", "All sync jobs should use idempotency keys and preserve raw payload logs for support."] },
+      { title: "Operational Safety", content: ["Use external record links to avoid duplicate products, orders, receipts, and adjustments.", "Repeated failures should move into dead letters with a clear reason and resolution owner."] },
+    ],
+  },
+  {
+    id: "warehouse-brain",
+    title: "Warehouse Brain Recommendations",
+    module: "reports",
+    audience: "Managers and supervisors",
+    keywords: ["ai", "warehouse brain", "recommendations", "alerts", "low stock", "expiration", "low turn"],
+    sections: [
+      { title: "What It Watches", content: ["The Warehouse Brain reviews live inventory, open work, holds, quarantine, expiration dates, cycle-count variance, dock status, and role context.", "Recommendations must explain the reason and next action so humans stay in control."] },
+      { title: "Daily Review", content: ["Review recommendations at shift start, before wave release, and during end-of-day management checks.", "Accept, dismiss, or resolve recommendations with reason codes once the backing database workflow is enabled."] },
     ],
   },
 ];

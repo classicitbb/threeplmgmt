@@ -13,4 +13,10 @@ describe("help content", () => {
 
     expect(results.some((article) => article.id === "transfer-flow")).toBe(true);
   });
+
+  it("documents enterprise setup topics", () => {
+    expect(searchHelpArticles("netsuite").some((article) => article.id === "netsuite-integration")).toBe(true);
+    expect(searchHelpArticles("zpl").some((article) => article.id === "zebra-printing")).toBe(true);
+    expect(searchHelpArticles("warehouse brain").some((article) => article.id === "warehouse-brain")).toBe(true);
+  });
 });

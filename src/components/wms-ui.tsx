@@ -3,7 +3,7 @@ import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm, type UseFormReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Camera, Download, Eye, EyeOff, Loader2, LogOut, Menu, Plus, Printer, RotateCcw, Search, Upload } from "lucide-react";
+import { BarChart3, Bot, Camera, ClipboardCheck, Download, Eye, EyeOff, Forklift, Loader2, LogOut, Menu, Plus, Printer, RadioTower, RotateCcw, Search, Truck, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { z } from "zod";
 
@@ -50,6 +50,15 @@ import {
 } from "@/lib/wms-core";
 
 import { cn } from "@/lib/utils";
+import {
+  buildCsvReportRows,
+  buildEnterpriseDashboard,
+  generateZplLabel,
+  type DashboardMode,
+  type DockHandoffLoad,
+  type EnterpriseDashboardSnapshot,
+  type WarehouseBrainRecommendation,
+} from "@/lib/enterprise-wms";
 import { HelpSidebar } from "@/components/help-sidebar";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -413,30 +422,42 @@ function ImportButton({ resource }: { resource: ResourceDefinition }) {
 }
 
 export function DashboardPage() {
-  const { data, isLoading } = useQuery({
+  const [mode, setMode] = useState<DashboardMode>("floor");
+  const { data: metrics, isLoading } = useQuery({
     queryKey: ["dashboard-metrics"],
     queryFn: getDashboardMetrics,
   });
+  const { data: reports } = useQuery({ queryKey: ["reports", "enterprise-dashboard"], queryFn: getReportData });
+  const snapshot = useMemo(() => buildEnterpriseDashboard(metrics, reports), [metrics, reports]);
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h2 className="text-2xl font-semibold">Dashboard</h2>
-        <p className="text-sm text-muted-foreground">Live activity across receiving, storage, and outbound work.</p>
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+        <div>
+          <h2 className="text-2xl font-semibold">Enterprise Command Center</h2>
+          <p className="text-sm text-muted-foreground">Role-based starting points, dock handoff, lean alerts, and AI-assisted warehouse monitoring.</p>
+        </div>
+        <Tabs value={mode} onValueChange={(value) => setMode(value as DashboardMode)}>
+          <TabsList className="grid h-auto w-full grid-cols-3 sm:w-fit">
+            <TabsTrigger value="floor"><Forklift data-icon="inline-start" /> Floor</TabsTrigger>
+            <TabsTrigger value="dock"><Truck data-icon="inline-start" /> Dock</TabsTrigger>
+            <TabsTrigger value="office"><BarChart3 data-icon="inline-start" /> Office</TabsTrigger>
+          </TabsList>
+        </Tabs>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {[
-          ["Total pallets", data?.totalPallets ?? 0],
-          ["Available pallets", data?.availablePallets ?? 0],
-          ["Open putaway", data?.openPutawayTasks ?? 0],
-          ["Open pick lists", data?.openPickLists ?? 0],
-          ["Hold stock", data?.holdStock ?? 0],
-          ["Quarantine stock", data?.quarantineStock ?? 0],
-          ["Open receipts", data?.openReceipts ?? 0],
-          ["Cool occupancy", data?.coolZoneOccupancy ?? 0],
+          ["Total pallets", metrics?.totalPallets ?? 0],
+          ["Available pallets", metrics?.availablePallets ?? 0],
+          ["Open putaway", metrics?.openPutawayTasks ?? 0],
+          ["Open pick lists", metrics?.openPickLists ?? 0],
+          ["Hold stock", metrics?.holdStock ?? 0],
+          ["Quarantine stock", metrics?.quarantineStock ?? 0],
+          ["Open receipts", metrics?.openReceipts ?? 0],
+          ["Cool occupancy", metrics?.coolZoneOccupancy ?? 0],
         ].map(([label, value]) => (
-          <Card key={label}>
+          <Card key={label} className="overflow-hidden">
             <CardHeader className="pb-2">
               <CardDescription>{label}</CardDescription>
               <CardTitle className="text-3xl">{isLoading ? "…" : formatNumber(Number(value))}</CardTitle>
@@ -444,8 +465,162 @@ export function DashboardPage() {
           </Card>
         ))}
       </div>
+
+      {mode === "floor" ? <WarehouseFloorMode snapshot={snapshot} /> : null}
+      {mode === "dock" ? <DockHandoffBoard loads={snapshot.dockLoads} recommendations={snapshot.recommendations} /> : null}
+      {mode === "office" ? <OfficeMonitoringMode snapshot={snapshot} /> : null}
     </div>
   );
+}
+
+function WarehouseFloorMode({ snapshot }: { snapshot: EnterpriseDashboardSnapshot }) {
+  return (
+    <div className="grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(20rem,0.65fr)]">
+      <div className="grid gap-4 md:grid-cols-2">
+        {snapshot.floorQueues.map((queue) => (
+          <Card key={queue.label} className={cn("border-l-4", toneBorder(queue.tone))}>
+            <CardHeader>
+              <CardTitle className="flex items-center justify-between gap-4">
+                <span>{queue.label}</span>
+                <span className="text-4xl">{formatNumber(queue.count)}</span>
+              </CardTitle>
+              <CardDescription>{queue.action}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button className="h-14 w-full text-base" asChild>
+                <Link to={queue.route}>Open workflow</Link>
+              </Button>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><RadioTower /> Andon & Lean Status</CardTitle>
+          <CardDescription>5S, Kanban, DPMO, and exception signals for the current shift.</CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-3">
+          {snapshot.leanMetrics.map((metric) => (
+            <div key={metric.label} className="rounded-lg border border-border p-3">
+              <div className="flex items-center justify-between gap-4">
+                <span className="font-medium">{metric.label}</span>
+                <Badge variant={metric.status === "off_target" ? "destructive" : metric.status === "watch" ? "secondary" : "default"}>
+                  {metric.status.replace("_", " ")}
+                </Badge>
+              </div>
+              <p className="mt-1 text-2xl font-semibold">{metric.value}</p>
+              <p className="text-xs text-muted-foreground">Target: {metric.target}</p>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function DockHandoffBoard({
+  loads,
+  recommendations,
+}: {
+  loads: DockHandoffLoad[];
+  recommendations: WarehouseBrainRecommendation[];
+}) {
+  return (
+    <div className="grid gap-6">
+      <div className="grid gap-4 lg:grid-cols-5">
+        {["ready", "called", "loading", "blocked", "loaded"].map((status) => (
+          <Card key={status} className={cn("min-h-72", status === "blocked" ? "border-destructive/50" : "")}>
+            <CardHeader>
+              <CardTitle className="capitalize">{status}</CardTitle>
+              <CardDescription>Dock handoff lane</CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-3">
+              {loads.filter((load) => load.status === status).map((load) => (
+                <div key={load.id} className="rounded-lg border border-border bg-secondary/30 p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-semibold">{load.route}</span>
+                    <Badge>{load.door}</Badge>
+                  </div>
+                  <p className="mt-1 truncate text-sm">{load.customer}</p>
+                  <p className="text-xs text-muted-foreground">{load.driver} · {load.pallets} pallet{load.pallets === 1 ? "" : "s"} · {load.temperatureClass}</p>
+                  {load.blocker ? <p className="mt-2 text-xs text-destructive">{load.blocker}</p> : null}
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+      <WarehouseBrainPanel recommendations={recommendations} />
+    </div>
+  );
+}
+
+function OfficeMonitoringMode({ snapshot }: { snapshot: EnterpriseDashboardSnapshot }) {
+  return (
+    <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(22rem,0.7fr)]">
+      <div className="grid gap-4 md:grid-cols-2">
+        {snapshot.officeWidgets.map((widget) => (
+          <Card key={widget.label} className={cn("border-l-4", toneBorder(widget.tone))}>
+            <CardHeader>
+              <CardDescription>{widget.label}</CardDescription>
+              <CardTitle className="text-4xl">{widget.value}</CardTitle>
+              <CardDescription>{widget.detail}</CardDescription>
+            </CardHeader>
+          </Card>
+        ))}
+      </div>
+      <div className="grid gap-4">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2"><ClipboardCheck /> Setup Checklist</CardTitle>
+            <CardDescription>Go-live prompts for admin and management setup activities.</CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-3">
+            {snapshot.setupChecklist.map((item) => (
+              <div key={item.label} className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2">
+                <div>
+                  <p className="text-sm font-medium">{item.label}</p>
+                  <p className="text-xs text-muted-foreground">{item.owner}</p>
+                </div>
+                <Badge variant={item.complete ? "default" : "secondary"}>{item.complete ? "Ready" : "Open"}</Badge>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+        <WarehouseBrainPanel recommendations={snapshot.recommendations} />
+      </div>
+    </div>
+  );
+}
+
+function WarehouseBrainPanel({ recommendations }: { recommendations: WarehouseBrainRecommendation[] }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2"><Bot /> Warehouse Brain</CardTitle>
+        <CardDescription>Explainable recommendations using live WMS context and role-aware next actions.</CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-3">
+        {recommendations.map((recommendation) => (
+          <div key={recommendation.id} className={cn("rounded-lg border border-border p-3", recommendation.severity === "critical" ? "bg-destructive/10" : recommendation.severity === "warning" ? "bg-warning/10" : "bg-secondary/30")}>
+            <div className="flex items-center justify-between gap-3">
+              <p className="font-medium">{recommendation.title}</p>
+              <Badge variant={recommendation.severity === "critical" ? "destructive" : "secondary"}>{recommendation.severity}</Badge>
+            </div>
+            <p className="mt-2 text-sm text-muted-foreground">{recommendation.reason}</p>
+            <p className="mt-2 text-sm">{recommendation.nextAction}</p>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
+function toneBorder(tone: "success" | "warning" | "critical" | "info") {
+  if (tone === "critical") return "border-l-destructive";
+  if (tone === "warning") return "border-l-warning";
+  if (tone === "info") return "border-l-info";
+  return "border-l-success";
 }
 
 export function ReceivingPage() {
@@ -460,6 +635,20 @@ export function ReceivingPage() {
     },
   });
   const [manualBarcode, setManualBarcode] = useState("");
+  const receivedQuantity = form.watch("quantity");
+  const zplPreview = useMemo(
+    () =>
+      manualBarcode
+        ? generateZplLabel({
+            labelType: "pallet",
+            code: manualBarcode,
+            title: "Pallet Label",
+            subtitle: "Zebra ZPL queue-ready",
+            quantity: Number(receivedQuantity ?? 1),
+          })
+        : "",
+    [manualBarcode, receivedQuantity],
+  );
 
   const mutation = useMutation({
     mutationFn: createReceiptFlow,
@@ -518,8 +707,8 @@ export function ReceivingPage() {
 
       <Card className="min-w-0">
         <CardHeader>
-          <CardTitle>Scan & Print</CardTitle>
-          <CardDescription>Browser camera scan is device-dependent. Manual fallback is always available.</CardDescription>
+          <CardTitle>Scan & Zebra Print</CardTitle>
+          <CardDescription>ZPL-first label output with a browser print fallback for office workstations.</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           <div className="rounded-xl border border-dashed border-border bg-secondary/30 p-4">
@@ -535,8 +724,26 @@ export function ReceivingPage() {
               Print
             </Button>
           </div>
+          {zplPreview ? (
+            <div className="rounded-lg border border-border bg-background p-3">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <p className="text-sm font-medium">ZPL payload</p>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={async () => {
+                    await navigator.clipboard?.writeText(zplPreview);
+                    toast.success("ZPL copied for printer queue");
+                  }}
+                >
+                  Copy ZPL
+                </Button>
+              </div>
+              <pre className="max-h-44 overflow-auto whitespace-pre-wrap text-xs text-muted-foreground">{zplPreview}</pre>
+            </div>
+          ) : null}
           <p className="text-xs text-muted-foreground">
-            Each receipt creates a pallet label record, inventory balance, and a queued putaway task.
+            Each receipt creates a pallet label record, inventory balance, queued putaway task, and queue-ready Zebra label payload.
           </p>
         </CardContent>
       </Card>
@@ -1160,6 +1367,9 @@ export function StatusPage() {
 
 export function ReportsPage() {
   const { data, isLoading } = useQuery({ queryKey: ["reports"], queryFn: getReportData });
+  const { data: metrics } = useQuery({ queryKey: ["dashboard-metrics", "reports"], queryFn: getDashboardMetrics });
+  const snapshot = useMemo(() => buildEnterpriseDashboard(metrics, data), [metrics, data]);
+  const exportRows = useMemo(() => buildCsvReportRows(data), [data]);
 
   const stockByWarehouse = useMemo(() => {
     const map = new Map<string, number>();
@@ -1171,9 +1381,26 @@ export function ReportsPage() {
 
   return (
     <div className="grid gap-6">
-      <div>
-        <h2 className="text-2xl font-semibold">Reports & Dashboards</h2>
-        <p className="text-sm text-muted-foreground">Operational snapshots across occupancy, expiries, holds, and recent movement.</p>
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <h2 className="text-2xl font-semibold">Reports & Analytics</h2>
+          <p className="text-sm text-muted-foreground">Saved-style operational reporting, CSV export, AI recommendations, and Six Sigma signals.</p>
+        </div>
+        <Button variant="outline" onClick={() => downloadCsv("enterprise-inventory-report.csv", exportRows)}>
+          <Download data-icon="inline-start" />
+          Export inventory CSV
+        </Button>
+      </div>
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {snapshot.officeWidgets.map((widget) => (
+          <Card key={widget.label} className={cn("border-l-4", toneBorder(widget.tone))}>
+            <CardHeader>
+              <CardDescription>{widget.label}</CardDescription>
+              <CardTitle className="text-3xl">{widget.value}</CardTitle>
+              <CardDescription>{widget.detail}</CardDescription>
+            </CardHeader>
+          </Card>
+        ))}
       </div>
       <div className="grid gap-4 xl:grid-cols-2">
         <Card>
@@ -1207,6 +1434,32 @@ export function ReportsPage() {
             ))}
           </CardContent>
         </Card>
+      </div>
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(22rem,0.75fr)]">
+        <Card>
+          <CardHeader>
+            <CardTitle>Saved report catalog</CardTitle>
+            <CardDescription>Decision-ready report outputs for managers, clerks, and auditors.</CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-3">
+            {[
+              ["Expiration risk", "Lots approaching FEFO cutoff by SKU, warehouse, and customer owner", "CSV"],
+              ["Low stock warnings", "Balances at or below replenishment threshold with NetSuite sync status", "CSV"],
+              ["Low turn stock", "Slow-moving inventory candidates for slotting or commercial review", "CSV"],
+              ["Dock performance", "Staged, loaded, blocked, delayed, and route handoff timings", "CSV"],
+              ["Six Sigma variance", "Cycle-count defects, DPMO, root cause, and corrective action fields", "CSV"],
+            ].map(([title, description, output]) => (
+              <div key={title} className="flex flex-col gap-2 rounded-lg border border-border p-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="font-medium">{title}</p>
+                  <p className="text-sm text-muted-foreground">{description}</p>
+                </div>
+                <Badge variant="outline">{output}</Badge>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+        <WarehouseBrainPanel recommendations={snapshot.recommendations} />
       </div>
       <Card>
         <CardHeader>

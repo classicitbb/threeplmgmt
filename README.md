@@ -1,6 +1,6 @@
 # Warehouse Wizard
 
-Warehouse Wizard is a production-oriented internal WMS-lite app for a 3PL-style warehouse operation. It supports warehouse setup, product master data, receiving, directed putaway, pallet-level inventory search, picking, transfers, cycle counts, stock status control, reporting, CSV import/export, printable labels, Supabase Auth, and Supabase RLS.
+Warehouse Wizard is a production-oriented internal WMS app for a 3PL-style warehouse operation. It supports warehouse setup, product master data, receiving, directed putaway, pallet-level inventory search, picking, transfers, cycle counts, stock status control, enterprise dashboards, dock handoff, AI-assisted recommendations, reporting, CSV import/export, Zebra ZPL label output, Supabase Auth, and Supabase RLS.
 
 ## Stack
 
@@ -49,6 +49,8 @@ Warehouse Wizard is a production-oriented internal WMS-lite app for a 3PL-style 
 - `/reports`
 - `/users`
 - `/settings`
+- `/help`
+- `/setup-wizard`
 
 ## Operational Workflows
 
@@ -59,6 +61,17 @@ Warehouse Wizard is a production-oriented internal WMS-lite app for a 3PL-style 
 - Transfers preserve pallet identity and create follow-on tasks.
 - Cycle counts generate count lines and write adjustment records for variances.
 - Status changes write audit entries and stock adjustment records.
+- The dashboard has Floor, Dock, and Office modes for operator start-of-shift work, staged delivery handoff, and management monitoring.
+- Reports include saved-report style outputs, CSV export, lean/Six Sigma signals, and Warehouse Brain recommendations.
+- Enterprise extension migrations add NetSuite-ready integration logs, external ID links, printer queues, report definitions, AI recommendations, QA, returns, staging, replenishment, and work-template tables.
+
+## Enterprise Deliverables
+
+- API contract: [docs/api-v1.md](./docs/api-v1.md)
+- Admin and go-live guide: [docs/admin-guide.md](./docs/admin-guide.md)
+- NetSuite-first integration model through `integration_connections`, `external_record_links`, `integration_sync_jobs`, payload logs, and dead letters.
+- Zebra-first printing model through `label_templates`, `printer_stations`, and `print_jobs`.
+- Warehouse Brain recommendation storage through `ai_recommendations`.
 
 ## Commands
 

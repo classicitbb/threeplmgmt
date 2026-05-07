@@ -32,3 +32,23 @@
 - Picking is FEFO for expirable SKUs and FIFO for non-expirable SKUs.
 - Status changes and movements are written to `audit_events`.
 - Users are authorized through Supabase RLS, not just hidden navigation.
+
+## Enterprise Go-Live Checklist
+
+1. Open `Dashboard` and choose `Floor` for operator starting points, `Dock` for staged outbound handoff, or `Office` for management monitoring.
+2. Configure Zebra printer stations and keep ZPL templates in `label_templates`.
+3. Configure NetSuite as the first integration connection and map items, locations, orders, receipts, fulfillments, and inventory adjustments.
+4. Use `Reports` to export expiration risk, low stock, low turn, dock performance, and Six Sigma variance CSVs.
+5. Review `Warehouse Brain` recommendations at the start and end of each shift.
+6. Track QA holds, returns, replenishment, staging loads, and dock appointments through the enterprise extension tables.
+
+## Lean and Six Sigma Controls
+
+- Use the Floor dashboard as the daily Andon board for blocked work, hold/quarantine stock, and active scan queues.
+- Use low-stock widgets as Kanban replenishment signals.
+- Use cycle-count variance, DPMO, root cause, and corrective action fields for DMAIC reviews.
+- Keep failed receipts, QA holds, returns, and print failures auditable instead of correcting them off-system.
+
+## API and Integration Notes
+
+See `docs/api-v1.md` for the versioned API contract, NetSuite adapter defaults, webhook expectations, and label generation behavior.

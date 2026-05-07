@@ -14,6 +14,10 @@ const approvalRlsMigration = readFileSync(
   path.resolve(process.cwd(), "supabase/migrations/20260402195000_fix_profile_approval_and_admin_rls.sql"),
   "utf8",
 );
+const enterpriseMigration = readFileSync(
+  path.resolve(process.cwd(), "supabase/migrations/20260507123000_enterprise_wms_extensions.sql"),
+  "utf8",
+);
 
 describe("init_wms migration", () => {
   it("creates the core warehouse tables", () => {
@@ -59,5 +63,16 @@ describe("profile approval and admin rls migration", () => {
     expect(approvalRlsMigration).toContain("create policy \"Admins can insert user_roles\"");
     expect(approvalRlsMigration).toContain("create policy \"Admins can update user_roles\"");
     expect(approvalRlsMigration).toContain("create policy \"Admins can delete user_roles\"");
+  });
+});
+
+describe("enterprise WMS extension migration", () => {
+  it("adds integration, printing, reporting, AI, and advanced workflow tables", () => {
+    expect(enterpriseMigration).toContain("create table if not exists public.integration_connections");
+    expect(enterpriseMigration).toContain("create table if not exists public.external_record_links");
+    expect(enterpriseMigration).toContain("create table if not exists public.print_jobs");
+    expect(enterpriseMigration).toContain("create table if not exists public.ai_recommendations");
+    expect(enterpriseMigration).toContain("create table if not exists public.staging_loads");
+    expect(enterpriseMigration).toContain("create table if not exists public.replenishment_tasks");
   });
 });
