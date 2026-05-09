@@ -1,0 +1,684 @@
+Proposal for Warehouse Wizard Warehouse Management System
+
+Prepared for: Mattew HuntePrepared by: Russell HunteSystem: Warehouse WizardDeployment Type: Cloud-Hosted Warehouse Management SystemDate: May 2026
+
+Dear Mattew,
+
+Thank you for the opportunity to present the Warehouse Wizard Warehouse Management System.
+
+Warehouse Wizard is a practical, cloud-hosted software solution designed to help a distribution business control stock, assign warehouse locations, manage receiving and dispatch, and give warehouse managers clear visibility of where every product is stored.
+
+The system is built for businesses that need more structure than spreadsheets and want a practical, cloud-hosted warehouse platform that can be configured around their real warehouse operations.
+
+1. Executive Summary
+
+Warehouse Wizard is designed to make warehouse control simple, visual, and reliable.
+
+The system allows the warehouse team to:
+
+Know exactly where every product is stored
+
+Assign products to specific warehouse spaces
+
+Search by product, location, supplier, category, size, weight, or stock status
+
+Manage warehouse aisles, bays, levels, and depths
+
+Receive goods into the warehouse
+
+Move stock between locations
+
+Pick and dispatch orders more accurately
+
+Track stock quantities and adjustments
+
+Improve accountability among warehouse staff
+
+Reduce lost stock, overstocking, dead stock, and picking errors
+
+The main value of Warehouse Wizard is not simply that it stores inventory data.
+
+Its value is that it helps the warehouse operate in a more controlled, visible, and disciplined way.
+
+2. The Problem
+
+Many growing distribution businesses rely on a mixture of memory, paper notes, Excel files, verbal instructions, and manual stock checks to manage their warehouse.
+
+This creates several problems:
+
+Staff may not know where products are stored
+
+Products can be misplaced or forgotten
+
+Warehouse space is not used efficiently
+
+Picking and dispatch errors increase
+
+Receiving is not always properly documented
+
+Management cannot easily see what is available
+
+Stock counts take too long
+
+Warehouse knowledge stays in people’s heads instead of in the system
+
+New staff take longer to train
+
+Slow-moving stock becomes harder to identify
+
+Customers are affected when orders are delayed or incorrect
+
+As the warehouse grows, these problems become more expensive.
+
+A warehouse system should not only record stock. It should guide the warehouse team on how to store, find, move, and control products.
+
+3. Proposed Solution
+
+Warehouse Wizard provides a structured warehouse management system built around the physical layout of the warehouse.
+
+The system can represent:
+
+Warehouses
+
+Zones
+
+Aisles
+
+Racks
+
+Bays
+
+Levels
+
+Depth positions
+
+Cold or temperature-controlled sections
+
+Bulk storage areas
+
+Picking areas
+
+Reserved areas
+
+Quarantine or damaged stock areas
+
+Each product can be assigned to a warehouse location, and the system can help staff search for available spaces based on product rules.
+
+For example, the system can consider:
+
+Product size
+
+Product weight
+
+Product category
+
+Storage type
+
+Cold storage requirement
+
+Fast-moving versus slow-moving stock
+
+Available space
+
+Location capacity
+
+Picking convenience
+
+Safety restrictions
+
+This allows the warehouse manager to make better decisions and maintain order as the warehouse grows.
+
+4. Core Features Included
+
+Warehouse Location Setup
+
+Create warehouse zones, aisles, racks, levels, and depth positions.
+
+Assign names or codes to every storage space.
+
+Mark spaces as available, occupied, reserved, damaged, blocked, or inactive.
+
+Identify special storage areas such as cold storage, fragile goods, bulk storage, or high-value items.
+
+Product Master File
+
+Create and manage product records.
+
+Track SKU, description, category, supplier, unit of measure, barcode, size, weight, and storage rules.
+
+Classify products by type, movement speed, or warehouse handling requirement.
+
+Stock Receiving
+
+Record goods received into the warehouse.
+
+Assign received items to warehouse locations.
+
+Support partial receiving.
+
+Record supplier, date received, quantity received, and receiving notes.
+
+Location Assignment
+
+Assign products manually to warehouse spaces.
+
+Search for open spaces.
+
+Use product rules to help suggest suitable storage areas.
+
+Prevent unsuitable items from being placed in restricted areas where rules apply.
+
+Stock Search
+
+Search by product name, SKU, barcode, category, supplier, location, aisle, rack, or zone.
+
+Quickly identify where a product is stored.
+
+View stock quantity by location.
+
+View all locations containing the same product.
+
+Stock Movement
+
+Move stock from one location to another.
+
+Record who moved it, when it moved, and why it moved.
+
+Maintain movement history for accountability.
+
+Picking and Dispatch
+
+Create pick lists for outgoing orders.
+
+Show warehouse locations for each item.
+
+Reduce time spent searching for products.
+
+Help prevent incorrect items from being picked.
+
+Record dispatched quantities.
+
+Stock Adjustment
+
+Adjust stock for damage, loss, correction, shrinkage, or recount.
+
+Record adjustment reason.
+
+Maintain audit history.
+
+Stock Count
+
+Perform full or partial stock counts.
+
+Count by location, product, aisle, zone, or category.
+
+Record differences between system quantity and counted quantity.
+
+User Permissions
+
+Create user accounts.
+
+Control access by role.
+
+Separate management access from warehouse staff access.
+
+Track key actions by user.
+
+Reports
+
+Inventory by product
+
+Inventory by location
+
+Available warehouse spaces
+
+Occupied spaces
+
+Stock movement history
+
+Receiving history
+
+Dispatch history
+
+Stock adjustment report
+
+Slow-moving or inactive stock report
+
+Low-stock report
+
+Warehouse utilization report
+
+5. Optional Advanced Features
+
+The following features can be added based on the needs of the business:
+
+Barcode scanner support
+
+Barcode label printing
+
+Handheld device interface
+
+3D or visual warehouse map
+
+Customer order integration
+
+Accounting software integration
+
+Purchase order integration
+
+Supplier portal
+
+Customer portal
+
+Automatic replenishment suggestions
+
+Expiry date or batch tracking
+
+Serial number tracking
+
+Advanced cold-storage controls
+
+Mobile warehouse app
+
+Manager dashboard
+
+Multi-warehouse support
+
+Automated space recommendation engine
+
+Custom reports
+
+Data migration from Excel or existing software
+
+6. Cloud-Hosted Deployment
+
+Warehouse Wizard is provided as a cloud-hosted warehouse management system.
+
+This means the software is hosted online and accessed through a secure web browser login. The customer does not need to install the system on a local server or maintain their own database infrastructure.
+
+The benefits of cloud hosting include:
+
+Secure access from authorized devices
+
+No need for an in-house server
+
+Easier updates and system improvements
+
+Centralized database management
+
+Remote access for managers and approved users
+
+Simpler backup and recovery planning
+
+Faster deployment
+
+Reduced dependence on local IT infrastructure
+
+Better scalability as the warehouse grows
+
+Warehouse Wizard will be maintained as a hosted system, with user accounts, permissions, warehouse setup, product data, stock records, and reports managed through the cloud platform.
+
+The customer will still be responsible for ensuring that staff have suitable computers, tablets, barcode scanners, printers, internet access, and proper internal procedures for using the system correctly.
+
+7. Implementation Plan
+
+Phase 1: Discovery and Warehouse Mapping
+
+Review the warehouse layout.
+
+Identify zones, aisles, racks, bays, levels, and storage types.
+
+Confirm product categories and storage rules.
+
+Confirm users and permission levels.
+
+Agree on the initial system setup.
+
+Phase 2: Cloud System Setup
+
+Create and configure the customer’s Warehouse Wizard cloud environment.
+
+Set up the company account.
+
+Configure the warehouse database.
+
+Create user accounts and permission levels.
+
+Set up company information.
+
+Set up the warehouse structure, including zones, aisles, racks, bays, levels, and storage positions.
+
+Confirm access from approved devices.
+
+Test login, data entry, search, receiving, movement, picking, and reporting functions.
+
+Phase 3: Product and Stock Setup
+
+Import or enter product master data.
+
+Create warehouse locations.
+
+Assign existing stock to locations.
+
+Review stock accuracy before going live.
+
+Phase 4: Training
+
+Train warehouse staff on receiving, searching, moving, picking, and stock counting.
+
+Train managers on reports, controls, and user permissions.
+
+Provide practical workflow guidance.
+
+Phase 5: Go-Live Support
+
+Assist during initial live use.
+
+Correct setup issues.
+
+Support first receiving and dispatch activities.
+
+Review staff usage and make adjustments where needed.
+
+Phase 6: Post-Go-Live Review
+
+Review system performance after initial use.
+
+Identify any needed improvements.
+
+Recommend next-phase enhancements.
+
+8. Proposed Pricing
+
+Warehouse Wizard is priced as a cloud-hosted system using the following structure:
+
+Cloud subscription + implementation + support + optional customization.
+
+Option 1: Starter Warehouse Package
+
+Best for a smaller warehouse that needs basic location control, inventory search, receiving, movement, and dispatch.
+
+Cloud subscription: USD $750 per monthImplementation and setup: USD $3,500Minimum term: 12 monthsEstimated first-year investment: USD $12,500
+
+Includes:
+
+One warehouse
+
+Core product file
+
+Location setup
+
+Receiving
+
+Stock movement
+
+Stock search
+
+Basic picking and dispatch
+
+Stock adjustment
+
+Basic reports
+
+Up to 5 users
+
+Initial training
+
+Option 2: Professional WMS Package
+
+Best for a serious distributor that needs stronger controls, better reporting, barcode readiness, and more advanced warehouse management.
+
+Cloud subscription: USD $1,500 per monthImplementation and setup: USD $7,500Minimum term: 12 monthsEstimated first-year investment: USD $25,500
+
+Includes:
+
+One warehouse
+
+Advanced location structure
+
+Product rules
+
+Receiving
+
+Put-away support
+
+Stock movement
+
+Picking and dispatch
+
+Stock adjustments
+
+Stock count module
+
+User permissions
+
+Audit trail
+
+Warehouse utilization reports
+
+Management reports
+
+Up to 15 users
+
+Initial training
+
+Basic barcode support readiness
+
+Option 3: Enterprise / Multi-Warehouse Package
+
+Best for larger operations with multiple warehouses, multiple branches, deeper reporting, integrations, or custom workflows.
+
+Cloud subscription: From USD $3,500 per monthImplementation: From USD $18,000Minimum term: 12 monthsEstimated first-year investment: From USD $60,000
+
+Includes:
+
+Multi-warehouse setup
+
+Advanced permissions
+
+Advanced reporting
+
+Custom workflows
+
+Integration planning
+
+Expanded training
+
+Management dashboard
+
+Priority implementation
+
+Customization planning
+
+9. Recommended Package
+
+Based on the expected needs of a growing warehouse operation, I recommend the:
+
+Professional WMS Package
+
+Cloud subscription: USD $1,500 per monthImplementation and setup: USD $7,500First-year estimated investment: USD $25,500Minimum term: 12 months
+
+This package gives the business a serious warehouse control system without moving immediately into the cost and complexity of a full enterprise deployment.
+
+It provides the best balance between cost, control, scalability, and long-term usefulness.
+
+10. Customization and Additional Work
+
+Customization is billed separately.
+
+Standard customization rate: USD $95 per hourAdvanced integration or specialist development: USD $125–$150 per hourOn-site consulting or training: Quoted separatelyTravel, accommodation, meals, and local transport: Billed separately where applicable
+
+Examples of separately billable work include:
+
+Accounting integration
+
+ERP integration
+
+Custom reports
+
+Barcode scanner configuration
+
+Label design
+
+Customer portal
+
+Supplier portal
+
+Mobile app interface
+
+Data migration from legacy systems
+
+Special warehouse logic
+
+3D visual warehouse representation
+
+Remote access setup
+
+Backup automation
+
+Multi-branch customization
+
+11. Support and Maintenance
+
+Warehouse Wizard cloud subscription includes hosting, standard system access, regular updates, and standard support.
+
+Support includes:
+
+Bug fixes
+
+Minor updates
+
+General support
+
+Help with standard system issues
+
+Guidance on system usage
+
+Eligibility for version updates
+
+Remote troubleshooting where possible
+
+Support does not include:
+
+New custom features
+
+Hardware repair
+
+Network troubleshooting
+
+Printer repair
+
+Scanner repair
+
+Operating system issues
+
+Virus or malware removal
+
+Data recovery caused by customer-side issues
+
+Staff retraining caused by turnover
+
+Major system redesign
+
+Third-party software licensing
+
+12. Customer Responsibilities
+
+The customer is responsible for:
+
+Providing suitable computers, tablets, or handheld devices
+
+Providing reliable internet access
+
+Providing barcode scanners and printers where required
+
+Protecting login credentials
+
+Ensuring staff use the system properly
+
+Assigning an internal system champion
+
+Maintaining accurate product and stock information
+
+Providing timely feedback during implementation
+
+Following agreed warehouse procedures
+
+Paying the monthly subscription to maintain system access
+
+13. Estimated Implementation Timeline
+
+Starter Package: 2–4 weeksProfessional Package: 4–8 weeksEnterprise Package: 8–16 weeks or more, depending on complexity
+
+The timeline depends on:
+
+Quality of existing product data
+
+Warehouse layout readiness
+
+Availability of staff for training
+
+Number of warehouse locations
+
+Amount of stock to be entered or migrated
+
+Customization requirements
+
+Device and internet readiness
+
+14. Payment Terms
+
+Suggested payment terms:
+
+Implementation fee: 50% deposit to begin project, 50% due before go-live.
+
+Cloud subscription: Monthly in advance, beginning from the agreed go-live date or earlier if the customer begins live operational use before formal go-live.
+
+Minimum term: 12 months.
+
+Custom work: Billed separately and may require its own deposit before work begins.
+
+15. Why Warehouse Wizard
+
+Warehouse Wizard is built for practical warehouse control.
+
+It is not designed to impress with unnecessary complexity. It is designed to help a warehouse team answer the questions that matter every day:
+
+Where is the product?
+
+How much do we have?
+
+Where should this item go?
+
+Who moved it?
+
+What needs to be picked?
+
+What was received?
+
+What was dispatched?
+
+What space is available?
+
+What stock is not moving?
+
+Where are the errors happening?
+
+The goal is simple: better control, faster work, fewer mistakes, and more reliable warehouse operations.
+
+16. Conclusion
+
+Warehouse Wizard offers a strong, practical alternative to spreadsheets, manual warehouse control, and expensive warehouse systems that may be too complex or too rigid for the customer’s real operation.
+
+It gives the business cloud-based access to its warehouse data, while providing a scalable structure for receiving, storage, picking, dispatch, and reporting.
+
+For a growing distribution business, this system can become an important operational backbone.
+
+Recommended proposal:
+
+Professional WMS PackageCloud subscription: USD $1,500 per monthImplementation and setup: USD $7,500Minimum term: 12 monthsEstimated first-year investment: USD $25,500
+
+I would be pleased to discuss the next step, review the warehouse requirements, and confirm the best package for your operation.
+
+Regards,Russell Hunte
+
