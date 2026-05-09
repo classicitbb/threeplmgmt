@@ -288,7 +288,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const items = NAVIGATION.filter((item) => item.roles.some((role) => roles.includes(role)));
   const displayName = profile?.full_name?.trim() || user?.email || "Warehouse User";
-  const primaryRole = roles[0] ? ROLE_LABELS[roles[0]] : "User";
   const initials = displayName
     .split(/\s+/)
     .filter(Boolean)
