@@ -359,28 +359,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </nav>
 
       {/* User profile at bottom */}
-      {!sidebarCollapsed && (
-        <div className="mt-3 rounded-lg border border-border bg-card/50 p-2.5">
-          <div className="flex items-center gap-2.5">
-            <Avatar className="h-8 w-8 shrink-0">
-              <AvatarFallback className="bg-primary/15 text-xs font-semibold text-primary">{initials}</AvatarFallback>
-            </Avatar>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-xs font-medium leading-tight">{displayName}</p>
-              <p className="truncate text-xs text-muted-foreground">{primaryRole}</p>
-            </div>
-            <Button
-              className="h-7 w-7 shrink-0 text-muted-foreground"
-              size="icon"
-              variant="ghost"
-              onClick={() => void signOut()}
-              title="Sign out"
-            >
-              <LogOut className="h-3.5 w-3.5" />
-            </Button>
-          </div>
-        </div>
-      )}
     </div>
   );
 
