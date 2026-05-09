@@ -799,6 +799,114 @@ function shouldRestrictToDefaultWarehouse(roles: string[]) {
     !roles.some((role) => ["admin", "warehouse_manager"].includes(role));
 }
 
+type DashboardCardSize = "sm" | "md" | "lg";
+
+type DashboardCardConfig = {
+  id: string;
+  label: string;
+  metricKey: keyof import("@/lib/wms-core").DashboardMetrics;
+  icon: typeof Activity;
+  description: string;
+  size: DashboardCardSize;
+  accentClass: string;
+};
+
+const defaultDashboardCards: DashboardCardConfig[] = [
+  { id: "total-pallets", label: "Total Pallets", metricKey: "totalPallets", icon: Boxes, description: "All pallets in system", size: "sm", accentClass: "border-l-blue-500" },
+  { id: "available-pallets", label: "Available", metricKey: "availablePallets", icon: CheckCircle2, description: "Ready for orders", size: "sm", accentClass: "border-l-green-500" },
+  { id: "open-putaway", label: "Open Putaway", metricKey: "openPutawayTasks", icon: Forklift, description: "Tasks queued", size: "sm", accentClass: "border-l-amber-500" },
+  { id: "open-pick-lists", label: "Open Pick Lists", metricKey: "openPickLists", icon: ClipboardList, description: "Awaiting execution", size: "sm", accentClass: "border-l-purple-500" },
+  { id: "hold-stock", label: "On Hold", metricKey: "holdStock", icon: AlertCircle, description: "Awaiting release", size: "sm", accentClass: "border-l-orange-500" },
+  { id: "quarantine", label: "Quarantine", metricKey: "quarantineStock", icon: AlertTriangle, description: "Quality investigation", size: "sm", accentClass: "border-l-red-500" },
+  { id: "open-receipts", label: "Open Receipts", metricKey: "openReceipts", icon: Download, description: "Inbound processing", size: "sm", accentClass: "border-l-cyan-500" },
+  { id: "cool-occupancy", label: "Cool Occupancy", metricKey: "coolZoneOccupancy", icon: Activity, description: "Cool zone pallets", size: "sm", accentClass: "border-l-teal-500" },
+];
+
+const LAYOUT_KEY = "ww-dashboard-layout";
+
+function loadLayout(): DashboardCardConfig[] {
+  try {
+    const raw = localStorage.getItem(LAYOUT_KEY);
+    if (!raw) return defaultDashboardCards;
+    const saved = JSON.parse(raw) as Array<{ id: string; size: DashboardCardSize }>;
+    const ordered = saved
+      .map((s) => {
+        const def = defaultDashboardCards.find((d) => d.id === s.id);
+        if (!def) return null;
+        return { ...def, size: s.size };
+      })
+      .filter(Boolean) as DashboardCardConfig[];
+    const missing = defaultDashboardCards.filter((d) => !ordered.find((o) => o.id === d.id));
+    return [...ordered, ...missing];
+  } catch {
+    return defaultDashboardCards;
+  }
+}
+
+function saveLayout(cards: DashboardCardConfig[]) {
+  localStorage.setItem(LAYOUT_KEY, JSON.stringify(cards.map((c) => ({ id: c.id, size: c.size }))));
+}
+
+function SortableMetricCard({
+  card,
+  value,
+  isLoading,
+  onResize,
+}: {
+  card: DashboardCardConfig;
+  value: number;
+  isLoading: boolean;
+  onResize: (id: string) => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: card.id });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+  const Icon = card.icon;
+  const colSpan = card.size === "lg" ? "md:col-span-2 xl:col-span-2" : card.size === "md" ? "md:col-span-1 xl:col-span-1" : "";
+
+  return (
+    <div ref={setNodeRef} style={style} className={cn("group", colSpan)}>
+      <Card className={cn("overflow-hidden border-l-4 transition-shadow hover:shadow-md", card.accentClass)}>
+        <CardHeader className="pb-2 pt-4">
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted">
+                <Icon className="h-4 w-4 text-muted-foreground" />
+              </div>
+              <div>
+                <CardDescription className="text-xs">{card.label}</CardDescription>
+                <CardTitle className="text-2xl font-bold leading-none">
+                  {isLoading ? <span className="text-muted-foreground">…</span> : formatNumber(value)}
+                </CardTitle>
+              </div>
+            </div>
+            <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-6 w-6"
+                onClick={() => onResize(card.id)}
+                title="Toggle size"
+              >
+                {card.size === "lg" ? <Minimize2 className="h-3 w-3" /> : <Maximize2 className="h-3 w-3" />}
+              </Button>
+              <div {...attributes} {...listeners} className="cursor-grab active:cursor-grabbing p-1 rounded hover:bg-muted">
+                <GripVertical className="h-3.5 w-3.5 text-muted-foreground" />
+              </div>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="pb-3 pt-0">
+          <p className="text-xs text-muted-foreground">{card.description}</p>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 export function DashboardPage() {
   const [mode, setMode] = useState<DashboardMode>("floor");
   const [cards, setCards] = useState<DashboardCardConfig[]>(loadLayout);
