@@ -10,17 +10,7 @@ import { z } from "zod";
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/integrations/supabase/client";
 import { lovable } from "@/integrations/lovable/index";
-import {
-  confirmPickTask,
-  formatDate,
-  formatNumber,
-  getInventoryDetail,
-  getPickExecution,
-  loginSchema,
-  recordUserSignIn,
-  signUpSchema,
-  RESOURCE_DEFINITIONS,
-} from "@/lib/wms-core";
+import { confirmPickTask, formatDate, formatNumber, getInventoryDetail, getPickExecution, loginSchema, recordUserSignIn, signUpSchema, RESOURCE_DEFINITIONS } from "@/lib/wms-core";
 import {
   AppShell,
   DashboardPage,
@@ -181,11 +171,7 @@ function LoginPage() {
   const [mode, setMode] = useState<"login" | "signup">("login");
 
   const loginForm = useForm({
-    resolver: zodResolver(
-      loginSchema.extend({
-        email: loginSchema.shape.email.or(z.string().min(3, "Enter an email, user code, or badge")),
-      }),
-    ),
+    resolver: zodResolver(loginSchema.extend({ email: loginSchema.shape.email.or(z.string().min(3, "Enter an email, user code, or badge")) })),
     defaultValues: { email: "", password: "" },
   });
 
@@ -197,15 +183,11 @@ function LoginPage() {
   const loginMutation = useMutation({
     mutationFn: async (values: { email: string; password: string }) => {
       const identifier = values.email.trim();
-      const method = identifier.toUpperCase().startsWith("BADGE-")
-        ? "badge"
-        : identifier.includes("@")
-          ? "email"
-          : "code";
+      const method = identifier.toUpperCase().startsWith("BADGE-") ? "badge" : identifier.includes("@") ? "email" : "code";
       await auth.signIn(identifier, values.password);
       await recordUserSignIn(method);
     },
-    onError: (error) => toast.error(friendlyAuthError(error, "login")),
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Sign in failed"),
   });
 
   const signUpMutation = useMutation({
@@ -259,36 +241,14 @@ function LoginPage() {
               <form className="flex flex-col gap-4" onSubmit={loginForm.handleSubmit((v) => loginMutation.mutate(v))}>
                 <div className="rounded-lg border border-border bg-secondary/30 p-3">
                   <p className="text-sm font-medium">Email, user code, or badge</p>
-                  <p className="text-xs text-muted-foreground">
-                    Use an approved email, short code such as ADMIN01, or a scanned badge code.
-                  </p>
+                  <p className="text-xs text-muted-foreground">Use an approved email, short code such as ADMIN01, or a scanned badge code.</p>
                 </div>
-                <FormField
-                  control={loginForm.control}
-                  name="email"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Login</FormLabel>
-                      <FormControl>
-                        <Input {...field} autoComplete="username" />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={loginForm.control}
-                  name="password"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Password</FormLabel>
-                      <FormControl>
-                        <Input {...field} type="password" autoComplete="current-password" />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                <FormField control={loginForm.control} name="email" render={({ field }) => (
+                  <FormItem><FormLabel>Login</FormLabel><FormControl><Input {...field} autoComplete="username" /></FormControl><FormMessage /></FormItem>
+                )} />
+                <FormField control={loginForm.control} name="password" render={({ field }) => (
+                  <FormItem><FormLabel>Password</FormLabel><FormControl><Input {...field} type="password" autoComplete="current-password" /></FormControl><FormMessage /></FormItem>
+                )} />
                 <Button type="submit" disabled={loginMutation.isPending}>
                   {loginMutation.isPending ? <Loader2 className="animate-spin mr-2 h-4 w-4" /> : null}
                   Sign in

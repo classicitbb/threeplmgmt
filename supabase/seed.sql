@@ -1415,3 +1415,360 @@ begin
   join public.inventory_balances ib on ib.id = sa.inventory_balance_id;
 end;
 $$;
+
+do $$
+declare
+  admin_user constant uuid := '11111111-1111-1111-1111-111111111111';
+  manager_user constant uuid := '22222222-2222-2222-2222-222222222222';
+  clerk_user constant uuid := '33333333-3333-3333-3333-333333333333';
+  operator_user constant uuid := '44444444-4444-4444-4444-444444444444';
+  new_wh uuid;
+  wildey_wh uuid;
+  first_receipt uuid;
+  cold_receipt uuid;
+  source_pallet uuid;
+  source_product uuid;
+  source_client uuid;
+  source_lot uuid;
+  source_location uuid;
+  dest_location uuid;
+  intra_transfer uuid;
+  dock_id uuid;
+  pick_list_row record;
+  label_row record;
+  netsuite_connection_id uuid;
+  pallet_row record;
+begin
+  select id into new_wh from public.warehouses where code = 'NEW';
+  select id into wildey_wh from public.warehouses where code = 'WLD';
+
+  select id into first_receipt
+  from public.receipts
+  where receipt_type = 'po'
+  order by created_at
+  limit 1;
+
+  select r.id into cold_receipt
+  from public.receipts r
+  join public.receipt_lines rl on rl.receipt_id = r.id
+  join public.products p on p.id = rl.product_id
+  where r.receipt_type = 'po'
+    and p.temperature_requirement = 'cool'
+  order by r.created_at
+  limit 1;
+
+  update public.receipts
+  set reference_number = 'PO-BIM-2026-0509',
+      notes = 'Demo inbound PO and shipping manifest: Manifest WW-MAN-2026-0509 from Bridgetown Port, carrier Seawell Logistics, seal BGI-88421, container CMAU-441208-7. Receive, label, inspect, and release to directed putaway.'
+  where id = first_receipt;
+
+  update public.receipts
+  set reference_number = 'PO-CHILL-2026-0510',
+      notes = 'Demo cold-chain PO and refrigerated manifest: Manifest WW-MAN-2026-0510, reefer set point 4 C, QA temperature check required before putaway.'
+  where id = cold_receipt;
+
+  insert into public.integration_connections (system, name, base_url, enabled, config, created_by)
+  values (
+    'netsuite',
+    'Demo NetSuite Sandbox',
+    'https://netsuite.example.invalid',
+    true,
+    '{"account":"WW-DEMO","environment":"sandbox","memo":"Seeded for full-flow demo only"}'::jsonb,
+    admin_user
+  )
+  on conflict do nothing;
+
+  select id into netsuite_connection_id
+  from public.integration_connections
+  where name = 'Demo NetSuite Sandbox'
+  order by created_at
+  limit 1;
+
+  if netsuite_connection_id is not null then
+    insert into public.integration_sync_jobs (connection_id, job_type, status, idempotency_key, payload, result, attempts)
+    values
+      (
+        netsuite_connection_id,
+        'purchase_order_import',
+        'succeeded',
+        'demo-po-bim-2026-0509',
+        '{"poNumber":"PO-BIM-2026-0509","manifestNumber":"WW-MAN-2026-0509","carrier":"Seawell Logistics","container":"CMAU-441208-7","lines":4}'::jsonb,
+        '{"recordsCreated":["receipts","receipt_lines","pallets","putaway_tasks"]}'::jsonb,
+        1
+      ),
+      (
+        netsuite_connection_id,
+        'inventory_adjustment_export',
+        'queued',
+        'demo-cycle-count-adjustments',
+        '{"reason":"cycle_count_variance","source":"Warehouse Wizard demo"}'::jsonb,
+        null,
+        0
+      )
+    on conflict (connection_id, idempotency_key) do nothing;
+
+    insert into public.external_record_links (system, local_table, local_id, external_record_type, external_id, external_url, last_synced_at)
+    select 'netsuite', 'receipts', r.id, 'purchaseOrder', r.reference_number, format('https://netsuite.example.invalid/app/accounting/transactions/purchord.nl?id=%s', r.reference_number), timezone('utc', now())
+    from public.receipts r
+    where r.reference_number in ('PO-BIM-2026-0509', 'PO-CHILL-2026-0510')
+    on conflict (system, local_table, local_id, external_record_type) do update
+    set external_id = excluded.external_id,
+        external_url = excluded.external_url,
+        last_synced_at = excluded.last_synced_at;
+  end if;
+
+  insert into public.ai_recommendations (recommendation_key, title, severity, audience, reason, next_action, context)
+  values
+    (
+      'demo-receiving-putaway',
+      'Inbound PO is ready for receiving and directed putaway',
+      'info',
+      array['warehouse_manager'::public.app_role_code, 'inventory_clerk'::public.app_role_code],
+      'The demo manifest PO-BIM-2026-0509 has pallet labels, receipt lines, and queued putaway tasks.',
+      'Open Receiving, confirm the PO reference, then work the Putaway queue by scanning pallet and location.',
+      '{"po":"PO-BIM-2026-0509","manifest":"WW-MAN-2026-0509"}'::jsonb
+    ),
+    (
+      'demo-transfer-flow',
+      'Transfer lanes show queued, in-transit, received, and completed work',
+      'warning',
+      array['warehouse_manager'::public.app_role_code, 'dispatch_driver'::public.app_role_code],
+      'Seeded inter-warehouse and intra-warehouse transfers cover driver sign-off, receiving, and post-transfer putaway.',
+      'Dispatch TRF-0002, receive TRF-0001, and compare completed transfer audit history.',
+      '{"flows":["inter_warehouse","intra_warehouse","driver_signoff"]}'::jsonb
+    )
+  on conflict do nothing;
+
+  insert into public.dock_appointments (appointment_number, warehouse_id, dock_door, carrier, driver_name, scheduled_at, status)
+  values
+    ('APPT-IN-0509', new_wh, 'IN-02', 'Seawell Logistics', 'Marlon Best', timezone('utc', now()) + interval '2 hours', 'queued'),
+    ('APPT-OUT-0510', new_wh, 'OUT-01', 'Island Freight', 'Janelle Ifill', timezone('utc', now()) + interval '5 hours', 'assigned'),
+    ('APPT-XFER-WLD', wildey_wh, 'XFER-01', 'Warehouse Wizard Fleet', 'Janelle Ifill', timezone('utc', now()) + interval '1 hour', 'in_progress')
+  on conflict (appointment_number) do nothing;
+
+  select id into dock_id
+  from public.dock_appointments
+  where appointment_number = 'APPT-OUT-0510';
+
+  for pick_list_row in
+    select id, pick_list_number, row_number() over (order by created_at) as rn
+    from public.pick_lists
+    where warehouse_id = new_wh
+    order by created_at
+    limit 4
+  loop
+    insert into public.staging_loads (pick_list_id, dock_appointment_id, route_code, load_sequence, status, blocker)
+    values (
+      pick_list_row.id,
+      dock_id,
+      format('BGI-%s', lpad(pick_list_row.rn::text, 2, '0')),
+      pick_list_row.rn * 10,
+      case pick_list_row.rn when 1 then 'ready' when 2 then 'called' when 3 then 'loading' else 'blocked' end,
+      case when pick_list_row.rn = 4 then 'QA release required before loading' else null end
+    )
+    on conflict do nothing;
+  end loop;
+
+  insert into public.quality_inspections (inspection_number, pallet_id, receipt_id, disposition, pass_fail_criteria, root_cause_code, corrective_action, inspected_by, completed_at)
+  select
+    format('QA-%s', p.pallet_code),
+    p.id,
+    r.id,
+    case when p.status = 'quarantine' then 'hold'::public.quality_disposition else 'pass'::public.quality_disposition end,
+    jsonb_build_object('seal', 'verified', 'temperature', case when pr.temperature_requirement = 'cool' then '4 C' else 'ambient ok' end, 'wrap', 'intact'),
+    case when p.status = 'quarantine' then 'DAMAGED_WRAP' else null end,
+    case when p.status = 'quarantine' then 'Hold for customer disposition; photograph and rewrap.' else 'Released to putaway.' end,
+    clerk_user,
+    timezone('utc', now()) - interval '30 minutes'
+  from public.pallets p
+  join public.receipt_lines rl on rl.id = p.receipt_line_id
+  join public.receipts r on r.id = rl.receipt_id
+  join public.products pr on pr.id = p.product_id
+  where r.id in (first_receipt, cold_receipt)
+  order by p.created_at
+  limit 8
+  on conflict (inspection_number) do nothing;
+
+  insert into public.return_authorizations (rma_number, client_id, warehouse_id, status, disposition, reason, completed_at)
+  select 'RMA-DEMO-0509', c.id, new_wh, 'queued', 'pending', 'Customer reports crushed case; receive to quarantine and inspect.', null
+  from public.clients c
+  where c.code = 'ISLAND'
+  on conflict (rma_number) do nothing;
+
+  select ib.pallet_id, ib.product_id, ib.client_id, ib.inventory_lot_id, ib.location_id
+    into source_pallet, source_product, source_client, source_lot, source_location
+  from public.inventory_balances ib
+  where ib.warehouse_id = new_wh
+    and ib.status = 'available'
+    and ib.location_id is not null
+  order by ib.created_at
+  limit 1;
+
+  select id into dest_location
+  from public.locations
+  where warehouse_id = new_wh
+    and id <> source_location
+    and location_type = 'staging'
+  order by code
+  limit 1;
+
+  if source_pallet is not null and dest_location is not null then
+    insert into public.transfers (
+      transfer_number,
+      transfer_type,
+      source_warehouse_id,
+      destination_warehouse_id,
+      status,
+      notes,
+      created_by
+    )
+    values (
+      'TRF-INTRA-0509',
+      'intra_warehouse',
+      new_wh,
+      new_wh,
+      'queued',
+      'Intra-warehouse slot move from reserve rack to staging for replenishment and demo scanning.',
+      manager_user
+    )
+    on conflict (transfer_number) do update
+    set notes = excluded.notes
+    returning id into intra_transfer;
+
+    insert into public.transfer_lines (transfer_id, pallet_id, product_id, client_id, quantity, inventory_lot_id, created_by)
+    values (intra_transfer, source_pallet, source_product, source_client, 4, source_lot, manager_user)
+    on conflict do nothing;
+
+    insert into public.move_tasks (
+      task_number,
+      pallet_id,
+      from_location_id,
+      to_location_id,
+      warehouse_id,
+      transfer_id,
+      assigned_user_id,
+      status,
+      reason,
+      created_by
+    )
+    values (
+      'MOV-INTRA-0509',
+      source_pallet,
+      source_location,
+      dest_location,
+      new_wh,
+      intra_transfer,
+      operator_user,
+      'queued',
+      'Seeded intra-warehouse transfer move.',
+      manager_user
+    )
+    on conflict (task_number) do nothing;
+
+    insert into public.replenishment_tasks (
+      task_number,
+      product_id,
+      warehouse_id,
+      from_location_id,
+      to_location_id,
+      reorder_point,
+      target_quantity,
+      status,
+      assigned_user_id
+    )
+    values (
+      'RPL-DEMO-0509',
+      source_product,
+      new_wh,
+      source_location,
+      dest_location,
+      10,
+      48,
+      'queued',
+      operator_user
+    )
+    on conflict (task_number) do nothing;
+  end if;
+
+  for pallet_row in
+    select p.id, p.pallet_code, ib.id as balance_id, ib.warehouse_id
+    from public.pallets p
+    join public.inventory_balances ib on ib.pallet_id = p.id
+    where ib.status = 'available'
+    order by ib.created_at
+    limit 2
+  loop
+    update public.pallets
+    set status = case when pallet_row.pallet_code < (select max(pallet_code) from public.pallets) then 'hold'::public.inventory_status else 'missing'::public.inventory_status end
+    where id = pallet_row.id;
+
+    update public.inventory_balances
+    set status = case when pallet_row.pallet_code < (select max(pallet_code) from public.pallets) then 'hold'::public.inventory_status else 'missing'::public.inventory_status end
+    where id = pallet_row.balance_id;
+
+    insert into public.stock_adjustments (
+      adjustment_number,
+      pallet_id,
+      inventory_balance_id,
+      adjustment_type,
+      quantity_delta,
+      old_status,
+      new_status,
+      reason,
+      created_by
+    )
+    values (
+      format('STS-DEMO-%s', right(pallet_row.pallet_code, 5)),
+      pallet_row.id,
+      pallet_row.balance_id,
+      'status_change',
+      0,
+      'available',
+      case when pallet_row.pallet_code < (select max(pallet_code) from public.pallets) then 'hold'::public.inventory_status else 'missing'::public.inventory_status end,
+      'Demo controlled-status workflow for hold/missing investigation.',
+      clerk_user
+    )
+    on conflict do nothing;
+  end loop;
+
+  for label_row in
+    select bl.id, bl.label_code, bl.label_type
+    from public.barcode_labels bl
+    order by bl.created_at desc
+    limit 12
+  loop
+    insert into public.print_jobs (
+      barcode_label_id,
+      label_template_id,
+      status,
+      zpl_payload,
+      requested_by,
+      sent_at,
+      printed_at
+    )
+    select
+      label_row.id,
+      lt.id,
+      case when label_row.label_type = 'transfer_document' then 'sent'::public.print_job_status else 'printed'::public.print_job_status end,
+      format('^XA^FO40,40^A0N,36,36^FD%s^FS^FO40,100^BY2^BCN,80,Y,N,N^FD%s^FS^XZ', upper(label_row.label_type::text), label_row.label_code),
+      clerk_user,
+      timezone('utc', now()) - interval '10 minutes',
+      case when label_row.label_type = 'transfer_document' then null else timezone('utc', now()) - interval '8 minutes' end
+    from public.label_templates lt
+    where lt.label_type = case when label_row.label_type = 'transfer_document' then 'pallet'::public.label_type else label_row.label_type end
+    order by lt.created_at
+    limit 1
+    on conflict do nothing;
+  end loop;
+
+  insert into public.work_templates (code, workflow, priority, query_rules, step_rules)
+  values
+    ('FULL-FLOW-DEMO-RECEIVE', 'receiving_to_putaway', 10, '{"receiptType":"po","reference":"PO-BIM-2026-0509"}'::jsonb, '["scan_manifest","receive_pallet","print_label","qa_check","directed_putaway"]'::jsonb),
+    ('FULL-FLOW-DEMO-TRANSFER', 'interwarehouse_transfer', 20, '{"requiresDriverSignoff":true}'::jsonb, '["create_transfer","stage_pallet","driver_signoff","receive_destination","putaway"]'::jsonb),
+    ('FULL-FLOW-DEMO-COUNT', 'cycle_count_variance', 30, '{"varianceThresholdPercent":5}'::jsonb, '["print_count_sheet","count_location","record_variance","adjust_stock","export_netsuite"]'::jsonb)
+  on conflict (code) do update
+  set query_rules = excluded.query_rules,
+      step_rules = excluded.step_rules,
+      active = true;
+end;
+$$;
