@@ -1307,11 +1307,10 @@ export async function dispatchTransfer(transferId: string, driverSignoffCode: st
 
   const { data: roleRows, error: roleError } = await db("user_roles")
     .select("roles!inner(code)")
-    .eq("user_id", actorId)
-    .eq("is_hidden", false);
+    .eq("user_id", actorId);
   if (roleError) throw roleError;
   const allowedToSign = (roleRows ?? []).some((row: { roles?: { code?: string } }) =>
-    ["dispatch_driver", "warehouse_manager", "admin"].includes(row.roles?.code),
+    row.roles?.code ? ["dispatch_driver", "warehouse_manager", "admin"].includes(row.roles.code) : false,
   );
   if (!allowedToSign) {
     throw new Error("Only dispatch drivers, managers, or admins can sign off transfer departure.");
