@@ -624,7 +624,7 @@ function LocationWizardDialog() {
   });
 
   const mutation = useMutation({
-    mutationFn: async (values: ReturnType<typeof form.getValues>) => {
+    mutationFn: async (values: Parameters<Parameters<typeof form.handleSubmit>[0]>[0]) => {
       const startBay = Number(values.start_bay);
       const endBay = Number(values.end_bay);
       const levels = Number(values.levels);
