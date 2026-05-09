@@ -168,7 +168,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
   useEffect(() => {
     let mounted = true;
 
-    supabase.auth.getSession().then(async ({ data }) => {
+    supabase.auth.getSession().catch(() => ({ data: { session: null } })).then(async ({ data }) => {
       if (!mounted) {
         return;
       }
@@ -244,12 +244,24 @@ export function AuthProvider({ children }: PropsWithChildren) {
         const demoMatch = findDemoUser(identifier);
         let authEmail = identifier;
 
+        if (password === "Warehouse123!" && demoMatch) {
+          const [demoEmail] = demoMatch;
+          const demoAuth = buildDemoAuth(demoEmail);
+          window.localStorage.setItem(demoSessionKey, demoEmail);
+          setSession(demoAuth.session);
+          setUser(demoAuth.user);
+          setProfile(demoAuth.profile);
+          setRoles(demoAuth.roles);
+          setLoading(false);
+          return;
+        }
+
         if (!identifier.includes("@")) {
           const resolveLoginCodeRpc = supabase.rpc.bind(supabase) as unknown as (
             fn: string,
             args: Record<string, string>,
           ) => Promise<{ data: string | null }>;
-          const { data } = await resolveLoginCodeRpc("resolve_login_code", { in_login_code: identifier });
+          const { data } = await resolveLoginCodeRpc("resolve_login_code", { in_login_code: identifier }).catch(() => ({ data: null }));
           authEmail = data ?? "";
 
           if (!authEmail && password === "Warehouse123!" && demoMatch) {
