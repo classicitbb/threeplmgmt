@@ -50,7 +50,8 @@ describe("createDefaultWarehouseSetupPayload", () => {
   it("provides a decision-complete starter payload for the wizard", () => {
     const payload = createDefaultWarehouseSetupPayload();
 
-    expect(payload.warehouses.length).toBeGreaterThan(0);
+    expect(payload.warehouses.length).toBeGreaterThanOrEqual(3);
+    expect(payload.warehouses.map((warehouse) => warehouse.code)).toEqual(["MAIN", "PORT", "WLD"]);
     expect(payload.zones.length).toBeGreaterThan(0);
     expect(payload.locationTemplates.length).toBeGreaterThan(0);
     expect(payload.locationTemplates.every((template) => template.warehouseCode && template.zoneCode)).toBe(true);

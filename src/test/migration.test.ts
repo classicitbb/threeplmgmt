@@ -22,6 +22,10 @@ const enterprisePoliciesSeedMigration = readFileSync(
   path.resolve(process.cwd(), "supabase/migrations/20260507123100_enterprise_wms_extensions_part2_policies_seed.sql"),
   "utf8",
 );
+const demoSeed = readFileSync(
+  path.resolve(process.cwd(), "supabase/seed.sql"),
+  "utf8",
+);
 
 describe("init_wms migration", () => {
   it("creates the core warehouse tables", () => {
@@ -85,5 +89,15 @@ describe("enterprise WMS extension migration", () => {
     expect(enterprisePoliciesSeedMigration).toContain("Approved users read");
     expect(enterprisePoliciesSeedMigration).toContain("insert into public.report_definitions");
     expect(enterprisePoliciesSeedMigration).toContain("insert into public.label_templates");
+  });
+});
+
+describe("demo seed", () => {
+  it("includes full-flow operational demo records and paperwork references", () => {
+    expect(demoSeed).toContain("PO-BIM-2026-0509");
+    expect(demoSeed).toContain("WW-MAN-2026-0509");
+    expect(demoSeed).toContain("TRF-INTRA-0509");
+    expect(demoSeed).toContain("APPT-IN-0509");
+    expect(demoSeed).toContain("FULL-FLOW-DEMO-RECEIVE");
   });
 });

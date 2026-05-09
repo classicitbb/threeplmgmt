@@ -695,18 +695,25 @@ async function logUserActivity(
 export function createDefaultWarehouseSetupPayload(): WarehouseSetupPayload {
   const warehouses: WarehouseSetupWarehouse[] = [
     { code: "MAIN", name: "Main Warehouse", city: "Bridgetown", country: "Barbados", hasCoolZone: true },
+    { code: "PORT", name: "Port Receiving Warehouse", city: "Bridgetown", country: "Barbados", hasCoolZone: false },
+    { code: "WLD", name: "Wildey Distribution Warehouse", city: "Wildey", country: "Barbados", hasCoolZone: false },
+  ];
+
+  const ambientZones = (warehouseCode: string): WarehouseSetupZone[] => [
+    { warehouseCode, code: "STG", name: "Staging", temperatureClass: "ambient", isStaging: true, isDispatch: false, isQuarantine: false, sortOrder: 10 },
+    { warehouseCode, code: "DSP", name: "Dispatch", temperatureClass: "ambient", isStaging: false, isDispatch: true, isQuarantine: false, sortOrder: 20 },
+    { warehouseCode, code: "QTN", name: "Quarantine", temperatureClass: "ambient", isStaging: false, isDispatch: false, isQuarantine: true, sortOrder: 30 },
+    { warehouseCode, code: "AMB", name: "Ambient Rack", temperatureClass: "ambient", isStaging: false, isDispatch: false, isQuarantine: false, sortOrder: 40 },
   ];
 
   const zones: WarehouseSetupZone[] = [
-    { warehouseCode: "MAIN", code: "STG", name: "Staging", temperatureClass: "ambient", isStaging: true, isDispatch: false, isQuarantine: false, sortOrder: 10 },
-    { warehouseCode: "MAIN", code: "DSP", name: "Dispatch", temperatureClass: "ambient", isStaging: false, isDispatch: true, isQuarantine: false, sortOrder: 20 },
-    { warehouseCode: "MAIN", code: "QTN", name: "Quarantine", temperatureClass: "ambient", isStaging: false, isDispatch: false, isQuarantine: true, sortOrder: 30 },
-    { warehouseCode: "MAIN", code: "COOL", name: "Cool Storage", temperatureClass: "cool", isStaging: false, isDispatch: false, isQuarantine: false, sortOrder: 40 },
+    ...warehouses.flatMap((warehouse) => ambientZones(warehouse.code)),
+    { warehouseCode: "MAIN", code: "COOL", name: "Cool Storage", temperatureClass: "cool", isStaging: false, isDispatch: false, isQuarantine: false, sortOrder: 50 },
   ];
 
-  const locationTemplates: WarehouseLocationTemplate[] = [
+  const ambientLocationTemplates = (warehouseCode: string): WarehouseLocationTemplate[] => [
     {
-      warehouseCode: "MAIN",
+      warehouseCode,
       zoneCode: "STG",
       aisleCount: 1,
       baysPerAisle: 6,
@@ -719,7 +726,7 @@ export function createDefaultWarehouseSetupPayload(): WarehouseSetupPayload {
       status: "active",
     },
     {
-      warehouseCode: "MAIN",
+      warehouseCode,
       zoneCode: "DSP",
       aisleCount: 1,
       baysPerAisle: 4,
@@ -732,7 +739,7 @@ export function createDefaultWarehouseSetupPayload(): WarehouseSetupPayload {
       status: "active",
     },
     {
-      warehouseCode: "MAIN",
+      warehouseCode,
       zoneCode: "QTN",
       aisleCount: 1,
       baysPerAisle: 4,
@@ -744,6 +751,23 @@ export function createDefaultWarehouseSetupPayload(): WarehouseSetupPayload {
       mixedLotAllowed: false,
       status: "active",
     },
+    {
+      warehouseCode,
+      zoneCode: "AMB",
+      aisleCount: 2,
+      baysPerAisle: 8,
+      levels: 3,
+      maxPallets: 1,
+      locationType: "rack",
+      temperatureClass: "ambient",
+      mixedSkuAllowed: false,
+      mixedLotAllowed: false,
+      status: "active",
+    },
+  ];
+
+  const locationTemplates: WarehouseLocationTemplate[] = [
+    ...warehouses.flatMap((warehouse) => ambientLocationTemplates(warehouse.code)),
     {
       warehouseCode: "MAIN",
       zoneCode: "COOL",
