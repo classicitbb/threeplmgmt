@@ -3,32 +3,7 @@ import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm, type UseFormReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import {
-  AlertTriangle,
-  BarChart3, Bot, Boxes, Building2, Camera, ClipboardCheck, ClipboardList,
-  Download, Eye, EyeOff, FileDown, Forklift, GripVertical, HelpCircle, Home,
-  LayoutDashboard, Loader2, LogOut, Maximize2, Minimize2, MapPinned, Menu,
-  Package, PanelLeftClose, PanelLeftOpen, Plus, Printer, RadioTower, RotateCcw,
-  Search, Settings, ShieldCheck, Tags, Truck, Upload, UserPlus, Users,
-  Activity, Warehouse, CheckCircle2, AlertCircle,
-} from "lucide-react";
-import {
-  DndContext,
-  closestCenter,
-  KeyboardSensor,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  DragEndEvent,
-} from "@dnd-kit/core";
-import {
-  arrayMove,
-  SortableContext,
-  sortableKeyboardCoordinates,
-  useSortable,
-  rectSortingStrategy,
-} from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
+import { BarChart3, Bot, Boxes, Building2, Camera, ClipboardCheck, ClipboardList, Download, Eye, EyeOff, FileDown, Forklift, HelpCircle, Home, LayoutDashboard, Loader2, LogOut, MapPinned, Menu, Package, PanelLeftClose, PanelLeftOpen, Plus, Printer, QrCode, RadioTower, RotateCcw, Search, Settings, ShieldCheck, Tags, Truck, Upload, Users } from "lucide-react";
 import { toast } from "sonner";
 import { z } from "zod";
 
@@ -56,6 +31,7 @@ import {
   formatDate,
   formatNumber,
   getDashboardMetrics,
+  getWarehouseForLocationBarcode,
   getPutawayTasks,
   getReportData,
   importCsvToResource,
@@ -174,7 +150,11 @@ function TableFrame({
   );
 }
 
-function renderField(field: FieldDefinition, form: ReturnType<typeof useForm<Record<string, unknown>>>) {
+function renderField(
+  field: FieldDefinition,
+  form: ReturnType<typeof useForm<Record<string, unknown>>>,
+  options: Array<{ label: string; value: string }> = field.options ?? [],
+) {
   return (
     <FormField
       key={field.name}
@@ -189,13 +169,13 @@ function renderField(field: FieldDefinition, form: ReturnType<typeof useForm<Rec
             ) : field.type === "select" ? (
               <Select
                 onValueChange={controllerField.onChange}
-                defaultValue={(controllerField.value as string | undefined) ?? undefined}
+                value={(controllerField.value as string | undefined) ?? undefined}
               >
                 <SelectTrigger>
                   <SelectValue placeholder={`Select ${field.label.toLowerCase()}`} />
                 </SelectTrigger>
                 <SelectContent>
-                  {(field.options ?? []).map((option) => (
+                  {options.map((option) => (
                     <SelectItem key={option.value} value={option.value}>
                       {option.label}
                     </SelectItem>
@@ -228,17 +208,23 @@ function ResourceFormDialog({
   resource: ResourceDefinition;
 }) {
   const queryClient = useQueryClient();
+  const { roles, profile } = useAuth();
   const [open, setOpen] = useState(false);
+  const restrictedToDefaultWarehouse = shouldRestrictToDefaultWarehouse(roles);
+  const { data: options } = useQuery({
+    queryKey: ["options", resource.table, restrictedToDefaultWarehouse, profile?.default_warehouse_id],
+    queryFn: () => fetchOptions(false, { restrictToWarehouse: restrictedToDefaultWarehouse, warehouseId: profile?.default_warehouse_id }),
+  });
   const form = useForm<Record<string, unknown>>({
     resolver: zodResolver(baseFormSchema),
     defaultValues: resource.fields.reduce<Record<string, unknown>>((accumulator, field) => {
-      accumulator[field.name] = field.type === "boolean" ? false : "";
+      accumulator[field.name] = defaultFieldValue(field);
       return accumulator;
     }, {}),
   });
 
   const createMutation = useMutation({
-    mutationFn: async (values: Record<string, unknown>) => upsertRecord(resource.table, values),
+    mutationFn: async (values: Record<string, unknown>) => upsertRecord(resource.table, normalizeResourceValues(resource, values)),
     onSuccess: () => {
       toast.success(`${resource.singular} saved`);
       queryClient.invalidateQueries({ queryKey: [resource.table] });
@@ -269,7 +255,7 @@ function ResourceFormDialog({
               className="flex flex-col gap-4"
               onSubmit={form.handleSubmit(async (values) => createMutation.mutate(values))}
             >
-              {resource.fields.map((field) => renderField(field, form))}
+              {resource.fields.map((field) => renderField(field, form, getResourceFieldOptions(field, options)))}
               <Button type="submit" disabled={createMutation.isPending}>
                 {createMutation.isPending ? <Loader2 className="animate-spin" /> : null}
                 Save {resource.singular}
@@ -441,6 +427,7 @@ export function ResourcePage({
     }),
   });
   const queryClient = useQueryClient();
+  const extraColumnCount = (resource.supportsHide ? 1 : 0) + (["warehouses", "zones"].includes(resource.table) ? 1 : 0);
 
   return (
     <div className="flex flex-col gap-6">
@@ -463,6 +450,7 @@ export function ResourcePage({
             </Button>
           ) : null}
           {resource.importable ? <ImportButton resource={resource} /> : null}
+          {resource.table === "locations" ? <LocationWizardDialog /> : null}
           <ResourceFormDialog resource={resource} />
         </div>
       </div>
@@ -476,19 +464,20 @@ export function ResourcePage({
                   {resource.fields.map((field) => (
                     <TableHead key={field.name}>{field.label}</TableHead>
                   ))}
+                  {["warehouses", "zones"].includes(resource.table) ? <TableHead className="w-28">Barcode</TableHead> : null}
                   {resource.supportsHide ? <TableHead className="w-32">Visibility</TableHead> : null}
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {isLoading ? (
                   <TableRow>
-                    <TableCell className="h-24 text-center text-muted-foreground" colSpan={resource.fields.length + (resource.supportsHide ? 1 : 0)}>
+                    <TableCell className="h-24 text-center text-muted-foreground" colSpan={resource.fields.length + extraColumnCount}>
                       Loading {resource.title.toLowerCase()}...
                     </TableCell>
                   </TableRow>
                 ) : data.length === 0 ? (
                   <TableRow>
-                    <TableCell className="h-24 text-center text-muted-foreground" colSpan={resource.fields.length + (resource.supportsHide ? 1 : 0)}>
+                    <TableCell className="h-24 text-center text-muted-foreground" colSpan={resource.fields.length + extraColumnCount}>
                       No {resource.title.toLowerCase()} found.
                     </TableCell>
                   </TableRow>
@@ -498,6 +487,15 @@ export function ResourcePage({
                       {resource.fields.map((field) => (
                         <TableCell key={field.name}>{String((row as Record<string, unknown>)[field.name] ?? "—")}</TableCell>
                       ))}
+                      {["warehouses", "zones"].includes(resource.table) ? (
+                        <TableCell>
+                          <BarcodePrintDialog
+                            labelType={resource.table === "warehouses" ? "warehouse" : "zone"}
+                            code={String((row as Record<string, unknown>).code ?? "")}
+                            title={String((row as Record<string, unknown>).name ?? (row as Record<string, unknown>).code ?? resource.singular)}
+                          />
+                        </TableCell>
+                      ) : null}
                       {resource.supportsHide ? (
                         <TableCell>
                           <Button
@@ -565,112 +563,214 @@ function ImportButton({ resource }: { resource: ResourceDefinition }) {
   );
 }
 
-type DashboardCardSize = "sm" | "md" | "lg";
+function LocationWizardDialog() {
+  const queryClient = useQueryClient();
+  const { data: options } = useQuery({ queryKey: ["options", "location-wizard"], queryFn: () => fetchOptions() });
+  const [open, setOpen] = useState(false);
+  const form = useForm({
+    defaultValues: {
+      warehouse_id: "",
+      zone_id: "",
+      prefix: "A",
+      start_bay: 1,
+      end_bay: 10,
+      levels: 3,
+      depth: 1,
+      max_pallets: 1,
+      location_type: "rack",
+      temperature_class: "ambient",
+      mixed_sku_allowed: false,
+      mixed_lot_allowed: false,
+    },
+  });
 
-type DashboardCardConfig = {
-  id: string;
-  label: string;
-  metricKey: keyof import("@/lib/wms-core").DashboardMetrics;
-  icon: typeof Activity;
-  description: string;
-  size: DashboardCardSize;
-  accentClass: string;
-};
+  const mutation = useMutation({
+    mutationFn: async (values: ReturnType<typeof form.getValues>) => {
+      const startBay = Number(values.start_bay);
+      const endBay = Number(values.end_bay);
+      const levels = Number(values.levels);
+      const locations = [];
 
-const defaultDashboardCards: DashboardCardConfig[] = [
-  { id: "total-pallets", label: "Total Pallets", metricKey: "totalPallets", icon: Boxes, description: "All pallets in system", size: "sm", accentClass: "border-l-blue-500" },
-  { id: "available-pallets", label: "Available", metricKey: "availablePallets", icon: CheckCircle2, description: "Ready for orders", size: "sm", accentClass: "border-l-green-500" },
-  { id: "open-putaway", label: "Open Putaway", metricKey: "openPutawayTasks", icon: Forklift, description: "Tasks queued", size: "sm", accentClass: "border-l-amber-500" },
-  { id: "open-pick-lists", label: "Open Pick Lists", metricKey: "openPickLists", icon: ClipboardList, description: "Awaiting execution", size: "sm", accentClass: "border-l-purple-500" },
-  { id: "hold-stock", label: "On Hold", metricKey: "holdStock", icon: AlertCircle, description: "Awaiting release", size: "sm", accentClass: "border-l-orange-500" },
-  { id: "quarantine", label: "Quarantine", metricKey: "quarantineStock", icon: AlertTriangle, description: "Quality investigation", size: "sm", accentClass: "border-l-red-500" },
-  { id: "open-receipts", label: "Open Receipts", metricKey: "openReceipts", icon: Download, description: "Inbound processing", size: "sm", accentClass: "border-l-cyan-500" },
-  { id: "cool-occupancy", label: "Cool Occupancy", metricKey: "coolZoneOccupancy", icon: Activity, description: "Cool zone pallets", size: "sm", accentClass: "border-l-teal-500" },
-];
+      for (let bay = startBay; bay <= endBay; bay += 1) {
+        for (let level = 1; level <= levels; level += 1) {
+          locations.push({
+            warehouse_id: values.warehouse_id,
+            zone_id: values.zone_id,
+            code: `${values.prefix}-${String(bay).padStart(2, "0")}-L${String(level).padStart(2, "0")}`,
+            aisle: values.prefix,
+            bay: String(bay).padStart(2, "0"),
+            level,
+            depth: Number(values.depth),
+            max_pallets: Number(values.max_pallets),
+            location_type: values.location_type,
+            temperature_class: values.temperature_class,
+            mixed_sku_allowed: values.mixed_sku_allowed,
+            mixed_lot_allowed: values.mixed_lot_allowed,
+            status: "active",
+          });
+        }
+      }
 
-const LAYOUT_KEY = "ww-dashboard-layout";
+      for (const location of locations) {
+        await upsertRecord("locations", location);
+      }
 
-function loadLayout(): DashboardCardConfig[] {
-  try {
-    const raw = localStorage.getItem(LAYOUT_KEY);
-    if (!raw) return defaultDashboardCards;
-    const saved = JSON.parse(raw) as Array<{ id: string; size: DashboardCardSize }>;
-    const ordered = saved
-      .map((s) => {
-        const def = defaultDashboardCards.find((d) => d.id === s.id);
-        if (!def) return null;
-        return { ...def, size: s.size };
-      })
-      .filter(Boolean) as DashboardCardConfig[];
-    const missing = defaultDashboardCards.filter((d) => !ordered.find((o) => o.id === d.id));
-    return [...ordered, ...missing];
-  } catch {
-    return defaultDashboardCards;
-  }
-}
-
-function saveLayout(cards: DashboardCardConfig[]) {
-  localStorage.setItem(LAYOUT_KEY, JSON.stringify(cards.map((c) => ({ id: c.id, size: c.size }))));
-}
-
-function SortableMetricCard({
-  card,
-  value,
-  isLoading,
-  onResize,
-}: {
-  card: DashboardCardConfig;
-  value: number;
-  isLoading: boolean;
-  onResize: (id: string) => void;
-}) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: card.id });
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.5 : 1,
-  };
-  const Icon = card.icon;
-  const colSpan = card.size === "lg" ? "md:col-span-2 xl:col-span-2" : card.size === "md" ? "md:col-span-1 xl:col-span-1" : "";
+      return locations.length;
+    },
+    onSuccess: async (count) => {
+      toast.success(`${count} locations created`);
+      await queryClient.invalidateQueries({ queryKey: ["locations"] });
+      setOpen(false);
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Location wizard failed"),
+  });
 
   return (
-    <div ref={setNodeRef} style={style} className={cn("group", colSpan)}>
-      <Card className={cn("overflow-hidden border-l-4 transition-shadow hover:shadow-md", card.accentClass)}>
-        <CardHeader className="pb-2 pt-4">
-          <div className="flex items-start justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted">
-                <Icon className="h-4 w-4 text-muted-foreground" />
-              </div>
-              <div>
-                <CardDescription className="text-xs">{card.label}</CardDescription>
-                <CardTitle className="text-2xl font-bold leading-none">
-                  {isLoading ? <span className="text-muted-foreground">…</span> : formatNumber(value)}
-                </CardTitle>
-              </div>
-            </div>
-            <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-              <Button
-                size="icon"
-                variant="ghost"
-                className="h-6 w-6"
-                onClick={() => onResize(card.id)}
-                title="Toggle size"
-              >
-                {card.size === "lg" ? <Minimize2 className="h-3 w-3" /> : <Maximize2 className="h-3 w-3" />}
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="outline">
+          <MapPinned data-icon="inline-start" />
+          Location wizard
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-h-[90vh] overflow-hidden sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Create locations by range</DialogTitle>
+          <DialogDescription>Generate repeated bay and level locations without typing every record.</DialogDescription>
+        </DialogHeader>
+        <ScrollArea className="max-h-[72vh] pr-4">
+          <Form {...form}>
+            <form className="grid gap-4 sm:grid-cols-2" onSubmit={form.handleSubmit((values) => mutation.mutate(values))}>
+              <SelectField form={form} name="warehouse_id" label="Warehouse" options={(options?.warehouses ?? []).map((warehouse: any) => ({ label: warehouse.name, value: warehouse.id }))} />
+              <SelectField form={form} name="zone_id" label="Zone" options={(options?.zones ?? []).map((zone: any) => ({ label: `${zone.code} - ${zone.name}`, value: zone.id }))} />
+              <TextField form={form} name="prefix" label="Aisle prefix" />
+              <TextField form={form} name="start_bay" label="Start bay" type="number" />
+              <TextField form={form} name="end_bay" label="End bay" type="number" />
+              <TextField form={form} name="levels" label="Levels" type="number" />
+              <TextField form={form} name="depth" label="Depth" type="number" />
+              <TextField form={form} name="max_pallets" label="Max pallets" type="number" />
+              <SelectField form={form} name="location_type" label="Type" options={[
+                { label: "Rack", value: "rack" },
+                { label: "Staging", value: "staging" },
+                { label: "Quarantine", value: "quarantine" },
+                { label: "Dispatch", value: "dispatch" },
+                { label: "Receiving", value: "receiving" },
+                { label: "Floor", value: "floor" },
+                { label: "Returns", value: "returns" },
+              ]} />
+              <SelectField form={form} name="temperature_class" label="Temperature" options={[
+                { label: "Ambient", value: "ambient" },
+                { label: "Cool", value: "cool" },
+                { label: "Frozen", value: "frozen" },
+              ]} />
+              <Button className="sm:col-span-2" disabled={mutation.isPending} type="submit">
+                {mutation.isPending ? <Loader2 className="animate-spin" /> : null}
+                Create location range
               </Button>
-              <div {...attributes} {...listeners} className="cursor-grab active:cursor-grabbing p-1 rounded hover:bg-muted">
-                <GripVertical className="h-3.5 w-3.5 text-muted-foreground" />
-              </div>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="pb-3 pt-0">
-          <p className="text-xs text-muted-foreground">{card.description}</p>
-        </CardContent>
-      </Card>
-    </div>
+            </form>
+          </Form>
+        </ScrollArea>
+      </DialogContent>
+    </Dialog>
   );
+}
+
+function BarcodePrintDialog({ labelType, code, title }: { labelType: "warehouse" | "zone" | "location"; code: string; title: string }) {
+  const zpl = [
+    "^XA",
+    "^CI28",
+    "^PW609",
+    "^LL406",
+    "^FO28,24^GB553,358,3^FS",
+    `^FO40,44^A0N,34,34^FD${title.replace(/[\^~]/g, " ").slice(0, 34)}^FS`,
+    `^FO40,92^A0N,24,24^FD${labelType.toUpperCase()}^FS`,
+    `^FO64,130^BQN,2,7^FDLA,${code.replace(/[\^~]/g, " ").slice(0, 64)}^FS`,
+    `^FO288,176^A0N,30,30^FD${code.replace(/[\^~]/g, " ").slice(0, 28)}^FS`,
+    "^FO288,220^A0N,18,18^FDWarehouse Wizard^FS",
+    "^XZ",
+  ].join("\n");
+
+  return (
+    <Dialog>
+      <DialogTrigger asChild>
+        <Button size="sm" variant="ghost">
+          <QrCode data-icon="inline-start" />
+          Print
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>QR-style scan label with human-readable code.</DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-4">
+          <div className="mx-auto grid h-44 w-44 grid-cols-7 gap-1 rounded-md border border-border bg-white p-3" aria-label={`${labelType} QR preview`}>
+            {Array.from({ length: 49 }).map((_, index) => (
+              <span
+                key={index}
+                className={cn("rounded-[1px]", (index + code.length + code.charCodeAt(index % code.length)) % 3 === 0 ? "bg-black" : "bg-white")}
+              />
+            ))}
+          </div>
+          <div className="rounded-md border border-border p-3 text-center">
+            <p className="text-xs uppercase text-muted-foreground">{labelType}</p>
+            <p className="break-all text-xl font-semibold">{code}</p>
+          </div>
+          <div className="flex gap-2">
+            <Button className="flex-1" onClick={() => window.print()}>
+              <Printer data-icon="inline-start" />
+              Print label
+            </Button>
+            <Button
+              className="flex-1"
+              variant="outline"
+              onClick={async () => {
+                await navigator.clipboard?.writeText(zpl);
+                toast.success("ZPL copied");
+              }}
+            >
+              Copy ZPL
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function defaultFieldValue(field: FieldDefinition) {
+  if (field.type === "boolean") return field.name === "active" || field.name === "lot_tracked";
+  if (field.type === "number") return "";
+  if (field.name === "temperature_class" || field.name === "temperature_requirement") return "ambient";
+  if (field.name === "rotation_method") return "fifo";
+  if (field.name === "status") return "active";
+  return "";
+}
+
+function normalizeResourceValues(resource: ResourceDefinition, values: Record<string, unknown>) {
+  return resource.fields.reduce<Record<string, unknown>>((payload, field) => {
+    const value = values[field.name];
+    if (value === "") {
+      payload[field.name] = field.required ? value : null;
+      return payload;
+    }
+    payload[field.name] = field.type === "number" && value != null ? Number(value) : value;
+    return payload;
+  }, {});
+}
+
+function getResourceFieldOptions(field: FieldDefinition, options?: Awaited<ReturnType<typeof fetchOptions>>) {
+  if (field.options) return field.options;
+  if (field.name === "warehouse_id") return (options?.warehouses ?? []).map((warehouse: any) => ({ label: `${warehouse.code} - ${warehouse.name}`, value: warehouse.id }));
+  if (field.name === "zone_id") return (options?.zones ?? []).map((zone: any) => ({ label: `${zone.code} - ${zone.name}`, value: zone.id }));
+  if (field.name === "client_owner_id") return (options?.clients ?? []).map((client: any) => ({ label: client.name, value: client.id }));
+  if (field.name === "product_id") return (options?.products ?? []).map((product: any) => ({ label: `${product.sku} - ${product.name}`, value: product.id }));
+  return [];
+}
+
+function shouldRestrictToDefaultWarehouse(roles: string[]) {
+  return roles.some((role) => ["inventory_clerk", "warehouse_operator", "dispatch_driver"].includes(role)) &&
+    !roles.some((role) => ["admin", "warehouse_manager"].includes(role));
 }
 
 export function DashboardPage() {
@@ -904,7 +1004,12 @@ function toneBorder(tone: "success" | "warning" | "critical" | "info") {
 
 export function ReceivingPage() {
   const queryClient = useQueryClient();
-  const { data: options } = useQuery({ queryKey: ["options"], queryFn: () => fetchOptions() });
+  const { roles, profile } = useAuth();
+  const restrictedToDefaultWarehouse = shouldRestrictToDefaultWarehouse(roles);
+  const { data: options } = useQuery({
+    queryKey: ["options", "receiving", restrictedToDefaultWarehouse, profile?.default_warehouse_id],
+    queryFn: () => fetchOptions(false, { restrictToWarehouse: restrictedToDefaultWarehouse, warehouseId: profile?.default_warehouse_id }),
+  });
   const form = useForm<z.infer<typeof receivingSchema>>({
     resolver: zodResolver(receivingSchema),
     defaultValues: {
@@ -1186,10 +1291,25 @@ export function PutawayTasksPage() {
 }
 
 export function InventorySearchPage() {
+  const { roles, profile } = useAuth();
   const [searchTerm, setSearchTerm] = useState("");
   const [status, setStatus] = useState<string>("all");
-  const { data: options } = useQuery({ queryKey: ["options"], queryFn: () => fetchOptions() });
-  const [warehouseId, setWarehouseId] = useState("");
+  const restrictedToDefaultWarehouse = shouldRestrictToDefaultWarehouse(roles);
+  const { data: options } = useQuery({
+    queryKey: ["options", "inventory", restrictedToDefaultWarehouse, profile?.default_warehouse_id],
+    queryFn: () => fetchOptions(false, { restrictToWarehouse: restrictedToDefaultWarehouse, warehouseId: profile?.default_warehouse_id }),
+  });
+  const [warehouseId, setWarehouseId] = useState(restrictedToDefaultWarehouse ? profile?.default_warehouse_id ?? "" : "");
+  const [locationScan, setLocationScan] = useState("");
+
+  const scanMutation = useMutation({
+    mutationFn: getWarehouseForLocationBarcode,
+    onSuccess: (location) => {
+      setWarehouseId(location.warehouse_id);
+      toast.success(`Warehouse visibility switched to ${location.warehouses?.name ?? location.warehouses?.code ?? "scanned warehouse"}`);
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Location scan failed"),
+  });
 
   const { data = [], isLoading } = useQuery({
     queryKey: ["inventory-search", searchTerm, status, warehouseId],
@@ -1203,7 +1323,7 @@ export function InventorySearchPage() {
         <p className="text-sm text-muted-foreground">Search by SKU, pallet, barcode, lot, batch, expiry, owner, or location.</p>
       </div>
       <Card>
-        <CardContent className="grid gap-3 p-4 lg:grid-cols-[minmax(0,2fr)_minmax(12rem,1fr)_minmax(12rem,1fr)]">
+        <CardContent className="grid gap-3 p-4 lg:grid-cols-[minmax(0,2fr)_minmax(12rem,1fr)_minmax(12rem,1fr)_minmax(16rem,1fr)]">
           <div className="relative">
             <Search className="absolute left-3 top-3 text-muted-foreground" />
             <Input className="min-w-0 pl-10" value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Search inventory" />
@@ -1220,6 +1340,12 @@ export function InventorySearchPage() {
               ))}
             </SelectContent>
           </Select>
+          <div className="flex min-w-0 gap-2">
+            <Input className="min-w-0" value={locationScan} onChange={(event) => setLocationScan(event.target.value)} placeholder="Scan location barcode" />
+            <Button size="icon" variant="outline" onClick={() => scanMutation.mutate(locationScan)} aria-label="Use scanned location warehouse">
+              <QrCode />
+            </Button>
+          </div>
           <Select onValueChange={(value) => setStatus(value as typeof status)} value={status}>
             <SelectTrigger>
               <SelectValue placeholder="Status" />
@@ -1605,8 +1731,10 @@ export function StatusPage() {
     mutationFn: changePalletStatus,
     onSuccess: async () => {
       toast.success("Status updated");
+      form.reset({ pallet_id: "", reason: "" } as any);
       await queryClient.invalidateQueries({ queryKey: ["status-pallets"] });
     },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Status update failed"),
   });
 
   return (
@@ -1619,7 +1747,7 @@ export function StatusPage() {
         <CardContent>
           <Form {...form}>
             <form className="grid gap-4" onSubmit={form.handleSubmit((values) => mutation.mutate(values))}>
-              <TextField form={form} name="pallet_id" label="Pallet ID" />
+              <TextField form={form} name="pallet_id" label="Pallet barcode or ID" />
               <SelectField form={form} name="new_status" label="New status" options={[
                 { label: "Hold", value: "hold" },
                 { label: "Quarantine", value: "quarantine" },

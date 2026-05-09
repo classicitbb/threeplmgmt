@@ -71,6 +71,11 @@ export type ResourceDefinition<T extends string = string> = {
   archiveField?: ArchiveField;
 };
 
+export type WarehouseVisibilityScope = {
+  warehouseId?: string | null;
+  restrictToWarehouse?: boolean;
+};
+
 export type ProfileUpdateInput = {
   profileId: string;
   full_name: string;
@@ -211,7 +216,7 @@ export const RESOURCE_DEFINITIONS: Record<string, ResourceDefinition> = {
     supportsHide: true,
     archiveField: "is_hidden",
     fields: [
-      { name: "warehouse_id", label: "Warehouse ID", type: "text", required: true },
+      { name: "warehouse_id", label: "Warehouse", type: "select", required: true },
       { name: "code", label: "Code", type: "text", required: true },
       { name: "name", label: "Name", type: "text", required: true },
       { name: "temperature_class", label: "Temperature", type: "select", options: tempOptions, required: true },
@@ -233,8 +238,8 @@ export const RESOURCE_DEFINITIONS: Record<string, ResourceDefinition> = {
     supportsHide: true,
     archiveField: "is_hidden",
     fields: [
-      { name: "warehouse_id", label: "Warehouse ID", type: "text", required: true },
-      { name: "zone_id", label: "Zone ID", type: "text", required: true },
+      { name: "warehouse_id", label: "Warehouse", type: "select", required: true },
+      { name: "zone_id", label: "Zone", type: "select", required: true },
       { name: "code", label: "Code", type: "text", required: true },
       { name: "aisle", label: "Aisle", type: "text" },
       { name: "bay", label: "Bay", type: "text" },
@@ -280,7 +285,7 @@ export const RESOURCE_DEFINITIONS: Record<string, ResourceDefinition> = {
       { name: "barcode", label: "Barcode", type: "text" },
       { name: "name", label: "Name", type: "text", required: true },
       { name: "description", label: "Description", type: "textarea" },
-      { name: "client_owner_id", label: "Client ID", type: "text", required: true },
+      { name: "client_owner_id", label: "Client", type: "select", required: true },
       { name: "product_family", label: "Family", type: "text" },
       { name: "temperature_requirement", label: "Temperature", type: "select", options: tempOptions, required: true },
       { name: "lot_tracked", label: "Lot tracked", type: "boolean" },
@@ -306,7 +311,7 @@ export const RESOURCE_DEFINITIONS: Record<string, ResourceDefinition> = {
     supportsHide: true,
     archiveField: "is_hidden",
     fields: [
-      { name: "product_id", label: "Product ID", type: "text", required: true },
+      { name: "product_id", label: "Product", type: "select", required: true },
       { name: "profile_name", label: "Profile name", type: "text", required: true },
       { name: "package_type", label: "Package type", type: "text", required: true },
       { name: "units_per_package", label: "Units per package", type: "number", required: true },
@@ -387,7 +392,7 @@ export const cycleCountSchema = z.object({
 });
 
 export const statusChangeSchema = z.object({
-  pallet_id: z.string().uuid(),
+  pallet_id: z.string().min(2, "Scan or enter a pallet barcode"),
   new_status: z.enum(["hold", "quarantine", "damaged", "available", "missing"]),
   reason: z.string().min(3),
 });
@@ -540,7 +545,10 @@ export async function upsertRecord(
   table: string,
   payload: Record<string, unknown>,
 ) {
-  const { data, error } = await (supabase.from as any)(table).upsert(payload as never).select().single();
+  const cleanedPayload = Object.fromEntries(
+    Object.entries(payload).map(([key, value]) => [key, value === "" ? null : value]),
+  );
+  const { data, error } = await (supabase.from as any)(table).upsert(cleanedPayload as never).select().single();
   if (error) throw error;
   return data as any;
 }
@@ -632,7 +640,7 @@ export async function setUserRoleVisibility(userRoleId: string, hidden: boolean,
   await logUserActivity("user_access_change", "user_roles", userRoleId, { hidden, reason: reason ?? null });
 }
 
-export async function fetchOptions(includeHidden = false) {
+export async function fetchOptions(includeHidden = false, scope?: WarehouseVisibilityScope) {
   const [warehouses, zones, locations, clients, products, packagingProfiles, pallets, profiles, roles, userRoles] = await Promise.all([
     listRecords("warehouses", "*", undefined, { includeHidden, archiveField: "active" }),
     listRecords("zones", "*", undefined, { includeHidden, archiveField: "is_hidden" }),
@@ -649,7 +657,32 @@ export async function fetchOptions(includeHidden = false) {
     }),
   ]);
 
-  return { warehouses, zones, locations, clients, products, packagingProfiles, pallets, profiles, roles, userRoles };
+  const scopedWarehouseId = scope?.restrictToWarehouse ? scope.warehouseId : null;
+
+  return {
+    warehouses: scopedWarehouseId ? warehouses.filter((warehouse: any) => warehouse.id === scopedWarehouseId) : warehouses,
+    zones: scopedWarehouseId ? zones.filter((zone: any) => zone.warehouse_id === scopedWarehouseId) : zones,
+    locations: scopedWarehouseId ? locations.filter((location: any) => location.warehouse_id === scopedWarehouseId) : locations,
+    clients,
+    products,
+    packagingProfiles,
+    pallets: scopedWarehouseId ? pallets.filter((pallet: any) => pallet.current_warehouse_id === scopedWarehouseId) : pallets,
+    profiles,
+    roles,
+    userRoles,
+  };
+}
+
+export async function getWarehouseForLocationBarcode(locationCode: string) {
+  const normalizedCode = locationCode.trim();
+  if (!normalizedCode) throw new Error("Scan a location barcode first.");
+
+  const { data, error } = await db("locations")
+    .select("warehouse_id, code, warehouses(id, code, name)")
+    .eq("code", normalizedCode)
+    .single();
+  if (error) throw error;
+  return data as any;
 }
 
 export async function listUserActivities(limit = 25) {
@@ -1497,15 +1530,16 @@ export async function listStatusPallets() {
 
 export async function changePalletStatus(input: z.infer<typeof statusChangeSchema>) {
   const payload = statusChangeSchema.parse(input);
-  const { data: balance, error: balanceError } = await db("inventory_balances").select("*").eq("pallet_id", payload.pallet_id).single();
+  const palletId = await resolvePalletId(payload.pallet_id);
+  const { data: balance, error: balanceError } = await db("inventory_balances").select("*").eq("pallet_id", palletId).single();
   if (balanceError) throw balanceError;
 
   await Promise.all([
-    db("pallets").update({ status: payload.new_status }).eq("id", payload.pallet_id),
+    db("pallets").update({ status: payload.new_status }).eq("id", palletId),
     db("inventory_balances").update({ status: payload.new_status }).eq("id", balance.id),
     upsertRecord("stock_adjustments", {
       adjustment_number: buildPalletCode("STS"),
-      pallet_id: payload.pallet_id,
+      pallet_id: palletId,
       inventory_balance_id: balance.id,
       adjustment_type: "status_change",
       quantity_delta: 0,
@@ -1518,8 +1552,8 @@ export async function changePalletStatus(input: z.infer<typeof statusChangeSchem
   await (supabase.rpc as any)("log_audit_event", {
     in_event_type: "status_change",
     in_entity_table: "pallets",
-    in_entity_id: payload.pallet_id,
-    in_pallet_id: payload.pallet_id,
+    in_entity_id: palletId,
+    in_pallet_id: palletId,
     in_warehouse_id: balance.warehouse_id,
     in_metadata: {
       old_status: balance.status,
@@ -1527,6 +1561,20 @@ export async function changePalletStatus(input: z.infer<typeof statusChangeSchem
       reason: payload.reason,
     } as any,
   });
+}
+
+async function resolvePalletId(palletInput: string) {
+  const normalized = palletInput.trim();
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(normalized)) {
+    return normalized;
+  }
+
+  const { data, error } = await db("pallets")
+    .select("id")
+    .or(`pallet_code.eq.${normalized},pallet_barcode.eq.${normalized}`)
+    .single();
+  if (error) throw new Error("Pallet barcode was not found.");
+  return data.id as string;
 }
 
 export async function getDashboardMetrics() {
