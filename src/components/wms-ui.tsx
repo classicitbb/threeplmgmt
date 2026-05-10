@@ -933,6 +933,28 @@ function shouldRestrictToDefaultWarehouse(roles: string[]) {
 export function DashboardPage() {
   const [mode, setMode] = useState<DashboardMode>("floor");
   const [cards, setCards] = useState<DashboardCardConfig[]>(loadLayout);
+  const dashboardRef = useRef<HTMLDivElement>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [fitToScreen, setFitToScreen] = useState(false);
+
+  useEffect(() => {
+    const onChange = () => setIsFullscreen(document.fullscreenElement === dashboardRef.current);
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
+
+  const toggleFullscreen = useCallback(async () => {
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else if (dashboardRef.current) {
+        await dashboardRef.current.requestFullscreen();
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Fullscreen unavailable");
+    }
+  }, []);
+
   const { data: metrics, isLoading } = useQuery({
     queryKey: ["dashboard-metrics"],
     queryFn: getDashboardMetrics,
@@ -971,19 +993,33 @@ export function DashboardPage() {
   }, []);
 
   return (
-    <div className="flex flex-col gap-6">
+    <div
+      ref={dashboardRef}
+      className={cn(
+        "flex flex-col gap-6",
+        (isFullscreen || fitToScreen) && "h-screen overflow-auto bg-background p-4",
+      )}
+    >
       <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
         <div>
           <h2 className="text-2xl font-bold tracking-tight">Command Center</h2>
           <p className="text-sm text-muted-foreground">Live warehouse metrics. Drag cards to reorder, hover to resize.</p>
         </div>
-        <Tabs value={mode} onValueChange={(value) => setMode(value as DashboardMode)}>
-          <TabsList className="grid h-auto w-full grid-cols-3 sm:w-fit">
-            <TabsTrigger value="floor" className="gap-1.5"><Forklift className="h-3.5 w-3.5" /> Floor</TabsTrigger>
-            <TabsTrigger value="dock" className="gap-1.5"><Truck className="h-3.5 w-3.5" /> Dock</TabsTrigger>
-            <TabsTrigger value="office" className="gap-1.5"><BarChart3 className="h-3.5 w-3.5" /> Office</TabsTrigger>
-          </TabsList>
-        </Tabs>
+        <div className="flex flex-wrap items-center gap-2">
+          <Tabs value={mode} onValueChange={(value) => setMode(value as DashboardMode)}>
+            <TabsList className="grid h-auto w-full grid-cols-3 sm:w-fit">
+              <TabsTrigger value="floor" className="gap-1.5"><Forklift className="h-3.5 w-3.5" /> Floor</TabsTrigger>
+              <TabsTrigger value="dock" className="gap-1.5"><Truck className="h-3.5 w-3.5" /> Dock</TabsTrigger>
+              <TabsTrigger value="office" className="gap-1.5"><BarChart3 className="h-3.5 w-3.5" /> Office</TabsTrigger>
+            </TabsList>
+          </Tabs>
+          <Button size="sm" variant="outline" onClick={() => setFitToScreen((v) => !v)} aria-pressed={fitToScreen}>
+            {fitToScreen ? "Reset fit" : "Fit to screen"}
+          </Button>
+          <Button size="sm" variant="outline" onClick={toggleFullscreen} aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}>
+            {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+          </Button>
+        </div>
       </div>
 
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
