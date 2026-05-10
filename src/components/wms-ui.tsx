@@ -705,21 +705,8 @@ function LocationWizardDialog() {
   const queryClient = useQueryClient();
   const { data: options } = useQuery({ queryKey: ["options", "location-wizard"], queryFn: () => fetchOptions() });
   const [open, setOpen] = useState(false);
-  type LocationWizardValues = {
-    warehouse_id: string;
-    zone_id: string;
-    prefix: string;
-    start_bay: number;
-    end_bay: number;
-    levels: number;
-    depth: number;
-    max_pallets: number;
-    location_type: string;
-    temperature_class: string;
-    mixed_sku_allowed: boolean;
-    mixed_lot_allowed: boolean;
-  };
   const form = useForm<LocationWizardValues>({
+    resolver: zodResolver(locationWizardSchema),
     defaultValues: {
       warehouse_id: "",
       zone_id: "",
@@ -738,13 +725,10 @@ function LocationWizardDialog() {
 
   const mutation = useMutation({
     mutationFn: async (values: LocationWizardValues) => {
-      const startBay = Number(values.start_bay);
-      const endBay = Number(values.end_bay);
-      const levels = Number(values.levels);
       const locations = [];
 
-      for (let bay = startBay; bay <= endBay; bay += 1) {
-        for (let level = 1; level <= levels; level += 1) {
+      for (let bay = values.start_bay; bay <= values.end_bay; bay += 1) {
+        for (let level = 1; level <= values.levels; level += 1) {
           locations.push({
             warehouse_id: values.warehouse_id,
             zone_id: values.zone_id,
@@ -752,8 +736,8 @@ function LocationWizardDialog() {
             aisle: values.prefix,
             bay: String(bay).padStart(2, "0"),
             level,
-            depth: Number(values.depth),
-            max_pallets: Number(values.max_pallets),
+            depth: values.depth,
+            max_pallets: values.max_pallets,
             location_type: values.location_type,
             temperature_class: values.temperature_class,
             mixed_sku_allowed: values.mixed_sku_allowed,
