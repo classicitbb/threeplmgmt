@@ -3,7 +3,24 @@ import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm, type UseFormReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { BarChart3, Bot, Boxes, Building2, Camera, ClipboardCheck, ClipboardList, Download, Eye, EyeOff, FileDown, Forklift, HelpCircle, Home, LayoutDashboard, Loader2, LogOut, MapPinned, Menu, Package, PanelLeftClose, PanelLeftOpen, Plus, Printer, QrCode, RadioTower, RotateCcw, Search, Settings, ShieldCheck, Tags, Truck, Upload, Users, Warehouse } from "lucide-react";
+import { Activity, BarChart3, Bot, Boxes, Building2, Camera, ClipboardCheck, ClipboardList, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, HelpCircle, Home, LayoutDashboard, Loader2, LogOut, Maximize2, MapPinned, Menu, Minimize2, Package, PanelLeftClose, PanelLeftOpen, Plus, Printer, QrCode, RadioTower, RotateCcw, Search, Settings, ShieldCheck, Tags, Truck, Upload, UserPlus, Users, Warehouse } from "lucide-react";
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  rectSortingStrategy,
+  sortableKeyboardCoordinates,
+  useSortable,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { toast } from "sonner";
 import { z } from "zod";
 
@@ -85,6 +102,108 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 
 const baseFormSchema = z.record(z.any());
 const appTitle = "Warehouse Wizard Enterprise WMS";
+
+type DashboardMetricKey =
+  | "totalPallets"
+  | "availablePallets"
+  | "coolZoneOccupancy"
+  | "openReceipts"
+  | "openPutawayTasks"
+  | "openPickLists"
+  | "holdStock"
+  | "quarantineStock";
+
+type DashboardCardSize = "sm" | "lg";
+
+type DashboardCardConfig = {
+  id: string;
+  label: string;
+  metricKey: DashboardMetricKey;
+  size: DashboardCardSize;
+};
+
+const DEFAULT_DASHBOARD_CARDS: DashboardCardConfig[] = [
+  { id: "totalPallets", label: "Total Pallets", metricKey: "totalPallets", size: "sm" },
+  { id: "availablePallets", label: "Available Pallets", metricKey: "availablePallets", size: "sm" },
+  { id: "openReceipts", label: "Open Receipts", metricKey: "openReceipts", size: "sm" },
+  { id: "openPickLists", label: "Open Pick Lists", metricKey: "openPickLists", size: "sm" },
+];
+
+const DASHBOARD_LAYOUT_KEY = "wms.dashboard.layout.v1";
+
+function loadLayout(): DashboardCardConfig[] {
+  if (typeof window === "undefined") return DEFAULT_DASHBOARD_CARDS;
+  try {
+    const raw = window.localStorage.getItem(DASHBOARD_LAYOUT_KEY);
+    if (!raw) return DEFAULT_DASHBOARD_CARDS;
+    const parsed = JSON.parse(raw) as DashboardCardConfig[];
+    if (!Array.isArray(parsed) || parsed.length === 0) return DEFAULT_DASHBOARD_CARDS;
+    return parsed;
+  } catch {
+    return DEFAULT_DASHBOARD_CARDS;
+  }
+}
+
+function saveLayout(cards: DashboardCardConfig[]) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(DASHBOARD_LAYOUT_KEY, JSON.stringify(cards));
+  } catch {
+    /* ignore */
+  }
+}
+
+function SortableMetricCard({
+  card,
+  value,
+  isLoading,
+  onResize,
+}: {
+  card: DashboardCardConfig;
+  value: number;
+  isLoading: boolean;
+  onResize: (id: string) => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: card.id });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.6 : 1,
+  };
+  return (
+    <div ref={setNodeRef} style={style} className={cn(card.size === "lg" ? "sm:col-span-2" : undefined)}>
+      <Card className="relative">
+        <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
+          <CardTitle className="text-sm font-medium text-muted-foreground">{card.label}</CardTitle>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => onResize(card.id)}
+              className="text-muted-foreground transition hover:text-foreground"
+              aria-label="Resize card"
+            >
+              {card.size === "sm" ? <Maximize2 className="h-3.5 w-3.5" /> : <Minimize2 className="h-3.5 w-3.5" />}
+            </button>
+            <button
+              type="button"
+              className="cursor-grab text-muted-foreground transition hover:text-foreground active:cursor-grabbing"
+              aria-label="Drag card"
+              {...attributes}
+              {...listeners}
+            >
+              <GripVertical className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="text-3xl font-bold">
+            {isLoading ? <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /> : formatNumber(value)}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
 
 type ProfileRow = {
   id: string;
