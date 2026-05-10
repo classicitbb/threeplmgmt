@@ -686,7 +686,21 @@ function LocationWizardDialog() {
   const queryClient = useQueryClient();
   const { data: options } = useQuery({ queryKey: ["options", "location-wizard"], queryFn: () => fetchOptions() });
   const [open, setOpen] = useState(false);
-  const form = useForm({
+  type LocationWizardValues = {
+    warehouse_id: string;
+    zone_id: string;
+    prefix: string;
+    start_bay: number;
+    end_bay: number;
+    levels: number;
+    depth: number;
+    max_pallets: number;
+    location_type: string;
+    temperature_class: string;
+    mixed_sku_allowed: boolean;
+    mixed_lot_allowed: boolean;
+  };
+  const form = useForm<LocationWizardValues>({
     defaultValues: {
       warehouse_id: "",
       zone_id: "",
@@ -704,7 +718,7 @@ function LocationWizardDialog() {
   });
 
   const mutation = useMutation({
-    mutationFn: async (values: ReturnType<typeof form.getValues>) => {
+    mutationFn: async (values: LocationWizardValues) => {
       const startBay = Number(values.start_bay);
       const endBay = Number(values.end_bay);
       const levels = Number(values.levels);
