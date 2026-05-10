@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm, type UseFormReturn } from "react-hook-form";
@@ -387,6 +387,25 @@ function ResourceFormDialog({
   );
 }
 
+const locationWizardSchema = z
+  .object({
+    warehouse_id: z.string().uuid({ message: "Select a warehouse" }),
+    zone_id: z.string().uuid({ message: "Select a zone" }),
+    prefix: z.string().trim().min(1, "Prefix required").max(8, "Max 8 chars"),
+    start_bay: z.coerce.number().int().min(1),
+    end_bay: z.coerce.number().int().min(1),
+    levels: z.coerce.number().int().min(1).max(20),
+    depth: z.coerce.number().int().min(1).max(5),
+    max_pallets: z.coerce.number().int().min(1),
+    location_type: z.enum(["rack", "staging", "quarantine", "dispatch", "receiving", "floor", "returns"]),
+    temperature_class: z.enum(["ambient", "cool", "frozen"]),
+    mixed_sku_allowed: z.boolean(),
+    mixed_lot_allowed: z.boolean(),
+  })
+  .refine((v) => v.end_bay >= v.start_bay, { path: ["end_bay"], message: "End bay must be ≥ start bay" });
+
+export type LocationWizardValues = z.infer<typeof locationWizardSchema>;
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { pathname } = useLocation();
   const { profile, roles, signOut, user } = useAuth();
@@ -403,7 +422,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const navigation = (
     <div className={cn(
       "flex h-full flex-col overflow-hidden bg-sidebar",
-      sidebarCollapsed ? "items-center px-2 py-3" : "px-3 py-3"
+      sidebarCollapsed ? "items-center px-1.5 py-3" : "px-3 py-3"
     )}>
       {/* Logo area */}
       <div className={cn(
@@ -438,7 +457,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 className={({ isActive: navActive }) =>
                   cn(
                     "group flex min-h-9 items-center gap-2.5 rounded-md px-2.5 text-sm font-medium transition-all duration-100",
-                    sidebarCollapsed && "h-9 w-9 justify-center p-0",
+                    sidebarCollapsed && "h-11 w-11 justify-center p-0",
                     navActive || isActive
                       ? "bg-primary text-primary-foreground shadow-sm"
                       : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
@@ -447,7 +466,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 to={item.to}
                 aria-label={item.label}
               >
-                <Icon className="h-4 w-4 shrink-0" />
+                <Icon className={cn("shrink-0", sidebarCollapsed ? "h-5 w-5" : "h-4 w-4")} />
                 {sidebarCollapsed ? null : <span className="truncate">{item.label}</span>}
               </NavLink>
             );
@@ -472,7 +491,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         className={cn(
           "grid h-full w-full grid-cols-1 grid-rows-[auto_minmax(0,1fr)] overflow-hidden lg:grid-rows-1",
           "lg:grid-cols-[240px_minmax(0,1fr)]",
-          sidebarCollapsed && "lg:grid-cols-[56px_minmax(0,1fr)]",
+          sidebarCollapsed && "lg:grid-cols-[64px_minmax(0,1fr)]",
         )}
       >
         {/* Mobile header */}
@@ -482,8 +501,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <Warehouse className="h-4 w-4" />
             </div>
             <span className="text-sm font-semibold">{appTitle}</span>
+            <span className="hidden text-[10px] font-medium text-muted-foreground sm:inline">v{__APP_VERSION__}</span>
           </div>
           <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 rounded-md border border-border bg-card/80 px-1.5 py-1">
+              <Avatar className="h-6 w-6">
+                <AvatarFallback className="bg-primary/10 text-[10px] font-semibold text-primary">{initials}</AvatarFallback>
+              </Avatar>
+              <span className="hidden max-w-[120px] truncate text-xs font-medium sm:inline">{displayName}</span>
+            </div>
             <HelpSidebar pathname={pathname} />
             <Sheet>
               <SheetTrigger asChild>
@@ -491,11 +517,24 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   <Menu className="h-4 w-4" />
                 </Button>
               </SheetTrigger>
-              <SheetContent side="left" className="w-[240px] p-0">
+              <SheetContent side="left" className="flex h-svh w-screen max-w-full flex-col p-0">
                 <SheetHeader className="sr-only">
                   <SheetTitle>Navigation</SheetTitle>
                 </SheetHeader>
-                {navigation}
+                <div className="flex items-center gap-3 border-b border-border bg-card/80 px-4 py-3">
+                  <Avatar className="h-9 w-9">
+                    <AvatarFallback className="bg-primary/10 text-xs font-semibold text-primary">{initials}</AvatarFallback>
+                  </Avatar>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">{displayName}</p>
+                    <p className="truncate text-[11px] text-muted-foreground">v{__APP_VERSION__}</p>
+                  </div>
+                  <Button className="h-8 text-xs" variant="ghost" size="sm" onClick={() => void signOut()}>
+                    <LogOut className="mr-1 h-3 w-3" />
+                    Sign out
+                  </Button>
+                </div>
+                <div className="flex-1 overflow-y-auto">{navigation}</div>
               </SheetContent>
             </Sheet>
           </div>
@@ -507,8 +546,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {/* Desktop top bar */}
           <div className="hidden items-center justify-between gap-3 border-b border-border bg-background/95 px-5 py-2.5 backdrop-blur lg:flex">
             <div className="min-w-0">
-              <p className="truncate text-xs text-muted-foreground">
-                {items.find((item) => item.to === pathname)?.label ?? "Warehouse Wizard Enterprise WMS"}
+              <p className="flex items-center gap-2 truncate text-xs text-muted-foreground">
+                <span className="truncate">{items.find((item) => item.to === pathname)?.label ?? "Warehouse Wizard Enterprise WMS"}</span>
+                <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium">v{__APP_VERSION__}</span>
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -686,21 +726,8 @@ function LocationWizardDialog() {
   const queryClient = useQueryClient();
   const { data: options } = useQuery({ queryKey: ["options", "location-wizard"], queryFn: () => fetchOptions() });
   const [open, setOpen] = useState(false);
-  type LocationWizardValues = {
-    warehouse_id: string;
-    zone_id: string;
-    prefix: string;
-    start_bay: number;
-    end_bay: number;
-    levels: number;
-    depth: number;
-    max_pallets: number;
-    location_type: string;
-    temperature_class: string;
-    mixed_sku_allowed: boolean;
-    mixed_lot_allowed: boolean;
-  };
   const form = useForm<LocationWizardValues>({
+    resolver: zodResolver(locationWizardSchema),
     defaultValues: {
       warehouse_id: "",
       zone_id: "",
@@ -719,13 +746,10 @@ function LocationWizardDialog() {
 
   const mutation = useMutation({
     mutationFn: async (values: LocationWizardValues) => {
-      const startBay = Number(values.start_bay);
-      const endBay = Number(values.end_bay);
-      const levels = Number(values.levels);
       const locations = [];
 
-      for (let bay = startBay; bay <= endBay; bay += 1) {
-        for (let level = 1; level <= levels; level += 1) {
+      for (let bay = values.start_bay; bay <= values.end_bay; bay += 1) {
+        for (let level = 1; level <= values.levels; level += 1) {
           locations.push({
             warehouse_id: values.warehouse_id,
             zone_id: values.zone_id,
@@ -733,8 +757,8 @@ function LocationWizardDialog() {
             aisle: values.prefix,
             bay: String(bay).padStart(2, "0"),
             level,
-            depth: Number(values.depth),
-            max_pallets: Number(values.max_pallets),
+            depth: values.depth,
+            max_pallets: values.max_pallets,
             location_type: values.location_type,
             temperature_class: values.temperature_class,
             mixed_sku_allowed: values.mixed_sku_allowed,
@@ -909,6 +933,28 @@ function shouldRestrictToDefaultWarehouse(roles: string[]) {
 export function DashboardPage() {
   const [mode, setMode] = useState<DashboardMode>("floor");
   const [cards, setCards] = useState<DashboardCardConfig[]>(loadLayout);
+  const dashboardRef = useRef<HTMLDivElement>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [fitToScreen, setFitToScreen] = useState(false);
+
+  useEffect(() => {
+    const onChange = () => setIsFullscreen(document.fullscreenElement === dashboardRef.current);
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
+
+  const toggleFullscreen = useCallback(async () => {
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else if (dashboardRef.current) {
+        await dashboardRef.current.requestFullscreen();
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Fullscreen unavailable");
+    }
+  }, []);
+
   const { data: metrics, isLoading } = useQuery({
     queryKey: ["dashboard-metrics"],
     queryFn: getDashboardMetrics,
@@ -947,19 +993,33 @@ export function DashboardPage() {
   }, []);
 
   return (
-    <div className="flex flex-col gap-6">
+    <div
+      ref={dashboardRef}
+      className={cn(
+        "flex flex-col gap-6",
+        (isFullscreen || fitToScreen) && "h-screen overflow-auto bg-background p-4",
+      )}
+    >
       <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
         <div>
           <h2 className="text-2xl font-bold tracking-tight">Command Center</h2>
           <p className="text-sm text-muted-foreground">Live warehouse metrics. Drag cards to reorder, hover to resize.</p>
         </div>
-        <Tabs value={mode} onValueChange={(value) => setMode(value as DashboardMode)}>
-          <TabsList className="grid h-auto w-full grid-cols-3 sm:w-fit">
-            <TabsTrigger value="floor" className="gap-1.5"><Forklift className="h-3.5 w-3.5" /> Floor</TabsTrigger>
-            <TabsTrigger value="dock" className="gap-1.5"><Truck className="h-3.5 w-3.5" /> Dock</TabsTrigger>
-            <TabsTrigger value="office" className="gap-1.5"><BarChart3 className="h-3.5 w-3.5" /> Office</TabsTrigger>
-          </TabsList>
-        </Tabs>
+        <div className="flex flex-wrap items-center gap-2">
+          <Tabs value={mode} onValueChange={(value) => setMode(value as DashboardMode)}>
+            <TabsList className="grid h-auto w-full grid-cols-3 sm:w-fit">
+              <TabsTrigger value="floor" className="gap-1.5"><Forklift className="h-3.5 w-3.5" /> Floor</TabsTrigger>
+              <TabsTrigger value="dock" className="gap-1.5"><Truck className="h-3.5 w-3.5" /> Dock</TabsTrigger>
+              <TabsTrigger value="office" className="gap-1.5"><BarChart3 className="h-3.5 w-3.5" /> Office</TabsTrigger>
+            </TabsList>
+          </Tabs>
+          <Button size="sm" variant="outline" onClick={() => setFitToScreen((v) => !v)} aria-pressed={fitToScreen}>
+            {fitToScreen ? "Reset fit" : "Fit to screen"}
+          </Button>
+          <Button size="sm" variant="outline" onClick={toggleFullscreen} aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}>
+            {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+          </Button>
+        </div>
       </div>
 
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
