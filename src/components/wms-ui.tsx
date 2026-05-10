@@ -30,7 +30,6 @@ import {
   ROLE_LABELS,
   type AdminInviteUserInput,
   type AppRoute,
-  type ClientVariable,
   type FieldDefinition,
   type ResourceDefinition,
   type SystemLogEntry,
