@@ -1,10 +1,11 @@
 import { useMemo, useState } from "react";
 
-import { helpArticles, searchHelpArticles } from "@/lib/help-content";
+import { helpArticles, searchHelpArticles, setupWizardSteps } from "@/lib/help-content";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 
 export default function HelpCenterPage() {
   const [query, setQuery] = useState("");
@@ -57,11 +58,33 @@ export default function HelpCenterPage() {
               {article.sections.map((section) => (
                 <div key={`${article.id}-${section.title}`} className="grid gap-2">
                   <h3 className="font-medium">{section.title}</h3>
-                  {section.content.map((line) => (
-                    <p key={line} className="text-sm text-muted-foreground">
-                      {line}
-                    </p>
-                  ))}
+                  {article.id === "warehouse-setup" && section.title === "Step Sequence" ? (
+                    <Accordion type="multiple" className="w-full">
+                      {setupWizardSteps.map((step) => (
+                        <AccordionItem key={step.number} value={`step-${step.number}`}>
+                          <AccordionTrigger className="text-sm">
+                            <span className="text-left">
+                              <span className="font-medium">Step {step.number}: {step.title}</span>
+                              <span className="ml-2 text-muted-foreground">{step.summary}</span>
+                            </span>
+                          </AccordionTrigger>
+                          <AccordionContent>
+                            <ul className="grid gap-2 pl-4 text-sm text-muted-foreground">
+                              {step.details.map((detail) => (
+                                <li key={detail} className="list-disc">{detail}</li>
+                              ))}
+                            </ul>
+                          </AccordionContent>
+                        </AccordionItem>
+                      ))}
+                    </Accordion>
+                  ) : (
+                    section.content.map((line) => (
+                      <p key={line} className="text-sm text-muted-foreground">
+                        {line}
+                      </p>
+                    ))
+                  )}
                 </div>
               ))}
               {article.references?.length ? (

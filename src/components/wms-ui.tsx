@@ -3,7 +3,7 @@ import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm, type UseFormReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Activity, AlertCircle, BarChart3, Bot, Boxes, Building2, Camera, CheckCircle2, ClipboardCheck, ClipboardList, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, HelpCircle, Home, LayoutDashboard, Loader2, LogOut, Maximize2, MapPinned, Menu, Minimize2, Package, PanelLeftClose, PanelLeftOpen, Plus, Printer, QrCode, RadioTower, RotateCcw, Search, Settings, ShieldCheck, Tags, Truck, Upload, UserPlus, Users, Variable, Warehouse } from "lucide-react";
+import { Activity, BarChart3, Bot, Boxes, Building2, Camera, CheckCircle2, ClipboardCheck, ClipboardList, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, HelpCircle, Home, LayoutDashboard, Loader2, LogOut, Maximize2, MapPinned, Menu, Minimize2, Package, PanelLeftClose, PanelLeftOpen, Plus, Printer, QrCode, RadioTower, RotateCcw, Search, Settings, ShieldCheck, Tags, Truck, Upload, UserPlus, Users, Warehouse } from "lucide-react";
 import {
   DndContext,
   KeyboardSensor,
@@ -30,7 +30,6 @@ import {
   ROLE_LABELS,
   type AdminInviteUserInput,
   type AppRoute,
-  type ClientVariable,
   type FieldDefinition,
   type ResourceDefinition,
   type SystemLogEntry,

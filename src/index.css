@@ -1,5 +1,14 @@
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap');
 
+/*
+ * THEME LOCK — single source of truth for app theme.
+ * The current Warehouse Wizard / Command Center theme (image-5 baseline) is
+ * the approved design. There are no alternate stylesheets in this project:
+ * tokens live here, primitives consume them via tailwind.config.ts, and the
+ * frozen UI files in AGENTS.md render them. Do not add another global CSS
+ * file or reintroduce previous theme variants.
+ */
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
