@@ -90,7 +90,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerTrigger } from "@/components/ui/drawer";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -1333,11 +1333,13 @@ function TextField({
   name,
   label,
   type = "text",
+  hint,
 }: {
   form: UseFormReturn<any>;
   name: string;
   label: string;
   type?: string;
+  hint?: string;
 }) {
   return (
     <FormField
@@ -1349,6 +1351,7 @@ function TextField({
           <FormControl>
             <Input {...field} type={type} value={(field.value as string | number | readonly string[] | undefined) ?? ""} />
           </FormControl>
+          {hint ? <FormDescription>{hint}</FormDescription> : null}
           <FormMessage />
         </FormItem>
       )}
@@ -1361,11 +1364,13 @@ function SelectField({
   name,
   label,
   options,
+  hint,
 }: {
   form: UseFormReturn<any>;
   name: string;
   label: string;
   options: Array<{ label: string; value: string }>;
+  hint?: string;
 }) {
   return (
     <FormField
@@ -1388,6 +1393,7 @@ function SelectField({
               ))}
             </SelectContent>
           </Select>
+          {hint ? <FormDescription>{hint}</FormDescription> : null}
           <FormMessage />
         </FormItem>
       )}
