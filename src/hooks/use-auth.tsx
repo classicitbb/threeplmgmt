@@ -243,6 +243,34 @@ export function AuthProvider({ children }: PropsWithChildren) {
         const demoMatch = findDemoUser(identifier);
         let authEmail = identifier;
 
+        // Resolve short login codes to full email addresses
+        if (!identifier.includes("@")) {
+          const resolveLoginCodeRpc = supabase.rpc.bind(supabase) as unknown as (
+            fn: string,
+            args: Record<string, string>,
+          ) => Promise<{ data: string | null }>;
+          const { data } = await resolveLoginCodeRpc("resolve_login_code", { in_login_code: identifier }).catch(() => ({ data: null }));
+          authEmail = data ?? "";
+        }
+
+        // Always attempt real Supabase Auth first so auth.uid() is valid in DB functions.
+        // Only fall back to demo session if the Supabase instance is unreachable or
+        // explicitly returns a schema-query error (local dev without migrations).
+        if (authEmail) {
+          const { error } = await supabase.auth.signInWithPassword({ email: authEmail, password });
+          if (!error) return;
+
+          const isDemoFallback =
+            password === "Warehouse123!" &&
+            demoMatch &&
+            (error.message === "Database error querying schema" ||
+              error.message?.toLowerCase().includes("fetch") ||
+              error.status === 0);
+
+          if (!isDemoFallback) throw error;
+        }
+
+        // Fallback: apply local demo session (no real JWT — auth.uid() will be NULL)
         if (password === "Warehouse123!" && demoMatch) {
           const [demoEmail] = demoMatch;
           const demoAuth = buildDemoAuth(demoEmail);
@@ -255,42 +283,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
           return;
         }
 
-        if (!identifier.includes("@")) {
-          const resolveLoginCodeRpc = supabase.rpc.bind(supabase) as unknown as (
-            fn: string,
-            args: Record<string, string>,
-          ) => Promise<{ data: string | null }>;
-          const { data } = await resolveLoginCodeRpc("resolve_login_code", { in_login_code: identifier }).catch(() => ({ data: null }));
-          authEmail = data ?? "";
-
-          if (!authEmail && password === "Warehouse123!" && demoMatch) {
-            const [demoEmail] = demoMatch;
-            const demoAuth = buildDemoAuth(demoEmail);
-            window.localStorage.setItem(demoSessionKey, demoEmail);
-            setSession(demoAuth.session);
-            setUser(demoAuth.user);
-            setProfile(demoAuth.profile);
-            setRoles(demoAuth.roles);
-            setLoading(false);
-            return;
-          }
-        }
-
-        const { error } = await supabase.auth.signInWithPassword({ email: authEmail, password });
-        if (error) {
-          if (error.message === "Database error querying schema" && password === "Warehouse123!" && demoMatch) {
-            const [demoEmail] = demoMatch;
-            const demoAuth = buildDemoAuth(demoEmail);
-            window.localStorage.setItem(demoSessionKey, demoEmail);
-            setSession(demoAuth.session);
-            setUser(demoAuth.user);
-            setProfile(demoAuth.profile);
-            setRoles(demoAuth.roles);
-            setLoading(false);
-            return;
-          }
-          throw error;
-        }
+        throw new Error("Invalid credentials");
       },
       signOut: async () => {
         window.localStorage.removeItem(demoSessionKey);
