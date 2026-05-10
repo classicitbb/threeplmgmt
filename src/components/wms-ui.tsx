@@ -387,6 +387,25 @@ function ResourceFormDialog({
   );
 }
 
+const locationWizardSchema = z
+  .object({
+    warehouse_id: z.string().uuid({ message: "Select a warehouse" }),
+    zone_id: z.string().uuid({ message: "Select a zone" }),
+    prefix: z.string().trim().min(1, "Prefix required").max(8, "Max 8 chars"),
+    start_bay: z.coerce.number().int().min(1),
+    end_bay: z.coerce.number().int().min(1),
+    levels: z.coerce.number().int().min(1).max(20),
+    depth: z.coerce.number().int().min(1).max(5),
+    max_pallets: z.coerce.number().int().min(1),
+    location_type: z.enum(["rack", "staging", "quarantine", "dispatch", "receiving", "floor", "returns"]),
+    temperature_class: z.enum(["ambient", "cool", "frozen"]),
+    mixed_sku_allowed: z.boolean(),
+    mixed_lot_allowed: z.boolean(),
+  })
+  .refine((v) => v.end_bay >= v.start_bay, { path: ["end_bay"], message: "End bay must be ≥ start bay" });
+
+export type LocationWizardValues = z.infer<typeof locationWizardSchema>;
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { pathname } = useLocation();
   const { profile, roles, signOut, user } = useAuth();
