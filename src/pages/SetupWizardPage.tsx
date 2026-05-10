@@ -13,8 +13,10 @@ import {
   type WarehouseSetupWarehouse,
   type WarehouseSetupZone,
 } from "@/lib/wms-core";
+import { setupWizardSteps } from "@/lib/help-content";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -120,6 +122,34 @@ export default function SetupWizardPage() {
           <StepIndicator key={steps[index]} step={index} current={step} />
         ))}
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Step Sequence</CardTitle>
+          <CardDescription>Expand any step to see what it does before you run the wizard.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Accordion type="multiple" className="w-full">
+            {setupWizardSteps.map((s) => (
+              <AccordionItem key={s.number} value={`wizard-step-${s.number}`}>
+                <AccordionTrigger className="text-sm">
+                  <span className="text-left">
+                    <span className="font-medium">Step {s.number}: {s.title}</span>
+                    <span className="ml-2 text-muted-foreground">{s.summary}</span>
+                  </span>
+                </AccordionTrigger>
+                <AccordionContent>
+                  <ul className="grid gap-2 pl-4 text-sm text-muted-foreground">
+                    {s.details.map((detail) => (
+                      <li key={detail} className="list-disc">{detail}</li>
+                    ))}
+                  </ul>
+                </AccordionContent>
+              </AccordionItem>
+            ))}
+          </Accordion>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
