@@ -1044,7 +1044,9 @@ export async function getPutawayTasks(userId?: string) {
     .order("created_at", { ascending: false });
 
   if (userId) {
-    query = query.eq("assigned_user_id", userId);
+    // Show tasks assigned to this user OR unassigned (queue) so the
+    // operator/manager can see and pick up open work.
+    query = query.or(`assigned_user_id.eq.${userId},assigned_user_id.is.null`);
   }
 
   const { data, error } = await query;

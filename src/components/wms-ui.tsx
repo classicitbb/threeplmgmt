@@ -90,7 +90,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerTrigger } from "@/components/ui/drawer";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -460,7 +460,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     sidebarCollapsed && "h-11 w-11 justify-center p-0",
                     navActive || isActive
                       ? "bg-primary text-primary-foreground shadow-sm"
-                      : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                      : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
                   )
                 }
                 to={item.to}
@@ -798,15 +798,15 @@ function LocationWizardDialog() {
         <ScrollArea className="max-h-[72vh] pr-4">
           <Form {...form}>
             <form className="grid gap-4 sm:grid-cols-2" onSubmit={form.handleSubmit((values) => mutation.mutate(values))}>
-              <SelectField form={form} name="warehouse_id" label="Warehouse" options={(options?.warehouses ?? []).map((warehouse: any) => ({ label: warehouse.name, value: warehouse.id }))} />
-              <SelectField form={form} name="zone_id" label="Zone" options={(options?.zones ?? []).map((zone: any) => ({ label: `${zone.code} - ${zone.name}`, value: zone.id }))} />
-              <TextField form={form} name="prefix" label="Aisle prefix" />
-              <TextField form={form} name="start_bay" label="Start bay" type="number" />
-              <TextField form={form} name="end_bay" label="End bay" type="number" />
-              <TextField form={form} name="levels" label="Levels" type="number" />
-              <TextField form={form} name="depth" label="Depth" type="number" />
-              <TextField form={form} name="max_pallets" label="Max pallets" type="number" />
-              <SelectField form={form} name="location_type" label="Type" options={[
+              <SelectField form={form} name="warehouse_id" label="Warehouse" hint="Locations are scoped to a single warehouse." options={(options?.warehouses ?? []).map((warehouse: any) => ({ label: warehouse.name, value: warehouse.id }))} />
+              <SelectField form={form} name="zone_id" label="Zone" hint="Pick a zone in the selected warehouse." options={(options?.zones ?? []).map((zone: any) => ({ label: `${zone.code} - ${zone.name}`, value: zone.id }))} />
+              <TextField form={form} name="prefix" label="Aisle prefix" hint="Letter or short code, e.g. A or BR." />
+              <TextField form={form} name="start_bay" label="Start bay" type="number" hint="First bay number in the range (≥ 1)." />
+              <TextField form={form} name="end_bay" label="End bay" type="number" hint="Must be ≥ start bay." />
+              <TextField form={form} name="levels" label="Levels" type="number" hint="How many vertical levels per bay (1–20)." />
+              <TextField form={form} name="depth" label="Depth" type="number" hint="Pallet positions deep (1–5)." />
+              <TextField form={form} name="max_pallets" label="Max pallets" type="number" hint="Capacity per location." />
+              <SelectField form={form} name="location_type" label="Type" hint="Used by directed putaway rules." options={[
                 { label: "Rack", value: "rack" },
                 { label: "Staging", value: "staging" },
                 { label: "Quarantine", value: "quarantine" },
@@ -815,7 +815,7 @@ function LocationWizardDialog() {
                 { label: "Floor", value: "floor" },
                 { label: "Returns", value: "returns" },
               ]} />
-              <SelectField form={form} name="temperature_class" label="Temperature" options={[
+              <SelectField form={form} name="temperature_class" label="Temperature" hint="Must match the zone’s temperature class." options={[
                 { label: "Ambient", value: "ambient" },
                 { label: "Cool", value: "cool" },
                 { label: "Frozen", value: "frozen" },
@@ -1333,11 +1333,13 @@ function TextField({
   name,
   label,
   type = "text",
+  hint,
 }: {
   form: UseFormReturn<any>;
   name: string;
   label: string;
   type?: string;
+  hint?: string;
 }) {
   return (
     <FormField
@@ -1349,6 +1351,7 @@ function TextField({
           <FormControl>
             <Input {...field} type={type} value={(field.value as string | number | readonly string[] | undefined) ?? ""} />
           </FormControl>
+          {hint ? <FormDescription>{hint}</FormDescription> : null}
           <FormMessage />
         </FormItem>
       )}
@@ -1361,11 +1364,13 @@ function SelectField({
   name,
   label,
   options,
+  hint,
 }: {
   form: UseFormReturn<any>;
   name: string;
   label: string;
   options: Array<{ label: string; value: string }>;
+  hint?: string;
 }) {
   return (
     <FormField
@@ -1388,6 +1393,7 @@ function SelectField({
               ))}
             </SelectContent>
           </Select>
+          {hint ? <FormDescription>{hint}</FormDescription> : null}
           <FormMessage />
         </FormItem>
       )}
