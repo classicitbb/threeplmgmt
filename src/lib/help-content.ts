@@ -3,6 +3,66 @@ export type HelpSection = {
   content: string[];
 };
 
+export type SetupWizardStepDetail = {
+  number: number;
+  title: string;
+  summary: string;
+  details: string[];
+};
+
+export const setupWizardSteps: SetupWizardStepDetail[] = [
+  {
+    number: 1,
+    title: "Define facilities",
+    summary: "Create the warehouses the system will manage.",
+    details: [
+      "Enter a short uppercase code (for example WH1, WH2) that operators will see on labels and pick lists.",
+      "Add the warehouse name, city, and country so reports and audit trails identify the facility correctly.",
+      "Mark whether the facility has a cool zone so the wizard pre-creates a temperature-controlled zone in step 2.",
+    ],
+  },
+  {
+    number: 2,
+    title: "Define zones inside each facility",
+    summary: "Group locations by purpose and temperature class.",
+    details: [
+      "Create zones such as Receiving, Putaway, Picking, Cool, Quarantine, or Bulk for each warehouse.",
+      "Set the temperature class (ambient, cool, frozen) so directed putaway can match products to compatible zones.",
+      "Mark zones that should not accept normal stock (for example Quarantine or Damaged) so suggestions skip them.",
+    ],
+  },
+  {
+    number: 3,
+    title: "Generate locations for each zone",
+    summary: "Decide how aisles, bays, levels, and depth positions are produced.",
+    details: [
+      "Pick the aisle count, bays per aisle, levels per bay, and depth (1\u20135) that match the physical racking.",
+      "Confirm the location code pattern so labels match what is printed on the racks (Warehouse > Zone > Aisle > Bay > Level > Depth).",
+      "Set capacity defaults (max weight, stack height) so the slot suggester respects the rack rating.",
+    ],
+  },
+  {
+    number: 4,
+    title: "Review the final structure",
+    summary: "Inspect the totals before anything is written to the database.",
+    details: [
+      "Verify warehouse, zone, location-template, and total-location counts in the review summary.",
+      "Go back to any earlier step to fix mistakes \u2014 nothing is created until step 5 is run.",
+      "Confirm whether starter operational data (products, pallets, receipts, putaway tasks) should be seeded.",
+    ],
+  },
+  {
+    number: 5,
+    title: "Create the structure and starter data",
+    summary: "Run the setup so the warehouse is usable immediately.",
+    details: [
+      "The wizard creates warehouses, zones, and every location row in a single transaction.",
+      "If starter data was selected, demo products, pallets, receipts, and putaway tasks are seeded so workflows can be exercised on day one.",
+      "On success the app navigates to Warehouses; you can re-run the wizard after a Reset All if the environment ever needs to be rebuilt.",
+    ],
+  },
+];
+
 export type HelpReference = {
   label: string;
   url: string;
