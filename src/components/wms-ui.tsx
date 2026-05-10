@@ -97,6 +97,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
@@ -748,6 +749,21 @@ function LocationWizardDialog() {
     },
   });
 
+  const selectedWarehouseId = form.watch("warehouse_id");
+
+  // Reset zone when warehouse changes so user can’t submit a mismatched pair
+  useEffect(() => {
+    form.setValue("zone_id", "");
+  }, [selectedWarehouseId, form]);
+
+  const filteredZones = (options?.zones ?? []).filter(
+    (zone: any) => zone.warehouse_id === selectedWarehouseId,
+  );
+
+  const locationCount =
+    Math.max((form.watch("end_bay") ?? 1) - (form.watch("start_bay") ?? 1) + 1, 0) *
+    Math.max(form.watch("levels") ?? 1, 1);
+
   const mutation = useMutation({
     mutationFn: async (values: LocationWizardValues) => {
       const locations = [];
@@ -802,8 +818,20 @@ function LocationWizardDialog() {
         <ScrollArea className="max-h-[72vh] pr-4">
           <Form {...form}>
             <form className="grid gap-4 sm:grid-cols-2" onSubmit={form.handleSubmit((values) => mutation.mutate(values))}>
-              <SelectField form={form} name="warehouse_id" label="Warehouse" hint="Locations are scoped to a single warehouse." options={(options?.warehouses ?? []).map((warehouse: any) => ({ label: warehouse.name, value: warehouse.id }))} />
-              <SelectField form={form} name="zone_id" label="Zone" hint="Pick a zone in the selected warehouse." options={(options?.zones ?? []).map((zone: any) => ({ label: `${zone.code} - ${zone.name}`, value: zone.id }))} />
+              <SelectField
+                form={form}
+                name="warehouse_id"
+                label="Warehouse"
+                hint="All locations are scoped to one warehouse."
+                options={(options?.warehouses ?? []).map((warehouse: any) => ({ label: warehouse.name, value: warehouse.id }))}
+              />
+              <SelectField
+                form={form}
+                name="zone_id"
+                label="Zone"
+                hint={selectedWarehouseId ? "Zones for the selected warehouse." : "Select a warehouse first."}
+                options={filteredZones.map((zone: any) => ({ label: `${zone.code} – ${zone.name}`, value: zone.id }))}
+              />
               <TextField form={form} name="prefix" label="Aisle prefix" hint="Letter or short code, e.g. A or BR." />
               <TextField form={form} name="start_bay" label="Start bay" type="number" hint="First bay number in the range (≥ 1)." />
               <TextField form={form} name="end_bay" label="End bay" type="number" hint="Must be ≥ start bay." />
@@ -824,7 +852,30 @@ function LocationWizardDialog() {
                 { label: "Cool", value: "cool" },
                 { label: "Frozen", value: "frozen" },
               ]} />
-              <Button className="sm:col-span-2" disabled={mutation.isPending} type="submit">
+              <div className="flex items-center justify-between rounded-lg border border-border px-4 py-3 sm:col-span-2">
+                <div className="grid gap-0.5">
+                  <span className="text-sm font-medium">Mixed SKU allowed</span>
+                  <span className="text-xs text-muted-foreground">Permit different products in the same location.</span>
+                </div>
+                <FormField control={form.control} name="mixed_sku_allowed" render={({ field }) => (
+                  <Switch checked={field.value} onCheckedChange={field.onChange} />
+                )} />
+              </div>
+              <div className="flex items-center justify-between rounded-lg border border-border px-4 py-3 sm:col-span-2">
+                <div className="grid gap-0.5">
+                  <span className="text-sm font-medium">Mixed lot allowed</span>
+                  <span className="text-xs text-muted-foreground">Permit different lot numbers in the same location.</span>
+                </div>
+                <FormField control={form.control} name="mixed_lot_allowed" render={({ field }) => (
+                  <Switch checked={field.value} onCheckedChange={field.onChange} />
+                )} />
+              </div>
+              {locationCount > 0 ? (
+                <p className="text-xs text-muted-foreground sm:col-span-2">
+                  This will generate <strong>{locationCount}</strong> location{locationCount !== 1 ? "s" : ""}.
+                </p>
+              ) : null}
+              <Button className="sm:col-span-2" disabled={mutation.isPending || !selectedWarehouseId || !form.watch("zone_id")} type="submit">
                 {mutation.isPending ? <Loader2 className="animate-spin" /> : null}
                 Create location range
               </Button>

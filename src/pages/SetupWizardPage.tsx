@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Plus, Trash2 } from "lucide-react";
+import { CheckCircle2, Circle, Loader2, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -19,6 +20,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { cn } from "@/lib/utils";
 
 const steps = [
   "Warehouses",
@@ -32,7 +35,32 @@ function temperatureOptions(): TemperatureClass[] {
   return ["ambient", "cool", "frozen"];
 }
 
+function StepIndicator({ step, current }: { step: number; current: number }) {
+  const done = current > step;
+  const active = current === step;
+  return (
+    <div
+      className={cn(
+        "flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition-colors",
+        active
+          ? "border-primary bg-primary text-primary-foreground shadow-sm"
+          : done
+            ? "border-emerald-600/40 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-950/40 dark:text-emerald-400"
+            : "border-border bg-muted/40 text-muted-foreground",
+      )}
+    >
+      {done ? (
+        <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+      ) : (
+        <Circle className={cn("h-3.5 w-3.5 shrink-0", active ? "fill-primary-foreground/30" : "")} />
+      )}
+      <span>{step + 1}. {steps[step]}</span>
+    </div>
+  );
+}
+
 export default function SetupWizardPage() {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [step, setStep] = useState(0);
   const [payload, setPayload] = useState<WarehouseSetupPayload>(createDefaultWarehouseSetupPayload());
@@ -41,10 +69,8 @@ export default function SetupWizardPage() {
     mutationFn: async () => runWarehouseSetup(payload),
     onSuccess: async () => {
       toast.success("Warehouse setup completed and starter data seeded.");
-      await Promise.all([
-        queryClient.invalidateQueries(),
-      ]);
-      setStep(0);
+      await queryClient.invalidateQueries();
+      navigate("/warehouses");
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Setup failed"),
   });
@@ -54,6 +80,10 @@ export default function SetupWizardPage() {
       warehouses: payload.warehouses.length,
       zones: payload.zones.length,
       locationTemplates: payload.locationTemplates.length,
+      locationsWillCreate: payload.locationTemplates.reduce(
+        (sum, t) => sum + t.aisleCount * t.baysPerAisle * t.levels,
+        0,
+      ),
     }),
     [payload],
   );
@@ -85,11 +115,10 @@ export default function SetupWizardPage() {
 
   return (
     <div className="grid gap-6">
+      {/* Step indicators with strong contrast */}
       <div className="flex flex-wrap items-center gap-2">
-        {steps.map((label, index) => (
-          <Badge key={label} variant={index === step ? "default" : "secondary"}>
-            {index + 1}. {label}
-          </Badge>
+        {steps.map((_, index) => (
+          <StepIndicator key={steps[index]} step={index} current={step} />
         ))}
       </div>
 
@@ -102,10 +131,14 @@ export default function SetupWizardPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-6">
+          {/* Step 0: Warehouses */}
           {step === 0 ? (
             <div className="grid gap-4">
               {payload.warehouses.map((warehouse, index) => (
-                <Card key={`${warehouse.code}-${index}`}>
+                <Card
+                  key={`${warehouse.code}-${index}`}
+                  className={cn(index % 2 === 0 ? "bg-muted/30" : "bg-background")}
+                >
                   <CardContent className="grid gap-4 p-4 md:grid-cols-2">
                     <Field label="Code">
                       <Input value={warehouse.code} onChange={(event) => updateWarehouse(index, "code", event.target.value.toUpperCase())} />
@@ -148,10 +181,14 @@ export default function SetupWizardPage() {
             </div>
           ) : null}
 
+          {/* Step 1: Zones */}
           {step === 1 ? (
             <div className="grid gap-4">
               {payload.zones.map((zone, index) => (
-                <Card key={`${zone.warehouseCode}-${zone.code}-${index}`}>
+                <Card
+                  key={`${zone.warehouseCode}-${zone.code}-${index}`}
+                  className={cn(index % 2 === 0 ? "bg-muted/30" : "bg-background")}
+                >
                   <CardContent className="grid gap-4 p-4 md:grid-cols-2 xl:grid-cols-3">
                     <Field label="Warehouse">
                       <Select value={zone.warehouseCode} onValueChange={(value) => updateZone(index, "warehouseCode", value)}>
@@ -217,10 +254,14 @@ export default function SetupWizardPage() {
             </div>
           ) : null}
 
+          {/* Step 2: Location Rules */}
           {step === 2 ? (
             <div className="grid gap-4">
               {payload.locationTemplates.map((template, index) => (
-                <Card key={`${template.warehouseCode}-${template.zoneCode}-${index}`}>
+                <Card
+                  key={`${template.warehouseCode}-${template.zoneCode}-${index}`}
+                  className={cn(index % 2 === 0 ? "bg-muted/30" : "bg-background")}
+                >
                   <CardContent className="grid gap-4 p-4 md:grid-cols-2 xl:grid-cols-3">
                     <Field label="Warehouse">
                       <Select value={template.warehouseCode} onValueChange={(value) => updateTemplate(index, "warehouseCode", value)}>
@@ -322,31 +363,100 @@ export default function SetupWizardPage() {
             </div>
           ) : null}
 
+          {/* Step 3: Review — summary cards + worksheet matrix */}
           {step === 3 ? (
-            <div className="grid gap-4 lg:grid-cols-3">
-              <SummaryCard title="Warehouses" value={totals.warehouses} description="Facilities that will be created or updated." />
-              <SummaryCard title="Zones" value={totals.zones} description="Operational and storage areas defined across those facilities." />
-              <SummaryCard title="Location Rules" value={totals.locationTemplates} description="Generation templates used to create physical locations." />
-              <Card className="lg:col-span-3">
+            <div className="grid gap-6">
+              <div className="grid gap-4 lg:grid-cols-4">
+                <SummaryCard title="Warehouses" value={totals.warehouses} description="Facilities to create or update." />
+                <SummaryCard title="Zones" value={totals.zones} description="Operational and storage areas." />
+                <SummaryCard title="Location Rules" value={totals.locationTemplates} description="Generation templates." />
+                <SummaryCard title="Locations" value={totals.locationsWillCreate} description="Physical locations that will be generated." />
+              </div>
+
+              {/* Warehouse → Zone mapping */}
+              <Card>
                 <CardHeader>
-                  <CardTitle>Review Payload</CardTitle>
-                  <CardDescription>Confirm that warehouse codes match across warehouses, zones, and location rules.</CardDescription>
+                  <CardTitle>Warehouse matrix</CardTitle>
+                  <CardDescription>Confirm warehouse codes match across warehouses, zones, and location rules before creating.</CardDescription>
                 </CardHeader>
-                <CardContent className="grid gap-4 text-sm text-muted-foreground">
-                  {payload.warehouses.map((warehouse) => (
-                    <div key={warehouse.code} className="rounded-lg border border-border p-4">
-                      <p className="font-medium text-foreground">{warehouse.code} · {warehouse.name}</p>
-                      <p>{warehouse.city}, {warehouse.country}</p>
-                      <p className="mt-2">
-                        Zones: {payload.zones.filter((zone) => zone.warehouseCode === warehouse.code).map((zone) => zone.code).join(", ") || "None"}
-                      </p>
-                    </div>
-                  ))}
+                <CardContent className="overflow-auto p-0">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-muted/50">
+                        <TableHead>Warehouse</TableHead>
+                        <TableHead>Name</TableHead>
+                        <TableHead>City</TableHead>
+                        <TableHead>Cool zone</TableHead>
+                        <TableHead>Zones</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {payload.warehouses.map((wh, i) => (
+                        <TableRow key={wh.code} className={cn(i % 2 === 0 ? "bg-background" : "bg-muted/20")}>
+                          <TableCell className="font-mono font-semibold">{wh.code}</TableCell>
+                          <TableCell>{wh.name}</TableCell>
+                          <TableCell>{wh.city}, {wh.country}</TableCell>
+                          <TableCell>{wh.hasCoolZone ? "Yes" : "—"}</TableCell>
+                          <TableCell className="text-muted-foreground">
+                            {payload.zones.filter((z) => z.warehouseCode === wh.code).map((z) => z.code).join(", ") || "—"}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+
+              {/* Location template matrix */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Location generation matrix</CardTitle>
+                  <CardDescription>Each row generates aisles × bays × levels locations inside the named zone.</CardDescription>
+                </CardHeader>
+                <CardContent className="overflow-auto p-0">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-muted/50">
+                        <TableHead>WH</TableHead>
+                        <TableHead>Zone</TableHead>
+                        <TableHead>Type</TableHead>
+                        <TableHead>Temp</TableHead>
+                        <TableHead className="text-right">Aisles</TableHead>
+                        <TableHead className="text-right">Bays</TableHead>
+                        <TableHead className="text-right">Levels</TableHead>
+                        <TableHead className="text-right">Max plt</TableHead>
+                        <TableHead className="text-right">Total locs</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {payload.locationTemplates.map((t, i) => {
+                        const locs = t.aisleCount * t.baysPerAisle * t.levels;
+                        return (
+                          <TableRow key={i} className={cn(i % 2 === 0 ? "bg-background" : "bg-muted/20")}>
+                            <TableCell className="font-mono">{t.warehouseCode}</TableCell>
+                            <TableCell className="font-mono">{t.zoneCode}</TableCell>
+                            <TableCell>{t.locationType}</TableCell>
+                            <TableCell>{t.temperatureClass}</TableCell>
+                            <TableCell className="text-right">{t.aisleCount}</TableCell>
+                            <TableCell className="text-right">{t.baysPerAisle}</TableCell>
+                            <TableCell className="text-right">{t.levels}</TableCell>
+                            <TableCell className="text-right">{t.maxPallets}</TableCell>
+                            <TableCell className="text-right font-semibold">{locs}</TableCell>
+                          </TableRow>
+                        );
+                      })}
+                      <TableRow className="border-t-2 bg-muted/30 font-semibold">
+                        <TableCell colSpan={8} className="text-right text-muted-foreground">Total locations</TableCell>
+                        <TableCell className="text-right">{totals.locationsWillCreate}</TableCell>
+                      </TableRow>
+                    </TableBody>
+                  </Table>
                 </CardContent>
               </Card>
             </div>
           ) : null}
 
+          {/* Step 4: Create */}
           {step === 4 ? (
             <div className="grid gap-4">
               <Card>
@@ -360,6 +470,10 @@ export default function SetupWizardPage() {
                   <p className="text-sm text-muted-foreground">
                     Starter data includes clients, products, packaging profiles, initial pallets, inventory, putaway work,
                     pick work, transfer work, cycle counts, labels, and audit history.
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    The wizard is idempotent — existing warehouse codes are updated in place. Run{" "}
+                    <strong>Reset All</strong> in Settings first if you want a completely clean slate.
                   </p>
                   <Button onClick={() => mutation.mutate()} disabled={mutation.isPending}>
                     {mutation.isPending ? <Loader2 className="animate-spin" /> : null}
