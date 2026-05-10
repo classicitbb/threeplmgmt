@@ -420,10 +420,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     .join("") || "WU";
 
   const navigation = (
-    <div className={cn(
-      "flex h-full flex-col overflow-hidden bg-sidebar",
-      sidebarCollapsed ? "items-center px-1.5 py-3" : "px-3 py-3"
-    )}>
+    <div
+      className={cn(
+        "flex h-full flex-col overflow-hidden bg-sidebar",
+        sidebarCollapsed ? "items-center px-1.5 py-3 bg-teal-500" : "px-3 py-3"
+      )}
+    >
       {/* Logo area */}
       <div className={cn(
         "mb-4 flex items-center gap-3 px-2",
