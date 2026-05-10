@@ -3,7 +3,7 @@ import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm, type UseFormReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Activity, BarChart3, Bot, Boxes, Building2, Camera, ClipboardCheck, ClipboardList, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, HelpCircle, Home, LayoutDashboard, Loader2, LogOut, Maximize2, MapPinned, Menu, Minimize2, Package, PanelLeftClose, PanelLeftOpen, Plus, Printer, QrCode, RadioTower, RotateCcw, Search, Settings, ShieldCheck, Tags, Truck, Upload, UserPlus, Users, Warehouse } from "lucide-react";
+import { Activity, AlertCircle, BarChart3, Bot, Boxes, Building2, Camera, CheckCircle2, ClipboardCheck, ClipboardList, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, HelpCircle, Home, LayoutDashboard, Loader2, LogOut, Maximize2, MapPinned, Menu, Minimize2, Package, PanelLeftClose, PanelLeftOpen, Plus, Printer, QrCode, RadioTower, RotateCcw, Search, Settings, ShieldCheck, Tags, Truck, Upload, UserPlus, Users, Variable, Warehouse } from "lucide-react";
 import {
   DndContext,
   KeyboardSensor,
@@ -30,8 +30,10 @@ import {
   ROLE_LABELS,
   type AdminInviteUserInput,
   type AppRoute,
+  type ClientVariable,
   type FieldDefinition,
   type ResourceDefinition,
+  type SystemLogEntry,
   adminInviteUser,
   changePalletStatus,
   confirmPutaway,
@@ -39,6 +41,7 @@ import {
   createPickListFlow,
   createReceiptFlow,
   createTransferFlow,
+  deleteClientVariable,
   dispatchTransfer,
   cycleCountSchema,
   resetWmsData,
@@ -52,6 +55,8 @@ import {
   getPutawayTasks,
   getReportData,
   importCsvToResource,
+  listClientVariables,
+  listSystemLogs,
   listUserActivities,
   listCycleCounts,
   listPickLists,
@@ -61,15 +66,19 @@ import {
   pickListSchema,
   receivingSchema,
   receiveTransfer,
+  resolveSystemLog,
   searchInventory,
   setProfileActive,
+  snapshotRecordCounts,
   updateProfileDetails,
   statusChangeSchema,
   setResourceVisibility,
   setUserRoleVisibility,
   submitCycleCountLine,
   transferSchema,
+  upsertClientVariable,
   upsertRecord,
+  writeSystemLog,
 } from "@/lib/wms-core";
 
 import { cn } from "@/lib/utils";
@@ -238,6 +247,7 @@ const navIcons: Record<AppRoute, typeof LayoutDashboard> = {
   "/warehouses": Building2,
   "/zones": Boxes,
   "/locations": MapPinned,
+  "/clients": Users,
   "/products": Package,
   "/packaging-profiles": Tags,
   "/receiving": Download,
@@ -252,6 +262,7 @@ const navIcons: Record<AppRoute, typeof LayoutDashboard> = {
   "/reports": BarChart3,
   "/users": Users,
   "/settings": Settings,
+  "/system-log": Activity,
   "/help": HelpCircle,
   "/setup-wizard": Settings,
 };
@@ -264,7 +275,7 @@ function TableFrame({
   className?: string;
 }) {
   return (
-    <ScrollArea className={cn("h-[min(65vh,36rem)] w-full", className)}>
+    <ScrollArea className={cn("h-[calc(100svh-14rem)] min-h-48 w-full", className)}>
       <div className="min-w-0">{children}</div>
     </ScrollArea>
   );
@@ -648,9 +659,25 @@ export function ResourcePage({
                 ) : (
                   data.map((row) => (
                     <TableRow key={(row as { id?: string }).id ?? JSON.stringify(row)}>
-                      {resource.fields.map((field) => (
-                        <TableCell key={field.name}>{String((row as Record<string, unknown>)[field.name] ?? "—")}</TableCell>
-                      ))}
+                      {resource.fields.map((field) => {
+                        const rawValue = (row as Record<string, unknown>)[field.name];
+                        let displayValue: React.ReactNode;
+                        if (rawValue == null || rawValue === "") {
+                          displayValue = <span className="text-muted-foreground">—</span>;
+                        } else if (field.type === "boolean") {
+                          displayValue = <Badge variant={rawValue ? "default" : "secondary"}>{rawValue ? "Yes" : "No"}</Badge>;
+                        } else if (field.type === "date") {
+                          displayValue = formatDate(String(rawValue));
+                        } else if (field.type === "select" && field.options) {
+                          displayValue = field.options.find((o) => o.value === String(rawValue))?.label ?? String(rawValue);
+                        } else if (field.type === "textarea") {
+                          const text = String(rawValue);
+                          displayValue = text.length > 60 ? <span title={text}>{text.slice(0, 60)}…</span> : text;
+                        } else {
+                          displayValue = String(rawValue);
+                        }
+                        return <TableCell key={field.name}>{displayValue}</TableCell>;
+                      })}
                       {["warehouses", "zones"].includes(resource.table) ? (
                         <TableCell>
                           <BarcodePrintDialog
@@ -1266,6 +1293,7 @@ export function ReceivingPage() {
       quantity: 1,
     },
   });
+  const [reuseEnabled, setReuseEnabled] = useState(false);
   const [manualBarcode, setManualBarcode] = useState("");
   const receivedQuantity = form.watch("quantity");
   const zplPreview = useMemo(
@@ -1309,28 +1337,51 @@ export function ReceivingPage() {
             <form className="grid gap-4 sm:grid-cols-2" onSubmit={form.handleSubmit((values) => mutation.mutate(values))}>
               <SelectField form={form} name="receipt_type" label="Receipt type" options={[
                 { label: "Manual", value: "manual" },
-                { label: "PO", value: "po" },
+                { label: "Purchase Order", value: "po" },
                 { label: "Transfer", value: "transfer" },
               ]} />
-              <TextField form={form} name="reference_number" label="Reference" />
+              <TextField form={form} name="reference_number" label="Reference number" />
               <SelectField form={form} name="warehouse_id" label="Warehouse" options={(options?.warehouses ?? []).map((warehouse) => ({ label: warehouse.name, value: warehouse.id }))} />
-              <SelectField form={form} name="client_id" label="Client" options={(options?.clients ?? []).map((client) => ({ label: client.name, value: client.id }))} />
-              <SelectField form={form} name="product_id" label="Product" options={(options?.products ?? []).map((product) => ({ label: `${product.sku} · ${product.name}`, value: product.id }))} />
+              <SelectField form={form} name="client_id" label="Client / Owner" options={(options?.clients ?? []).map((client) => ({ label: `${client.code} · ${client.name}`, value: client.id }))} />
+              <SelectField form={form} name="product_id" label="Product (SKU)" options={(options?.products ?? []).map((product) => ({ label: `${product.sku} · ${product.name}`, value: product.id }))} />
               <SelectField form={form} name="packaging_profile_id" label="Packaging profile" options={(options?.packagingProfiles ?? []).map((profile) => ({ label: profile.profile_name, value: profile.id }))} />
-              <TextField form={form} name="quantity" label="Quantity" type="number" />
-              <TextField form={form} name="lot_number" label="Lot" />
-              <TextField form={form} name="batch_number" label="Batch" />
-              <TextField form={form} name="manufacture_date" label="Manufacture date" type="date" />
+              <TextField form={form} name="quantity" label="Quantity received" type="number" />
+              <TextField form={form} name="lot_number" label="Lot number" />
+              <TextField form={form} name="batch_number" label="Batch number" />
               <TextField form={form} name="expiry_date" label="Expiry date" type="date" />
+              <TextField form={form} name="manufacture_date" label="Manufacture date" type="date" />
               <TextField form={form} name="loading_date" label="Loading date" type="date" />
-              <TextField form={form} name="rotation_date" label="Rotation date" type="date" />
-              <TextField form={form} name="override_length" label="Override length" type="number" />
-              <TextField form={form} name="override_width" label="Override width" type="number" />
-              <TextField form={form} name="override_height" label="Override height" type="number" />
-              <TextField form={form} name="override_weight" label="Override weight" type="number" />
+
+              {/* Pallet reuse */}
+              <div className="sm:col-span-2">
+                <div className="flex items-center gap-3 rounded-md border border-border px-3 py-2">
+                  <Switch checked={reuseEnabled} onCheckedChange={(checked) => {
+                    setReuseEnabled(checked);
+                    if (!checked) form.setValue("reuse_pallet_barcode", "");
+                  }} id="reuse-toggle" />
+                  <label htmlFor="reuse-toggle" className="cursor-pointer text-sm">
+                    Reuse existing blank pallet (scan a labelled empty pallet)
+                  </label>
+                </div>
+              </div>
+              {reuseEnabled ? (
+                <TextField form={form} name="reuse_pallet_barcode" label="Existing pallet barcode" hint="Scan or enter the barcode of an empty pallet to reuse its label." />
+              ) : null}
+
+              {/* Dimension overrides – collapsed by default */}
+              <div className="sm:col-span-2">
+                <p className="mb-2 text-xs font-medium text-muted-foreground">Dimension overrides (optional – leave blank to use packaging profile defaults)</p>
+                <div className="grid gap-3 sm:grid-cols-4">
+                  <TextField form={form} name="override_length" label="Length (cm)" type="number" />
+                  <TextField form={form} name="override_width" label="Width (cm)" type="number" />
+                  <TextField form={form} name="override_height" label="Height (cm)" type="number" />
+                  <TextField form={form} name="override_weight" label="Weight (kg)" type="number" />
+                </div>
+              </div>
+
               <Button className="w-full sm:col-span-2" type="submit" disabled={mutation.isPending}>
                 {mutation.isPending ? <Loader2 className="animate-spin" /> : null}
-                Receive and create pallet
+                {reuseEnabled ? "Receive onto existing pallet" : "Receive and create pallet"}
               </Button>
             </form>
           </Form>
@@ -2712,51 +2763,466 @@ export function SettingsPage() {
   });
 
   return (
-    <div className="grid gap-6 xl:grid-cols-2">
+    <div className="flex flex-col gap-6">
+      <div>
+        <h2 className="text-2xl font-semibold">Settings</h2>
+        <p className="text-sm text-muted-foreground">Warehouse environment, client configuration, and system management.</p>
+      </div>
+      <Tabs defaultValue="environment">
+        <TabsList className="grid h-auto w-full grid-cols-3 sm:w-fit">
+          <TabsTrigger value="environment">Environment</TabsTrigger>
+          <TabsTrigger value="client-vars">Client Variables</TabsTrigger>
+          <TabsTrigger value="roles">Role Matrix</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="environment" className="mt-4 grid gap-6 xl:grid-cols-2">
+          <Card>
+            <CardHeader>
+              <CardTitle>Environment & Setup</CardTitle>
+              <CardDescription>Use the setup wizard to build the warehouse structure and seed operational starter data.</CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-3 text-sm text-muted-foreground">
+              <p>1. Keep users and role assignments in place.</p>
+              <p>2. Launch the warehouse setup wizard to define warehouses, zones, and location rules.</p>
+              <p>3. Seed starter operational data so receiving, putaway, picking, transfers, and counts can be tested immediately.</p>
+              <div className="flex flex-wrap gap-2 pt-2">
+                <Button asChild>
+                  <Link to="/setup-wizard">Open warehouse setup wizard</Link>
+                </Button>
+                <Button variant="outline" asChild>
+                  <Link to="/system-log">View system log</Link>
+                </Button>
+                <Button variant="destructive" onClick={() => resetMutation.mutate()} disabled={resetMutation.isPending || !roles.includes("admin")}>
+                  {resetMutation.isPending ? <Loader2 className="animate-spin" /> : <RotateCcw data-icon="inline-start" />}
+                  Reset all
+                </Button>
+              </div>
+              {!roles.includes("admin") ? <p>Only admins can run Reset All.</p> : null}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="client-vars" className="mt-4">
+          <ClientVariablesPanel />
+        </TabsContent>
+
+        <TabsContent value="roles" className="mt-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Role Matrix</CardTitle>
+              <CardDescription>Your current role assignments and their access scope.</CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-2">
+              {roles.map((role) => (
+                <div key={role} className="rounded-lg border border-border px-3 py-2">
+                  <p className="font-medium">{ROLE_LABELS[role]}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {role === "admin"
+                      ? "Full system access including reset, user management, and all configuration"
+                      : role === "warehouse_manager"
+                        ? "Operational control across all warehouse functions and reporting"
+                        : role === "inventory_clerk"
+                          ? "Receiving, cycle counts, inventory search, and routine stock moves"
+                          : role === "dispatch_driver"
+                            ? "Transfer sign-off and inter-warehouse handoff visibility"
+                            : "Assigned task execution and limited inventory search"}
+                  </p>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
+
+function ClientVariablesPanel() {
+  const queryClient = useQueryClient();
+  const { data: options } = useQuery({ queryKey: ["options"], queryFn: () => fetchOptions() });
+  const { data: variables = [], isLoading } = useQuery({
+    queryKey: ["client-variables"],
+    queryFn: () => listClientVariables(),
+  });
+  const [open, setOpen] = useState(false);
+  const [editVar, setEditVar] = useState<any | null>(null);
+  const form = useForm({
+    defaultValues: { client_id: "", key: "", value: "", variable_type: "text", description: "" },
+  });
+
+  const saveMutation = useMutation({
+    mutationFn: (values: any) => upsertClientVariable({ ...(editVar ? { id: editVar.id } : {}), ...values }),
+    onSuccess: () => {
+      toast.success("Variable saved");
+      queryClient.invalidateQueries({ queryKey: ["client-variables"] });
+      form.reset({ client_id: "", key: "", value: "", variable_type: "text", description: "" });
+      setEditVar(null);
+      setOpen(false);
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Save failed"),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: deleteClientVariable,
+    onSuccess: () => {
+      toast.success("Variable removed");
+      queryClient.invalidateQueries({ queryKey: ["client-variables"] });
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Delete failed"),
+  });
+
+  function openAdd() {
+    setEditVar(null);
+    form.reset({ client_id: "", key: "", value: "", variable_type: "text", description: "" });
+    setOpen(true);
+  }
+
+  function openEdit(v: any) {
+    setEditVar(v);
+    form.reset({ client_id: v.client_id, key: v.key, value: v.value, variable_type: v.variable_type, description: v.description ?? "" });
+    setOpen(true);
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <p className="font-medium">Client Variables</p>
+          <p className="text-sm text-muted-foreground">Per-client configuration values such as rates, thresholds, and operational flags.</p>
+        </div>
+        <Button onClick={openAdd}>
+          <Plus data-icon="inline-start" />
+          Add variable
+        </Button>
+      </div>
+
       <Card>
-        <CardHeader>
-          <CardTitle>Environment & Setup</CardTitle>
-          <CardDescription>Use the setup wizard to build the warehouse structure and seed operational starter data.</CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-3 text-sm text-muted-foreground">
-          <p>1. Keep users and role assignments in place.</p>
-          <p>2. Launch the warehouse setup wizard to define warehouses, zones, and location rules.</p>
-          <p>3. Seed starter operational data so receiving, putaway, picking, transfers, and counts can be tested immediately.</p>
-          <div className="flex flex-wrap gap-2 pt-2">
-            <Button asChild>
-              <Link to="/setup-wizard">Open warehouse setup wizard</Link>
-            </Button>
-            <Button variant="destructive" onClick={() => resetMutation.mutate()} disabled={resetMutation.isPending || !roles.includes("admin")}>
-              {resetMutation.isPending ? <Loader2 className="animate-spin" /> : <RotateCcw data-icon="inline-start" />}
-              Reset all
-            </Button>
+        <CardContent className="p-0">
+          <TableFrame>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Client</TableHead>
+                  <TableHead>Key</TableHead>
+                  <TableHead>Value</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Description</TableHead>
+                  <TableHead className="w-24" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {isLoading ? (
+                  <TableRow><TableCell className="h-24 text-center text-muted-foreground" colSpan={6}>Loading…</TableCell></TableRow>
+                ) : variables.length === 0 ? (
+                  <TableRow><TableCell className="h-24 text-center text-muted-foreground" colSpan={6}>No client variables configured. Add one to get started.</TableCell></TableRow>
+                ) : (
+                  variables.map((v: any) => (
+                    <TableRow key={v.id}>
+                      <TableCell className="font-medium">{v.clients?.code ?? "—"}</TableCell>
+                      <TableCell className="font-mono text-sm">{v.key}</TableCell>
+                      <TableCell className="max-w-xs truncate">{v.value}</TableCell>
+                      <TableCell><Badge variant="secondary">{v.variable_type}</Badge></TableCell>
+                      <TableCell className="text-muted-foreground">{v.description ?? "—"}</TableCell>
+                      <TableCell>
+                        <div className="flex gap-1">
+                          <Button size="sm" variant="ghost" onClick={() => openEdit(v)}>Edit</Button>
+                          <Button size="sm" variant="ghost" onClick={() => deleteMutation.mutate(v.id)}>Remove</Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </TableFrame>
+        </CardContent>
+      </Card>
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{editVar ? "Edit variable" : "Add client variable"}</DialogTitle>
+            <DialogDescription>Configure a key/value setting for a specific client.</DialogDescription>
+          </DialogHeader>
+          <Form {...form}>
+            <form className="grid gap-4" onSubmit={form.handleSubmit((v) => saveMutation.mutate(v))}>
+              <FormField control={form.control} name="client_id" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Client</FormLabel>
+                  <Select onValueChange={field.onChange} value={field.value ?? ""}>
+                    <FormControl><SelectTrigger><SelectValue placeholder="Select client" /></SelectTrigger></FormControl>
+                    <SelectContent>
+                      {(options?.clients ?? []).map((c: any) => (
+                        <SelectItem key={c.id} value={c.id}>{c.code} · {c.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )} />
+              <FormField control={form.control} name="key" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Key</FormLabel>
+                  <FormControl><Input {...field} placeholder="e.g. handling_rate_per_pallet" className="font-mono" /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+              <FormField control={form.control} name="value" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Value</FormLabel>
+                  <FormControl><Input {...field} /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+              <FormField control={form.control} name="variable_type" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Type</FormLabel>
+                  <Select onValueChange={field.onChange} value={field.value ?? "text"}>
+                    <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
+                    <SelectContent>
+                      {["text", "number", "boolean", "date", "json"].map((t) => (
+                        <SelectItem key={t} value={t}>{t}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )} />
+              <FormField control={form.control} name="description" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Description (optional)</FormLabel>
+                  <FormControl><Input {...field} placeholder="What this variable controls" /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+              <Button type="submit" disabled={saveMutation.isPending}>
+                {saveMutation.isPending ? <Loader2 className="animate-spin" /> : null}
+                Save variable
+              </Button>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+export function SystemLogPage() {
+  const queryClient = useQueryClient();
+  const [logType, setLogType] = useState("all");
+  const [severity, setSeverity] = useState("all");
+  const [showResolved, setShowResolved] = useState(false);
+
+  const { data: logs = [], isLoading } = useQuery({
+    queryKey: ["system-logs", logType, severity, showResolved],
+    queryFn: () => listSystemLogs({ log_type: logType, severity, resolved: showResolved ? undefined : false }),
+  });
+
+  const resolveMutation = useMutation({
+    mutationFn: resolveSystemLog,
+    onSuccess: () => {
+      toast.success("Log entry resolved");
+      queryClient.invalidateQueries({ queryKey: ["system-logs"] });
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Failed to resolve"),
+  });
+
+  const snapshotMutation = useMutation({
+    mutationFn: snapshotRecordCounts,
+    onSuccess: (counts) => {
+      toast.success(`Record count snapshot saved for ${counts.length} tables`);
+      queryClient.invalidateQueries({ queryKey: ["system-logs"] });
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Snapshot failed"),
+  });
+
+  const logMutation = useMutation({
+    mutationFn: (values: { title: string; message: string; log_type: string; severity: string }) =>
+      writeSystemLog({
+        log_type: values.log_type as SystemLogEntry["log_type"],
+        severity: values.severity as SystemLogEntry["severity"],
+        title: values.title,
+        message: values.message,
+        source: "manual",
+      }),
+    onSuccess: () => {
+      toast.success("Log entry created");
+      queryClient.invalidateQueries({ queryKey: ["system-logs"] });
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Log failed"),
+  });
+
+  const [addOpen, setAddOpen] = useState(false);
+  const addForm = useForm({ defaultValues: { title: "", message: "", log_type: "system_change", severity: "info" } });
+
+  const severityBadge = (s: string) => {
+    if (s === "critical" || s === "error") return "destructive" as const;
+    if (s === "warning") return "secondary" as const;
+    return "default" as const;
+  };
+
+  return (
+    <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h2 className="text-2xl font-semibold">System Log</h2>
+          <p className="text-sm text-muted-foreground">Software errors, bugs, system changes, infrastructure events, and record count snapshots.</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={() => snapshotMutation.mutate()} disabled={snapshotMutation.isPending}>
+            {snapshotMutation.isPending ? <Loader2 className="animate-spin" /> : <BarChart3 data-icon="inline-start" />}
+            Snapshot counts
+          </Button>
+          <Button onClick={() => setAddOpen(true)}>
+            <Plus data-icon="inline-start" />
+            Add entry
+          </Button>
+        </div>
+      </div>
+
+      <Card>
+        <CardContent className="grid gap-3 p-4 sm:grid-cols-[1fr_1fr_auto]">
+          <Select onValueChange={setLogType} value={logType}>
+            <SelectTrigger><SelectValue placeholder="All types" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All types</SelectItem>
+              {["error", "bug", "system_change", "infrastructure", "record_count", "info"].map((t) => (
+                <SelectItem key={t} value={t}>{t.replace("_", " ")}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select onValueChange={setSeverity} value={severity}>
+            <SelectTrigger><SelectValue placeholder="All severities" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All severities</SelectItem>
+              {["debug", "info", "warning", "error", "critical"].map((s) => (
+                <SelectItem key={s} value={s}>{s}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <div className="flex items-center gap-2">
+            <Switch checked={showResolved} onCheckedChange={setShowResolved} id="show-resolved" />
+            <label htmlFor="show-resolved" className="cursor-pointer text-sm">Show resolved</label>
           </div>
-          {!roles.includes("admin") ? <p>Only admins can run Reset All.</p> : null}
         </CardContent>
       </Card>
+
       <Card>
-        <CardHeader>
-          <CardTitle>Role Matrix</CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-2">
-          {roles.map((role) => (
-            <div key={role} className="rounded-lg border border-border px-3 py-2">
-              <p className="font-medium">{ROLE_LABELS[role]}</p>
-              <p className="text-xs text-muted-foreground">
-                {role === "admin"
-                  ? "Full system access"
-                  : role === "warehouse_manager"
-                    ? "Operational control across all warehouse functions"
-                    : role === "inventory_clerk"
-                      ? "Receiving, counts, search, and routine moves"
-                      : role === "dispatch_driver"
-                        ? "Transfer sign-off and inter-warehouse handoff visibility"
-                        : "Assigned task execution and limited search"}
-              </p>
-            </div>
-          ))}
+        <CardContent className="p-0">
+          <TableFrame>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-32">Type</TableHead>
+                  <TableHead className="w-24">Severity</TableHead>
+                  <TableHead>Title</TableHead>
+                  <TableHead>Source</TableHead>
+                  <TableHead className="w-24">Table</TableHead>
+                  <TableHead className="w-24 text-right">Count</TableHead>
+                  <TableHead className="w-32">Date</TableHead>
+                  <TableHead className="w-20" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {isLoading ? (
+                  <TableRow><TableCell className="h-24 text-center text-muted-foreground" colSpan={8}>Loading logs…</TableCell></TableRow>
+                ) : logs.length === 0 ? (
+                  <TableRow><TableCell className="h-24 text-center text-muted-foreground" colSpan={8}>No log entries found.</TableCell></TableRow>
+                ) : (
+                  (logs as any[]).map((log) => (
+                    <TableRow key={log.id} className={log.resolved ? "opacity-50" : ""}>
+                      <TableCell>
+                        <Badge variant="outline">{log.log_type.replace("_", " ")}</Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={severityBadge(log.severity)}>{log.severity}</Badge>
+                      </TableCell>
+                      <TableCell>
+                        <div>
+                          <p className="font-medium leading-tight">{log.title}</p>
+                          {log.message ? <p className="text-xs text-muted-foreground">{log.message}</p> : null}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{log.source ?? "—"}</TableCell>
+                      <TableCell className="font-mono text-sm">{log.table_name ?? "—"}</TableCell>
+                      <TableCell className="text-right font-mono text-sm">{log.record_count != null ? formatNumber(log.record_count) : "—"}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{formatDate(log.created_at)}</TableCell>
+                      <TableCell>
+                        {!log.resolved ? (
+                          <Button size="sm" variant="ghost" onClick={() => resolveMutation.mutate(log.id)}>
+                            <CheckCircle2 className="h-4 w-4" />
+                          </Button>
+                        ) : (
+                          <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </TableFrame>
         </CardContent>
       </Card>
+
+      <Dialog open={addOpen} onOpenChange={setAddOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add log entry</DialogTitle>
+            <DialogDescription>Manually record a system change, bug, or infrastructure event.</DialogDescription>
+          </DialogHeader>
+          <Form {...addForm}>
+            <form className="grid gap-4" onSubmit={addForm.handleSubmit((v) => logMutation.mutate(v, { onSuccess: () => { addForm.reset(); setAddOpen(false); } }))}>
+              <FormField control={addForm.control} name="log_type" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Type</FormLabel>
+                  <Select onValueChange={field.onChange} value={field.value ?? "system_change"}>
+                    <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
+                    <SelectContent>
+                      {["error", "bug", "system_change", "infrastructure", "info"].map((t) => (
+                        <SelectItem key={t} value={t}>{t.replace("_", " ")}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )} />
+              <FormField control={addForm.control} name="severity" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Severity</FormLabel>
+                  <Select onValueChange={field.onChange} value={field.value ?? "info"}>
+                    <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
+                    <SelectContent>
+                      {["debug", "info", "warning", "error", "critical"].map((s) => (
+                        <SelectItem key={s} value={s}>{s}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )} />
+              <FormField control={addForm.control} name="title" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Title</FormLabel>
+                  <FormControl><Input {...field} placeholder="Brief summary of the event" /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+              <FormField control={addForm.control} name="message" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Details (optional)</FormLabel>
+                  <FormControl><Textarea {...field} rows={3} placeholder="Full description, steps to reproduce, or change notes" /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+              <Button type="submit" disabled={logMutation.isPending}>
+                {logMutation.isPending ? <Loader2 className="animate-spin" /> : null}
+                Save entry
+              </Button>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
