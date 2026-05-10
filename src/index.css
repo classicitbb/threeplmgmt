@@ -43,14 +43,14 @@
     --info: 200 80% 55%;
     --info-foreground: 215 28% 9%;
 
-    --sidebar-background: 215 30% 7%;
-    --sidebar-foreground: 210 15% 65%;
-    --sidebar-primary: 174 62% 47%;
-    --sidebar-primary-foreground: 215 28% 9%;
-    --sidebar-accent: 215 25% 14%;
-    --sidebar-accent-foreground: 210 20% 90%;
-    --sidebar-border: 215 18% 15%;
-    --sidebar-ring: 174 62% 47%;
+    --sidebar-background: 217 71% 38%;
+    --sidebar-foreground: 210 40% 98%;
+    --sidebar-primary: 0 0% 100%;
+    --sidebar-primary-foreground: 217 71% 30%;
+    --sidebar-accent: 217 65% 30%;
+    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-border: 217 55% 28%;
+    --sidebar-ring: 210 40% 98%;
 
     /* sidebar utility alias */
     --sidebar: var(--sidebar-background);
