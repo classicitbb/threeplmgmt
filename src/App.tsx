@@ -23,6 +23,7 @@ import {
   ResourcePage,
   SettingsPage,
   StatusPage,
+  SystemLogPage,
   TransfersPage,
   UsersRolesPage,
   CycleCountsPage,
@@ -652,6 +653,7 @@ function ProtectedLayout() {
 function ResourceRoutes() {
   const resources = useMemo(
     () => ({
+      clients: RESOURCE_DEFINITIONS.clients,
       warehouses: RESOURCE_DEFINITIONS.warehouses,
       zones: RESOURCE_DEFINITIONS.zones,
       locations: RESOURCE_DEFINITIONS.locations,
@@ -668,6 +670,7 @@ function ResourceRoutes() {
       <Route element={<RequireAuth />}>
         <Route element={<ProtectedLayout />}>
           <Route path="/dashboard" element={<DashboardPage />} />
+          <Route path="/clients" element={<ResourcePage resource={resources.clients as any} />} />
           <Route path="/warehouses" element={<ResourcePage resource={resources.warehouses as any} />} />
           <Route path="/zones" element={<ResourcePage resource={resources.zones as any} />} />
           <Route path="/locations" element={<ResourcePage resource={resources.locations as any} />} />
@@ -683,6 +686,7 @@ function ResourceRoutes() {
           <Route path="/reports" element={<ReportsPage />} />
           <Route path="/users" element={<UsersRolesPage />} />
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/system-log" element={<SystemLogPage />} />
           <Route path="/help" element={<HelpCenterPage />} />
           <Route path="/setup-wizard" element={<SetupWizardPage />} />
         </Route>
