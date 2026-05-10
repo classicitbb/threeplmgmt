@@ -437,15 +437,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         {!sidebarCollapsed && (
           <span className="truncate text-sm font-semibold text-foreground">Warehouse Wizard</span>
         )}
-        <Button
-          className="ml-auto hidden h-7 w-7 shrink-0 lg:inline-flex"
-          size="icon"
-          variant="ghost"
-          onClick={() => setSidebarCollapsed((c) => !c)}
-          aria-label={sidebarCollapsed ? "Expand navigation" : "Collapse navigation"}
-        >
-          {sidebarCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
-        </Button>
       </div>
 
       <nav className="flex-1 overflow-y-auto">
@@ -483,7 +474,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       </nav>
 
-      {/* User profile at bottom */}
+      {/* Collapse/expand toggle at bottom */}
+      <div className={cn("mt-2 hidden border-t border-sidebar-border pt-2 lg:flex", sidebarCollapsed ? "justify-center" : "justify-end")}>
+        <Button
+          className="h-8 w-8 shrink-0"
+          size="icon"
+          variant="ghost"
+          onClick={() => setSidebarCollapsed((c) => !c)}
+          aria-label={sidebarCollapsed ? "Expand navigation" : "Collapse navigation"}
+        >
+          {sidebarCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+        </Button>
+      </div>
     </div>
   );
 
