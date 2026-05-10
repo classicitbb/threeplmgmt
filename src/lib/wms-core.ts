@@ -28,6 +28,7 @@ export type AppRoute =
   | "/locations"
   | "/products"
   | "/packaging-profiles"
+  | "/clients"
   | "/receiving"
   | "/putaway-tasks"
   | "/inventory-search"
@@ -40,6 +41,7 @@ export type AppRoute =
   | "/reports"
   | "/users"
   | "/settings"
+  | "/system-log"
   | "/help"
   | "/setup-wizard";
 
@@ -150,6 +152,7 @@ export const NAVIGATION: Array<{ label: string; to: AppRoute; roles: RoleCode[] 
   { label: "Warehouses", to: "/warehouses", roles: ["admin", "warehouse_manager"] },
   { label: "Zones", to: "/zones", roles: ["admin", "warehouse_manager"] },
   { label: "Locations", to: "/locations", roles: ["admin", "warehouse_manager"] },
+  { label: "Clients", to: "/clients", roles: ["admin", "warehouse_manager"] },
   { label: "Products", to: "/products", roles: ["admin", "warehouse_manager", "inventory_clerk"] },
   { label: "Packaging", to: "/packaging-profiles", roles: ["admin", "warehouse_manager", "inventory_clerk"] },
   { label: "Receiving", to: "/receiving", roles: ["admin", "warehouse_manager", "inventory_clerk"] },
@@ -162,6 +165,7 @@ export const NAVIGATION: Array<{ label: string; to: AppRoute; roles: RoleCode[] 
   { label: "Reports", to: "/reports", roles: ["admin", "warehouse_manager", "inventory_clerk"] },
   { label: "Users", to: "/users", roles: ["admin"] },
   { label: "Settings", to: "/settings", roles: ["admin", "warehouse_manager"] },
+  { label: "System Log", to: "/system-log", roles: ["admin", "warehouse_manager"] },
   { label: "Help", to: "/help", roles: ["admin", "warehouse_manager", "inventory_clerk", "warehouse_operator", "dispatch_driver"] },
 ];
 
@@ -182,6 +186,28 @@ export const taskStatusOptions: FieldDefinition["options"] = [
 ];
 
 export const RESOURCE_DEFINITIONS: Record<string, ResourceDefinition> = {
+  clients: {
+    table: "clients",
+    title: "Clients",
+    description: "Manage warehouse owners and 3PL clients with their stock-sharing rules.",
+    singular: "client",
+    helpId: "clients",
+    roles: ["admin", "warehouse_manager"],
+    orderBy: { column: "code" },
+    importable: false,
+    exportable: true,
+    supportsHide: true,
+    archiveField: "active",
+    fields: [
+      { name: "code", label: "Code", type: "text", required: true },
+      { name: "name", label: "Name", type: "text", required: true },
+      { name: "allow_mixed_stock", label: "Mixed stock", type: "boolean" },
+      { name: "allow_mixed_sku_pallet", label: "Mixed SKU pallet", type: "boolean" },
+      { name: "allow_mixed_lot_pallet", label: "Mixed lot pallet", type: "boolean" },
+      { name: "require_expiry", label: "Require expiry", type: "boolean" },
+      { name: "active", label: "Active", type: "boolean" },
+    ],
+  },
   warehouses: {
     table: "warehouses",
     title: "Warehouses",
@@ -260,12 +286,14 @@ export const RESOURCE_DEFINITIONS: Record<string, ResourceDefinition> = {
       { name: "putaway_sequence", label: "Putaway sequence", type: "number" },
       { name: "mixed_sku_allowed", label: "Mixed SKU allowed", type: "boolean" },
       { name: "mixed_lot_allowed", label: "Mixed lot allowed", type: "boolean" },
+      { name: "max_pallet_height_cm", label: "Max pallet height (cm)", type: "number", description: "Leave blank for no height restriction. Set for bays near roof beams." },
       { name: "status", label: "Status", type: "select", options: [
         { label: "Active", value: "active" },
         { label: "Blocked", value: "blocked" },
         { label: "Maintenance", value: "maintenance" },
         { label: "Disabled", value: "disabled" },
       ], required: true },
+      { name: "location_notes", label: "Notes", type: "textarea", description: "Special constraints or beam clearance notes." },
     ],
   },
   products: {
@@ -355,6 +383,7 @@ export const receivingSchema = z.object({
   override_width: z.coerce.number().optional(),
   override_height: z.coerce.number().optional(),
   override_weight: z.coerce.number().optional(),
+  reuse_pallet_barcode: z.string().optional(),
 });
 
 export const pickListSchema = z.object({
@@ -490,6 +519,8 @@ export function validatePutawayAssignment(input: {
   occupiedPallets: number;
   mixedSkuAllowed: boolean;
   hasOtherSku: boolean;
+  palletHeightCm?: number | null;
+  locationMaxPalletHeightCm?: number | null;
 }) {
   if (input.locationStatus !== "active") {
     return { valid: false, reason: "Location is not active" };
@@ -502,6 +533,16 @@ export function validatePutawayAssignment(input: {
   }
   if (input.hasOtherSku && !input.mixedSkuAllowed) {
     return { valid: false, reason: "Location blocks mixed SKU storage" };
+  }
+  if (
+    input.locationMaxPalletHeightCm != null &&
+    input.palletHeightCm != null &&
+    input.palletHeightCm > input.locationMaxPalletHeightCm
+  ) {
+    return {
+      valid: false,
+      reason: `Pallet height ${input.palletHeightCm} cm exceeds location ceiling of ${input.locationMaxPalletHeightCm} cm`,
+    };
   }
   return { valid: true, reason: "Assignment valid" };
 }
@@ -919,9 +960,26 @@ export async function createReceiptFlow(input: z.infer<typeof receivingSchema>) 
     override_weight: payload.override_weight ?? null,
   });
 
-  const pallet = await upsertRecord("pallets", {
-    pallet_code: palletCode,
-    pallet_barcode: palletCode,
+  // Pallet reuse: if a barcode is provided, look up an empty/blank pallet to reuse
+  let reusedPalletId: string | null = null;
+  const reusedBarcode = payload.reuse_pallet_barcode?.trim();
+  if (reusedBarcode) {
+    const { data: existingPallet } = await db("pallets")
+      .select("id, pallet_code, pallet_barcode, product_id, quantity")
+      .or(`pallet_code.eq.${reusedBarcode},pallet_barcode.eq.${reusedBarcode}`)
+      .single();
+    if (existingPallet && (!existingPallet.product_id || existingPallet.quantity === 0)) {
+      reusedPalletId = existingPallet.id;
+    } else if (existingPallet) {
+      throw new Error(`Pallet ${reusedBarcode} still has stock (qty: ${existingPallet.quantity}). Only empty pallets can be reused.`);
+    } else {
+      throw new Error(`Pallet barcode ${reusedBarcode} not found. Check the barcode and try again.`);
+    }
+  }
+
+  const palletUpsertPayload: Record<string, unknown> = {
+    pallet_code: reusedPalletId ? reusedBarcode : palletCode,
+    pallet_barcode: reusedPalletId ? reusedBarcode : palletCode,
     product_id: payload.product_id,
     client_id: payload.client_id,
     receipt_line_id: receiptLine.id,
@@ -936,7 +994,13 @@ export async function createReceiptFlow(input: z.infer<typeof receivingSchema>) 
     width: payload.override_width ?? packagingProfile?.width ?? product.width,
     height: payload.override_height ?? packagingProfile?.height ?? product.height,
     weight: payload.override_weight ?? packagingProfile?.weight ?? product.weight,
-  });
+  };
+  if (reusedPalletId) {
+    palletUpsertPayload.id = reusedPalletId;
+    palletUpsertPayload.reused_from_pallet_id = reusedPalletId;
+  }
+
+  const pallet = await upsertRecord("pallets", palletUpsertPayload);
 
   await upsertRecord("inventory_balances", {
     pallet_id: pallet.id,
@@ -1662,4 +1726,168 @@ export async function importCsvToResource(resource: ResourceDefinition, file: Fi
   });
 
   return errors;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Client Variables
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type ClientVariable = {
+  id: string;
+  client_id: string;
+  key: string;
+  value: string;
+  variable_type: "text" | "number" | "boolean" | "date" | "json";
+  description: string | null;
+  is_hidden: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export async function listClientVariables(clientId?: string) {
+  let query = db("client_variables")
+    .select("*, clients(code, name)")
+    .eq("is_hidden", false)
+    .order("client_id")
+    .order("key");
+  if (clientId) query = query.eq("client_id", clientId);
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data ?? []) as any[];
+}
+
+export async function upsertClientVariable(payload: {
+  id?: string;
+  client_id: string;
+  key: string;
+  value: string;
+  variable_type?: string;
+  description?: string;
+}) {
+  const record = {
+    ...(payload.id ? { id: payload.id } : {}),
+    client_id: payload.client_id,
+    key: payload.key.trim(),
+    value: payload.value,
+    variable_type: payload.variable_type ?? "text",
+    description: payload.description ?? null,
+    updated_at: new Date().toISOString(),
+  };
+  const { data, error } = await db("client_variables").upsert(record as never).select().single();
+  if (error) throw error;
+  return data as ClientVariable;
+}
+
+export async function deleteClientVariable(id: string) {
+  const { error } = await db("client_variables").update({ is_hidden: true }).eq("id", id);
+  if (error) throw error;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// System Logs
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type SystemLogEntry = {
+  id: string;
+  log_type: "error" | "bug" | "system_change" | "infrastructure" | "record_count" | "info";
+  severity: "debug" | "info" | "warning" | "error" | "critical";
+  title: string;
+  message: string | null;
+  details: Record<string, unknown> | null;
+  source: string | null;
+  table_name: string | null;
+  record_count: number | null;
+  resolved: boolean;
+  resolved_at: string | null;
+  created_by: string | null;
+  created_at: string;
+};
+
+export async function listSystemLogs(filters?: {
+  log_type?: string;
+  severity?: string;
+  resolved?: boolean;
+  limit?: number;
+}) {
+  let query = db("system_logs")
+    .select("*, profiles:created_by(full_name, email)")
+    .order("created_at", { ascending: false })
+    .limit(filters?.limit ?? 200);
+
+  if (filters?.log_type && filters.log_type !== "all") {
+    query = query.eq("log_type", filters.log_type);
+  }
+  if (filters?.severity && filters.severity !== "all") {
+    query = query.eq("severity", filters.severity);
+  }
+  if (filters?.resolved !== undefined) {
+    query = query.eq("resolved", filters.resolved);
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data ?? []) as any[];
+}
+
+export async function writeSystemLog(payload: {
+  log_type: SystemLogEntry["log_type"];
+  severity: SystemLogEntry["severity"];
+  title: string;
+  message?: string;
+  details?: Record<string, unknown>;
+  source?: string;
+  table_name?: string;
+  record_count?: number;
+}) {
+  const { data, error } = await (supabase.rpc as any)("write_system_log", {
+    in_log_type: payload.log_type,
+    in_severity: payload.severity,
+    in_title: payload.title,
+    in_message: payload.message ?? null,
+    in_details: payload.details ?? null,
+    in_source: payload.source ?? null,
+    in_table_name: payload.table_name ?? null,
+    in_record_count: payload.record_count ?? null,
+  });
+  if (error) throw error;
+  return data as string;
+}
+
+export async function resolveSystemLog(id: string) {
+  const { error } = await db("system_logs")
+    .update({ resolved: true, resolved_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) throw error;
+}
+
+export async function snapshotRecordCounts() {
+  const tables = [
+    "warehouses", "zones", "locations", "clients", "products",
+    "pallets", "inventory_balances", "receipts", "putaway_tasks",
+    "pick_lists", "transfers", "cycle_counts", "audit_events",
+  ];
+
+  const counts = await Promise.all(
+    tables.map(async (table) => {
+      const { count, error } = await db(table).select("*", { count: "exact", head: true });
+      return { table, count: error ? null : (count ?? 0) };
+    }),
+  );
+
+  await Promise.all(
+    counts.map(({ table, count }) =>
+      count !== null
+        ? writeSystemLog({
+            log_type: "record_count",
+            severity: "info",
+            title: `Record count snapshot: ${table}`,
+            table_name: table,
+            record_count: count,
+            source: "snapshot",
+          })
+        : Promise.resolve(),
+    ),
+  );
+
+  return counts;
 }
