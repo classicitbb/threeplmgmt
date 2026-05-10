@@ -422,7 +422,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const navigation = (
     <div className={cn(
       "flex h-full flex-col overflow-hidden bg-sidebar",
-      sidebarCollapsed ? "items-center px-2 py-3" : "px-3 py-3"
+      sidebarCollapsed ? "items-center px-1.5 py-3" : "px-3 py-3"
     )}>
       {/* Logo area */}
       <div className={cn(
@@ -457,7 +457,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 className={({ isActive: navActive }) =>
                   cn(
                     "group flex min-h-9 items-center gap-2.5 rounded-md px-2.5 text-sm font-medium transition-all duration-100",
-                    sidebarCollapsed && "h-9 w-9 justify-center p-0",
+                    sidebarCollapsed && "h-11 w-11 justify-center p-0",
                     navActive || isActive
                       ? "bg-primary text-primary-foreground shadow-sm"
                       : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
@@ -466,7 +466,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 to={item.to}
                 aria-label={item.label}
               >
-                <Icon className="h-4 w-4 shrink-0" />
+                <Icon className={cn("shrink-0", sidebarCollapsed ? "h-5 w-5" : "h-4 w-4")} />
                 {sidebarCollapsed ? null : <span className="truncate">{item.label}</span>}
               </NavLink>
             );
@@ -491,7 +491,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         className={cn(
           "grid h-full w-full grid-cols-1 grid-rows-[auto_minmax(0,1fr)] overflow-hidden lg:grid-rows-1",
           "lg:grid-cols-[240px_minmax(0,1fr)]",
-          sidebarCollapsed && "lg:grid-cols-[56px_minmax(0,1fr)]",
+          sidebarCollapsed && "lg:grid-cols-[64px_minmax(0,1fr)]",
         )}
       >
         {/* Mobile header */}
@@ -501,8 +501,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <Warehouse className="h-4 w-4" />
             </div>
             <span className="text-sm font-semibold">{appTitle}</span>
+            <span className="hidden text-[10px] font-medium text-muted-foreground sm:inline">v{__APP_VERSION__}</span>
           </div>
           <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 rounded-md border border-border bg-card/80 px-1.5 py-1">
+              <Avatar className="h-6 w-6">
+                <AvatarFallback className="bg-primary/10 text-[10px] font-semibold text-primary">{initials}</AvatarFallback>
+              </Avatar>
+              <span className="hidden max-w-[120px] truncate text-xs font-medium sm:inline">{displayName}</span>
+            </div>
             <HelpSidebar pathname={pathname} />
             <Sheet>
               <SheetTrigger asChild>
@@ -510,11 +517,24 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   <Menu className="h-4 w-4" />
                 </Button>
               </SheetTrigger>
-              <SheetContent side="left" className="w-[240px] p-0">
+              <SheetContent side="left" className="flex h-svh w-screen max-w-full flex-col p-0">
                 <SheetHeader className="sr-only">
                   <SheetTitle>Navigation</SheetTitle>
                 </SheetHeader>
-                {navigation}
+                <div className="flex items-center gap-3 border-b border-border bg-card/80 px-4 py-3">
+                  <Avatar className="h-9 w-9">
+                    <AvatarFallback className="bg-primary/10 text-xs font-semibold text-primary">{initials}</AvatarFallback>
+                  </Avatar>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">{displayName}</p>
+                    <p className="truncate text-[11px] text-muted-foreground">v{__APP_VERSION__}</p>
+                  </div>
+                  <Button className="h-8 text-xs" variant="ghost" size="sm" onClick={() => void signOut()}>
+                    <LogOut className="mr-1 h-3 w-3" />
+                    Sign out
+                  </Button>
+                </div>
+                <div className="flex-1 overflow-y-auto">{navigation}</div>
               </SheetContent>
             </Sheet>
           </div>
@@ -526,8 +546,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {/* Desktop top bar */}
           <div className="hidden items-center justify-between gap-3 border-b border-border bg-background/95 px-5 py-2.5 backdrop-blur lg:flex">
             <div className="min-w-0">
-              <p className="truncate text-xs text-muted-foreground">
-                {items.find((item) => item.to === pathname)?.label ?? "Warehouse Wizard Enterprise WMS"}
+              <p className="flex items-center gap-2 truncate text-xs text-muted-foreground">
+                <span className="truncate">{items.find((item) => item.to === pathname)?.label ?? "Warehouse Wizard Enterprise WMS"}</span>
+                <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium">v{__APP_VERSION__}</span>
               </p>
             </div>
             <div className="flex items-center gap-2">
