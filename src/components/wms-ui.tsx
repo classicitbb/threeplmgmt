@@ -460,7 +460,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     sidebarCollapsed && "h-11 w-11 justify-center p-0",
                     navActive || isActive
                       ? "bg-primary text-primary-foreground shadow-sm"
-                      : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                      : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
                   )
                 }
                 to={item.to}
