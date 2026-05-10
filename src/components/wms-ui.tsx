@@ -798,15 +798,15 @@ function LocationWizardDialog() {
         <ScrollArea className="max-h-[72vh] pr-4">
           <Form {...form}>
             <form className="grid gap-4 sm:grid-cols-2" onSubmit={form.handleSubmit((values) => mutation.mutate(values))}>
-              <SelectField form={form} name="warehouse_id" label="Warehouse" options={(options?.warehouses ?? []).map((warehouse: any) => ({ label: warehouse.name, value: warehouse.id }))} />
-              <SelectField form={form} name="zone_id" label="Zone" options={(options?.zones ?? []).map((zone: any) => ({ label: `${zone.code} - ${zone.name}`, value: zone.id }))} />
-              <TextField form={form} name="prefix" label="Aisle prefix" />
-              <TextField form={form} name="start_bay" label="Start bay" type="number" />
-              <TextField form={form} name="end_bay" label="End bay" type="number" />
-              <TextField form={form} name="levels" label="Levels" type="number" />
-              <TextField form={form} name="depth" label="Depth" type="number" />
-              <TextField form={form} name="max_pallets" label="Max pallets" type="number" />
-              <SelectField form={form} name="location_type" label="Type" options={[
+              <SelectField form={form} name="warehouse_id" label="Warehouse" hint="Locations are scoped to a single warehouse." options={(options?.warehouses ?? []).map((warehouse: any) => ({ label: warehouse.name, value: warehouse.id }))} />
+              <SelectField form={form} name="zone_id" label="Zone" hint="Pick a zone in the selected warehouse." options={(options?.zones ?? []).map((zone: any) => ({ label: `${zone.code} - ${zone.name}`, value: zone.id }))} />
+              <TextField form={form} name="prefix" label="Aisle prefix" hint="Letter or short code, e.g. A or BR." />
+              <TextField form={form} name="start_bay" label="Start bay" type="number" hint="First bay number in the range (≥ 1)." />
+              <TextField form={form} name="end_bay" label="End bay" type="number" hint="Must be ≥ start bay." />
+              <TextField form={form} name="levels" label="Levels" type="number" hint="How many vertical levels per bay (1–20)." />
+              <TextField form={form} name="depth" label="Depth" type="number" hint="Pallet positions deep (1–5)." />
+              <TextField form={form} name="max_pallets" label="Max pallets" type="number" hint="Capacity per location." />
+              <SelectField form={form} name="location_type" label="Type" hint="Used by directed putaway rules." options={[
                 { label: "Rack", value: "rack" },
                 { label: "Staging", value: "staging" },
                 { label: "Quarantine", value: "quarantine" },
@@ -815,7 +815,7 @@ function LocationWizardDialog() {
                 { label: "Floor", value: "floor" },
                 { label: "Returns", value: "returns" },
               ]} />
-              <SelectField form={form} name="temperature_class" label="Temperature" options={[
+              <SelectField form={form} name="temperature_class" label="Temperature" hint="Must match the zone’s temperature class." options={[
                 { label: "Ambient", value: "ambient" },
                 { label: "Cool", value: "cool" },
                 { label: "Frozen", value: "frozen" },
