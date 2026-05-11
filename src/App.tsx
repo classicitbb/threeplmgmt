@@ -6,6 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { ArrowLeft, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { z } from "zod";
+import { Analytics } from "@vercel/analytics/react";
 
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/integrations/supabase/client";
@@ -680,6 +681,7 @@ const App = () => (
         <BrowserRouter>
           <ResourceRoutes />
         </BrowserRouter>
+        <Analytics />
       </AuthProvider>
     </TooltipProvider>
   </QueryClientProvider>
