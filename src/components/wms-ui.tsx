@@ -3,7 +3,8 @@ import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm, type UseFormReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Activity, BarChart3, Bot, Boxes, Building2, Camera, CheckCircle2, ClipboardCheck, ClipboardList, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, HelpCircle, Home, Info, LayoutDashboard, Loader2, LogOut, Maximize2, MapPinned, Menu, Minimize2, Package, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, QrCode, RadioTower, RotateCcw, Search, Settings, ShieldCheck, Tags, Truck, Upload, UserPlus, Users, Warehouse } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { Activity, BarChart3, Bot, Boxes, Building2, Camera, CheckCircle2, ClipboardCheck, ClipboardList, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, HelpCircle, Home, Info, LayoutDashboard, Loader2, LogOut, Mail, Maximize2, MapPinned, Menu, Minimize2, Package, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, QrCode, RadioTower, RotateCcw, Search, Settings, ShieldCheck, Tags, Truck, Upload, UserPlus, Users, Warehouse } from "lucide-react";
 import {
   DndContext,
   KeyboardSensor,
@@ -262,6 +263,7 @@ const navIcons: Record<AppRoute, typeof LayoutDashboard> = {
   "/users": Users,
   "/settings": Settings,
   "/system-log": Activity,
+  "/email-log": Mail,
   "/help": HelpCircle,
   "/setup-wizard": Settings,
 };
@@ -3556,5 +3558,161 @@ export function MobileActionBar({ primaryTo, primaryLabel }: { primaryTo: AppRou
         </div>
       </DrawerContent>
     </Drawer>
+  );
+}
+
+type EmailLogRow = {
+  id: string;
+  message_id: string | null;
+  template_name: string;
+  recipient_email: string;
+  status: string;
+  error_message: string | null;
+  created_at: string;
+};
+
+export function EmailLogPage() {
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [search, setSearch] = useState("");
+
+  const { data: rows = [], isLoading, refetch, isFetching } = useQuery({
+    queryKey: ["email-send-log"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("email_send_log")
+        .select("id,message_id,template_name,recipient_email,status,error_message,created_at")
+        .order("created_at", { ascending: false })
+        .limit(500);
+      if (error) throw error;
+      return (data ?? []) as EmailLogRow[];
+    },
+  });
+
+  const filtered = (rows as EmailLogRow[]).filter((r) => {
+    if (statusFilter !== "all" && r.status !== statusFilter) return false;
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      if (
+        !r.recipient_email.toLowerCase().includes(q) &&
+        !r.template_name.toLowerCase().includes(q) &&
+        !(r.message_id ?? "").toLowerCase().includes(q) &&
+        !(r.error_message ?? "").toLowerCase().includes(q)
+      ) {
+        return false;
+      }
+    }
+    return true;
+  });
+
+  const counts = (rows as EmailLogRow[]).reduce(
+    (acc, r) => {
+      acc.total += 1;
+      acc[r.status] = (acc[r.status] ?? 0) + 1;
+      return acc;
+    },
+    { total: 0 } as Record<string, number>,
+  );
+
+  const statusBadge = (s: string) => {
+    if (s === "sent") return "default" as const;
+    if (s === "failed" || s === "dlq" || s === "bounced") return "destructive" as const;
+    if (s === "pending" || s === "rate_limited") return "secondary" as const;
+    return "outline" as const;
+  };
+
+  return (
+    <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h2 className="text-2xl font-semibold">Email Log</h2>
+          <p className="text-sm text-muted-foreground">
+            Recent email send attempts with statuses and error messages for troubleshooting.
+          </p>
+        </div>
+        <Button variant="outline" onClick={() => refetch()} disabled={isFetching}>
+          {isFetching ? <Loader2 className="animate-spin" /> : <RotateCcw data-icon="inline-start" />}
+          Refresh
+        </Button>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+        {[
+          { label: "Total", value: counts.total ?? 0 },
+          { label: "Sent", value: counts.sent ?? 0 },
+          { label: "Pending", value: counts.pending ?? 0 },
+          { label: "Failed", value: (counts.failed ?? 0) + (counts.dlq ?? 0) },
+          { label: "Suppressed", value: counts.suppressed ?? 0 },
+        ].map((s) => (
+          <Card key={s.label}>
+            <CardContent className="p-4">
+              <p className="text-xs uppercase text-muted-foreground">{s.label}</p>
+              <p className="text-2xl font-semibold">{formatNumber(s.value)}</p>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      <Card>
+        <CardContent className="grid gap-3 p-4 sm:grid-cols-[1fr_1fr]">
+          <Select onValueChange={setStatusFilter} value={statusFilter}>
+            <SelectTrigger><SelectValue placeholder="All statuses" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All statuses</SelectItem>
+              {["pending", "sent", "failed", "dlq", "rate_limited", "suppressed", "bounced", "complained"].map((s) => (
+                <SelectItem key={s} value={s}>{s}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Input
+            placeholder="Search recipient, template, message id, error…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="p-0">
+          <TableFrame>
+            <Table>
+              <TableHeader className="sticky top-0 z-10 bg-card">
+                <TableRow>
+                  <TableHead className="w-32">Status</TableHead>
+                  <TableHead className="w-48">Template</TableHead>
+                  <TableHead>Recipient</TableHead>
+                  <TableHead>Error</TableHead>
+                  <TableHead className="w-40">Message ID</TableHead>
+                  <TableHead className="w-40">Date</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {isLoading ? (
+                  <TableRow><TableCell className="h-24 text-center text-muted-foreground" colSpan={6}>Loading email log…</TableCell></TableRow>
+                ) : filtered.length === 0 ? (
+                  <TableRow><TableCell className="h-24 text-center text-muted-foreground" colSpan={6}>No email log entries found.</TableCell></TableRow>
+                ) : (
+                  filtered.map((row) => (
+                    <TableRow key={row.id} className="even:bg-muted/30 align-top">
+                      <TableCell><Badge variant={statusBadge(row.status)}>{row.status}</Badge></TableCell>
+                      <TableCell className="font-mono text-xs">{row.template_name}</TableCell>
+                      <TableCell className="text-sm">{row.recipient_email}</TableCell>
+                      <TableCell className="max-w-md text-xs text-destructive">
+                        {row.error_message ? (
+                          <span title={row.error_message} className="block break-words">{row.error_message}</span>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="font-mono text-xs text-muted-foreground">{row.message_id ?? "—"}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{formatDate(row.created_at)}</TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </TableFrame>
+        </CardContent>
+      </Card>
+    </div>
   );
 }

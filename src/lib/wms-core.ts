@@ -42,6 +42,7 @@ export type AppRoute =
   | "/users"
   | "/settings"
   | "/system-log"
+  | "/email-log"
   | "/help"
   | "/setup-wizard";
 
@@ -166,6 +167,7 @@ export const NAVIGATION: Array<{ label: string; to: AppRoute; roles: RoleCode[] 
   { label: "Users", to: "/users", roles: ["admin"] },
   { label: "Settings", to: "/settings", roles: ["admin", "warehouse_manager"] },
   { label: "System Log", to: "/system-log", roles: ["admin", "warehouse_manager"] },
+  { label: "Email Log", to: "/email-log", roles: ["admin"] },
   { label: "Help", to: "/help", roles: ["admin", "warehouse_manager", "inventory_clerk", "warehouse_operator", "dispatch_driver"] },
 ];
 
