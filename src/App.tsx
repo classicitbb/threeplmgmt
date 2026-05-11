@@ -1,9 +1,9 @@
 import { useMemo, useState } from "react";
-import { BrowserRouter, Navigate, Outlet, Route, Routes, useParams } from "react-router-dom";
+import { BrowserRouter, Navigate, Outlet, Route, Routes, useNavigate, useParams } from "react-router-dom";
 import { QueryClient, QueryClientProvider, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Loader2 } from "lucide-react";
+import { ArrowLeft, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { z } from "zod";
 
@@ -410,6 +410,7 @@ function LoginPage() {
 
 function InventoryDetailPage() {
   const { balanceId = "" } = useParams();
+  const navigate = useNavigate();
   const { data, isLoading } = useQuery<InventoryDetailData>({
     queryKey: ["inventory-detail", balanceId],
     queryFn: async () => (await getInventoryDetail(balanceId)) as unknown as InventoryDetailData,
@@ -418,6 +419,10 @@ function InventoryDetailPage() {
 
   return (
     <AppShell>
+      <div className="flex flex-col gap-6">
+      <Button variant="ghost" className="w-fit -ml-1 gap-1.5 text-muted-foreground" onClick={() => navigate(-1)}>
+        <ArrowLeft className="h-4 w-4" /> Back
+      </Button>
       <div className="grid min-w-0 gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <Card className="min-w-0">
           <CardHeader>
@@ -482,12 +487,14 @@ function InventoryDetailPage() {
           </CardContent>
         </Card>
       </div>
+      </div>
     </AppShell>
   );
 }
 
 function PickExecutionPage() {
   const { pickListId = "" } = useParams();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { data } = useQuery<PickExecutionData>({
     queryKey: ["pick-execution", pickListId],
@@ -519,6 +526,9 @@ function PickExecutionPage() {
   return (
     <AppShell>
       <div className="flex flex-col gap-6">
+        <Button variant="ghost" className="w-fit -ml-1 gap-1.5 text-muted-foreground" onClick={() => navigate(-1)}>
+          <ArrowLeft className="h-4 w-4" /> Back
+        </Button>
         <div>
           <h2 className="text-2xl font-semibold">Pick Execution</h2>
           <p className="text-sm text-muted-foreground">
