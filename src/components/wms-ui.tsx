@@ -94,6 +94,7 @@ import {
 } from "@/lib/enterprise-wms";
 import { HelpSidebar } from "@/components/help-sidebar";
 import { ZoneLabelPage } from "@/components/zone-label-page";
+import { LocationLabelPage } from "@/components/location-label-page";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -863,20 +864,33 @@ export function ResourcePage({
                       {["warehouses", "zones", "locations"].includes(resource.table) ? (
                         <TableCell>
                           <div className="flex items-center gap-1">
-                            <BarcodePrintDialog
-                              labelType={resource.table === "warehouses" ? "warehouse" : resource.table === "zones" ? "zone" : "location"}
-                              code={String((row as Record<string, unknown>).code ?? "")}
-                              title={String((row as Record<string, unknown>).name ?? (row as Record<string, unknown>).code ?? resource.singular)}
-                            />
-                            {resource.table === "zones" && (
-                              <ZoneLabelPage
+                            {resource.table === "locations" ? (
+                              <LocationLabelPage
                                 code={String((row as Record<string, unknown>).code ?? "")}
-                                name={String((row as Record<string, unknown>).name ?? (row as Record<string, unknown>).code ?? "")}
+                                aisle={(row as Record<string, unknown>).aisle as string | null}
+                                bay={(row as Record<string, unknown>).bay as string | null}
+                                level={(row as Record<string, unknown>).level as number | null}
+                                locationType={(row as Record<string, unknown>).location_type as string | null}
                                 temperatureClass={String((row as Record<string, unknown>).temperature_class ?? "ambient")}
-                                isStaging={Boolean((row as Record<string, unknown>).is_staging)}
-                                isDispatch={Boolean((row as Record<string, unknown>).is_dispatch)}
-                                isQuarantine={Boolean((row as Record<string, unknown>).is_quarantine)}
                               />
+                            ) : (
+                              <>
+                                <BarcodePrintDialog
+                                  labelType={resource.table === "warehouses" ? "warehouse" : "zone"}
+                                  code={String((row as Record<string, unknown>).code ?? "")}
+                                  title={String((row as Record<string, unknown>).name ?? (row as Record<string, unknown>).code ?? resource.singular)}
+                                />
+                                {resource.table === "zones" && (
+                                  <ZoneLabelPage
+                                    code={String((row as Record<string, unknown>).code ?? "")}
+                                    name={String((row as Record<string, unknown>).name ?? (row as Record<string, unknown>).code ?? "")}
+                                    temperatureClass={String((row as Record<string, unknown>).temperature_class ?? "ambient")}
+                                    isStaging={Boolean((row as Record<string, unknown>).is_staging)}
+                                    isDispatch={Boolean((row as Record<string, unknown>).is_dispatch)}
+                                    isQuarantine={Boolean((row as Record<string, unknown>).is_quarantine)}
+                                  />
+                                )}
+                              </>
                             )}
                           </div>
                         </TableCell>
