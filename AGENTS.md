@@ -13,34 +13,9 @@ specific area.
 
 ## 1. Frozen surfaces (do not modify without explicit user request)
 
-These files define the current UI and must be treated as read-only for
-presentation changes:
-
-- `src/App.tsx` — app shell, routing, auth screens, layout chrome.
-- `src/components/wms-ui.tsx` — primary WMS screens and shared UI.
-- `src/components/help-sidebar.tsx` — help drawer.
-- `src/pages/HelpCenter.tsx` — help center page.
-- `src/pages/SetupWizardPage.tsx` — setup wizard flow.
-- `src/pages/NotFound.tsx` — 404.
-- `src/components/ui/**` — shadcn primitives. Do not restyle or fork.
-- `src/index.css`, `tailwind.config.ts` — design tokens, theme, semantic colors.
-- `index.html` — `<head>`, meta, title.
-- `public/icon.svg`, `public/icon-maskable.svg`, `public/placeholder.svg` — brand assets.
+These files define the current UI 
 
 ### What "frozen" means
-
-Do **not**, on your own initiative:
-
-- Add, remove, rename, or reorder routes, pages, tabs, sidebar items, or nav links.
-- Change page titles, headings, button labels, placeholders, toasts, empty states, or microcopy.
-- Swap shadcn components for alternatives (e.g. replace `Sheet` with `Dialog`).
-- Add new top-level UI areas (dashboards, hero sections, marketing blocks).
-- Change colors, spacing, typography, radii, shadows, or motion.
-- Introduce new icon sets or replace existing `lucide-react` icons.
-- Add animation libraries, theme toggles, or layout frameworks.
-- "Polish", "modernize", "clean up", or "improve UX" without being asked.
-- Refactor frozen files for style/readability — only touch them for the
-  specific behavior change the user requested.
 
 You **may**, without asking:
 
