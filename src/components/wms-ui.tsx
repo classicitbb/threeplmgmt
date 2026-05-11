@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { QRCodeSVG } from "qrcode.react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm, type UseFormReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Activity, BarChart3, Bot, Boxes, Building2, Camera, CheckCircle2, ClipboardCheck, ClipboardList, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, HelpCircle, Home, Info, LayoutDashboard, Loader2, LogOut, Maximize2, MapPinned, Menu, Minimize2, Package, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, QrCode, RadioTower, RotateCcw, Search, Settings, ShieldCheck, Tags, Truck, Upload, UserPlus, Users, Warehouse } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { Activity, BarChart3, Bot, Boxes, Building2, Camera, CheckCircle2, ClipboardCheck, ClipboardList, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, HelpCircle, Home, Info, LayoutDashboard, Loader2, LogOut, Mail, Maximize2, MapPinned, Menu, Minimize2, Package, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, QrCode, RadioTower, RotateCcw, Search, Settings, ShieldCheck, Tags, Truck, Upload, UserPlus, Users, Warehouse } from "lucide-react";
 import {
   DndContext,
   KeyboardSensor,
@@ -91,6 +93,8 @@ import {
   type WarehouseBrainRecommendation,
 } from "@/lib/enterprise-wms";
 import { HelpSidebar } from "@/components/help-sidebar";
+import { ZoneLabelPage } from "@/components/zone-label-page";
+import { LocationLabelPage } from "@/components/location-label-page";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -262,6 +266,7 @@ const navIcons: Record<AppRoute, typeof LayoutDashboard> = {
   "/users": Users,
   "/settings": Settings,
   "/system-log": Activity,
+  "/email-log": Mail,
   "/help": HelpCircle,
   "/setup-wizard": Settings,
 };
@@ -856,13 +861,38 @@ export function ResourcePage({
                         }
                         return <TableCell key={field.name}>{displayValue}</TableCell>;
                       })}
-                      {["warehouses", "zones"].includes(resource.table) ? (
+                      {["warehouses", "zones", "locations"].includes(resource.table) ? (
                         <TableCell>
-                          <BarcodePrintDialog
-                            labelType={resource.table === "warehouses" ? "warehouse" : "zone"}
-                            code={String((row as Record<string, unknown>).code ?? "")}
-                            title={String((row as Record<string, unknown>).name ?? (row as Record<string, unknown>).code ?? resource.singular)}
-                          />
+                          <div className="flex items-center gap-1">
+                            {resource.table === "locations" ? (
+                              <LocationLabelPage
+                                code={String((row as Record<string, unknown>).code ?? "")}
+                                aisle={(row as Record<string, unknown>).aisle as string | null}
+                                bay={(row as Record<string, unknown>).bay as string | null}
+                                level={(row as Record<string, unknown>).level as number | null}
+                                locationType={(row as Record<string, unknown>).location_type as string | null}
+                                temperatureClass={String((row as Record<string, unknown>).temperature_class ?? "ambient")}
+                              />
+                            ) : (
+                              <>
+                                <BarcodePrintDialog
+                                  labelType={resource.table === "warehouses" ? "warehouse" : "zone"}
+                                  code={String((row as Record<string, unknown>).code ?? "")}
+                                  title={String((row as Record<string, unknown>).name ?? (row as Record<string, unknown>).code ?? resource.singular)}
+                                />
+                                {resource.table === "zones" && (
+                                  <ZoneLabelPage
+                                    code={String((row as Record<string, unknown>).code ?? "")}
+                                    name={String((row as Record<string, unknown>).name ?? (row as Record<string, unknown>).code ?? "")}
+                                    temperatureClass={String((row as Record<string, unknown>).temperature_class ?? "ambient")}
+                                    isStaging={Boolean((row as Record<string, unknown>).is_staging)}
+                                    isDispatch={Boolean((row as Record<string, unknown>).is_dispatch)}
+                                    isQuarantine={Boolean((row as Record<string, unknown>).is_quarantine)}
+                                  />
+                                )}
+                              </>
+                            )}
+                          </div>
                         </TableCell>
                       ) : null}
                       {resource.supportsHide ? (
@@ -1109,6 +1139,9 @@ function LocationWizardDialog() {
 }
 
 function BarcodePrintDialog({ labelType, code, title }: { labelType: "warehouse" | "zone" | "location"; code: string; title: string }) {
+  const printRef = useRef<HTMLDivElement>(null);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+
   const zpl = [
     "^XA",
     "^CI28",
@@ -1119,9 +1152,28 @@ function BarcodePrintDialog({ labelType, code, title }: { labelType: "warehouse"
     `^FO40,92^A0N,24,24^FD${labelType.toUpperCase()}^FS`,
     `^FO64,130^BQN,2,7^FDLA,${code.replace(/[\^~]/g, " ").slice(0, 64)}^FS`,
     `^FO288,176^A0N,30,30^FD${code.replace(/[\^~]/g, " ").slice(0, 28)}^FS`,
-    "^FO288,220^A0N,18,18^FDWarehouse Wizard^FS",
+    "^FO288,220^A0N,18,18^FD3PL Management^FS",
     "^XZ",
   ].join("\n");
+
+  function handlePrint() {
+    if (!printRef.current) return;
+    const printWindow = window.open("", "_blank", "width=420,height=480");
+    if (!printWindow) return;
+    printWindow.document.write(`<!DOCTYPE html><html><head><title>Label — ${title}</title><style>
+      @page { margin: 12mm; }
+      body { font-family: system-ui, sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; background: #fff; }
+      .label { text-align: center; border: 1px solid #ccc; padding: 16px; border-radius: 8px; display: inline-block; }
+      .label-type { font-size: 11px; text-transform: uppercase; color: #888; margin-top: 8px; letter-spacing: 0.08em; }
+      .label-code { font-size: 18px; font-weight: 700; margin-top: 4px; letter-spacing: 0.04em; }
+      .label-sub { font-size: 11px; color: #666; margin-top: 2px; }
+    </style></head><body><div class="label">${printRef.current.innerHTML}
+      <p class="label-type">${labelType}</p>
+      <p class="label-code">${title}</p>
+      <p class="label-sub">${code}</p>
+    </div><script>window.onload=()=>{window.print();window.close();}<\/script></body></html>`);
+    printWindow.document.close();
+  }
 
   return (
     <Dialog>
@@ -1134,37 +1186,45 @@ function BarcodePrintDialog({ labelType, code, title }: { labelType: "warehouse"
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>QR-style scan label with human-readable code.</DialogDescription>
+          <DialogDescription>Scan label with human-readable code.</DialogDescription>
         </DialogHeader>
         <div className="grid gap-4">
-          <div className="mx-auto grid h-44 w-44 grid-cols-7 gap-1 rounded-md border border-border bg-white p-3" aria-label={`${labelType} QR preview`}>
-            {Array.from({ length: 49 }).map((_, index) => (
-              <span
-                key={index}
-                className={cn("rounded-[1px]", (index + code.length + code.charCodeAt(index % code.length)) % 3 === 0 ? "bg-black" : "bg-white")}
-              />
-            ))}
+          <div ref={printRef} className="mx-auto rounded-md border border-border bg-white p-4">
+            <QRCodeSVG value={code} size={160} bgColor="#ffffff" fgColor="#000000" level="M" />
           </div>
           <div className="rounded-md border border-border p-3 text-center">
             <p className="text-xs uppercase text-muted-foreground">{labelType}</p>
             <p className="break-all text-xl font-semibold">{code}</p>
           </div>
-          <div className="flex gap-2">
-            <Button className="flex-1" onClick={() => window.print()}>
-              <Printer data-icon="inline-start" />
-              Print label
-            </Button>
-            <Button
-              className="flex-1"
-              variant="outline"
-              onClick={async () => {
-                await navigator.clipboard?.writeText(zpl);
-                toast.success("Label data copied");
-              }}
-            >
-              Copy data
-            </Button>
-          </div>
+          <Button className="w-full" onClick={handlePrint}>
+            <Printer data-icon="inline-start" />
+            Print label
+          </Button>
+          <button
+            type="button"
+            className="text-xs text-muted-foreground underline-offset-2 hover:underline text-left"
+            onClick={() => setShowAdvanced((v) => !v)}
+          >
+            {showAdvanced ? "Hide" : "Show"} advanced (ZPL payload)
+          </button>
+          {showAdvanced && (
+            <div className="rounded-lg border border-border bg-background p-3">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <p className="text-sm font-medium text-muted-foreground">ZPL payload</p>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={async () => {
+                    await navigator.clipboard?.writeText(zpl);
+                    toast.success("ZPL copied");
+                  }}
+                >
+                  Copy
+                </Button>
+              </div>
+              <pre className="max-h-36 overflow-auto whitespace-pre-wrap font-mono text-xs text-muted-foreground">{zpl}</pre>
+            </div>
+          )}
         </div>
       </DialogContent>
     </Dialog>
@@ -1489,6 +1549,7 @@ export function ReceivingPage() {
   });
   const [reuseEnabled, setReuseEnabled] = useState(false);
   const [manualBarcode, setManualBarcode] = useState("");
+  const [showZplAdvanced, setShowZplAdvanced] = useState(false);
   const receivedQuantity = form.watch("quantity");
   const zplPreview = useMemo(
     () =>
@@ -1602,22 +1663,33 @@ export function ReceivingPage() {
             </Button>
           </div>
           {zplPreview ? (
-            <div className="rounded-lg border border-border bg-background p-3">
-              <div className="mb-2 flex items-center justify-between gap-2">
-                <p className="text-sm font-medium">Label data</p>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={async () => {
-                    await navigator.clipboard?.writeText(zplPreview);
-                    toast.success("Label data copied");
-                  }}
-                >
-                  Copy
-                </Button>
-              </div>
-              <pre className="max-h-44 overflow-auto whitespace-pre-wrap text-xs text-muted-foreground">{zplPreview}</pre>
-            </div>
+            <>
+              <button
+                type="button"
+                className="text-xs text-muted-foreground underline-offset-2 hover:underline text-left"
+                onClick={() => setShowZplAdvanced((v) => !v)}
+              >
+                {showZplAdvanced ? "Hide" : "Show"} advanced (ZPL payload)
+              </button>
+              {showZplAdvanced && (
+                <div className="rounded-lg border border-border bg-background p-3">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <p className="text-sm font-medium text-muted-foreground">ZPL payload</p>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={async () => {
+                        await navigator.clipboard?.writeText(zplPreview);
+                        toast.success("ZPL copied");
+                      }}
+                    >
+                      Copy
+                    </Button>
+                  </div>
+                  <pre className="max-h-44 overflow-auto whitespace-pre-wrap font-mono text-xs text-muted-foreground">{zplPreview}</pre>
+                </div>
+              )}
+            </>
           ) : null}
           <p className="text-xs text-muted-foreground">
             Each receipt creates a pallet label record, inventory balance, and queued putaway task.
@@ -3556,5 +3628,161 @@ export function MobileActionBar({ primaryTo, primaryLabel }: { primaryTo: AppRou
         </div>
       </DrawerContent>
     </Drawer>
+  );
+}
+
+type EmailLogRow = {
+  id: string;
+  message_id: string | null;
+  template_name: string;
+  recipient_email: string;
+  status: string;
+  error_message: string | null;
+  created_at: string;
+};
+
+export function EmailLogPage() {
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [search, setSearch] = useState("");
+
+  const { data: rows = [], isLoading, refetch, isFetching } = useQuery({
+    queryKey: ["email-send-log"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("email_send_log")
+        .select("id,message_id,template_name,recipient_email,status,error_message,created_at")
+        .order("created_at", { ascending: false })
+        .limit(500);
+      if (error) throw error;
+      return (data ?? []) as EmailLogRow[];
+    },
+  });
+
+  const filtered = (rows as EmailLogRow[]).filter((r) => {
+    if (statusFilter !== "all" && r.status !== statusFilter) return false;
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      if (
+        !r.recipient_email.toLowerCase().includes(q) &&
+        !r.template_name.toLowerCase().includes(q) &&
+        !(r.message_id ?? "").toLowerCase().includes(q) &&
+        !(r.error_message ?? "").toLowerCase().includes(q)
+      ) {
+        return false;
+      }
+    }
+    return true;
+  });
+
+  const counts = (rows as EmailLogRow[]).reduce(
+    (acc, r) => {
+      acc.total += 1;
+      acc[r.status] = (acc[r.status] ?? 0) + 1;
+      return acc;
+    },
+    { total: 0 } as Record<string, number>,
+  );
+
+  const statusBadge = (s: string) => {
+    if (s === "sent") return "default" as const;
+    if (s === "failed" || s === "dlq" || s === "bounced") return "destructive" as const;
+    if (s === "pending" || s === "rate_limited") return "secondary" as const;
+    return "outline" as const;
+  };
+
+  return (
+    <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h2 className="text-2xl font-semibold">Email Log</h2>
+          <p className="text-sm text-muted-foreground">
+            Recent email send attempts with statuses and error messages for troubleshooting.
+          </p>
+        </div>
+        <Button variant="outline" onClick={() => refetch()} disabled={isFetching}>
+          {isFetching ? <Loader2 className="animate-spin" /> : <RotateCcw data-icon="inline-start" />}
+          Refresh
+        </Button>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+        {[
+          { label: "Total", value: counts.total ?? 0 },
+          { label: "Sent", value: counts.sent ?? 0 },
+          { label: "Pending", value: counts.pending ?? 0 },
+          { label: "Failed", value: (counts.failed ?? 0) + (counts.dlq ?? 0) },
+          { label: "Suppressed", value: counts.suppressed ?? 0 },
+        ].map((s) => (
+          <Card key={s.label}>
+            <CardContent className="p-4">
+              <p className="text-xs uppercase text-muted-foreground">{s.label}</p>
+              <p className="text-2xl font-semibold">{formatNumber(s.value)}</p>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      <Card>
+        <CardContent className="grid gap-3 p-4 sm:grid-cols-[1fr_1fr]">
+          <Select onValueChange={setStatusFilter} value={statusFilter}>
+            <SelectTrigger><SelectValue placeholder="All statuses" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All statuses</SelectItem>
+              {["pending", "sent", "failed", "dlq", "rate_limited", "suppressed", "bounced", "complained"].map((s) => (
+                <SelectItem key={s} value={s}>{s}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Input
+            placeholder="Search recipient, template, message id, error…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="p-0">
+          <TableFrame>
+            <Table>
+              <TableHeader className="sticky top-0 z-10 bg-card">
+                <TableRow>
+                  <TableHead className="w-32">Status</TableHead>
+                  <TableHead className="w-48">Template</TableHead>
+                  <TableHead>Recipient</TableHead>
+                  <TableHead>Error</TableHead>
+                  <TableHead className="w-40">Message ID</TableHead>
+                  <TableHead className="w-40">Date</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {isLoading ? (
+                  <TableRow><TableCell className="h-24 text-center text-muted-foreground" colSpan={6}>Loading email log…</TableCell></TableRow>
+                ) : filtered.length === 0 ? (
+                  <TableRow><TableCell className="h-24 text-center text-muted-foreground" colSpan={6}>No email log entries found.</TableCell></TableRow>
+                ) : (
+                  filtered.map((row) => (
+                    <TableRow key={row.id} className="even:bg-muted/30 align-top">
+                      <TableCell><Badge variant={statusBadge(row.status)}>{row.status}</Badge></TableCell>
+                      <TableCell className="font-mono text-xs">{row.template_name}</TableCell>
+                      <TableCell className="text-sm">{row.recipient_email}</TableCell>
+                      <TableCell className="max-w-md text-xs text-destructive">
+                        {row.error_message ? (
+                          <span title={row.error_message} className="block break-words">{row.error_message}</span>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="font-mono text-xs text-muted-foreground">{row.message_id ?? "—"}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{formatDate(row.created_at)}</TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </TableFrame>
+        </CardContent>
+      </Card>
+    </div>
   );
 }
