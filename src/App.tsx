@@ -659,7 +659,7 @@ function ResourceRoutes() {
           <Route path="/users" element={<UsersRolesPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/system-log" element={<SystemLogPage />} />
-          <Route path="/email-log" element={<RequireAuth allowedRoles={["admin"]}><EmailLogPage /></RequireAuth>} />
+          <Route path="/email-log" element={<EmailLogPage />} />
           <Route path="/help" element={<HelpCenterPage />} />
           <Route path="/setup-wizard" element={<SetupWizardPage />} />
         </Route>
