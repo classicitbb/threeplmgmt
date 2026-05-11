@@ -422,6 +422,12 @@ function ResourceEditDialog({
     }, {}),
   });
 
+  // For locations: watch status to show disable-reason notice
+  const isLocations = resource.table === "locations";
+  const watchedStatus = isLocations ? (form.watch("status") as string | undefined) : undefined;
+  const isBeingDisabled = watchedStatus === "disabled" || watchedStatus === "maintenance";
+  const wasAlreadyDisabled = isLocations && (editRecord.status === "disabled" || editRecord.status === "maintenance");
+
   const updateMutation = useMutation({
     mutationFn: async (values: Record<string, unknown>) =>
       upsertRecord(resource.table, { id: editRecord.id, ...normalizeResourceValues(resource, values) }),
@@ -434,6 +440,15 @@ function ResourceEditDialog({
       toast.error(error instanceof Error ? error.message : "Update failed");
     },
   });
+
+  function handleSubmit(values: Record<string, unknown>) {
+    // Locations: require a reason in Notes when disabling or marking maintenance
+    if (isLocations && isBeingDisabled && !values.location_notes) {
+      toast.error("Add a reason in the Notes field before marking this location unavailable.");
+      return;
+    }
+    updateMutation.mutate(values);
+  }
 
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
@@ -449,9 +464,24 @@ function ResourceEditDialog({
           <Form {...form}>
             <form
               className="flex flex-col gap-4"
-              onSubmit={form.handleSubmit(async (values) => updateMutation.mutate(values))}
+              onSubmit={form.handleSubmit(handleSubmit)}
             >
-              {resource.fields.map((field) => renderField(field, form, getResourceFieldOptions(field, options)))}
+              {resource.fields.map((field) => (
+                <div key={field.name}>
+                  {renderField(field, form, getResourceFieldOptions(field, options))}
+                  {/* Disable-with-reason notice for locations status field */}
+                  {isLocations && field.name === "status" && isBeingDisabled && !wasAlreadyDisabled && (
+                    <p className="mt-1.5 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-400">
+                      This location will be marked as unavailable. Enter the reason in the Notes field below so operators know the cause and when it can return to service.
+                    </p>
+                  )}
+                  {isLocations && field.name === "status" && watchedStatus === "active" && wasAlreadyDisabled && (
+                    <p className="mt-1.5 rounded-md border border-green-300 bg-green-50 px-3 py-2 text-xs text-green-700 dark:border-green-700 dark:bg-green-950/40 dark:text-green-400">
+                      Re-enabling this location will make it available for putaway and picking. Update the Notes field to record the clearance if needed.
+                    </p>
+                  )}
+                </div>
+              ))}
               <Button type="submit" disabled={updateMutation.isPending}>
                 {updateMutation.isPending ? <Loader2 className="animate-spin" /> : null}
                 Save changes
@@ -691,6 +721,7 @@ export function ResourcePage({
 }) {
   const [includeHidden, setIncludeHidden] = useState(false);
   const [editRecord, setEditRecord] = useState<Record<string, unknown> | null>(null);
+  const [filterQuery, setFilterQuery] = useState("");
   const { data = [], isLoading } = useQuery({
     queryKey: [resource.table, includeHidden],
     queryFn: () => listRecords(resource.table, resource.select ?? "*", resource.orderBy, {
@@ -701,8 +732,20 @@ export function ResourcePage({
   const queryClient = useQueryClient();
   const extraColumnCount = (resource.supportsHide ? 1 : 0) + (["warehouses", "zones"].includes(resource.table) ? 1 : 0) + 1;
 
+  const filteredData = useMemo(() => {
+    const q = filterQuery.trim().toLowerCase();
+    if (!q) return data;
+    return data.filter((row) =>
+      resource.fields.some((field) => {
+        const val = (row as Record<string, unknown>)[field.name];
+        if (val == null) return false;
+        return String(val).toLowerCase().includes(q);
+      })
+    );
+  }, [data, filterQuery, resource.fields]);
+
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div>
           <h2 className="text-2xl font-semibold">{resource.title}</h2>
@@ -727,6 +770,26 @@ export function ResourcePage({
         </div>
       </div>
 
+      {/* Search bar — client-side filter across all text fields */}
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+        <Input
+          className="h-9 pl-9 pr-20"
+          placeholder={`Search ${resource.title.toLowerCase()}…`}
+          value={filterQuery}
+          onChange={(e) => setFilterQuery(e.target.value)}
+        />
+        {filterQuery ? (
+          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground select-none">
+            {filteredData.length} / {data.length}
+          </span>
+        ) : (
+          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground select-none">
+            {isLoading ? "" : `${data.length} rows`}
+          </span>
+        )}
+      </div>
+
       <Card>
         <CardContent className="p-0">
           <TableFrame>
@@ -748,14 +811,14 @@ export function ResourcePage({
                       Loading {resource.title.toLowerCase()}...
                     </TableCell>
                   </TableRow>
-                ) : data.length === 0 ? (
+                ) : filteredData.length === 0 ? (
                   <TableRow>
                     <TableCell className="h-24 text-center text-muted-foreground" colSpan={resource.fields.length + extraColumnCount}>
-                      No {resource.title.toLowerCase()} found.
+                      {filterQuery ? `No ${resource.title.toLowerCase()} matched "${filterQuery}".` : `No ${resource.title.toLowerCase()} found.`}
                     </TableCell>
                   </TableRow>
                 ) : (
-                  data.map((row) => (
+                  filteredData.map((row) => (
                     <TableRow
                       key={(row as { id?: string }).id ?? JSON.stringify(row)}
                       className="even:bg-muted/30 cursor-pointer"
@@ -770,6 +833,19 @@ export function ResourcePage({
                           displayValue = <Badge variant={rawValue ? "default" : "secondary"}>{rawValue ? "Yes" : "No"}</Badge>;
                         } else if (field.type === "date") {
                           displayValue = formatDate(String(rawValue));
+                        } else if (field.name === "status" && resource.table === "locations") {
+                          const sv = String(rawValue);
+                          const variant =
+                            sv === "active" ? "default"
+                            : sv === "maintenance" ? "outline"
+                            : "destructive";
+                          const label =
+                            sv === "active" ? "Active"
+                            : sv === "maintenance" ? "Maintenance"
+                            : sv === "blocked" ? "Blocked"
+                            : sv === "disabled" ? "Disabled"
+                            : sv;
+                          displayValue = <Badge variant={variant} className={sv === "maintenance" ? "border-amber-400 text-amber-600" : undefined}>{label}</Badge>;
                         } else if (field.type === "select" && field.options) {
                           displayValue = field.options.find((o) => o.value === String(rawValue))?.label ?? String(rawValue);
                         } else if (field.type === "textarea") {
