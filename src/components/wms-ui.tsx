@@ -2337,12 +2337,12 @@ function AddUserDialog({
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Role (optional)</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value ?? ""}>
+                    <Select onValueChange={(v) => field.onChange(v === "__none__" ? "" : v)} value={field.value ? field.value : "__none__"}>
                       <FormControl>
                         <SelectTrigger><SelectValue placeholder="Select role" /></SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        <SelectItem value="">No role assigned</SelectItem>
+                        <SelectItem value="__none__">No role assigned</SelectItem>
                         {roles.map((role) => (
                           <SelectItem key={role.code} value={role.code}>{role.name}</SelectItem>
                         ))}
@@ -2358,12 +2358,12 @@ function AddUserDialog({
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Warehouse (optional)</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value ?? ""}>
+                    <Select onValueChange={(v) => field.onChange(v === "__all__" ? "" : v)} value={field.value ? field.value : "__all__"}>
                       <FormControl>
                         <SelectTrigger><SelectValue placeholder="All warehouses" /></SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        <SelectItem value="">All warehouses</SelectItem>
+                        <SelectItem value="__all__">All warehouses</SelectItem>
                         {warehouses.map((wh) => (
                           <SelectItem key={wh.id} value={wh.id}>{wh.name}</SelectItem>
                         ))}
