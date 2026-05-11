@@ -488,6 +488,33 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {/* Collapse/expand toggle at bottom */}
       <div className={cn("mt-2 hidden border-t border-sidebar-border pt-2 lg:flex", sidebarCollapsed ? "justify-center" : "justify-end")}>
         <Button
+          className={cn("h-8", sidebarCollapsed ? "w-8 p-0" : "mr-auto px-2 text-xs")}
+          size="sm"
+          variant="ghost"
+          onClick={async () => {
+            try {
+              if ("serviceWorker" in navigator) {
+                const regs = await navigator.serviceWorker.getRegistrations();
+                await Promise.all(regs.map((r) => r.unregister()));
+              }
+              if ("caches" in window) {
+                const keys = await caches.keys();
+                await Promise.all(keys.map((k) => caches.delete(k)));
+              }
+            } catch (e) {
+              console.warn("Cache clear failed", e);
+            }
+            const url = new URL(window.location.href);
+            url.searchParams.set("_r", Date.now().toString());
+            window.location.replace(url.toString());
+          }}
+          aria-label="Clear cache and reload latest UI"
+          title="Clear cache and reload latest UI"
+        >
+          <RotateCcw className="h-4 w-4" />
+          {!sidebarCollapsed && <span className="ml-1">Reload latest</span>}
+        </Button>
+        <Button
           className="h-8 w-8 shrink-0"
           size="icon"
           variant="ghost"
@@ -2310,12 +2337,12 @@ function AddUserDialog({
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Role (optional)</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value ?? ""}>
+                    <Select onValueChange={(v) => field.onChange(v === "__none__" ? "" : v)} value={field.value ? field.value : "__none__"}>
                       <FormControl>
                         <SelectTrigger><SelectValue placeholder="Select role" /></SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        <SelectItem value="">No role assigned</SelectItem>
+                        <SelectItem value="__none__">No role assigned</SelectItem>
                         {roles.map((role) => (
                           <SelectItem key={role.code} value={role.code}>{role.name}</SelectItem>
                         ))}
@@ -2331,12 +2358,12 @@ function AddUserDialog({
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Warehouse (optional)</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value ?? ""}>
+                    <Select onValueChange={(v) => field.onChange(v === "__all__" ? "" : v)} value={field.value ? field.value : "__all__"}>
                       <FormControl>
                         <SelectTrigger><SelectValue placeholder="All warehouses" /></SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        <SelectItem value="">All warehouses</SelectItem>
+                        <SelectItem value="__all__">All warehouses</SelectItem>
                         {warehouses.map((wh) => (
                           <SelectItem key={wh.id} value={wh.id}>{wh.name}</SelectItem>
                         ))}
