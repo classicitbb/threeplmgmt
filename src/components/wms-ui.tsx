@@ -3,7 +3,7 @@ import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm, type UseFormReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Activity, BarChart3, Bot, Boxes, Building2, Camera, CheckCircle2, ClipboardCheck, ClipboardList, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, HelpCircle, Home, LayoutDashboard, Loader2, LogOut, Maximize2, MapPinned, Menu, Minimize2, Package, PanelLeftClose, PanelLeftOpen, Plus, Printer, QrCode, RadioTower, RotateCcw, Search, Settings, ShieldCheck, Tags, Truck, Upload, UserPlus, Users, Warehouse } from "lucide-react";
+import { Activity, ArrowLeft, BarChart3, Bot, Boxes, Building2, Camera, CheckCircle2, ClipboardCheck, ClipboardList, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, HelpCircle, Home, Info, LayoutDashboard, Loader2, LogOut, Maximize2, MapPinned, Menu, Minimize2, Package, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, QrCode, RadioTower, RotateCcw, Search, Settings, ShieldCheck, Tags, Truck, Upload, UserPlus, Users, Warehouse } from "lucide-react";
 import {
   DndContext,
   KeyboardSensor,
@@ -274,9 +274,9 @@ function TableFrame({
   className?: string;
 }) {
   return (
-    <ScrollArea className={cn("h-[calc(100svh-14rem)] min-h-48 w-full", className)}>
-      <div className="min-w-0">{children}</div>
-    </ScrollArea>
+    <div className={cn("h-[calc(100svh-14rem)] min-h-48 w-full overflow-auto", className)}>
+      {children}
+    </div>
   );
 }
 
@@ -398,6 +398,72 @@ function ResourceFormDialog({
   );
 }
 
+function ResourceEditDialog({
+  resource,
+  editRecord,
+  onClose,
+}: {
+  resource: ResourceDefinition;
+  editRecord: Record<string, unknown>;
+  onClose: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const { roles, profile } = useAuth();
+  const restrictedToDefaultWarehouse = shouldRestrictToDefaultWarehouse(roles);
+  const { data: options } = useQuery({
+    queryKey: ["options", resource.table, restrictedToDefaultWarehouse, profile?.default_warehouse_id],
+    queryFn: () => fetchOptions(false, { restrictToWarehouse: restrictedToDefaultWarehouse, warehouseId: profile?.default_warehouse_id }),
+  });
+  const form = useForm<Record<string, unknown>>({
+    resolver: zodResolver(baseFormSchema),
+    defaultValues: resource.fields.reduce<Record<string, unknown>>((acc, field) => {
+      acc[field.name] = editRecord[field.name] ?? defaultFieldValue(field);
+      return acc;
+    }, {}),
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async (values: Record<string, unknown>) =>
+      upsertRecord(resource.table, { id: editRecord.id, ...normalizeResourceValues(resource, values) }),
+    onSuccess: () => {
+      toast.success(`${resource.singular} updated`);
+      queryClient.invalidateQueries({ queryKey: [resource.table] });
+      onClose();
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "Update failed");
+    },
+  });
+
+  return (
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="max-h-[90vh] overflow-hidden sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Pencil className="h-4 w-4" />
+            Edit {resource.singular}
+          </DialogTitle>
+          <DialogDescription>{resource.description}</DialogDescription>
+        </DialogHeader>
+        <ScrollArea className="max-h-[72vh] pr-4">
+          <Form {...form}>
+            <form
+              className="flex flex-col gap-4"
+              onSubmit={form.handleSubmit(async (values) => updateMutation.mutate(values))}
+            >
+              {resource.fields.map((field) => renderField(field, form, getResourceFieldOptions(field, options)))}
+              <Button type="submit" disabled={updateMutation.isPending}>
+                {updateMutation.isPending ? <Loader2 className="animate-spin" /> : null}
+                Save changes
+              </Button>
+            </form>
+          </Form>
+        </ScrollArea>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 const locationWizardSchema = z
   .object({
     warehouse_id: z.string().uuid({ message: "Select a warehouse" }),
@@ -421,6 +487,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const { pathname } = useLocation();
   const { profile, roles, signOut, user } = useAuth();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const items = NAVIGATION.filter((item) => item.roles.some((role) => roles.includes(role)));
   const displayName = profile?.full_name?.trim() || user?.email || "Warehouse User";
   const initials = displayName
@@ -469,6 +536,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 }
                 to={item.to}
                 aria-label={item.label}
+                onClick={() => setMobileMenuOpen(false)}
               >
                 <Icon className={cn("shrink-0", sidebarCollapsed ? "h-5 w-5" : "h-4 w-4")} />
                 {sidebarCollapsed ? null : <span className="truncate">{item.label}</span>}
@@ -553,7 +621,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <span className="hidden max-w-[120px] truncate text-xs font-medium sm:inline">{displayName}</span>
             </div>
             <HelpSidebar pathname={pathname} />
-            <Sheet>
+            <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
               <SheetTrigger asChild>
                 <Button className="h-9 w-9" size="icon" variant="outline">
                   <Menu className="h-4 w-4" />
@@ -563,16 +631,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <SheetHeader className="sr-only">
                   <SheetTitle>Navigation</SheetTitle>
                 </SheetHeader>
-                <div className="flex items-center gap-3 border-b border-border bg-card/80 px-4 py-3">
-                  <Avatar className="h-9 w-9">
-                    <AvatarFallback className="bg-primary/10 text-xs font-semibold text-primary">{initials}</AvatarFallback>
-                  </Avatar>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium">{displayName}</p>
-                    <p className="truncate text-[11px] text-muted-foreground">v{__APP_VERSION__}</p>
+                <div className="flex flex-col border-b border-border bg-card/80 px-4 py-3 gap-2">
+                  <div className="flex items-center gap-3">
+                    <Avatar className="h-9 w-9">
+                      <AvatarFallback className="bg-primary/10 text-xs font-semibold text-primary">{initials}</AvatarFallback>
+                    </Avatar>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium">{displayName}</p>
+                      <p className="truncate text-[11px] text-muted-foreground">v{__APP_VERSION__}</p>
+                    </div>
                   </div>
-                  <Button className="h-8 text-xs" variant="ghost" size="sm" onClick={() => void signOut()}>
-                    <LogOut className="mr-1 h-3 w-3" />
+                  <Button className="h-8 w-full text-xs justify-start" variant="outline" size="sm" onClick={() => { setMobileMenuOpen(false); void signOut(); }}>
+                    <LogOut className="mr-2 h-3 w-3" />
                     Sign out
                   </Button>
                 </div>
@@ -620,6 +690,7 @@ export function ResourcePage({
   resource: ResourceDefinition;
 }) {
   const [includeHidden, setIncludeHidden] = useState(false);
+  const [editRecord, setEditRecord] = useState<Record<string, unknown> | null>(null);
   const { data = [], isLoading } = useQuery({
     queryKey: [resource.table, includeHidden],
     queryFn: () => listRecords(resource.table, resource.select ?? "*", resource.orderBy, {
@@ -628,14 +699,14 @@ export function ResourcePage({
     }),
   });
   const queryClient = useQueryClient();
-  const extraColumnCount = (resource.supportsHide ? 1 : 0) + (["warehouses", "zones"].includes(resource.table) ? 1 : 0);
+  const extraColumnCount = (resource.supportsHide ? 1 : 0) + (["warehouses", "zones"].includes(resource.table) ? 1 : 0) + 1;
 
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div>
           <h2 className="text-2xl font-semibold">{resource.title}</h2>
-          <p className="text-sm text-muted-foreground">{resource.description}</p>
+          <p className="text-sm text-muted-foreground">{resource.description} Double-click any row to edit.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {resource.exportable ? (
@@ -660,13 +731,14 @@ export function ResourcePage({
         <CardContent className="p-0">
           <TableFrame>
             <Table>
-              <TableHeader>
+              <TableHeader className="sticky top-0 z-10 bg-card">
                 <TableRow>
                   {resource.fields.map((field) => (
                     <TableHead key={field.name}>{field.label}</TableHead>
                   ))}
                   {["warehouses", "zones"].includes(resource.table) ? <TableHead className="w-28">Barcode</TableHead> : null}
                   {resource.supportsHide ? <TableHead className="w-32">Visibility</TableHead> : null}
+                  <TableHead className="w-16" />
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -684,7 +756,11 @@ export function ResourcePage({
                   </TableRow>
                 ) : (
                   data.map((row) => (
-                    <TableRow key={(row as { id?: string }).id ?? JSON.stringify(row)}>
+                    <TableRow
+                      key={(row as { id?: string }).id ?? JSON.stringify(row)}
+                      className="even:bg-muted/30 cursor-pointer"
+                      onDoubleClick={() => setEditRecord(row as Record<string, unknown>)}
+                    >
                       {resource.fields.map((field) => {
                         const rawValue = (row as Record<string, unknown>)[field.name];
                         let displayValue: React.ReactNode;
@@ -718,7 +794,8 @@ export function ResourcePage({
                           <Button
                             size="sm"
                             variant="ghost"
-                            onClick={async () => {
+                            onClick={async (e) => {
+                              e.stopPropagation();
                               const record = row as Record<string, unknown> & { id?: string };
                               const id = record.id;
                               if (!id || !resource.archiveField) return;
@@ -734,6 +811,17 @@ export function ResourcePage({
                           </Button>
                         </TableCell>
                       ) : null}
+                      <TableCell>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 w-7 p-0"
+                          onClick={(e) => { e.stopPropagation(); setEditRecord(row as Record<string, unknown>); }}
+                          title={`Edit ${resource.singular}`}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                      </TableCell>
                     </TableRow>
                   ))
                 )}
@@ -742,6 +830,10 @@ export function ResourcePage({
           </TableFrame>
         </CardContent>
       </Card>
+
+      {editRecord ? (
+        <ResourceEditDialog resource={resource} editRecord={editRecord} onClose={() => setEditRecord(null)} />
+      ) : null}
     </div>
   );
 }
@@ -991,10 +1083,10 @@ function BarcodePrintDialog({ labelType, code, title }: { labelType: "warehouse"
               variant="outline"
               onClick={async () => {
                 await navigator.clipboard?.writeText(zpl);
-                toast.success("ZPL copied");
+                toast.success("Label data copied");
               }}
             >
-              Copy ZPL
+              Copy data
             </Button>
           </div>
         </div>
@@ -1329,7 +1421,7 @@ export function ReceivingPage() {
             labelType: "pallet",
             code: manualBarcode,
             title: "Pallet Label",
-            subtitle: "Zebra ZPL queue-ready",
+            subtitle: "Warehouse Wizard WMS",
             quantity: Number(receivedQuantity ?? 1),
           })
         : "",
@@ -1416,8 +1508,8 @@ export function ReceivingPage() {
 
       <Card className="min-w-0">
         <CardHeader>
-          <CardTitle>Scan & Zebra Print</CardTitle>
-          <CardDescription>ZPL-first label output with a browser print fallback for office workstations.</CardDescription>
+          <CardTitle>Label & Print</CardTitle>
+          <CardDescription>Print pallet labels directly to PDF or a connected label printer.</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           <div className="rounded-xl border border-dashed border-border bg-secondary/30 p-4">
@@ -1430,29 +1522,29 @@ export function ReceivingPage() {
             <Input className="min-w-0" value={manualBarcode} onChange={(event) => setManualBarcode(event.target.value)} placeholder="Latest pallet barcode" />
             <Button className="w-full sm:w-auto" variant="outline" onClick={() => window.print()}>
               <Printer data-icon="inline-start" />
-              Print
+              Print label
             </Button>
           </div>
           {zplPreview ? (
             <div className="rounded-lg border border-border bg-background p-3">
               <div className="mb-2 flex items-center justify-between gap-2">
-                <p className="text-sm font-medium">ZPL payload</p>
+                <p className="text-sm font-medium">Label data</p>
                 <Button
                   size="sm"
                   variant="ghost"
                   onClick={async () => {
                     await navigator.clipboard?.writeText(zplPreview);
-                    toast.success("ZPL copied for printer queue");
+                    toast.success("Label data copied");
                   }}
                 >
-                  Copy ZPL
+                  Copy
                 </Button>
               </div>
               <pre className="max-h-44 overflow-auto whitespace-pre-wrap text-xs text-muted-foreground">{zplPreview}</pre>
             </div>
           ) : null}
           <p className="text-xs text-muted-foreground">
-            Each receipt creates a pallet label record, inventory balance, queued putaway task, and queue-ready Zebra label payload.
+            Each receipt creates a pallet label record, inventory balance, and queued putaway task.
           </p>
         </CardContent>
       </Card>
@@ -1694,7 +1786,7 @@ export function InventorySearchPage() {
         <CardContent className="p-0">
           <TableFrame>
             <Table>
-              <TableHeader>
+              <TableHeader className="sticky top-0 z-10 bg-card">
                 <TableRow>
                   <TableHead>SKU</TableHead>
                   <TableHead>Pallet</TableHead>
@@ -1717,7 +1809,7 @@ export function InventorySearchPage() {
                   </TableRow>
                 ) : (
                   data.map((row) => (
-                    <TableRow key={row.inventory_balance_id}>
+                    <TableRow key={row.inventory_balance_id} className="even:bg-muted/30">
                       <TableCell>{row.sku}</TableCell>
                       <TableCell>{row.pallet_code}</TableCell>
                       <TableCell>{row.location_code ?? "Receiving"}</TableCell>
@@ -2795,10 +2887,11 @@ export function SettingsPage() {
         <p className="text-sm text-muted-foreground">Warehouse environment, client configuration, and system management.</p>
       </div>
       <Tabs defaultValue="environment">
-        <TabsList className="grid h-auto w-full grid-cols-3 sm:w-fit">
+        <TabsList className="grid h-auto w-full grid-cols-4 sm:w-fit">
           <TabsTrigger value="environment">Environment</TabsTrigger>
           <TabsTrigger value="client-vars">Client Variables</TabsTrigger>
           <TabsTrigger value="roles">Role Matrix</TabsTrigger>
+          <TabsTrigger value="about" className="gap-1.5"><Info className="h-3.5 w-3.5" />About</TabsTrigger>
         </TabsList>
 
         <TabsContent value="environment" className="mt-4 grid gap-6 xl:grid-cols-2">
@@ -2853,6 +2946,114 @@ export function SettingsPage() {
                             ? "Transfer sign-off and inter-warehouse handoff visibility"
                             : "Assigned task execution and limited inventory search"}
                   </p>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="about" className="mt-4 grid gap-6 xl:grid-cols-2">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Info className="h-4 w-4" />
+                Warehouse Wizard Enterprise WMS
+              </CardTitle>
+              <CardDescription>Version history and feature register.</CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-4 text-sm">
+              <div className="flex items-center justify-between rounded-lg border border-border bg-muted/40 px-3 py-2">
+                <span className="font-medium">Current version</span>
+                <span className="font-mono text-xs font-semibold text-primary">v{__APP_VERSION__}</span>
+              </div>
+              {[
+                {
+                  version: "1.1.0",
+                  date: "May 2026",
+                  changes: [
+                    "Inline row editing — double-click or click the pencil icon on any resource table row",
+                    "Compact table rows with alternating shading on all data tables",
+                    "Sticky table headers — column headers remain visible while scrolling",
+                    "Full horizontal overflow scrolling on wide tables",
+                    "Locations table: operational columns (Code, Aisle, Bay, Type, Status) promoted to front; Warehouse/Zone moved to overflow",
+                    "Mobile menu: nav item click now dismisses the menu automatically",
+                    "Mobile menu: sign-out button moved to its own row, no longer clashes with the close control",
+                    "Back button on Inventory Detail and Pick Execution pages",
+                    "Settings — new About tab with version history and feature register",
+                  ],
+                },
+                {
+                  version: "1.0.0",
+                  date: "May 2026",
+                  changes: [
+                    "Full warehouse master data — Warehouses, Zones, Locations (bulk wizard), Clients, Products, Packaging Profiles",
+                    "Receiving workflow — manual, purchase order, and transfer receipt types with lot/expiry capture",
+                    "Directed putaway with temperature and capacity validation",
+                    "Inventory search and pallet-level detail with full movement history",
+                    "Pick lists with FIFO/FEFO rotation allocation and shortage capture",
+                    "Inter-warehouse transfers with driver sign-off",
+                    "Cycle counts — location, zone, SKU, and spot scope with variance thresholds",
+                    "Pallet status controls — hold, quarantine, damaged, missing",
+                    "Multi-mode dashboard — Floor, Dock, and Office views with drag-reorder metric cards",
+                    "Reports with inventory, occupancy, and cycle count variance exports",
+                    "Role-based access — Admin, Warehouse Manager, Inventory Clerk, Warehouse Operator, Dispatch Driver",
+                    "Barcode label printing with QR code preview",
+                    "Complete audit trail on all operational events",
+                    "Setup wizard for warehouse, zone, and location bulk creation",
+                    "Help centre with contextual sidebar and searchable articles",
+                    "PWA — installable on mobile and desktop with offline indicator",
+                  ],
+                },
+              ].map((release) => (
+                <div key={release.version} className="rounded-lg border border-border p-3">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="font-mono text-xs font-semibold bg-primary/10 text-primary rounded px-1.5 py-0.5">v{release.version}</span>
+                    <span className="text-xs text-muted-foreground">{release.date}</span>
+                  </div>
+                  <ul className="grid gap-1">
+                    {release.changes.map((c) => (
+                      <li key={c} className="text-xs text-muted-foreground flex gap-2">
+                        <span className="mt-0.5 shrink-0 text-primary">•</span>
+                        {c}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Feature Register</CardTitle>
+              <CardDescription>All active feature areas in this deployment.</CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-2 text-sm">
+              {[
+                ["Warehouses", "Multi-facility master data with cool zone flags"],
+                ["Zones", "Temperature-classed storage and workflow zones per warehouse"],
+                ["Locations", "Rack, staging, dispatch, quarantine, and floor slots with capacity rules"],
+                ["Clients", "3PL customer master with stock-sharing and expiry policies"],
+                ["Products", "SKU master with rotation method, temperature class, and lot tracking"],
+                ["Packaging Profiles", "Unit, carton, pallet pack forms with dimensions and barcodes"],
+                ["Receiving", "Manual, PO, and transfer inbound with lot/expiry capture and putaway queuing"],
+                ["Putaway", "Directed putaway with temperature, capacity, and height validation"],
+                ["Inventory Search", "Live pallet lookup by SKU, barcode, lot, location, or pallet code"],
+                ["Pick Lists", "Rotation-aware pick wave creation with shortage capture"],
+                ["Transfers", "Inter-warehouse moves with pallet identity preservation and driver sign-off"],
+                ["Cycle Counts", "Periodic counts by location, zone, SKU, or spot with variance reporting"],
+                ["Status Controls", "Pallet hold, quarantine, damaged, missing with reason audit"],
+                ["Dashboard", "Floor, Dock, and Office modes with draggable metric cards"],
+                ["Reports", "Inventory, occupancy, and cycle count exports"],
+                ["Users & Roles", "Role-based access with warehouse scope and badge login"],
+                ["System Log", "Full audit trail viewer with severity filtering and resolve workflow"],
+                ["Help Centre", "Contextual help sidebar and searchable article wiki"],
+              ].map(([feature, desc]) => (
+                <div key={feature} className="flex items-start gap-2 rounded border border-border px-3 py-1.5">
+                  <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-green-500" />
+                  <div>
+                    <p className="font-medium leading-snug">{feature}</p>
+                    <p className="text-[11px] text-muted-foreground">{desc}</p>
+                  </div>
                 </div>
               ))}
             </CardContent>
@@ -2926,7 +3127,7 @@ function ClientVariablesPanel() {
         <CardContent className="p-0">
           <TableFrame>
             <Table>
-              <TableHeader>
+              <TableHeader className="sticky top-0 z-10 bg-card">
                 <TableRow>
                   <TableHead>Client</TableHead>
                   <TableHead>Key</TableHead>
@@ -2943,7 +3144,7 @@ function ClientVariablesPanel() {
                   <TableRow><TableCell className="h-24 text-center text-muted-foreground" colSpan={6}>No client variables configured. Add one to get started.</TableCell></TableRow>
                 ) : (
                   variables.map((v: any) => (
-                    <TableRow key={v.id}>
+                    <TableRow key={v.id} className="even:bg-muted/30">
                       <TableCell className="font-medium">{v.clients?.code ?? "—"}</TableCell>
                       <TableCell className="font-mono text-sm">{v.key}</TableCell>
                       <TableCell className="max-w-xs truncate">{v.value}</TableCell>
@@ -3137,7 +3338,7 @@ export function SystemLogPage() {
         <CardContent className="p-0">
           <TableFrame>
             <Table>
-              <TableHeader>
+              <TableHeader className="sticky top-0 z-10 bg-card">
                 <TableRow>
                   <TableHead className="w-32">Type</TableHead>
                   <TableHead className="w-24">Severity</TableHead>
@@ -3156,7 +3357,7 @@ export function SystemLogPage() {
                   <TableRow><TableCell className="h-24 text-center text-muted-foreground" colSpan={8}>No log entries found.</TableCell></TableRow>
                 ) : (
                   (logs as any[]).map((log) => (
-                    <TableRow key={log.id} className={log.resolved ? "opacity-50" : ""}>
+                    <TableRow key={log.id} className={cn("even:bg-muted/30", log.resolved ? "opacity-50" : "")}>
                       <TableCell>
                         <Badge variant="outline">{log.log_type.replace("_", " ")}</Badge>
                       </TableCell>

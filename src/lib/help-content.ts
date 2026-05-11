@@ -152,7 +152,7 @@ const routeHelpDefinitions: Record<string, RouteHelpDefinition> = {
     keyActions: ["Create receipt and pallet records", "Capture lot/expiry details", "Launch directed putaway"],
     commonMistakes: ["Skipping reference numbers", "Receiving cool-chain items without proper profile or zone setup"],
     permissions: "Used by admins, managers, and inventory clerks.",
-    wikiArticleIds: ["receiving-flow", "zebra-printing"],
+    wikiArticleIds: ["receiving-flow", "label-printing"],
   },
   putaway: {
     id: "putaway",
@@ -233,7 +233,7 @@ const routeHelpDefinitions: Record<string, RouteHelpDefinition> = {
     keyActions: ["Review setup guidance", "Launch the warehouse setup wizard", "Run Reset All with confirmation"],
     commonMistakes: ["Running reset without understanding that warehouse/setup data will be rebuilt", "Skipping the wizard after reset"],
     permissions: "Visible to admins and warehouse managers. Reset is admin-only.",
-    wikiArticleIds: ["settings-reset", "warehouse-setup", "netsuite-integration", "zebra-printing"],
+    wikiArticleIds: ["settings-reset", "warehouse-setup", "netsuite-integration", "label-printing"],
   },
   help: {
     id: "help",
