@@ -825,6 +825,34 @@ export function ResourcePage({
     return map;
   }, [clientOptions]);
 
+  const hasWarehouseRef = resource.fields.some((f) => f.name === "warehouse_id");
+  const { data: warehouseOptions = [] } = useQuery({
+    queryKey: ["warehouses", "options-for-table"],
+    queryFn: () => listRecords("warehouses", "id, code, name"),
+    enabled: hasWarehouseRef,
+  });
+  const warehouseMap = useMemo(() => {
+    const map = new Map<string, string>();
+    (warehouseOptions as Array<{ id: string; code: string; name: string }>).forEach((w) =>
+      map.set(w.id, w.name ?? w.code),
+    );
+    return map;
+  }, [warehouseOptions]);
+
+  const hasZoneRef = resource.fields.some((f) => f.name === "zone_id");
+  const { data: zoneOptions = [] } = useQuery({
+    queryKey: ["zones", "options-for-table"],
+    queryFn: () => listRecords("zones", "id, code, name"),
+    enabled: hasZoneRef,
+  });
+  const zoneMap = useMemo(() => {
+    const map = new Map<string, string>();
+    (zoneOptions as Array<{ id: string; code: string; name: string }>).forEach((z) =>
+      map.set(z.id, z.name ?? z.code),
+    );
+    return map;
+  }, [zoneOptions]);
+
   const filteredData = useMemo(() => {
     const q = filterQuery.trim().toLowerCase();
     if (!q) return data;
@@ -946,6 +974,10 @@ export function ResourcePage({
                           displayValue = p ? `${p.sku} - ${p.name}` : String(rawValue);
                         } else if (field.name === "client_id" || field.name === "client_owner_id") {
                           displayValue = clientMap.get(String(rawValue)) ?? String(rawValue);
+                        } else if (field.name === "warehouse_id") {
+                          displayValue = warehouseMap.get(String(rawValue)) ?? String(rawValue);
+                        } else if (field.name === "zone_id") {
+                          displayValue = zoneMap.get(String(rawValue)) ?? String(rawValue);
                         } else if (field.type === "textarea") {
                           const text = String(rawValue);
                           displayValue = text.length > 60 ? <span title={text}>{text.slice(0, 60)}…</span> : text;
