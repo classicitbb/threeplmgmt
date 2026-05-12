@@ -224,11 +224,7 @@ function LoginPage() {
       {/* Left branding panel — hidden on small screens */}
       <div className="hidden w-2/5 flex-col justify-between bg-primary p-10 text-primary-foreground lg:flex">
         <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary-foreground/20">
-            <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M20 7H4a2 2 0 00-2 2v10a2 2 0 002 2h16a2 2 0 002-2V9a2 2 0 00-2-2zm-9 9H4v-2h7v2zm9 0h-7v-2h7v2zm0-4H4v-2h16v2zM4 5h16v2H4z" />
-            </svg>
-          </div>
+          <img src="/logo.png" alt="Warehouse Wizard" className="h-9 w-9 rounded-xl bg-primary-foreground/20 object-contain p-1" />
           <span className="text-lg font-semibold">Warehouse Wizard</span>
         </div>
         <div className="space-y-4">
@@ -258,11 +254,7 @@ function LoginPage() {
         <div className="w-full max-w-sm space-y-6">
           {/* Mobile logo */}
           <div className="flex items-center gap-3 lg:hidden">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-              <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M20 7H4a2 2 0 00-2 2v10a2 2 0 002 2h16a2 2 0 002-2V9a2 2 0 00-2-2zm-9 9H4v-2h7v2zm9 0h-7v-2h7v2zm0-4H4v-2h16v2zM4 5h16v2H4z" />
-              </svg>
-            </div>
+            <img src="/logo.png" alt="Warehouse Wizard" className="h-8 w-8 rounded-lg object-contain" />
             <span className="font-semibold">Warehouse Wizard</span>
           </div>
 
