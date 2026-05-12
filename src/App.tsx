@@ -255,14 +255,14 @@ function LoginPage() {
           {/* Mobile logo */}
           <div className="flex flex-col items-center gap-3 lg:hidden">
             <img src="/logo.png" alt="Warehouse Wizard" className="h-40 w-40 rounded-lg object-cover" />
-            <span className="font-semibold">Warehouse Wizard</span>
+            <span className="font-semibold pb-[50px] text-4xl">Warehouse Wizard</span>
           </div>
 
           <div>
-            <h2 className="text-2xl font-bold tracking-tight">
+            <h2 className="text-2xl font-bold tracking-tight text-center">
               {mode === "login" ? "Welcome back" : "Create account"}
             </h2>
-            <p className="mt-1 text-sm text-muted-foreground">
+            <p className="mt-1 text-sm text-muted-foreground text-center">
               {mode === "login"
                 ? "Sign in with your email, user code, or badge."
                 : "Request access. An admin will approve your account."}
@@ -273,8 +273,8 @@ function LoginPage() {
             <Form {...loginForm}>
               <form className="flex flex-col gap-4" onSubmit={loginForm.handleSubmit((v) => loginMutation.mutate(v))}>
                 <div className="rounded-lg border border-border bg-secondary/30 p-3">
-                  <p className="text-sm font-medium">Email, user code, or badge</p>
-                  <p className="text-xs text-muted-foreground">Use an approved email, short code such as ADMIN01, or a scanned badge code.</p>
+                  <p className="text-sm font-medium text-center">Email, user code, or badge</p>
+                  <p className="text-xs text-muted-foreground text-center">Use an approved email, short code such as ADMIN01, or a scanned badge code.</p>
                 </div>
                 <FormField control={loginForm.control} name="email" render={({ field }) => (
                   <FormItem><FormLabel>Login</FormLabel><FormControl><Input {...field} autoComplete="username" /></FormControl><FormMessage /></FormItem>
