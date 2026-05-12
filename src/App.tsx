@@ -224,7 +224,7 @@ function LoginPage() {
       {/* Left branding panel — hidden on small screens */}
       <div className="hidden w-2/5 flex-col justify-between bg-primary p-10 text-primary-foreground lg:flex">
         <div className="flex items-center gap-3">
-          <img src="/logo.png" alt="Warehouse Wizard" className="h-9 w-9 rounded-xl bg-primary-foreground/20 object-fill p-1" />
+          <img src="/logo.png" alt="Warehouse Wizard" className="h-[11.25rem] w-[11.25rem] rounded-xl bg-primary-foreground/20 object-fill p-1" />
           <span className="text-lg font-semibold">Warehouse Wizard</span>
         </div>
         <div className="space-y-4">
