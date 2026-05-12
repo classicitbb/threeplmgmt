@@ -122,8 +122,11 @@ function RequireAuth({
 
   if (auth.loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
-        <Loader2 className="animate-spin" />
+      <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,hsl(var(--primary)/0.18),transparent_42%)] blur-3xl" />
+        <div className="relative grid h-24 w-24 place-items-center rounded-2xl border border-border bg-card/70 shadow-2xl backdrop-blur-xl">
+          <Loader2 className="h-9 w-9 animate-themed-loader" />
+        </div>
       </div>
     );
   }
