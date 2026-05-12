@@ -131,6 +131,9 @@ export type WarehouseSetupPayload = {
 
 export type DashboardMetrics = {
   totalPallets: number;
+  totalPalletCapacity: number;
+  warehousePallets: number;
+  warehousePalletCapacity: number;
   availablePallets: number;
   coolZoneOccupancy: number;
   openReceipts: number;
@@ -644,6 +647,17 @@ export async function updateProfileDetails(input: ProfileUpdateInput) {
     fields: Object.keys(payload),
     approved: input.approved,
     active: input.active,
+  });
+}
+
+export async function updateProfileDefaultWarehouse(profileId: string, warehouseId: string | null) {
+  const { error } = await (supabase.from as any)("profiles")
+    .update({ default_warehouse_id: warehouseId })
+    .eq("id", profileId);
+  if (error) throw error;
+  await logUserActivity("user_access_change", "profiles", profileId, {
+    fields: ["default_warehouse_id"],
+    default_warehouse_id: warehouseId,
   });
 }
 
@@ -1645,24 +1659,37 @@ async function resolvePalletId(palletInput: string) {
   return data.id as string;
 }
 
-export async function getDashboardMetrics() {
-  const [balances, receipts, putawayTasks, pickLists] = await Promise.all([
+export async function getDashboardMetrics(warehouseId?: string | null) {
+  const [balances, locations, receipts, putawayTasks, pickLists] = await Promise.all([
     db("inventory_balances").select("*"),
+    db("locations").select("warehouse_id, max_pallets"),
     db("receipts").select("*").in("status", ["draft", "queued", "assigned", "in_progress"]),
     db("putaway_tasks").select("*").in("status", ["queued", "assigned", "in_progress", "exception"]),
     db("pick_lists").select("*").in("status", ["draft", "queued", "assigned", "in_progress", "exception"]),
   ]);
 
   if (balances.error) throw balances.error;
+  if (locations.error) throw locations.error;
   if (receipts.error) throw receipts.error;
   if (putawayTasks.error) throw putawayTasks.error;
   if (pickLists.error) throw pickLists.error;
 
   const balanceRows = balances.data ?? [];
   const coolRows = balanceRows.filter((row: any) => row.zone_id);
+  const locationRows = locations.data ?? [];
+  const totalPalletCapacity = locationRows.reduce((sum: number, row: any) => sum + Number(row.max_pallets ?? 0), 0);
+  const warehouseRows = warehouseId ? balanceRows.filter((row: any) => row.warehouse_id === warehouseId) : [];
+  const warehousePalletCapacity = warehouseId
+    ? locationRows
+        .filter((row: any) => row.warehouse_id === warehouseId)
+        .reduce((sum: number, row: any) => sum + Number(row.max_pallets ?? 0), 0)
+    : 0;
 
   return {
     totalPallets: balanceRows.length,
+    totalPalletCapacity,
+    warehousePallets: warehouseRows.length,
+    warehousePalletCapacity,
     availablePallets: balanceRows.filter((row: any) => row.status === "available").length,
     coolZoneOccupancy: coolRows.length,
     openReceipts: receipts.data?.length ?? 0,

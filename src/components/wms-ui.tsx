@@ -72,6 +72,7 @@ import {
   setProfileActive,
   snapshotRecordCounts,
   updateProfileDetails,
+  updateProfileDefaultWarehouse,
   statusChangeSchema,
   setResourceVisibility,
   setUserRoleVisibility,
@@ -118,6 +119,7 @@ const appTitle = "Warehouse Wizard Enterprise WMS";
 
 type DashboardMetricKey =
   | "totalPallets"
+  | "warehousePallets"
   | "availablePallets"
   | "coolZoneOccupancy"
   | "openReceipts"
@@ -215,6 +217,45 @@ function SortableMetricCard({
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+function PalletDialCard({
+  label,
+  value,
+  capacity,
+  caption,
+  isLoading,
+}: {
+  label: string;
+  value: number;
+  capacity: number;
+  caption: string;
+  isLoading: boolean;
+}) {
+  const percentage = capacity > 0 ? Math.min(100, Math.round((value / capacity) * 100)) : 0;
+
+  return (
+    <Card className="min-h-0">
+      <CardContent className="flex items-center gap-4 p-4">
+        <div
+          className="grid h-24 w-24 shrink-0 place-items-center rounded-full"
+          style={{
+            background: `conic-gradient(hsl(var(--primary)) ${percentage}%, hsl(var(--accent) / 0.35) ${percentage}% 100%)`,
+          }}
+          aria-label={`${label} ${percentage}%`}
+        >
+          <div className="grid h-16 w-16 place-items-center rounded-full bg-card text-sm font-semibold">
+            {isLoading ? <Loader2 className="h-5 w-5 animate-themed-loader" /> : `${percentage}%`}
+          </div>
+        </div>
+        <div className="min-w-0">
+          <p className="text-xs font-medium uppercase text-muted-foreground">{label}</p>
+          <p className="text-3xl font-bold tracking-tight">{isLoading ? "..." : formatNumber(value)}</p>
+          <p className="truncate text-xs text-muted-foreground">{caption}</p>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -520,10 +561,40 @@ export type LocationWizardValues = z.infer<typeof locationWizardSchema>;
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { pathname } = useLocation();
-  const { profile, roles, signOut, user } = useAuth();
+  const { profile, roles, signOut, user, refreshProfile } = useAuth();
+  const queryClient = useQueryClient();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const items = NAVIGATION.filter((item) => item.roles.some((role) => roles.includes(role)));
+  const canSwitchWarehouses = roles.some((role) => ["admin", "warehouse_manager"].includes(role));
+  const { data: headerOptions } = useQuery({
+    queryKey: ["header-warehouse-options", canSwitchWarehouses],
+    queryFn: () => fetchOptions(false),
+    enabled: canSwitchWarehouses,
+  });
+  const headerWarehouses = useMemo(() => {
+    const warehouses = headerOptions?.warehouses ?? [];
+    if (roles.includes("admin")) return warehouses;
+
+    const assignedWarehouseIds = new Set(
+      (headerOptions?.userRoles ?? [])
+        .filter((userRole: any) => userRole.user_id === profile?.id && userRole.warehouse_id)
+        .map((userRole: any) => userRole.warehouse_id),
+    );
+
+    return assignedWarehouseIds.size > 0
+      ? warehouses.filter((warehouse: any) => assignedWarehouseIds.has(warehouse.id))
+      : warehouses;
+  }, [headerOptions, profile?.id, roles]);
+  const warehouseSwitchMutation = useMutation({
+    mutationFn: (warehouseId: string) => updateProfileDefaultWarehouse(profile?.id ?? "", warehouseId),
+    onSuccess: async () => {
+      await refreshProfile();
+      await queryClient.invalidateQueries({ queryKey: ["dashboard-metrics"] });
+      toast.success("Warehouse switched");
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Warehouse switch failed"),
+  });
   const displayName = profile?.full_name?.trim() || user?.email || "Warehouse User";
   const initials = displayName
     .split(/\s+/)
@@ -672,6 +743,24 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </p>
             </div>
             <div className="flex items-center gap-2">
+              {canSwitchWarehouses ? (
+                <Select
+                  value={profile?.default_warehouse_id ?? ""}
+                  onValueChange={(value) => warehouseSwitchMutation.mutate(value)}
+                  disabled={warehouseSwitchMutation.isPending}
+                >
+                  <SelectTrigger className="h-9 w-[13rem]">
+                    <SelectValue placeholder="Select warehouse" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {headerWarehouses.map((warehouse: any) => (
+                      <SelectItem key={warehouse.id} value={warehouse.id}>
+                        {warehouse.code ? `${warehouse.code} - ${warehouse.name}` : warehouse.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : null}
               <HelpSidebar pathname={pathname} />
               <div className="flex items-center gap-2 rounded-lg border border-border bg-card/80 px-2.5 py-1.5 text-sm">
                 <Avatar className="h-6 w-6">
@@ -1240,6 +1329,7 @@ function shouldRestrictToDefaultWarehouse(roles: string[]) {
 }
 
 export function DashboardPage() {
+  const { profile } = useAuth();
   const [mode, setMode] = useState<DashboardMode>("floor");
   const [cards, setCards] = useState<DashboardCardConfig[]>(loadLayout);
   const dashboardRef = useRef<HTMLDivElement>(null);
@@ -1265,8 +1355,8 @@ export function DashboardPage() {
   }, []);
 
   const { data: metrics, isLoading } = useQuery({
-    queryKey: ["dashboard-metrics"],
-    queryFn: getDashboardMetrics,
+    queryKey: ["dashboard-metrics", profile?.default_warehouse_id],
+    queryFn: () => getDashboardMetrics(profile?.default_warehouse_id),
   });
   const { data: reports } = useQuery({ queryKey: ["reports", "enterprise-dashboard"], queryFn: getReportData });
   const snapshot = useMemo(() => buildEnterpriseDashboard(metrics, reports), [metrics, reports]);
@@ -1305,11 +1395,11 @@ export function DashboardPage() {
     <div
       ref={dashboardRef}
       className={cn(
-        "flex flex-col gap-6",
+        "flex min-h-0 flex-col gap-6 lg:h-full lg:gap-3 lg:overflow-hidden",
         (isFullscreen || fitToScreen) && "h-screen overflow-auto bg-background p-4",
       )}
     >
-      <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+      <div className="flex shrink-0 flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
         <div>
           <h2 className="text-2xl font-bold tracking-tight">Command Center</h2>
           <p className="text-sm text-muted-foreground">Live warehouse metrics. Drag cards to reorder, hover to resize.</p>
@@ -1331,9 +1421,26 @@ export function DashboardPage() {
         </div>
       </div>
 
+      <div className="grid shrink-0 gap-3 md:grid-cols-2">
+        <PalletDialCard
+          label="Total Pallets"
+          value={metrics?.totalPallets ?? 0}
+          capacity={metrics?.totalPalletCapacity ?? 0}
+          caption={`${formatNumber(metrics?.totalPalletCapacity ?? 0)} location capacity`}
+          isLoading={isLoading}
+        />
+        <PalletDialCard
+          label="This Warehouse"
+          value={metrics?.warehousePallets ?? 0}
+          capacity={metrics?.warehousePalletCapacity ?? 0}
+          caption={profile?.default_warehouse_id ? `${formatNumber(metrics?.warehousePalletCapacity ?? 0)} location capacity` : "No warehouse selected"}
+          isLoading={isLoading}
+        />
+      </div>
+
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
         <SortableContext items={cards.map((c) => c.id)} strategy={rectSortingStrategy}>
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid shrink-0 gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {cards.map((card) => (
               <SortableMetricCard
                 key={card.id}
@@ -1347,28 +1454,30 @@ export function DashboardPage() {
         </SortableContext>
       </DndContext>
 
-      {mode === "floor" ? <WarehouseFloorMode snapshot={snapshot} /> : null}
-      {mode === "dock" ? <DockHandoffBoard loads={snapshot.dockLoads} recommendations={snapshot.recommendations} /> : null}
-      {mode === "office" ? <OfficeMonitoringMode snapshot={snapshot} /> : null}
+      <div className="min-h-0 flex-1 overflow-auto lg:overflow-hidden">
+        {mode === "floor" ? <WarehouseFloorMode snapshot={snapshot} /> : null}
+        {mode === "dock" ? <DockHandoffBoard loads={snapshot.dockLoads} recommendations={snapshot.recommendations} /> : null}
+        {mode === "office" ? <OfficeMonitoringMode snapshot={snapshot} /> : null}
+      </div>
     </div>
   );
 }
 
 function WarehouseFloorMode({ snapshot }: { snapshot: EnterpriseDashboardSnapshot }) {
   return (
-    <div className="grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(20rem,0.65fr)]">
-      <div className="grid gap-4 md:grid-cols-2">
+    <div className="grid h-full min-h-0 gap-3 xl:grid-cols-[minmax(0,1.35fr)_minmax(20rem,0.65fr)]">
+      <div className="grid min-h-0 gap-3 md:grid-cols-2">
         {snapshot.floorQueues.map((queue) => (
           <Card key={queue.label} className={cn("border-l-4", toneBorder(queue.tone))}>
-            <CardHeader>
+            <CardHeader className="p-4">
               <CardTitle className="flex items-center justify-between gap-4">
                 <span>{queue.label}</span>
-                <span className="text-4xl">{formatNumber(queue.count)}</span>
+                <span className="text-3xl">{formatNumber(queue.count)}</span>
               </CardTitle>
               <CardDescription>{queue.action}</CardDescription>
             </CardHeader>
-            <CardContent>
-              <Button className="h-14 w-full text-base" asChild>
+            <CardContent className="p-4 pt-0">
+              <Button className="h-10 w-full" asChild>
                 <Link to={queue.route}>Open workflow</Link>
               </Button>
             </CardContent>

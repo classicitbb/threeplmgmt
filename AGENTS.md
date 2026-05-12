@@ -84,5 +84,6 @@ If the user asks for a UI change:
 ## 5. Change log (UI baseline shifts only)
 
 - `2026-05-09` — UI freeze established at commit `015b6f43`.
+- `2026-05-11` — Command Center/header explicitly updated with themed loading, pallet dials, desktop fit behavior, and manager warehouse switcher.
 
 Append new entries here only when the user explicitly approves a UI change.
