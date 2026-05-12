@@ -615,7 +615,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         "mb-4 flex items-center gap-3 px-2",
         sidebarCollapsed && "justify-center px-0"
       )}>
-        <img src="/logo.png" alt="Warehouse Wizard" className="h-8 w-8 shrink-0 rounded-lg object-contain" />
+        <img src="/logo.png" alt="Warehouse Wizard" className="h-8 w-8 shrink-0 rounded-lg object-fill" />
         {!sidebarCollapsed && (
           <span className="truncate text-sm font-semibold text-foreground">Warehouse Wizard</span>
         )}
