@@ -813,6 +813,18 @@ export function ResourcePage({
     return map;
   }, [productOptions]);
 
+  const hasClientRef = resource.fields.some((f) => f.name === "client_id" || f.name === "client_owner_id");
+  const { data: clientOptions = [] } = useQuery({
+    queryKey: ["clients", "options-for-table"],
+    queryFn: () => listRecords("clients", "id, name"),
+    enabled: hasClientRef,
+  });
+  const clientMap = useMemo(() => {
+    const map = new Map<string, string>();
+    (clientOptions as Array<{ id: string; name: string }>).forEach((c) => map.set(c.id, c.name));
+    return map;
+  }, [clientOptions]);
+
   const filteredData = useMemo(() => {
     const q = filterQuery.trim().toLowerCase();
     if (!q) return data;
@@ -932,6 +944,8 @@ export function ResourcePage({
                         } else if (field.name === "product_id") {
                           const p = productMap.get(String(rawValue));
                           displayValue = p ? `${p.sku} - ${p.name}` : String(rawValue);
+                        } else if (field.name === "client_id" || field.name === "client_owner_id") {
+                          displayValue = clientMap.get(String(rawValue)) ?? String(rawValue);
                         } else if (field.type === "textarea") {
                           const text = String(rawValue);
                           displayValue = text.length > 60 ? <span title={text}>{text.slice(0, 60)}…</span> : text;
