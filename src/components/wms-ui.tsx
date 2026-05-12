@@ -2464,7 +2464,7 @@ export function StatusPage() {
 
 export function ReportsPage() {
   const { data, isLoading } = useQuery({ queryKey: ["reports"], queryFn: getReportData });
-  const { data: metrics } = useQuery({ queryKey: ["dashboard-metrics", "reports"], queryFn: getDashboardMetrics });
+  const { data: metrics } = useQuery({ queryKey: ["dashboard-metrics", "reports"], queryFn: () => getDashboardMetrics() });
   const snapshot = useMemo(() => buildEnterpriseDashboard(metrics, data), [metrics, data]);
   const exportRows = useMemo(() => buildCsvReportRows(data), [data]);
 
