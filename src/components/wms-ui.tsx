@@ -799,6 +799,20 @@ export function ResourcePage({
   const queryClient = useQueryClient();
   const extraColumnCount = (resource.supportsHide ? 1 : 0) + (["warehouses", "zones"].includes(resource.table) ? 1 : 0) + 1;
 
+  const hasProductRef = resource.fields.some((f) => f.name === "product_id");
+  const { data: productOptions = [] } = useQuery({
+    queryKey: ["products", "options-for-table"],
+    queryFn: () => listRecords("products", "id, sku, name"),
+    enabled: hasProductRef,
+  });
+  const productMap = useMemo(() => {
+    const map = new Map<string, { sku: string; name: string }>();
+    (productOptions as Array<{ id: string; sku: string; name: string }>).forEach((p) => {
+      map.set(p.id, { sku: p.sku, name: p.name });
+    });
+    return map;
+  }, [productOptions]);
+
   const filteredData = useMemo(() => {
     const q = filterQuery.trim().toLowerCase();
     if (!q) return data;
@@ -915,6 +929,9 @@ export function ResourcePage({
                           displayValue = <Badge variant={variant} className={sv === "maintenance" ? "border-amber-400 text-amber-600" : undefined}>{label}</Badge>;
                         } else if (field.type === "select" && field.options) {
                           displayValue = field.options.find((o) => o.value === String(rawValue))?.label ?? String(rawValue);
+                        } else if (field.name === "product_id") {
+                          const p = productMap.get(String(rawValue));
+                          displayValue = p ? `${p.sku} - ${p.name}` : String(rawValue);
                         } else if (field.type === "textarea") {
                           const text = String(rawValue);
                           displayValue = text.length > 60 ? <span title={text}>{text.slice(0, 60)}…</span> : text;
@@ -2447,7 +2464,7 @@ export function StatusPage() {
 
 export function ReportsPage() {
   const { data, isLoading } = useQuery({ queryKey: ["reports"], queryFn: getReportData });
-  const { data: metrics } = useQuery({ queryKey: ["dashboard-metrics", "reports"], queryFn: getDashboardMetrics });
+  const { data: metrics } = useQuery({ queryKey: ["dashboard-metrics", "reports"], queryFn: () => getDashboardMetrics() });
   const snapshot = useMemo(() => buildEnterpriseDashboard(metrics, data), [metrics, data]);
   const exportRows = useMemo(() => buildCsvReportRows(data), [data]);
 
