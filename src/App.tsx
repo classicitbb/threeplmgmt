@@ -253,8 +253,8 @@ function LoginPage() {
       <div className="flex flex-1 items-center justify-center p-6">
         <div className="w-full max-w-sm space-y-6">
           {/* Mobile logo */}
-          <div className="flex items-center gap-3 lg:hidden">
-            <img src="/logo.png" alt="Warehouse Wizard" className="h-8 w-8 rounded-lg object-fill" />
+          <div className="flex flex-col items-center gap-3 lg:hidden">
+            <img src="/logo.png" alt="Warehouse Wizard" className="h-40 w-40 rounded-lg object-cover" />
             <span className="font-semibold">Warehouse Wizard</span>
           </div>
 
