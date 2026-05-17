@@ -76,6 +76,9 @@ describe("enterprise dashboard and brain", () => {
       {
         totalPallets: 4,
         availablePallets: 2,
+        totalPalletCapacity: 10,
+        warehousePallets: 4,
+        warehousePalletCapacity: 10,
         coolZoneOccupancy: 1,
         openReceipts: 1,
         openPutawayTasks: 2,
@@ -104,6 +107,9 @@ describe("enterprise dashboard and brain", () => {
       {
         totalPallets: 0,
         availablePallets: 0,
+        totalPalletCapacity: 0,
+        warehousePallets: 0,
+        warehousePalletCapacity: 0,
         coolZoneOccupancy: 0,
         openReceipts: 0,
         openPutawayTasks: 0,
