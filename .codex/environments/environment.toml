@@ -5,6 +5,8 @@ name = "warehouse-wizard"
 [setup]
 script = ""
 
+
+  
 [[actions]]
 name = "Run"
 icon = "run"
