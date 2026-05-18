@@ -181,7 +181,13 @@ export function AuthProvider({ children }: PropsWithChildren) {
       }
 
       const demoEmail = window.localStorage.getItem(demoSessionKey);
-      const demoAuth = !data.session && demoEmail && demoUsers[demoEmail] ? buildDemoAuth(demoEmail) : null;
+      const demoAuth =
+        demoEnabled && !data.session && demoEmail && demoUsers[demoEmail]
+          ? buildDemoAuth(demoEmail)
+          : null;
+      if (!demoEnabled && demoEmail) {
+        window.localStorage.removeItem(demoSessionKey);
+      }
       const nextSession = data.session ?? demoAuth?.session ?? null;
 
       setSession(nextSession);
@@ -279,7 +285,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
         }
 
         // Fallback: apply local demo session (no real JWT — auth.uid() will be NULL)
-        if (password === "Warehouse123!" && demoMatch) {
+        if (demoEnabled && password === "Warehouse123!" && demoMatch) {
           const [demoEmail] = demoMatch;
           const demoAuth = buildDemoAuth(demoEmail);
           window.localStorage.setItem(demoSessionKey, demoEmail);
