@@ -33,6 +33,14 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 const demoSessionKey = "warehouse-wizard-demo-session";
+// Demo fallback is only enabled in dev/preview builds. In production, hardcoded
+// demo credentials must never grant a fake session, even if Supabase is unreachable.
+const demoEnabled =
+  import.meta.env.DEV ||
+  import.meta.env.VITE_ENABLE_DEMO === "true" ||
+  (typeof window !== "undefined" &&
+    /^(localhost|127\.0\.0\.1|.*\.lovable\.app)$/.test(window.location.hostname) &&
+    !/^threeplmgmt\.lovable\.app$/.test(window.location.hostname));
 
 const demoUsers: Record<string, { id: string; fullName: string; roles: RoleCode[]; userCode: string; badgeCode: string }> = {
   "admin@warehousewizard.local": {
@@ -173,7 +181,13 @@ export function AuthProvider({ children }: PropsWithChildren) {
       }
 
       const demoEmail = window.localStorage.getItem(demoSessionKey);
-      const demoAuth = !data.session && demoEmail && demoUsers[demoEmail] ? buildDemoAuth(demoEmail) : null;
+      const demoAuth =
+        demoEnabled && !data.session && demoEmail && demoUsers[demoEmail]
+          ? buildDemoAuth(demoEmail)
+          : null;
+      if (!demoEnabled && demoEmail) {
+        window.localStorage.removeItem(demoSessionKey);
+      }
       const nextSession = data.session ?? demoAuth?.session ?? null;
 
       setSession(nextSession);
@@ -271,7 +285,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
         }
 
         // Fallback: apply local demo session (no real JWT — auth.uid() will be NULL)
-        if (password === "Warehouse123!" && demoMatch) {
+        if (demoEnabled && password === "Warehouse123!" && demoMatch) {
           const [demoEmail] = demoMatch;
           const demoAuth = buildDemoAuth(demoEmail);
           window.localStorage.setItem(demoSessionKey, demoEmail);
