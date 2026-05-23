@@ -92,6 +92,7 @@ import {
   writeSystemLog,
 } from "@/lib/wms-core";
 import { ProductSearch } from "@/components/product-search";
+import { PalletLabelPage } from "@/components/pallet-label-page";
 
 import { cn } from "@/lib/utils";
 import {
