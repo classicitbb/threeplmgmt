@@ -1737,7 +1737,15 @@ export function ReceivingPage() {
   const [showZplAdvanced, setShowZplAdvanced] = useState(false);
   const [showDrafts, setShowDrafts] = useState(false);
   const [resumingDraftId, setResumingDraftId] = useState<string | null>(null);
-  const [lastResult, setLastResult] = useState<{ barcode: string; taskNumber: string; qty: number } | null>(null);
+  const [lastResult, setLastResult] = useState<{
+    barcode: string;
+    taskNumber: string;
+    qty: number;
+    productSku?: string;
+    productName?: string;
+    lotNumber?: string;
+    expiryDate?: string;
+  } | null>(null);
   const [manualBarcode, setManualBarcode] = useState("");
 
   const currentWarehouseId = form.watch("warehouse_id") || defaultWarehouseId;
@@ -1770,7 +1778,17 @@ export function ReceivingPage() {
     onSuccess: async (result) => {
       const { palletBarcode, putawayTaskNumber } = result as { palletBarcode: string; putawayTaskNumber: string };
       toast.success(`Pallet ${palletBarcode} ready — putaway task ${putawayTaskNumber} queued.`);
-      setLastResult({ barcode: palletBarcode, taskNumber: putawayTaskNumber, qty: Number(form.getValues("quantity")) });
+      const vals = form.getValues();
+      const prod = productOptions.find((p) => p.id === vals.product_id);
+      setLastResult({
+        barcode: palletBarcode,
+        taskNumber: putawayTaskNumber,
+        qty: Number(vals.quantity),
+        productSku: prod?.sku,
+        productName: prod?.name,
+        lotNumber: vals.lot_number || undefined,
+        expiryDate: vals.expiry_date || undefined,
+      });
       setResumingDraftId(null);
       form.reset({ receipt_type: "manual", reference_number: "", quantity: 1, warehouse_id: currentWarehouseId });
       await Promise.all([
