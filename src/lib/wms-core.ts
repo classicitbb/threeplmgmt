@@ -377,7 +377,7 @@ export const signUpSchema = z.object({
 });
 
 export const receivingSchema = z.object({
-  receipt_type: z.enum(["po", "transfer", "manual"]),
+  receipt_type: z.enum(["po", "transfer", "other"]),
   reference_number: z.string().optional().or(z.literal("")),
   warehouse_id: z.string().uuid(),
   client_id: z.string().uuid().optional().or(z.literal("")),
@@ -1025,7 +1025,6 @@ export async function createReceiptFlow(input: z.infer<typeof receivingSchema>) 
   };
   if (reusedPalletId) {
     palletUpsertPayload.id = reusedPalletId;
-    palletUpsertPayload.reused_from_pallet_id = reusedPalletId;
   }
 
   const pallet = await upsertRecord("pallets", palletUpsertPayload);
