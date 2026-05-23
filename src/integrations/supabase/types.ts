@@ -2959,6 +2959,15 @@ export type Database = {
         Args: { message_id: number; queue_name: string }
         Returns: boolean
       }
+      directed_putaway_candidates: {
+        Args: { in_pallet_id: string }
+        Returns: {
+          location_code: string
+          location_id: string
+          reason: string
+          score: number
+        }[]
+      }
       enqueue_email: {
         Args: { payload: Json; queue_name: string }
         Returns: number
@@ -2969,6 +2978,19 @@ export type Database = {
       }
       has_role: { Args: { _role: string; _user_id: string }; Returns: boolean }
       is_approved: { Args: never; Returns: boolean }
+      log_audit_event: {
+        Args: {
+          in_entity_id: string
+          in_entity_table: string
+          in_event_type: string
+          in_from_location_id?: string
+          in_metadata?: Json
+          in_pallet_id?: string
+          in_to_location_id?: string
+          in_warehouse_id?: string
+        }
+        Returns: string
+      }
       move_to_dlq: {
         Args: {
           dlq_name: string
