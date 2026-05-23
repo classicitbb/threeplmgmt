@@ -380,7 +380,7 @@ export const receivingSchema = z.object({
   receipt_type: z.enum(["po", "transfer", "manual"]),
   reference_number: z.string().optional().or(z.literal("")),
   warehouse_id: z.string().uuid(),
-  client_id: z.string().uuid(),
+  client_id: z.string().uuid().optional().or(z.literal("")),
   product_id: z.string().uuid(),
   packaging_profile_id: z.string().uuid().optional().or(z.literal("")),
   quantity: z.coerce.number().positive(),
@@ -399,7 +399,7 @@ export const receivingSchema = z.object({
 
 export const pickListSchema = z.object({
   warehouse_id: z.string().uuid(),
-  client_id: z.string().uuid(),
+  client_id: z.string().uuid().optional(),
   order_number: z.string().min(2),
   requested_ship_date: z.string().optional(),
   notes: z.string().optional(),
@@ -902,13 +902,18 @@ function buildPalletCode(prefix: string) {
 }
 
 async function resolveInventoryLot(payload: z.infer<typeof receivingSchema>) {
-  const lotMatch = await db("inventory_lots")
+  const clientId = payload.client_id || null;
+  let selectQuery = db("inventory_lots")
     .select("*")
     .eq("product_id", payload.product_id)
-    .eq("client_id", payload.client_id)
     .eq("lot_number", payload.lot_number ?? null)
-    .eq("batch_number", payload.batch_number ?? null)
-    .maybeSingle();
+    .eq("batch_number", payload.batch_number ?? null);
+  if (clientId) {
+    selectQuery = selectQuery.eq("client_id", clientId);
+  } else {
+    selectQuery = selectQuery.is("client_id", null);
+  }
+  const lotMatch = await selectQuery.maybeSingle();
 
   if (lotMatch.data) {
     return lotMatch.data;
@@ -917,7 +922,7 @@ async function resolveInventoryLot(payload: z.infer<typeof receivingSchema>) {
   const { data, error } = await db("inventory_lots")
     .insert({
       product_id: payload.product_id,
-      client_id: payload.client_id,
+      client_id: clientId,
       lot_number: payload.lot_number ?? null,
       batch_number: payload.batch_number ?? null,
       manufacture_date: payload.manufacture_date || null,
@@ -1943,7 +1948,7 @@ export type DraftReceipt = {
   product_id: string | null;
   quantity: number | null;
   created_at: string;
-  metadata: Record<string, unknown> | null;
+  notes: string | null;
 };
 
 export async function saveDraftReceipt(values: z.infer<typeof receivingSchema>): Promise<string> {
@@ -1955,7 +1960,8 @@ export async function saveDraftReceipt(values: z.infer<typeof receivingSchema>):
     warehouse_id: values.warehouse_id,
     client_id: values.client_id || null,
     status: "draft",
-    metadata: {
+    notes: JSON.stringify({
+      _draft: true,
       product_id: values.product_id,
       quantity: values.quantity,
       lot_number: values.lot_number,
@@ -1969,7 +1975,7 @@ export async function saveDraftReceipt(values: z.infer<typeof receivingSchema>):
       override_height: values.override_height,
       override_weight: values.override_weight,
       reuse_pallet_barcode: values.reuse_pallet_barcode,
-    },
+    }),
   }).select("id").single();
   if (error) throw error;
   return data.id;
@@ -1977,17 +1983,20 @@ export async function saveDraftReceipt(values: z.infer<typeof receivingSchema>):
 
 export async function listDraftReceipts(warehouseId: string): Promise<DraftReceipt[]> {
   const { data, error } = await db("receipts")
-    .select("id, receipt_number, reference_number, warehouse_id, client_id, status, created_at, metadata")
+    .select("id, receipt_number, reference_number, warehouse_id, client_id, status, created_at, notes")
     .eq("status", "draft")
     .eq("warehouse_id", warehouseId)
     .order("created_at", { ascending: false })
     .limit(20);
   if (error) throw error;
-  return (data ?? []).map((row: any) => ({
-    ...row,
-    product_id: row.metadata?.product_id ?? null,
-    quantity: row.metadata?.quantity ?? null,
-  }));
+  return (data ?? []).map((row: any) => {
+    const meta = row.notes ? JSON.parse(row.notes) : {};
+    return {
+      ...row,
+      product_id: meta.product_id ?? null,
+      quantity: meta.quantity ?? null,
+    };
+  });
 }
 
 export async function completeReceiptFromDraft(
@@ -1995,7 +2004,7 @@ export async function completeReceiptFromDraft(
   values: z.infer<typeof receivingSchema>,
 ): Promise<{ palletBarcode: string; putawayTaskNumber: string }> {
   const result = await createReceiptFlow(values);
-  await db("receipts").update({ status: "superseded" }).eq("id", draftId);
+  await db("receipts").update({ status: "cancelled" }).eq("id", draftId);
   return { palletBarcode: result.pallet.pallet_barcode, putawayTaskNumber: result.putawayTask.task_number };
 }
 
@@ -2048,16 +2057,22 @@ export async function getPalletByBarcode(barcode: string): Promise<{
   product_name?: string;
   location_code?: string;
 } | null> {
-  const { data, error } = await db("pallets")
-    .select("id, pallet_code, pallet_barcode, product_id, current_warehouse_id, current_location_id, status, quantity, products:product_id(sku, name), locations:current_location_id(code)")
+  const { data: pallet, error } = await db("pallets")
+    .select("id, pallet_code, pallet_barcode, product_id, current_warehouse_id, current_location_id, status, quantity")
     .eq("pallet_barcode", barcode)
     .maybeSingle();
-  if (error || !data) return null;
+  if (error || !pallet) return null;
+  const [{ data: product }, { data: location }] = await Promise.all([
+    db("products").select("sku, name").eq("id", pallet.product_id).maybeSingle(),
+    pallet.current_location_id
+      ? db("locations").select("code").eq("id", pallet.current_location_id).maybeSingle()
+      : Promise.resolve({ data: null, error: null }),
+  ]);
   return {
-    ...data,
-    product_sku: (data.products as any)?.sku,
-    product_name: (data.products as any)?.name,
-    location_code: (data.locations as any)?.code,
+    ...pallet,
+    product_sku: (product as any)?.sku,
+    product_name: (product as any)?.name,
+    location_code: (location as any)?.code,
   };
 }
 

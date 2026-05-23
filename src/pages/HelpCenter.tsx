@@ -1,16 +1,40 @@
 import { useMemo, useState } from "react";
 
 import { helpArticles, searchHelpArticles, setupWizardSteps } from "@/lib/help-content";
+import { useAuth } from "@/hooks/use-auth";
+import { useFeatureFlags, STARTER_MODULES, type ModuleKey } from "@/hooks/use-feature-flags";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 
+const KNOWN_MODULE_KEYS = Object.keys(STARTER_MODULES) as ModuleKey[];
+
+// Map help article module strings to ModuleKey (some differ in naming)
+function articleModuleKey(mod: string): ModuleKey | null {
+  if (KNOWN_MODULE_KEYS.includes(mod as ModuleKey)) return mod as ModuleKey;
+  if (mod === "packaging-profiles") return "packaging";
+  return null;
+}
+
 export default function HelpCenterPage() {
   const [query, setQuery] = useState("");
+  const { isEnabled } = useFeatureFlags();
+  const { roles } = useAuth();
 
-  const results = useMemo(() => searchHelpArticles(query), [query]);
+  const results = useMemo(() => {
+    const all = searchHelpArticles(query);
+    return all.filter((article) => {
+      const modKey = articleModuleKey(article.module);
+      if (modKey && !isEnabled(modKey)) return false;
+      // Admin-only articles
+      if (article.audience === "Admins" || article.audience === "Admins and IT") {
+        return roles.includes("admin");
+      }
+      return true;
+    });
+  }, [query, isEnabled, roles]);
 
   return (
     <div className="grid gap-6">
@@ -27,7 +51,7 @@ export default function HelpCenterPage() {
           onChange={(event) => setQuery(event.target.value)}
         />
         <p className="text-xs text-muted-foreground">
-          {results.length} result{results.length === 1 ? "" : "s"} shown out of {helpArticles.length} articles.
+          {results.length} result{results.length === 1 ? "" : "s"} for your role and active modules.
         </p>
       </div>
 
