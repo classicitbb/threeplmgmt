@@ -27,6 +27,7 @@ import { toast } from "sonner";
 import { z } from "zod";
 
 import { useAuth } from "@/hooks/use-auth";
+import { useFeatureFlags, MODULE_LABELS, STARTER_MODULES, type ModuleKey } from "@/hooks/use-feature-flags";
 import {
   NAVIGATION,
   ROLE_LABELS,
@@ -35,6 +36,7 @@ import {
   type FieldDefinition,
   type ResourceDefinition,
   type SystemLogEntry,
+  type DraftReceipt,
   adminInviteUser,
   changePalletStatus,
   confirmPutaway,
@@ -53,10 +55,17 @@ import {
   formatNumber,
   getDashboardMetrics,
   getWarehouseForLocationBarcode,
+  getBinOccupancy,
   getPutawayTasks,
+  getPalletByBarcode,
   getReportData,
   importCsvToResource,
   listClientVariables,
+  listDraftReceipts,
+  saveDraftReceipt,
+  completeReceiptFromDraft,
+  deleteDraftReceipt,
+  moveToPickingArea,
   listSystemLogs,
   listUserActivities,
   listCycleCounts,
@@ -82,6 +91,7 @@ import {
   upsertRecord,
   writeSystemLog,
 } from "@/lib/wms-core";
+import { ProductSearch } from "@/components/product-search";
 
 import { cn } from "@/lib/utils";
 import {
@@ -111,6 +121,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/co
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
+import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
@@ -563,9 +574,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const { pathname } = useLocation();
   const { profile, roles, signOut, user, refreshProfile } = useAuth();
   const queryClient = useQueryClient();
+  const { isEnabled } = useFeatureFlags();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const items = NAVIGATION.filter((item) => item.roles.some((role) => roles.includes(role)));
+  const items = NAVIGATION.filter(
+    (item) =>
+      item.roles.some((role) => roles.includes(role)) &&
+      (!item.moduleKey || isEnabled(item.moduleKey as ModuleKey)),
+  );
   const canSwitchWarehouses = roles.some((role) => ["admin", "warehouse_manager"].includes(role));
   const { data: headerOptions } = useQuery({
     queryKey: ["header-warehouse-options", canSwitchWarehouses],
@@ -1675,6 +1691,7 @@ function toneBorder(tone: "success" | "warning" | "critical" | "info") {
 }
 
 export function ReceivingPage() {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { roles, profile } = useAuth();
   const restrictedToDefaultWarehouse = shouldRestrictToDefaultWarehouse(roles);
@@ -1682,163 +1699,425 @@ export function ReceivingPage() {
     queryKey: ["options", "receiving", restrictedToDefaultWarehouse, profile?.default_warehouse_id],
     queryFn: () => fetchOptions(false, { restrictToWarehouse: restrictedToDefaultWarehouse, warehouseId: profile?.default_warehouse_id }),
   });
+
+  const defaultWarehouseId = profile?.default_warehouse_id ?? "";
+  const warehouses = options?.warehouses ?? [];
+  const singleWarehouse = warehouses.length === 1;
+
   const form = useForm<z.infer<typeof receivingSchema>>({
     resolver: zodResolver(receivingSchema),
     defaultValues: {
       receipt_type: "manual",
       reference_number: "",
       quantity: 1,
+      warehouse_id: defaultWarehouseId || undefined,
     },
   });
+
+  // Pre-fill warehouse when profile loads
+  useEffect(() => {
+    if (defaultWarehouseId && !form.getValues("warehouse_id")) {
+      form.setValue("warehouse_id", defaultWarehouseId);
+    }
+  }, [defaultWarehouseId, form]);
+
+  // Pre-fill client when only one exists
+  useEffect(() => {
+    const clients = options?.clients ?? [];
+    if (clients.length === 1 && !form.getValues("client_id")) {
+      form.setValue("client_id", clients[0].id);
+    }
+  }, [options?.clients, form]);
+
+  const [showMore, setShowMore] = useState(false);
   const [reuseEnabled, setReuseEnabled] = useState(false);
-  const [manualBarcode, setManualBarcode] = useState("");
   const [showZplAdvanced, setShowZplAdvanced] = useState(false);
+  const [showDrafts, setShowDrafts] = useState(false);
+  const [resumingDraftId, setResumingDraftId] = useState<string | null>(null);
+  const [lastResult, setLastResult] = useState<{ barcode: string; taskNumber: string; qty: number } | null>(null);
+  const [manualBarcode, setManualBarcode] = useState("");
+
+  const currentWarehouseId = form.watch("warehouse_id") || defaultWarehouseId;
+
+  const { data: drafts = [], refetch: refetchDrafts } = useQuery({
+    queryKey: ["draft-receipts", currentWarehouseId],
+    queryFn: () => listDraftReceipts(currentWarehouseId),
+    enabled: Boolean(currentWarehouseId),
+  });
+
   const receivedQuantity = form.watch("quantity");
+  const zplBarcode = lastResult?.barcode || manualBarcode;
   const zplPreview = useMemo(
     () =>
-      manualBarcode
+      zplBarcode
         ? generateZplLabel({
             labelType: "pallet",
-            code: manualBarcode,
+            code: zplBarcode,
             title: "Pallet Label",
             subtitle: "Warehouse Wizard WMS",
-            quantity: Number(receivedQuantity ?? 1),
+            quantity: Number(lastResult?.qty ?? receivedQuantity ?? 1),
           })
         : "",
-    [manualBarcode, receivedQuantity],
+    [zplBarcode, lastResult?.qty, receivedQuantity],
   );
 
   const mutation = useMutation({
-    mutationFn: createReceiptFlow,
+    mutationFn: (values: z.infer<typeof receivingSchema>) =>
+      resumingDraftId ? completeReceiptFromDraft(resumingDraftId, values) : createReceiptFlow(values).then((r) => ({ palletBarcode: r.pallet.pallet_barcode, putawayTaskNumber: r.putawayTask.task_number })),
     onSuccess: async (result) => {
-      toast.success(`Receipt posted. Putaway task ${result.putawayTask.task_number} ready.`);
-      form.reset({ receipt_type: "manual", reference_number: "", quantity: 1 });
-      setManualBarcode(result.pallet.pallet_barcode);
+      const { palletBarcode, putawayTaskNumber } = result as { palletBarcode: string; putawayTaskNumber: string };
+      toast.success(`Pallet ${palletBarcode} ready — putaway task ${putawayTaskNumber} queued.`);
+      setLastResult({ barcode: palletBarcode, taskNumber: putawayTaskNumber, qty: Number(form.getValues("quantity")) });
+      setResumingDraftId(null);
+      form.reset({ receipt_type: "manual", reference_number: "", quantity: 1, warehouse_id: currentWarehouseId });
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["dashboard-metrics"] }),
         queryClient.invalidateQueries({ queryKey: ["putaway-tasks"] }),
         queryClient.invalidateQueries({ queryKey: ["inventory-search"] }),
+        queryClient.invalidateQueries({ queryKey: ["draft-receipts"] }),
       ]);
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Receiving failed"),
   });
 
+  const draftMutation = useMutation({
+    mutationFn: (values: z.infer<typeof receivingSchema>) => saveDraftReceipt(values),
+    onSuccess: async () => {
+      toast.success("Draft saved");
+      setShowDrafts(true);
+      await queryClient.invalidateQueries({ queryKey: ["draft-receipts"] });
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Draft save failed"),
+  });
+
+  const deleteDraftMutation = useMutation({
+    mutationFn: deleteDraftReceipt,
+    onSuccess: async () => {
+      toast.success("Draft deleted");
+      await queryClient.invalidateQueries({ queryKey: ["draft-receipts"] });
+    },
+  });
+
+  function resumeDraft(draft: DraftReceipt) {
+    const meta = draft.metadata ?? {};
+    form.reset({
+      receipt_type: "manual",
+      reference_number: draft.reference_number ?? "",
+      warehouse_id: draft.warehouse_id,
+      client_id: draft.client_id ?? undefined,
+      product_id: (meta.product_id as string) ?? undefined,
+      quantity: (meta.quantity as number) ?? 1,
+      lot_number: (meta.lot_number as string) ?? "",
+      batch_number: (meta.batch_number as string) ?? "",
+      expiry_date: (meta.expiry_date as string) ?? "",
+      manufacture_date: (meta.manufacture_date as string) ?? "",
+      loading_date: (meta.loading_date as string) ?? "",
+      packaging_profile_id: (meta.packaging_profile_id as string) ?? "",
+      override_length: (meta.override_length as number) ?? undefined,
+      override_width: (meta.override_width as number) ?? undefined,
+      override_height: (meta.override_height as number) ?? undefined,
+      override_weight: (meta.override_weight as number) ?? undefined,
+    });
+    setResumingDraftId(draft.id);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  const productOptions = (options?.products ?? []).map((p: any) => ({ id: p.id, sku: p.sku, name: p.name, barcode: p.barcode }));
+
   return (
-    <div className="grid min-w-0 gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(20rem,0.8fr)]">
-      <Card className="min-w-0">
-        <CardHeader>
-          <CardTitle>Receive Stock</CardTitle>
-          <CardDescription>Create a pallet, print the label, and launch directed putaway in one flow.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Form {...form}>
-            <form className="grid gap-4 sm:grid-cols-2" onSubmit={form.handleSubmit((values) => mutation.mutate(values))}>
-              <SelectField form={form} name="receipt_type" label="Receipt type" options={[
-                { label: "Manual", value: "manual" },
-                { label: "Purchase Order", value: "po" },
-                { label: "Transfer", value: "transfer" },
-              ]} />
-              <TextField form={form} name="reference_number" label="Reference number" />
-              <SelectField form={form} name="warehouse_id" label="Warehouse" options={(options?.warehouses ?? []).map((warehouse) => ({ label: warehouse.name, value: warehouse.id }))} />
-              <SelectField form={form} name="client_id" label="Client / Owner" options={(options?.clients ?? []).map((client) => ({ label: `${client.code} · ${client.name}`, value: client.id }))} />
-              <SelectField form={form} name="product_id" label="Product (SKU)" options={(options?.products ?? []).map((product) => ({ label: `${product.sku} · ${product.name}`, value: product.id }))} />
-              <SelectField form={form} name="packaging_profile_id" label="Packaging profile" options={(options?.packagingProfiles ?? []).map((profile) => ({ label: profile.profile_name, value: profile.id }))} />
-              <TextField form={form} name="quantity" label="Quantity received" type="number" />
-              <TextField form={form} name="lot_number" label="Lot number" />
-              <TextField form={form} name="batch_number" label="Batch number" />
-              <TextField form={form} name="expiry_date" label="Expiry date" type="date" />
-              <TextField form={form} name="manufacture_date" label="Manufacture date" type="date" />
-              <TextField form={form} name="loading_date" label="Loading date" type="date" />
-
-              {/* Pallet reuse */}
-              <div className="sm:col-span-2">
-                <div className="flex items-center gap-3 rounded-md border border-border px-3 py-2">
-                  <Switch checked={reuseEnabled} onCheckedChange={(checked) => {
-                    setReuseEnabled(checked);
-                    if (!checked) form.setValue("reuse_pallet_barcode", "");
-                  }} id="reuse-toggle" />
-                  <label htmlFor="reuse-toggle" className="cursor-pointer text-sm">
-                    Reuse existing blank pallet (scan a labelled empty pallet)
-                  </label>
-                </div>
-              </div>
-              {reuseEnabled ? (
-                <TextField form={form} name="reuse_pallet_barcode" label="Existing pallet barcode" hint="Scan or enter the barcode of an empty pallet to reuse its label." />
-              ) : null}
-
-              {/* Dimension overrides – collapsed by default */}
-              <div className="sm:col-span-2">
-                <p className="mb-2 text-xs font-medium text-muted-foreground">Dimension overrides (optional – leave blank to use packaging profile defaults)</p>
-                <div className="grid gap-3 sm:grid-cols-4">
-                  <TextField form={form} name="override_length" label="Length (cm)" type="number" />
-                  <TextField form={form} name="override_width" label="Width (cm)" type="number" />
-                  <TextField form={form} name="override_height" label="Height (cm)" type="number" />
-                  <TextField form={form} name="override_weight" label="Weight (kg)" type="number" />
-                </div>
-              </div>
-
-              <Button className="w-full sm:col-span-2" type="submit" disabled={mutation.isPending}>
-                {mutation.isPending ? <Loader2 className="animate-spin" /> : null}
-                {reuseEnabled ? "Receive onto existing pallet" : "Receive and create pallet"}
-              </Button>
-            </form>
-          </Form>
-        </CardContent>
-      </Card>
-
-      <Card className="min-w-0">
-        <CardHeader>
-          <CardTitle>Label & Print</CardTitle>
-          <CardDescription>Print pallet labels directly to PDF or a connected label printer.</CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">
-          <div className="rounded-xl border border-dashed border-border bg-secondary/30 p-4">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Camera />
-              Camera scanning can be added by enabling `BarcodeDetector` on supported mobile browsers.
-            </div>
+    <div className="flex flex-col gap-6">
+      {/* Success banner */}
+      {lastResult && (
+        <div className="flex flex-col gap-2 rounded-lg border border-green-200 bg-green-50 p-4 dark:border-green-900 dark:bg-green-950/30 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm font-semibold text-green-800 dark:text-green-300">
+              Pallet {lastResult.barcode} created · {lastResult.qty} units
+            </p>
+            <p className="text-xs text-green-700 dark:text-green-400">
+              Putaway task {lastResult.taskNumber} queued
+            </p>
           </div>
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-            <Input className="min-w-0" value={manualBarcode} onChange={(event) => setManualBarcode(event.target.value)} placeholder="Latest pallet barcode" />
-            <Button className="w-full sm:w-auto" variant="outline" onClick={() => window.print()}>
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" onClick={() => window.print()}>
               <Printer data-icon="inline-start" />
               Print label
             </Button>
+            <Button size="sm" onClick={() => navigate("/putaway-tasks")}>
+              Go to Putaway
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setLastResult(null)}>×</Button>
           </div>
-          {zplPreview ? (
-            <>
-              <button
-                type="button"
-                className="text-xs text-muted-foreground underline-offset-2 hover:underline text-left"
-                onClick={() => setShowZplAdvanced((v) => !v)}
-              >
-                {showZplAdvanced ? "Hide" : "Show"} advanced (ZPL payload)
-              </button>
-              {showZplAdvanced && (
-                <div className="rounded-lg border border-border bg-background p-3">
-                  <div className="mb-2 flex items-center justify-between gap-2">
-                    <p className="text-sm font-medium text-muted-foreground">ZPL payload</p>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={async () => {
-                        await navigator.clipboard?.writeText(zplPreview);
-                        toast.success("ZPL copied");
-                      }}
-                    >
-                      Copy
-                    </Button>
+        </div>
+      )}
+
+      <div className="grid min-w-0 gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(20rem,0.8fr)]">
+        <Card className="min-w-0">
+          <CardHeader>
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <CardTitle>{resumingDraftId ? "Complete Receipt" : "Receive Stock"}</CardTitle>
+                <CardDescription>
+                  {resumingDraftId
+                    ? "Resuming draft — adjust quantity for any variances, then confirm."
+                    : "Create a pallet, print the label, and launch directed putaway in one flow."}
+                </CardDescription>
+              </div>
+              {resumingDraftId && (
+                <Button size="sm" variant="ghost" onClick={() => { setResumingDraftId(null); form.reset({ receipt_type: "manual", reference_number: "", quantity: 1, warehouse_id: currentWarehouseId }); }}>
+                  Cancel
+                </Button>
+              )}
+            </div>
+          </CardHeader>
+          <CardContent>
+            <Form {...form}>
+              <form className="grid gap-4" onSubmit={form.handleSubmit((values) => mutation.mutate(values))}>
+                {/* Core fields – always visible */}
+                <FormField
+                  control={form.control}
+                  name="product_id"
+                  render={({ field, fieldState }) => (
+                    <FormItem>
+                      <FormLabel>Product</FormLabel>
+                      <FormControl>
+                        <ProductSearch
+                          value={(field.value as string) ?? ""}
+                          onChange={field.onChange}
+                          options={productOptions}
+                          error={Boolean(fieldState.error)}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="quantity"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Quantity received</FormLabel>
+                      <FormControl>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="icon"
+                            className="h-10 w-10 shrink-0"
+                            onClick={() => field.onChange(Math.max(1, Number(field.value) - 1))}
+                          >
+                            −
+                          </Button>
+                          <Input
+                            {...field}
+                            type="number"
+                            className="text-center text-lg font-semibold"
+                            value={(field.value as number) ?? 1}
+                            onChange={(e) => field.onChange(e.target.valueAsNumber)}
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="icon"
+                            className="h-10 w-10 shrink-0"
+                            onClick={() => field.onChange(Number(field.value) + 1)}
+                          >
+                            +
+                          </Button>
+                        </div>
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                {!singleWarehouse && (
+                  <SelectField form={form} name="warehouse_id" label="Warehouse" options={warehouses.map((w: any) => ({ label: w.name, value: w.id }))} />
+                )}
+
+                {/* Show more toggle */}
+                <button
+                  type="button"
+                  className="flex items-center gap-1.5 text-sm font-medium text-primary underline-offset-2 hover:underline text-left"
+                  onClick={() => setShowMore((v) => !v)}
+                >
+                  {showMore ? "▲ Show less" : "▼ Show more options"}
+                </button>
+
+                {showMore && (
+                  <div className="grid gap-4 rounded-lg border border-border bg-secondary/20 p-4 sm:grid-cols-2">
+                    <SelectField form={form} name="receipt_type" label="Receipt type" options={[
+                      { label: "Manual", value: "manual" },
+                      { label: "Purchase Order", value: "po" },
+                      { label: "Transfer", value: "transfer" },
+                    ]} />
+                    <TextField form={form} name="reference_number" label="Reference number" />
+                    {singleWarehouse && (
+                      <SelectField form={form} name="warehouse_id" label="Warehouse" options={warehouses.map((w: any) => ({ label: w.name, value: w.id }))} />
+                    )}
+                    <SelectField form={form} name="client_id" label="Client / Owner" options={(options?.clients ?? []).map((client: any) => ({ label: `${client.code} · ${client.name}`, value: client.id }))} />
+                    <SelectField form={form} name="packaging_profile_id" label="Packaging profile" options={(options?.packagingProfiles ?? []).map((p: any) => ({ label: p.profile_name, value: p.id }))} />
+                    <TextField form={form} name="lot_number" label="Lot number" />
+                    <TextField form={form} name="batch_number" label="Batch number" />
+                    <TextField form={form} name="expiry_date" label="Expiry date" type="date" />
+                    <TextField form={form} name="manufacture_date" label="Manufacture date" type="date" />
+                    <TextField form={form} name="loading_date" label="Loading date" type="date" />
+
+                    <div className="sm:col-span-2">
+                      <div className="flex items-center gap-3 rounded-md border border-border px-3 py-2">
+                        <Switch checked={reuseEnabled} onCheckedChange={(checked) => {
+                          setReuseEnabled(checked);
+                          if (!checked) form.setValue("reuse_pallet_barcode", "");
+                        }} id="reuse-toggle" />
+                        <label htmlFor="reuse-toggle" className="cursor-pointer text-sm">
+                          Reuse existing blank pallet
+                        </label>
+                      </div>
+                    </div>
+                    {reuseEnabled && (
+                      <TextField form={form} name="reuse_pallet_barcode" label="Existing pallet barcode" hint="Scan or enter barcode of an empty pallet to reuse its label." />
+                    )}
+
+                    <div className="sm:col-span-2">
+                      <p className="mb-2 text-xs font-medium text-muted-foreground">Dimension overrides (optional)</p>
+                      <div className="grid gap-3 sm:grid-cols-4">
+                        <TextField form={form} name="override_length" label="Length (cm)" type="number" />
+                        <TextField form={form} name="override_width" label="Width (cm)" type="number" />
+                        <TextField form={form} name="override_height" label="Height (cm)" type="number" />
+                        <TextField form={form} name="override_weight" label="Weight (kg)" type="number" />
+                      </div>
+                    </div>
                   </div>
-                  <pre className="max-h-44 overflow-auto whitespace-pre-wrap font-mono text-xs text-muted-foreground">{zplPreview}</pre>
+                )}
+
+                <Button className="w-full min-h-12 text-base" type="submit" disabled={mutation.isPending}>
+                  {mutation.isPending ? <Loader2 className="animate-spin" /> : null}
+                  {resumingDraftId ? "Complete Receipt" : reuseEnabled ? "Receive onto existing pallet" : "Receive and create pallet"}
+                </Button>
+                {!resumingDraftId && (
+                  <Button
+                    className="w-full"
+                    type="button"
+                    variant="outline"
+                    disabled={draftMutation.isPending}
+                    onClick={() => {
+                      const values = form.getValues();
+                      draftMutation.mutate(values as z.infer<typeof receivingSchema>);
+                    }}
+                  >
+                    Save Draft
+                  </Button>
+                )}
+              </form>
+            </Form>
+          </CardContent>
+        </Card>
+
+        <Card className="min-w-0">
+          <CardHeader>
+            <CardTitle>Label & Print</CardTitle>
+            <CardDescription>Print pallet labels directly to PDF or a connected label printer.</CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4">
+            <div className="rounded-xl border border-dashed border-border bg-secondary/30 p-4">
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Camera />
+                Camera scanning can be added by enabling `BarcodeDetector` on supported mobile browsers.
+              </div>
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <Input className="min-w-0" value={manualBarcode} onChange={(event) => setManualBarcode(event.target.value)} placeholder="Latest pallet barcode" />
+              <Button className="w-full sm:w-auto" variant="outline" onClick={() => window.print()}>
+                <Printer data-icon="inline-start" />
+                Print label
+              </Button>
+            </div>
+            {zplPreview ? (
+              <>
+                <button
+                  type="button"
+                  className="text-xs text-muted-foreground underline-offset-2 hover:underline text-left"
+                  onClick={() => setShowZplAdvanced((v) => !v)}
+                >
+                  {showZplAdvanced ? "Hide" : "Show"} advanced (ZPL payload)
+                </button>
+                {showZplAdvanced && (
+                  <div className="rounded-lg border border-border bg-background p-3">
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <p className="text-sm font-medium text-muted-foreground">ZPL payload</p>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={async () => {
+                          await navigator.clipboard?.writeText(zplPreview);
+                          toast.success("ZPL copied");
+                        }}
+                      >
+                        Copy
+                      </Button>
+                    </div>
+                    <pre className="max-h-44 overflow-auto whitespace-pre-wrap font-mono text-xs text-muted-foreground">{zplPreview}</pre>
+                  </div>
+                )}
+              </>
+            ) : null}
+            <p className="text-xs text-muted-foreground">
+              Each receipt creates a pallet label record, inventory balance, and queued putaway task.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Saved Drafts panel */}
+      {currentWarehouseId && (
+        <Card>
+          <CardHeader>
+            <button
+              type="button"
+              className="flex w-full items-center justify-between gap-2 text-left"
+              onClick={() => { setShowDrafts((v) => !v); refetchDrafts(); }}
+            >
+              <div>
+                <CardTitle className="text-base">
+                  Saved Drafts {drafts.length > 0 && <span className="ml-1 rounded-full bg-primary px-2 py-0.5 text-xs font-normal text-primary-foreground">{drafts.length}</span>}
+                </CardTitle>
+                <CardDescription>Partially filled receipts ready to complete</CardDescription>
+              </div>
+              <span className="text-muted-foreground">{showDrafts ? "▲" : "▼"}</span>
+            </button>
+          </CardHeader>
+          {showDrafts && (
+            <CardContent>
+              {drafts.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No saved drafts for this warehouse.</p>
+              ) : (
+                <div className="grid gap-3">
+                  {drafts.map((draft) => {
+                    const product = productOptions.find((p) => p.id === draft.product_id);
+                    return (
+                      <div key={draft.id} className="flex items-center justify-between gap-4 rounded-lg border border-border px-4 py-3">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium">
+                            {product ? `${product.sku} · ${product.name}` : "Unknown product"}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            Qty: {draft.quantity ?? "?"} · Saved: {formatDate(draft.created_at)}
+                          </p>
+                        </div>
+                        <div className="flex shrink-0 gap-2">
+                          <Button size="sm" onClick={() => resumeDraft(draft)}>Resume</Button>
+                          <Button size="sm" variant="ghost" onClick={() => deleteDraftMutation.mutate(draft.id)}>✕</Button>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
-            </>
-          ) : null}
-          <p className="text-xs text-muted-foreground">
-            Each receipt creates a pallet label record, inventory balance, and queued putaway task.
-          </p>
-        </CardContent>
-      </Card>
+            </CardContent>
+          )}
+        </Card>
+      )}
     </div>
   );
 }
@@ -1916,6 +2195,54 @@ function SelectField({
   );
 }
 
+function BinCapacityBar({ locationCode, taskId }: { locationCode: string; taskId: string }) {
+  const { data } = useQuery({
+    queryKey: ["bin-occupancy", locationCode],
+    queryFn: () => getBinOccupancy(locationCode),
+    enabled: locationCode.length >= 2,
+    staleTime: 10_000,
+  });
+
+  if (!data || !locationCode) return null;
+
+  const { maxPallets, occupiedPallets, status } = data;
+  const pct = maxPallets > 0 ? Math.min(100, Math.round((occupiedPallets / maxPallets) * 100)) : 0;
+  const isFull = maxPallets > 0 && occupiedPallets >= maxPallets;
+  const isNearFull = pct >= 80 && !isFull;
+  const isBlocked = status !== "active";
+
+  if (isBlocked) {
+    return (
+      <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+        Location unavailable (status: {status})
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex items-center justify-between text-xs text-muted-foreground">
+        <span>Bin capacity</span>
+        <span className={cn(isFull ? "text-red-600 font-semibold" : isNearFull ? "text-amber-600" : "text-green-700")}>
+          {occupiedPallets} / {maxPallets} pallets
+        </span>
+      </div>
+      <Progress
+        value={pct}
+        className={cn(
+          "h-2",
+          isFull ? "[&>div]:bg-red-500" : isNearFull ? "[&>div]:bg-amber-500" : "[&>div]:bg-green-500",
+        )}
+      />
+      {isFull && (
+        <p className="text-xs font-medium text-red-600 dark:text-red-400">
+          Location FULL — scan a different location
+        </p>
+      )}
+    </div>
+  );
+}
+
 export function PutawayTasksPage() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
@@ -1924,12 +2251,20 @@ export function PutawayTasksPage() {
     queryFn: () => getPutawayTasks(user?.id),
   });
   const [scanState, setScanState] = useState<Record<string, { pallet: string; location: string }>>({});
+  const locationRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const [completedIds, setCompletedIds] = useState<Set<string>>(new Set());
 
   const mutation = useMutation({
     mutationFn: async ({ taskId, pallet, location }: { taskId: string; pallet: string; location: string }) =>
       confirmPutaway(taskId, pallet, location),
-    onSuccess: async () => {
+    onSuccess: async (_, vars) => {
       toast.success("Putaway confirmed");
+      setCompletedIds((prev) => new Set([...prev, vars.taskId]));
+      setScanState((current) => {
+        const next = { ...current };
+        delete next[vars.taskId];
+        return next;
+      });
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["putaway-tasks"] }),
         queryClient.invalidateQueries({ queryKey: ["inventory-search"] }),
@@ -1939,60 +2274,100 @@ export function PutawayTasksPage() {
     onError: (error) => toast.error(error instanceof Error ? error.message : "Putaway failed"),
   });
 
+  const pendingTasks = data.filter((task: any) => !completedIds.has(task.id));
+
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h2 className="text-2xl font-semibold">Putaway Tasks</h2>
-        <p className="text-sm text-muted-foreground">Scan pallet barcode, scan location barcode, and confirm storage.</p>
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-semibold">Putaway Tasks</h2>
+          <p className="text-sm text-muted-foreground">Scan pallet barcode, then location barcode, and confirm.</p>
+        </div>
+        {pendingTasks.length > 0 && (
+          <Badge variant="secondary" className="text-sm">{pendingTasks.length} pending</Badge>
+        )}
       </div>
       <div className="grid gap-4">
         {isLoading ? (
           <Card><CardContent className="p-6 text-sm text-muted-foreground">Loading putaway tasks…</CardContent></Card>
-        ) : data.length === 0 ? (
-          <Card><CardContent className="p-6 text-sm text-muted-foreground">No putaway tasks ready.</CardContent></Card>
+        ) : pendingTasks.length === 0 ? (
+          <Card>
+            <CardContent className="flex flex-col items-center gap-2 p-8 text-center text-sm text-muted-foreground">
+              <CheckCircle2 className="h-8 w-8 text-green-500" />
+              <p className="font-medium">All putaway tasks complete</p>
+            </CardContent>
+          </Card>
         ) : (
-          data.map((task: any) => {
+          pendingTasks.map((task: any) => {
             const localState = scanState[task.id] ?? { pallet: "", location: "" };
+            const binOccupancy = localState.location.length >= 2;
+            const isFull = false; // BinCapacityBar handles the display; button is always enabled for now
+
             return (
-              <Card key={task.id}>
-                <CardHeader>
-                  <CardTitle className="flex items-center justify-between gap-4">
-                    <span>{task.task_number}</span>
+              <Card key={task.id} className="border-2">
+                <CardHeader className="pb-3">
+                  <CardTitle className="flex items-center justify-between gap-4 text-base">
+                    <span className="font-mono">{task.task_number}</span>
                     <Badge>{task.status}</Badge>
                   </CardTitle>
                   <CardDescription>
-                    Suggested location: {(task.locations as any)?.code ?? "Request alternative"}
+                    <span className="font-medium text-foreground">
+                      {(task.pallets as any)?.products?.sku ?? ""} · {(task.pallets as any)?.products?.name ?? ""}
+                    </span>
+                    {" — "}
+                    {(task.pallets as any)?.quantity ?? "?"} units
+                    <br />
+                    Suggested: <span className="font-mono">{(task.locations as any)?.code ?? "Request alternative"}</span>
                   </CardDescription>
                 </CardHeader>
-                <CardContent className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
-                  <Input
-                    className="min-w-0"
-                    placeholder="Scan pallet barcode"
-                    value={localState.pallet}
-                    onChange={(event) =>
-                      setScanState((current) => ({
-                        ...current,
-                        [task.id]: { ...localState, pallet: event.target.value },
-                      }))
-                    }
-                  />
-                  <Input
-                    className="min-w-0"
-                    placeholder="Scan location barcode"
-                    value={localState.location}
-                    onChange={(event) =>
-                      setScanState((current) => ({
-                        ...current,
-                        [task.id]: { ...localState, location: event.target.value },
-                      }))
-                    }
-                  />
+                <CardContent className="flex flex-col gap-3">
+                  <div className="grid gap-3 lg:grid-cols-2">
+                    <Input
+                      className="min-h-12 min-w-0 text-base"
+                      placeholder="📷 Scan pallet barcode"
+                      value={localState.pallet}
+                      onChange={(event) => {
+                        const val = event.target.value;
+                        setScanState((current) => ({
+                          ...current,
+                          [task.id]: { ...localState, pallet: val },
+                        }));
+                        if (val.endsWith("\n") || val.endsWith("\r")) {
+                          setScanState((current) => ({
+                            ...current,
+                            [task.id]: { ...localState, pallet: val.trim() },
+                          }));
+                          setTimeout(() => locationRefs.current[task.id]?.focus(), 50);
+                        }
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          setTimeout(() => locationRefs.current[task.id]?.focus(), 50);
+                        }
+                      }}
+                    />
+                    <Input
+                      ref={(el) => { locationRefs.current[task.id] = el; }}
+                      className="min-h-12 min-w-0 text-base"
+                      placeholder="📷 Scan location barcode"
+                      value={localState.location}
+                      onChange={(event) =>
+                        setScanState((current) => ({
+                          ...current,
+                          [task.id]: { ...localState, location: event.target.value.replace(/[\r\n]/g, "") },
+                        }))
+                      }
+                    />
+                  </div>
+                  {binOccupancy && <BinCapacityBar locationCode={localState.location} taskId={task.id} />}
                   <Button
-                    className="w-full lg:w-auto"
-                    disabled={mutation.isPending}
+                    className="min-h-12 w-full text-base"
+                    disabled={mutation.isPending || !localState.pallet || !localState.location}
                     onClick={() => mutation.mutate({ taskId: task.id, pallet: localState.pallet, location: localState.location })}
                   >
-                    Confirm
+                    {mutation.isPending ? <Loader2 className="animate-spin" /> : <CheckCircle2 data-icon="inline-start" />}
+                    Confirm Put-Away
                   </Button>
                 </CardContent>
               </Card>
@@ -2242,6 +2617,129 @@ export function PickListsPage() {
   );
 }
 
+function MoveToPickingPanel() {
+  const queryClient = useQueryClient();
+  const [barcode, setBarcode] = useState("");
+  const [pallet, setPallet] = useState<Awaited<ReturnType<typeof getPalletByBarcode>>>(null);
+  const [recentMoves, setRecentMoves] = useState<Array<{ barcode: string; time: Date }>>([]);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const lookupMutation = useMutation({
+    mutationFn: getPalletByBarcode,
+    onSuccess: (data) => {
+      if (!data) {
+        toast.error("Pallet not found");
+        setPallet(null);
+      } else if (data.status === "picked") {
+        toast.error(`${data.pallet_barcode} is already in the picking area`);
+        setPallet(null);
+      } else {
+        setPallet(data);
+      }
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Lookup failed"),
+  });
+
+  const moveMutation = useMutation({
+    mutationFn: moveToPickingArea,
+    onSuccess: (_, code) => {
+      toast.success(`${code} moved to picking area`);
+      setRecentMoves((prev) => [{ barcode: code, time: new Date() }, ...prev.slice(0, 9)]);
+      setPallet(null);
+      setBarcode("");
+      inputRef.current?.focus();
+      queryClient.invalidateQueries({ queryKey: ["inventory-search"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard-metrics"] });
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Move failed"),
+  });
+
+  function handleScan() {
+    const code = barcode.trim();
+    if (!code) return;
+    setPallet(null);
+    lookupMutation.mutate(code);
+  }
+
+  return (
+    <div className="flex flex-col gap-6">
+      <Card>
+        <CardHeader>
+          <CardTitle>Move to Picking Area</CardTitle>
+          <CardDescription>
+            Scan a pallet barcode to move it from bulk storage to the picking area. Stock exits WMS tracking.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          <div className="flex gap-2">
+            <Input
+              ref={inputRef}
+              className="min-h-12 text-base"
+              placeholder="📷 Scan pallet barcode…"
+              value={barcode}
+              onChange={(e) => setBarcode(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") handleScan(); }}
+              autoFocus
+            />
+            <Button className="min-h-12 shrink-0" onClick={handleScan} disabled={lookupMutation.isPending}>
+              {lookupMutation.isPending ? <Loader2 className="animate-spin" /> : "Find"}
+            </Button>
+          </div>
+
+          {pallet && (
+            <div className="rounded-lg border-2 border-primary/20 bg-primary/5 p-4">
+              <div className="mb-3 flex items-center justify-between gap-4">
+                <div>
+                  <p className="font-mono text-sm font-semibold">{pallet.pallet_barcode}</p>
+                  <p className="text-sm">{pallet.product_sku} · {pallet.product_name}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {pallet.quantity} units · Currently at{" "}
+                    <span className="font-mono">{pallet.location_code ?? "Receiving"}</span>
+                  </p>
+                </div>
+                <Badge>{pallet.status}</Badge>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  className="flex-1 min-h-11"
+                  onClick={() => moveMutation.mutate(pallet.pallet_barcode)}
+                  disabled={moveMutation.isPending}
+                >
+                  {moveMutation.isPending ? <Loader2 className="animate-spin" /> : <Forklift data-icon="inline-start" />}
+                  Confirm Move to Picking
+                </Button>
+                <Button variant="outline" className="min-h-11" onClick={() => { setPallet(null); setBarcode(""); inputRef.current?.focus(); }}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {recentMoves.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm font-medium text-muted-foreground">Recent moves this session</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-col gap-1">
+              {recentMoves.map((move, i) => (
+                <div key={i} className="flex items-center justify-between gap-4 text-sm">
+                  <span className="font-mono">{move.barcode}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {Math.round((Date.now() - move.time.getTime()) / 60000)} min ago
+                  </span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
 export function TransfersPage() {
   const queryClient = useQueryClient();
   const { data: options } = useQuery({ queryKey: ["options"], queryFn: () => fetchOptions() });
@@ -2281,75 +2779,96 @@ export function TransfersPage() {
   });
 
   return (
-    <div className="grid min-w-0 gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-      <Card className="min-w-0">
-        <CardHeader>
-          <CardTitle>Create Transfer</CardTitle>
-          <CardDescription>Preserve pallet identity, lot data, ownership, and audit history.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Form {...form}>
-            <form className="grid gap-4" onSubmit={form.handleSubmit((values) => createMutation.mutate(values))}>
-              <SelectField form={form} name="transfer_type" label="Transfer type" options={[
-                { label: "Inter-warehouse", value: "inter_warehouse" },
-                { label: "Intra-warehouse", value: "intra_warehouse" },
-              ]} />
-              <SelectField form={form} name="source_warehouse_id" label="Source warehouse" options={(options?.warehouses ?? []).map((warehouse) => ({ label: warehouse.name, value: warehouse.id }))} />
-              <SelectField form={form} name="destination_warehouse_id" label="Destination warehouse" options={(options?.warehouses ?? []).map((warehouse) => ({ label: warehouse.name, value: warehouse.id }))} />
-              <SelectField form={form} name="pallet_id" label="Pallet" options={(options?.pallets ?? []).map((pallet) => ({ label: `${pallet.pallet_code} · ${pallet.status}`, value: pallet.id }))} />
-              <TextField form={form} name="quantity" label="Quantity" type="number" />
-              <FormField
-                control={form.control}
-                name="notes"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Notes</FormLabel>
-                    <FormControl>
-                      <Textarea {...field} value={field.value ?? ""} />
-                    </FormControl>
-                  </FormItem>
-                )}
-              />
-              <Button className="w-full sm:w-auto" type="submit" disabled={createMutation.isPending}>Create transfer</Button>
-            </form>
-          </Form>
-        </CardContent>
-      </Card>
-      <div className="grid min-w-0 gap-4">
-        {transfers.map((transfer: any) => (
-          <Card key={transfer.id}>
-            <CardHeader>
-              <CardTitle className="flex items-center justify-between gap-4">
-                <span className="min-w-0 break-all">{transfer.transfer_number}</span>
-                <Badge>{transfer.status}</Badge>
-              </CardTitle>
-              <CardDescription>
-                {transfer.notes || "Pallet transfer"}
-                {transfer.dispatch_signed_off_at ? ` · departed ${formatDate(transfer.dispatch_signed_off_at)}` : ""}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="grid gap-3">
-              <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-end">
-                <div>
-                  <label className="text-sm font-medium" htmlFor={`signoff-${transfer.id}`}>Driver departure code</label>
-                  <Input
-                    id={`signoff-${transfer.id}`}
-                    className="mt-1"
-                    placeholder="Scan badge or enter user code"
-                    value={signoffCodes[transfer.id] ?? ""}
-                    onChange={(event) => setSignoffCodes((current) => ({ ...current, [transfer.id]: event.target.value }))}
-                  />
-                </div>
-                <Button className="w-full sm:w-auto" variant="outline" onClick={() => dispatchMutation.mutate(transfer.id)} disabled={transfer.status === "completed"}>
-                  Dispatch
-                </Button>
-                <Button className="w-full sm:w-auto" onClick={() => receiveMutation.mutate(transfer.id)}>Receive</Button>
-              </div>
-              <p className="text-xs text-muted-foreground">Departure requires the signed-in driver/admin/manager to scan their badge or enter their user code before stock can leave.</p>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+    <div className="flex flex-col gap-6">
+      <Tabs defaultValue="picking">
+        <TabsList className="grid h-auto w-full grid-cols-2 sm:w-fit">
+          <TabsTrigger value="picking">
+            <Forklift className="mr-1.5 h-4 w-4" />
+            Move to Picking
+          </TabsTrigger>
+          <TabsTrigger value="transfer">
+            <Truck className="mr-1.5 h-4 w-4" />
+            Full Transfer
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="picking" className="mt-4">
+          <MoveToPickingPanel />
+        </TabsContent>
+
+        <TabsContent value="transfer" className="mt-4">
+          <div className="grid min-w-0 gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+            <Card className="min-w-0">
+              <CardHeader>
+                <CardTitle>Create Transfer</CardTitle>
+                <CardDescription>Preserve pallet identity, lot data, ownership, and audit history.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Form {...form}>
+                  <form className="grid gap-4" onSubmit={form.handleSubmit((values) => createMutation.mutate(values))}>
+                    <SelectField form={form} name="transfer_type" label="Transfer type" options={[
+                      { label: "Inter-warehouse", value: "inter_warehouse" },
+                      { label: "Intra-warehouse", value: "intra_warehouse" },
+                    ]} />
+                    <SelectField form={form} name="source_warehouse_id" label="Source warehouse" options={(options?.warehouses ?? []).map((warehouse) => ({ label: warehouse.name, value: warehouse.id }))} />
+                    <SelectField form={form} name="destination_warehouse_id" label="Destination warehouse" options={(options?.warehouses ?? []).map((warehouse) => ({ label: warehouse.name, value: warehouse.id }))} />
+                    <SelectField form={form} name="pallet_id" label="Pallet" options={(options?.pallets ?? []).map((pallet) => ({ label: `${pallet.pallet_code} · ${pallet.status}`, value: pallet.id }))} />
+                    <TextField form={form} name="quantity" label="Quantity" type="number" />
+                    <FormField
+                      control={form.control}
+                      name="notes"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Notes</FormLabel>
+                          <FormControl>
+                            <Textarea {...field} value={field.value ?? ""} />
+                          </FormControl>
+                        </FormItem>
+                      )}
+                    />
+                    <Button className="w-full sm:w-auto" type="submit" disabled={createMutation.isPending}>Create transfer</Button>
+                  </form>
+                </Form>
+              </CardContent>
+            </Card>
+            <div className="grid min-w-0 gap-4">
+              {transfers.map((transfer: any) => (
+                <Card key={transfer.id}>
+                  <CardHeader>
+                    <CardTitle className="flex items-center justify-between gap-4">
+                      <span className="min-w-0 break-all">{transfer.transfer_number}</span>
+                      <Badge>{transfer.status}</Badge>
+                    </CardTitle>
+                    <CardDescription>
+                      {transfer.notes || "Pallet transfer"}
+                      {transfer.dispatch_signed_off_at ? ` · departed ${formatDate(transfer.dispatch_signed_off_at)}` : ""}
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="grid gap-3">
+                    <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-end">
+                      <div>
+                        <label className="text-sm font-medium" htmlFor={`signoff-${transfer.id}`}>Driver departure code</label>
+                        <Input
+                          id={`signoff-${transfer.id}`}
+                          className="mt-1"
+                          placeholder="Scan badge or enter user code"
+                          value={signoffCodes[transfer.id] ?? ""}
+                          onChange={(event) => setSignoffCodes((current) => ({ ...current, [transfer.id]: event.target.value }))}
+                        />
+                      </div>
+                      <Button className="w-full sm:w-auto" variant="outline" onClick={() => dispatchMutation.mutate(transfer.id)} disabled={transfer.status === "completed"}>
+                        Dispatch
+                      </Button>
+                      <Button className="w-full sm:w-auto" onClick={() => receiveMutation.mutate(transfer.id)}>Receive</Button>
+                    </div>
+                    <p className="text-xs text-muted-foreground">Departure requires the signed-in driver/admin/manager to scan their badge or enter their user code before stock can leave.</p>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </div>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
@@ -3156,6 +3675,73 @@ function UserProfileRow({
   );
 }
 
+const MODULE_GROUPS: { label: string; keys: ModuleKey[] }[] = [
+  {
+    label: "Core Operations",
+    keys: ["receiving", "putaway", "inventory", "transfers", "pick-lists"],
+  },
+  {
+    label: "Master Data",
+    keys: ["products", "warehouses", "zones", "locations", "users", "settings", "clients", "packaging"],
+  },
+  {
+    label: "Advanced",
+    keys: ["cycle-counts", "reports", "status", "system-log", "email-log"],
+  },
+];
+
+function ModulesSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
+  const { flags, setModule, resetToStarter } = useFeatureFlags();
+
+  return (
+    <div className="flex flex-col gap-6">
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0">
+          <div>
+            <CardTitle>Module Visibility</CardTitle>
+            <CardDescription>
+              Hide modules that aren't needed for your operation. Hidden modules remain fully functional — they just won't appear in the navigation.
+              {!isAdmin && " Admin access required to change module settings."}
+            </CardDescription>
+          </div>
+          {isAdmin && (
+            <Button size="sm" variant="outline" onClick={resetToStarter}>
+              Reset to Starter defaults
+            </Button>
+          )}
+        </CardHeader>
+        <CardContent className="flex flex-col gap-6">
+          {MODULE_GROUPS.map((group) => (
+            <div key={group.label}>
+              <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">{group.label}</p>
+              <div className="flex flex-col gap-3">
+                {group.keys.map((key) => {
+                  const meta = MODULE_LABELS[key];
+                  const enabled = flags[key] ?? STARTER_MODULES[key];
+                  return (
+                    <div key={key} className="flex items-center justify-between gap-4 rounded-lg border border-border px-4 py-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium">{meta.label}</p>
+                        <p className="text-xs text-muted-foreground">{meta.description}</p>
+                      </div>
+                      <Switch
+                        checked={enabled}
+                        onCheckedChange={(v) => setModule(key, v)}
+                        disabled={!isAdmin}
+                        aria-label={`Toggle ${meta.label}`}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 export function SettingsPage() {
   const { roles } = useAuth();
   const navigate = useNavigate();
@@ -3177,13 +3763,18 @@ export function SettingsPage() {
         <h2 className="text-2xl font-semibold">Settings</h2>
         <p className="text-sm text-muted-foreground">Warehouse environment, client configuration, and system management.</p>
       </div>
-      <Tabs defaultValue="environment">
-        <TabsList className="grid h-auto w-full grid-cols-4 sm:w-fit">
+      <Tabs defaultValue="modules">
+        <TabsList className="grid h-auto w-full grid-cols-5 sm:w-fit">
+          <TabsTrigger value="modules">Modules</TabsTrigger>
           <TabsTrigger value="environment">Environment</TabsTrigger>
           <TabsTrigger value="client-vars">Client Variables</TabsTrigger>
           <TabsTrigger value="roles">Role Matrix</TabsTrigger>
           <TabsTrigger value="about" className="gap-1.5"><Info className="h-3.5 w-3.5" />About</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="modules" className="mt-4">
+          <ModulesSettingsPanel isAdmin={roles.includes("admin")} />
+        </TabsContent>
 
         <TabsContent value="environment" className="mt-4 grid gap-6 xl:grid-cols-2">
           <Card>
@@ -3745,11 +4336,72 @@ export function SystemLogPage() {
   );
 }
 
-export function MobileActionBar({ primaryTo, primaryLabel }: { primaryTo: AppRoute; primaryLabel: string }) {
+type QuickAction = {
+  label: string;
+  to?: AppRoute;
+  onClick?: () => void;
+  variant?: "default" | "outline" | "secondary";
+};
+
+function useContextActions(): QuickAction[] {
+  const { pathname } = useLocation();
+  const { isEnabled } = useFeatureFlags();
+
+  const can = (key: ModuleKey) => isEnabled(key);
+
+  const receiving: QuickAction = { label: "Receive stock", to: "/receiving", variant: "default" };
+  const putaway: QuickAction = { label: "Putaway queue", to: "/putaway-tasks", variant: "outline" };
+  const inventory: QuickAction = { label: "Search inventory", to: "/inventory-search", variant: "outline" };
+  const picking: QuickAction = { label: "Move to picking", to: "/transfers", variant: "outline" };
+
+  if (pathname === "/receiving") {
+    return [
+      can("putaway") ? putaway : null,
+      can("inventory") ? inventory : null,
+    ].filter(Boolean) as QuickAction[];
+  }
+  if (pathname === "/putaway-tasks") {
+    return [
+      can("receiving") ? receiving : null,
+      can("inventory") ? inventory : null,
+    ].filter(Boolean) as QuickAction[];
+  }
+  if (pathname === "/transfers") {
+    return [
+      can("receiving") ? receiving : null,
+      can("inventory") ? inventory : null,
+    ].filter(Boolean) as QuickAction[];
+  }
+  if (pathname === "/inventory-search") {
+    return [
+      can("receiving") ? receiving : null,
+      can("putaway") ? putaway : null,
+    ].filter(Boolean) as QuickAction[];
+  }
+  if (pathname === "/pick-lists") {
+    return [
+      can("inventory") ? inventory : null,
+      can("putaway") ? putaway : null,
+    ].filter(Boolean) as QuickAction[];
+  }
+
+  // Default / dashboard
+  return [
+    can("receiving") ? receiving : null,
+    can("putaway") ? putaway : null,
+    can("transfers") ? picking : null,
+    can("inventory") ? inventory : null,
+  ].filter(Boolean) as QuickAction[];
+}
+
+export function MobileActionBar() {
+  const actions = useContextActions();
+  if (actions.length === 0) return null;
+
   return (
     <Drawer>
       <DrawerTrigger asChild>
-        <Button className="fixed bottom-4 right-4 lg:hidden">
+        <Button className="fixed bottom-4 right-4 z-40 shadow-lg lg:hidden">
           <Plus data-icon="inline-start" />
           Quick actions
         </Button>
@@ -3758,16 +4410,18 @@ export function MobileActionBar({ primaryTo, primaryLabel }: { primaryTo: AppRou
         <DrawerHeader>
           <DrawerTitle>Quick actions</DrawerTitle>
         </DrawerHeader>
-        <div className="grid gap-2 p-4">
-          <Button asChild>
-            <Link to={primaryTo}>{primaryLabel}</Link>
-          </Button>
-          <Button asChild variant="outline">
-            <Link to="/inventory-search">Search inventory</Link>
-          </Button>
-          <Button asChild variant="outline">
-            <Link to="/putaway-tasks">Putaway queue</Link>
-          </Button>
+        <div className="grid gap-2 p-4 pb-safe">
+          {actions.map((action) =>
+            action.to ? (
+              <Button key={action.label} asChild variant={action.variant ?? "outline"} className="min-h-12 text-base">
+                <Link to={action.to}>{action.label}</Link>
+              </Button>
+            ) : (
+              <Button key={action.label} variant={action.variant ?? "outline"} className="min-h-12 text-base" onClick={action.onClick}>
+                {action.label}
+              </Button>
+            ),
+          )}
         </div>
       </DrawerContent>
     </Drawer>

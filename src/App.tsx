@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { BrowserRouter, Navigate, Outlet, Route, Routes, useNavigate, useParams } from "react-router-dom";
 import { QueryClient, QueryClientProvider, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
@@ -9,6 +9,7 @@ import { z } from "zod";
 import { Analytics } from "@vercel/analytics/react";
 
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
+import { FeatureFlagContext, useFeatureFlagState } from "@/hooks/use-feature-flags";
 import { supabase } from "@/integrations/supabase/client";
 
 import { confirmPickTask, formatDate, formatNumber, getInventoryDetail, getPickExecution, loginSchema, recordUserSignIn, signUpSchema, RESOURCE_DEFINITIONS } from "@/lib/wms-core";
@@ -613,9 +614,14 @@ function ProtectedLayout() {
   return (
     <AppShell>
       <Outlet />
-      <MobileActionBar primaryTo="/receiving" primaryLabel="Receive stock" />
+      <MobileActionBar />
     </AppShell>
   );
+}
+
+function FeatureFlagProvider({ children }: { children: ReactNode }) {
+  const value = useFeatureFlagState();
+  return <FeatureFlagContext.Provider value={value}>{children}</FeatureFlagContext.Provider>;
 }
 
 function ResourceRoutes() {
@@ -670,14 +676,16 @@ function ResourceRoutes() {
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
-      <AuthProvider>
-        <Toaster />
-        <Sonner />
-        <BrowserRouter>
-          <ResourceRoutes />
-        </BrowserRouter>
-        <Analytics />
-      </AuthProvider>
+      <FeatureFlagProvider>
+        <AuthProvider>
+          <Toaster />
+          <Sonner />
+          <BrowserRouter>
+            <ResourceRoutes />
+          </BrowserRouter>
+          <Analytics />
+        </AuthProvider>
+      </FeatureFlagProvider>
     </TooltipProvider>
   </QueryClientProvider>
 );

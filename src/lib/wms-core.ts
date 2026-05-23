@@ -151,26 +151,32 @@ export const ROLE_LABELS: Record<RoleCode, string> = {
   dispatch_driver: "Dispatch Driver",
 };
 
-export const NAVIGATION: Array<{ label: string; to: AppRoute; roles: RoleCode[] }> = [
+export type ModuleKey =
+  | "receiving" | "putaway" | "inventory" | "transfers" | "pick-lists"
+  | "products" | "warehouses" | "zones" | "locations" | "users" | "settings"
+  | "clients" | "packaging" | "cycle-counts" | "reports" | "status"
+  | "system-log" | "email-log";
+
+export const NAVIGATION: Array<{ label: string; to: AppRoute; roles: RoleCode[]; moduleKey?: ModuleKey }> = [
   { label: "Dashboard", to: "/dashboard", roles: ["admin", "warehouse_manager", "inventory_clerk", "warehouse_operator", "dispatch_driver"] },
-  { label: "Warehouses", to: "/warehouses", roles: ["admin", "warehouse_manager"] },
-  { label: "Zones", to: "/zones", roles: ["admin", "warehouse_manager"] },
-  { label: "Locations", to: "/locations", roles: ["admin", "warehouse_manager"] },
-  { label: "Clients", to: "/clients", roles: ["admin", "warehouse_manager"] },
-  { label: "Products", to: "/products", roles: ["admin", "warehouse_manager", "inventory_clerk"] },
-  { label: "Packaging", to: "/packaging-profiles", roles: ["admin", "warehouse_manager", "inventory_clerk"] },
-  { label: "Receiving", to: "/receiving", roles: ["admin", "warehouse_manager", "inventory_clerk"] },
-  { label: "Putaway", to: "/putaway-tasks", roles: ["admin", "warehouse_manager", "inventory_clerk", "warehouse_operator"] },
-  { label: "Inventory", to: "/inventory-search", roles: ["admin", "warehouse_manager", "inventory_clerk", "warehouse_operator"] },
-  { label: "Pick Lists", to: "/pick-lists", roles: ["admin", "warehouse_manager", "warehouse_operator"] },
-  { label: "Transfers", to: "/transfers", roles: ["admin", "warehouse_manager", "inventory_clerk", "dispatch_driver"] },
-  { label: "Cycle Counts", to: "/cycle-counts", roles: ["admin", "warehouse_manager", "inventory_clerk", "warehouse_operator"] },
-  { label: "Statuses", to: "/status", roles: ["admin", "warehouse_manager", "inventory_clerk"] },
-  { label: "Reports", to: "/reports", roles: ["admin", "warehouse_manager", "inventory_clerk"] },
-  { label: "Users", to: "/users", roles: ["admin"] },
-  { label: "Settings", to: "/settings", roles: ["admin", "warehouse_manager"] },
-  { label: "System Log", to: "/system-log", roles: ["admin", "warehouse_manager"] },
-  { label: "Email Log", to: "/email-log", roles: ["admin"] },
+  { label: "Warehouses", to: "/warehouses", roles: ["admin", "warehouse_manager"], moduleKey: "warehouses" },
+  { label: "Zones", to: "/zones", roles: ["admin", "warehouse_manager"], moduleKey: "zones" },
+  { label: "Locations", to: "/locations", roles: ["admin", "warehouse_manager"], moduleKey: "locations" },
+  { label: "Clients", to: "/clients", roles: ["admin", "warehouse_manager"], moduleKey: "clients" },
+  { label: "Products", to: "/products", roles: ["admin", "warehouse_manager", "inventory_clerk"], moduleKey: "products" },
+  { label: "Packaging", to: "/packaging-profiles", roles: ["admin", "warehouse_manager", "inventory_clerk"], moduleKey: "packaging" },
+  { label: "Receiving", to: "/receiving", roles: ["admin", "warehouse_manager", "inventory_clerk"], moduleKey: "receiving" },
+  { label: "Putaway", to: "/putaway-tasks", roles: ["admin", "warehouse_manager", "inventory_clerk", "warehouse_operator"], moduleKey: "putaway" },
+  { label: "Inventory", to: "/inventory-search", roles: ["admin", "warehouse_manager", "inventory_clerk", "warehouse_operator"], moduleKey: "inventory" },
+  { label: "Pick Lists", to: "/pick-lists", roles: ["admin", "warehouse_manager", "warehouse_operator"], moduleKey: "pick-lists" },
+  { label: "Transfers", to: "/transfers", roles: ["admin", "warehouse_manager", "inventory_clerk", "dispatch_driver"], moduleKey: "transfers" },
+  { label: "Cycle Counts", to: "/cycle-counts", roles: ["admin", "warehouse_manager", "inventory_clerk", "warehouse_operator"], moduleKey: "cycle-counts" },
+  { label: "Statuses", to: "/status", roles: ["admin", "warehouse_manager", "inventory_clerk"], moduleKey: "status" },
+  { label: "Reports", to: "/reports", roles: ["admin", "warehouse_manager", "inventory_clerk"], moduleKey: "reports" },
+  { label: "Users", to: "/users", roles: ["admin"], moduleKey: "users" },
+  { label: "Settings", to: "/settings", roles: ["admin", "warehouse_manager"], moduleKey: "settings" },
+  { label: "System Log", to: "/system-log", roles: ["admin", "warehouse_manager"], moduleKey: "system-log" },
+  { label: "Email Log", to: "/email-log", roles: ["admin"], moduleKey: "email-log" },
   { label: "Help", to: "/help", roles: ["admin", "warehouse_manager", "inventory_clerk", "warehouse_operator", "dispatch_driver"] },
 ];
 
@@ -372,7 +378,7 @@ export const signUpSchema = z.object({
 
 export const receivingSchema = z.object({
   receipt_type: z.enum(["po", "transfer", "manual"]),
-  reference_number: z.string().min(2),
+  reference_number: z.string().optional().or(z.literal("")),
   warehouse_id: z.string().uuid(),
   client_id: z.string().uuid(),
   product_id: z.string().uuid(),
@@ -956,7 +962,7 @@ export async function createReceiptFlow(input: z.infer<typeof receivingSchema>) 
   const receipt = await upsertRecord("receipts", {
     receipt_number: receiptNumber,
     receipt_type: payload.receipt_type,
-    reference_number: payload.reference_number,
+    reference_number: payload.reference_number || receiptNumber,
     warehouse_id: payload.warehouse_id,
     client_id: payload.client_id,
     status: "completed",
@@ -1159,12 +1165,17 @@ export async function confirmPutaway(taskId: string, scannedPalletBarcode: strin
     .single();
   if (productError) throw productError;
 
+  const { count: occupiedCount } = await db("inventory_balances")
+    .select("*", { count: "exact", head: true })
+    .eq("location_id", location.id)
+    .neq("status", "picked");
+
   const ruleCheck = validatePutawayAssignment({
     productTemperature: product.temperature_requirement,
     locationTemperature: location.temperature_class,
     locationStatus: location.status,
     locationMaxPallets: location.max_pallets,
-    occupiedPallets: 0,
+    occupiedPallets: occupiedCount ?? 0,
     mixedSkuAllowed: location.mixed_sku_allowed,
     hasOtherSku: false,
   });
@@ -1919,4 +1930,172 @@ export async function snapshotRecordCounts() {
   );
 
   return counts;
+}
+
+// ── Draft receipts ────────────────────────────────────────────────────────────
+
+export type DraftReceipt = {
+  id: string;
+  receipt_number: string;
+  reference_number: string | null;
+  warehouse_id: string;
+  client_id: string | null;
+  product_id: string | null;
+  quantity: number | null;
+  created_at: string;
+  metadata: Record<string, unknown> | null;
+};
+
+export async function saveDraftReceipt(values: z.infer<typeof receivingSchema>): Promise<string> {
+  const receiptNumber = buildPalletCode("RCT");
+  const { data, error } = await db("receipts").insert({
+    receipt_number: receiptNumber,
+    receipt_type: values.receipt_type,
+    reference_number: values.reference_number || receiptNumber,
+    warehouse_id: values.warehouse_id,
+    client_id: values.client_id || null,
+    status: "draft",
+    metadata: {
+      product_id: values.product_id,
+      quantity: values.quantity,
+      lot_number: values.lot_number,
+      batch_number: values.batch_number,
+      expiry_date: values.expiry_date,
+      manufacture_date: values.manufacture_date,
+      loading_date: values.loading_date,
+      packaging_profile_id: values.packaging_profile_id,
+      override_length: values.override_length,
+      override_width: values.override_width,
+      override_height: values.override_height,
+      override_weight: values.override_weight,
+      reuse_pallet_barcode: values.reuse_pallet_barcode,
+    },
+  }).select("id").single();
+  if (error) throw error;
+  return data.id;
+}
+
+export async function listDraftReceipts(warehouseId: string): Promise<DraftReceipt[]> {
+  const { data, error } = await db("receipts")
+    .select("id, receipt_number, reference_number, warehouse_id, client_id, status, created_at, metadata")
+    .eq("status", "draft")
+    .eq("warehouse_id", warehouseId)
+    .order("created_at", { ascending: false })
+    .limit(20);
+  if (error) throw error;
+  return (data ?? []).map((row: any) => ({
+    ...row,
+    product_id: row.metadata?.product_id ?? null,
+    quantity: row.metadata?.quantity ?? null,
+  }));
+}
+
+export async function completeReceiptFromDraft(
+  draftId: string,
+  values: z.infer<typeof receivingSchema>,
+): Promise<{ palletBarcode: string; putawayTaskNumber: string }> {
+  const result = await createReceiptFlow(values);
+  await db("receipts").update({ status: "superseded" }).eq("id", draftId);
+  return { palletBarcode: result.pallet.pallet_barcode, putawayTaskNumber: result.putawayTask.task_number };
+}
+
+export async function deleteDraftReceipt(draftId: string): Promise<void> {
+  const { error } = await db("receipts").delete().eq("id", draftId).eq("status", "draft");
+  if (error) throw error;
+}
+
+// ── Bin capacity helper ───────────────────────────────────────────────────────
+
+export async function getBinOccupancy(locationCode: string): Promise<{
+  locationId: string;
+  locationCode: string;
+  maxPallets: number;
+  occupiedPallets: number;
+  status: string;
+} | null> {
+  const { data: location, error } = await db("locations")
+    .select("id, code, max_pallets, status")
+    .eq("code", locationCode)
+    .maybeSingle();
+  if (error || !location) return null;
+
+  const { count } = await db("inventory_balances")
+    .select("*", { count: "exact", head: true })
+    .eq("location_id", location.id)
+    .neq("status", "picked");
+
+  return {
+    locationId: location.id,
+    locationCode: location.code,
+    maxPallets: location.max_pallets ?? 0,
+    occupiedPallets: count ?? 0,
+    status: location.status ?? "active",
+  };
+}
+
+// ── Move to picking area ──────────────────────────────────────────────────────
+
+export async function getPalletByBarcode(barcode: string): Promise<{
+  id: string;
+  pallet_code: string;
+  pallet_barcode: string;
+  product_id: string;
+  current_warehouse_id: string;
+  current_location_id: string | null;
+  status: string;
+  quantity: number;
+  product_sku?: string;
+  product_name?: string;
+  location_code?: string;
+} | null> {
+  const { data, error } = await db("pallets")
+    .select("id, pallet_code, pallet_barcode, product_id, current_warehouse_id, current_location_id, status, quantity, products:product_id(sku, name), locations:current_location_id(code)")
+    .eq("pallet_barcode", barcode)
+    .maybeSingle();
+  if (error || !data) return null;
+  return {
+    ...data,
+    product_sku: (data.products as any)?.sku,
+    product_name: (data.products as any)?.name,
+    location_code: (data.locations as any)?.code,
+  };
+}
+
+export async function moveToPickingArea(palletBarcode: string): Promise<void> {
+  const pallet = await getPalletByBarcode(palletBarcode);
+  if (!pallet) throw new Error(`Pallet "${palletBarcode}" not found.`);
+  if (pallet.status === "picked") throw new Error(`Pallet ${palletBarcode} is already in the picking area.`);
+
+  const { data: dispatchZone, error: zoneError } = await db("zones")
+    .select("id")
+    .eq("warehouse_id", pallet.current_warehouse_id)
+    .eq("is_dispatch", true)
+    .maybeSingle();
+  if (zoneError) throw zoneError;
+
+  await Promise.all([
+    db("pallets").update({
+      status: "picked",
+      current_location_id: null,
+      is_stored: false,
+      available_quantity: 0,
+    }).eq("id", pallet.id),
+    db("inventory_balances").update({
+      status: "picked",
+      location_id: null,
+      zone_id: dispatchZone?.id ?? null,
+      available_quantity: 0,
+    }).eq("pallet_id", pallet.id),
+  ]);
+
+  await (supabase.rpc as any)("log_audit_event", {
+    in_event_type: "transfer",
+    in_entity_table: "pallets",
+    in_entity_id: pallet.id,
+    in_pallet_id: pallet.id,
+    in_warehouse_id: pallet.current_warehouse_id,
+    in_from_location_id: pallet.current_location_id,
+    in_to_location_id: null,
+    in_metadata: { movement: "move_to_picking", pallet_barcode: palletBarcode },
+  });
 }
