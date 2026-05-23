@@ -2037,6 +2037,16 @@ export function ReceivingPage() {
                     disabled={draftMutation.isPending}
                     onClick={() => {
                       const values = form.getValues();
+                      const warehouseId = (values.warehouse_id as string) || currentWarehouseId;
+                      if (!warehouseId) {
+                        toast.error("Select a warehouse before saving a draft.");
+                        return;
+                      }
+                      values.warehouse_id = warehouseId;
+                      if (!values.product_id) {
+                        toast.error("Select a product before saving a draft.");
+                        return;
+                      }
                       draftMutation.mutate(values as z.infer<typeof receivingSchema>);
                     }}
                   >
