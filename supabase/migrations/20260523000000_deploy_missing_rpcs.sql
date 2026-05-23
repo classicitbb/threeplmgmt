@@ -58,7 +58,7 @@ as $$
     from public.inventory_balances ib
     join pallet_context pc on true
     where ib.location_id is not null
-      and ib.status not in ('picked', 'in_transit', 'missing')
+      and ib.status::text not in ('in_transit', 'missing', 'shipped')
     group by ib.location_id
   )
   select
