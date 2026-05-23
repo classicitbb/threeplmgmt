@@ -1859,10 +1859,20 @@ export function ReceivingPage() {
             </p>
           </div>
           <div className="flex gap-2">
-            <Button size="sm" variant="outline" onClick={() => window.print()}>
-              <Printer data-icon="inline-start" />
-              Print label
-            </Button>
+            <PalletLabelPage
+              barcode={lastResult.barcode}
+              quantity={lastResult.qty}
+              productSku={lastResult.productSku}
+              productName={lastResult.productName}
+              lotNumber={lastResult.lotNumber}
+              expiryDate={lastResult.expiryDate}
+              trigger={
+                <Button size="sm" variant="outline">
+                  <Printer data-icon="inline-start" />
+                  Print label
+                </Button>
+              }
+            />
             <Button size="sm" onClick={() => navigate("/putaway-tasks")}>
               Go to Putaway
             </Button>
@@ -2052,10 +2062,20 @@ export function ReceivingPage() {
             </div>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
               <Input className="min-w-0" value={manualBarcode} onChange={(event) => setManualBarcode(event.target.value)} placeholder="Latest pallet barcode" />
-              <Button className="w-full sm:w-auto" variant="outline" onClick={() => window.print()}>
-                <Printer data-icon="inline-start" />
-                Print label
-              </Button>
+              <PalletLabelPage
+                barcode={zplBarcode || manualBarcode}
+                quantity={Number(lastResult?.qty ?? receivedQuantity ?? 1)}
+                productSku={lastResult?.productSku}
+                productName={lastResult?.productName}
+                lotNumber={lastResult?.lotNumber}
+                expiryDate={lastResult?.expiryDate}
+                trigger={
+                  <Button className="w-full sm:w-auto" variant="outline" disabled={!zplBarcode && !manualBarcode}>
+                    <Printer data-icon="inline-start" />
+                    Print label
+                  </Button>
+                }
+              />
             </div>
             {zplPreview ? (
               <>
