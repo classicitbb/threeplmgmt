@@ -1145,7 +1145,12 @@ export async function getPutawayTasks(userId?: string) {
   return data ?? [];
 }
 
-export async function confirmPutaway(taskId: string, scannedPalletBarcode: string, scannedLocationCode: string) {
+export async function confirmPutaway(
+  taskId: string,
+  scannedPalletBarcode: string,
+  scannedLocationCode: string,
+  options?: { override?: boolean; overrideReason?: string },
+) {
   const { data: task, error: taskError } = await db("putaway_tasks")
     .select("*, pallets(*), locations: suggested_location_id(*), products: pallets(product_id)")
     .eq("id", taskId)
@@ -1185,8 +1190,10 @@ export async function confirmPutaway(taskId: string, scannedPalletBarcode: strin
     hasOtherSku: false,
   });
 
-  if (!ruleCheck.valid) {
-    throw new Error(ruleCheck.reason);
+  const overrideUsed = !ruleCheck.valid && options?.override === true;
+  if (!ruleCheck.valid && !overrideUsed) {
+    // Prefix lets the UI detect rule violations and offer an override path
+    throw new Error(`RULE_VIOLATION: ${ruleCheck.reason}`);
   }
 
   await Promise.all([
@@ -1226,6 +1233,11 @@ export async function confirmPutaway(taskId: string, scannedPalletBarcode: strin
     in_metadata: {
       location_code: location.code,
       pallet_barcode: pallet.pallet_barcode,
+      override: overrideUsed,
+      override_reason: overrideUsed ? (options?.overrideReason ?? ruleCheck.reason ?? null) : null,
+      suggested_location_id: task.suggested_location_id ?? null,
+      suggestion_overridden:
+        task.suggested_location_id != null && task.suggested_location_id !== location.id,
     } as any,
   });
 }
