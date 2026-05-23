@@ -377,7 +377,7 @@ export const signUpSchema = z.object({
 });
 
 export const receivingSchema = z.object({
-  receipt_type: z.enum(["po", "transfer", "manual"]),
+  receipt_type: z.enum(["po", "transfer", "other"]),
   reference_number: z.string().optional().or(z.literal("")),
   warehouse_id: z.string().uuid(),
   client_id: z.string().uuid().optional().or(z.literal("")),
@@ -780,12 +780,13 @@ async function logUserActivity(
   const actorId = userData.user?.id;
   if (!actorId) return;
 
-  await (supabase.rpc as any)("log_audit_event", {
+  const auditR = await (supabase.rpc as any)("log_audit_event", {
     in_event_type: eventType,
     in_entity_table: entityTable,
     in_entity_id: entityId ?? actorId,
     in_metadata: metadata ?? {},
   });
+  if (auditR.error) console.error("[logUserActivity] log_audit_event failed:", auditR.error);
 }
 
 export function createDefaultWarehouseSetupPayload(): WarehouseSetupPayload {
@@ -1024,7 +1025,6 @@ export async function createReceiptFlow(input: z.infer<typeof receivingSchema>) 
   };
   if (reusedPalletId) {
     palletUpsertPayload.id = reusedPalletId;
-    palletUpsertPayload.reused_from_pallet_id = reusedPalletId;
   }
 
   const pallet = await upsertRecord("pallets", palletUpsertPayload);
@@ -1042,7 +1042,9 @@ export async function createReceiptFlow(input: z.infer<typeof receivingSchema>) 
   });
 
   const suggestions = await (supabase.rpc as any)("directed_putaway_candidates", { in_pallet_id: pallet.id });
-  if (suggestions.error) throw suggestions.error;
+  if (suggestions.error) {
+    console.error("[createReceiptFlow] directed_putaway_candidates failed:", suggestions.error);
+  }
   const topSuggestion = suggestions.data?.[0] ?? null;
 
   const putawayTask = await upsertRecord("putaway_tasks", {
@@ -1226,7 +1228,7 @@ export async function confirmPutaway(
       .eq("id", taskId),
   ]);
 
-  await (supabase.rpc as any)("log_audit_event", {
+  const putawayAudit = await (supabase.rpc as any)("log_audit_event", {
     in_event_type: "putaway",
     in_entity_table: "putaway_tasks",
     in_entity_id: taskId,
@@ -1243,6 +1245,7 @@ export async function confirmPutaway(
         task.suggested_location_id != null && task.suggested_location_id !== location.id,
     } as any,
   });
+  if (putawayAudit.error) console.error("[confirmPutaway] log_audit_event failed:", putawayAudit.error);
 }
 
 async function selectPickCandidates(productId: string, warehouseId: string, quantity: number) {
@@ -1406,7 +1409,7 @@ export async function confirmPickTask(taskId: string, scannedLocation: string, s
       .eq("id", balance.id),
   ]);
 
-  await (supabase.rpc as any)("log_audit_event", {
+  const pickAudit = await (supabase.rpc as any)("log_audit_event", {
     in_event_type: "pick",
     in_entity_table: "pick_tasks",
     in_entity_id: taskId,
@@ -1418,6 +1421,7 @@ export async function confirmPickTask(taskId: string, scannedLocation: string, s
       short_reason: shortReason ?? null,
     } as any,
   });
+  if (pickAudit.error) console.error("[submitPickTaskLine] log_audit_event failed:", pickAudit.error);
 }
 
 export async function createTransferFlow(input: z.infer<typeof transferSchema>) {
@@ -1511,7 +1515,7 @@ export async function dispatchTransfer(transferId: string, driverSignoffCode: st
     })
     .eq("id", transferId);
 
-  await (supabase.rpc as any)("log_audit_event", {
+  const dispatchAudit = await (supabase.rpc as any)("log_audit_event", {
     in_event_type: "transfer_driver_signoff",
     in_entity_table: "transfers",
     in_entity_id: transferId,
@@ -1522,6 +1526,7 @@ export async function dispatchTransfer(transferId: string, driverSignoffCode: st
       signed_off_by: profile.full_name ?? actorId,
     },
   });
+  if (dispatchAudit.error) console.error("[dispatchTransfer] log_audit_event failed:", dispatchAudit.error);
 }
 
 export async function receiveTransfer(transferId: string) {
@@ -1662,7 +1667,7 @@ export async function changePalletStatus(input: z.infer<typeof statusChangeSchem
     }),
   ]);
 
-  await (supabase.rpc as any)("log_audit_event", {
+  const statusAudit = await (supabase.rpc as any)("log_audit_event", {
     in_event_type: "status_change",
     in_entity_table: "pallets",
     in_entity_id: palletId,
@@ -1674,6 +1679,7 @@ export async function changePalletStatus(input: z.infer<typeof statusChangeSchem
       reason: payload.reason,
     } as any,
   });
+  if (statusAudit.error) console.error("[changePalletStatus] log_audit_event failed:", statusAudit.error);
 }
 
 async function resolvePalletId(palletInput: string) {
@@ -2121,7 +2127,7 @@ export async function moveToPickingArea(palletBarcode: string): Promise<void> {
     }).eq("pallet_id", pallet.id),
   ]);
 
-  await (supabase.rpc as any)("log_audit_event", {
+  const moveAudit = await (supabase.rpc as any)("log_audit_event", {
     in_event_type: "transfer",
     in_entity_table: "pallets",
     in_entity_id: pallet.id,
@@ -2131,4 +2137,5 @@ export async function moveToPickingArea(palletBarcode: string): Promise<void> {
     in_to_location_id: null,
     in_metadata: { movement: "move_to_picking", pallet_barcode: palletBarcode },
   });
+  if (moveAudit.error) console.error("[moveToPickingArea] log_audit_event failed:", moveAudit.error);
 }

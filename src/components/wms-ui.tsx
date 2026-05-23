@@ -1710,7 +1710,7 @@ export function ReceivingPage() {
   const form = useForm<z.infer<typeof receivingSchema>>({
     resolver: zodResolver(receivingSchema),
     defaultValues: {
-      receipt_type: "manual",
+      receipt_type: "other",
       reference_number: "",
       quantity: 1,
       warehouse_id: defaultWarehouseId || undefined,
@@ -1791,7 +1791,7 @@ export function ReceivingPage() {
         expiryDate: vals.expiry_date || undefined,
       });
       setResumingDraftId(null);
-      form.reset({ receipt_type: "manual", reference_number: "", quantity: 1, warehouse_id: currentWarehouseId });
+      form.reset({ receipt_type: "other", reference_number: "", quantity: 1, warehouse_id: currentWarehouseId });
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["dashboard-metrics"] }),
         queryClient.invalidateQueries({ queryKey: ["putaway-tasks"] }),
@@ -1823,7 +1823,7 @@ export function ReceivingPage() {
   function resumeDraft(draft: DraftReceipt) {
     const meta = draft.notes ? JSON.parse(draft.notes) : {};
     form.reset({
-      receipt_type: "manual",
+      receipt_type: "other",
       reference_number: draft.reference_number ?? "",
       warehouse_id: draft.warehouse_id,
       client_id: draft.client_id ?? undefined,
@@ -1895,7 +1895,7 @@ export function ReceivingPage() {
                 </CardDescription>
               </div>
               {resumingDraftId && (
-                <Button size="sm" variant="ghost" onClick={() => { setResumingDraftId(null); form.reset({ receipt_type: "manual", reference_number: "", quantity: 1, warehouse_id: currentWarehouseId }); }}>
+                <Button size="sm" variant="ghost" onClick={() => { setResumingDraftId(null); form.reset({ receipt_type: "other", reference_number: "", quantity: 1, warehouse_id: currentWarehouseId }); }}>
                   Cancel
                 </Button>
               )}
@@ -1990,7 +1990,7 @@ export function ReceivingPage() {
                 {showMore && (
                   <div className="grid gap-4 rounded-lg border border-border bg-secondary/20 p-4 sm:grid-cols-2">
                     <SelectField form={form} name="receipt_type" label="Receipt type" options={[
-                      { label: "Manual", value: "manual" },
+                      { label: "Manual / Other", value: "other" },
                       { label: "Purchase Order", value: "po" },
                       { label: "Transfer", value: "transfer" },
                     ]} />
