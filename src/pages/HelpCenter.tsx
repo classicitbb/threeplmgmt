@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 
-import { helpArticles, searchHelpArticles, setupWizardSteps } from "@/lib/help-content";
+import { searchHelpArticles, setupWizardSteps } from "@/lib/help-content";
 import { useAuth } from "@/hooks/use-auth";
 import { useFeatureFlags, STARTER_MODULES, type ModuleKey } from "@/hooks/use-feature-flags";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";

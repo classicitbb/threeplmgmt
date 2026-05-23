@@ -92,6 +92,7 @@ import {
   writeSystemLog,
 } from "@/lib/wms-core";
 import { ProductSearch } from "@/components/product-search";
+import { PalletLabelPage } from "@/components/pallet-label-page";
 
 import { cn } from "@/lib/utils";
 import {
@@ -1736,7 +1737,15 @@ export function ReceivingPage() {
   const [showZplAdvanced, setShowZplAdvanced] = useState(false);
   const [showDrafts, setShowDrafts] = useState(false);
   const [resumingDraftId, setResumingDraftId] = useState<string | null>(null);
-  const [lastResult, setLastResult] = useState<{ barcode: string; taskNumber: string; qty: number } | null>(null);
+  const [lastResult, setLastResult] = useState<{
+    barcode: string;
+    taskNumber: string;
+    qty: number;
+    productSku?: string;
+    productName?: string;
+    lotNumber?: string;
+    expiryDate?: string;
+  } | null>(null);
   const [manualBarcode, setManualBarcode] = useState("");
 
   const currentWarehouseId = form.watch("warehouse_id") || defaultWarehouseId;
@@ -1769,7 +1778,17 @@ export function ReceivingPage() {
     onSuccess: async (result) => {
       const { palletBarcode, putawayTaskNumber } = result as { palletBarcode: string; putawayTaskNumber: string };
       toast.success(`Pallet ${palletBarcode} ready — putaway task ${putawayTaskNumber} queued.`);
-      setLastResult({ barcode: palletBarcode, taskNumber: putawayTaskNumber, qty: Number(form.getValues("quantity")) });
+      const vals = form.getValues();
+      const prod = productOptions.find((p) => p.id === vals.product_id);
+      setLastResult({
+        barcode: palletBarcode,
+        taskNumber: putawayTaskNumber,
+        qty: Number(vals.quantity),
+        productSku: prod?.sku,
+        productName: prod?.name,
+        lotNumber: vals.lot_number || undefined,
+        expiryDate: vals.expiry_date || undefined,
+      });
       setResumingDraftId(null);
       form.reset({ receipt_type: "manual", reference_number: "", quantity: 1, warehouse_id: currentWarehouseId });
       await Promise.all([
@@ -1840,10 +1859,20 @@ export function ReceivingPage() {
             </p>
           </div>
           <div className="flex gap-2">
-            <Button size="sm" variant="outline" onClick={() => window.print()}>
-              <Printer data-icon="inline-start" />
-              Print label
-            </Button>
+            <PalletLabelPage
+              barcode={lastResult.barcode}
+              quantity={lastResult.qty}
+              productSku={lastResult.productSku}
+              productName={lastResult.productName}
+              lotNumber={lastResult.lotNumber}
+              expiryDate={lastResult.expiryDate}
+              trigger={
+                <Button size="sm" variant="outline">
+                  <Printer data-icon="inline-start" />
+                  Print label
+                </Button>
+              }
+            />
             <Button size="sm" onClick={() => navigate("/putaway-tasks")}>
               Go to Putaway
             </Button>
@@ -2008,6 +2037,16 @@ export function ReceivingPage() {
                     disabled={draftMutation.isPending}
                     onClick={() => {
                       const values = form.getValues();
+                      const warehouseId = (values.warehouse_id as string) || currentWarehouseId;
+                      if (!warehouseId) {
+                        toast.error("Select a warehouse before saving a draft.");
+                        return;
+                      }
+                      values.warehouse_id = warehouseId;
+                      if (!values.product_id) {
+                        toast.error("Select a product before saving a draft.");
+                        return;
+                      }
                       draftMutation.mutate(values as z.infer<typeof receivingSchema>);
                     }}
                   >
@@ -2033,10 +2072,20 @@ export function ReceivingPage() {
             </div>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
               <Input className="min-w-0" value={manualBarcode} onChange={(event) => setManualBarcode(event.target.value)} placeholder="Latest pallet barcode" />
-              <Button className="w-full sm:w-auto" variant="outline" onClick={() => window.print()}>
-                <Printer data-icon="inline-start" />
-                Print label
-              </Button>
+              <PalletLabelPage
+                barcode={zplBarcode || manualBarcode}
+                quantity={Number(lastResult?.qty ?? receivedQuantity ?? 1)}
+                productSku={lastResult?.productSku}
+                productName={lastResult?.productName}
+                lotNumber={lastResult?.lotNumber}
+                expiryDate={lastResult?.expiryDate}
+                trigger={
+                  <Button className="w-full sm:w-auto" variant="outline" disabled={!zplBarcode && !manualBarcode}>
+                    <Printer data-icon="inline-start" />
+                    Print label
+                  </Button>
+                }
+              />
             </div>
             {zplPreview ? (
               <>
@@ -2200,7 +2249,7 @@ function SelectField({
   );
 }
 
-function BinCapacityBar({ locationCode, taskId }: { locationCode: string; taskId: string }) {
+function BinCapacityBar({ locationCode }: { locationCode: string; taskId?: string }) {
   const { data } = useQuery({
     queryKey: ["bin-occupancy", locationCode],
     queryFn: () => getBinOccupancy(locationCode),
@@ -2255,17 +2304,23 @@ export function PutawayTasksPage() {
     queryKey: ["putaway-tasks", user?.id],
     queryFn: () => getPutawayTasks(user?.id),
   });
-  const [scanState, setScanState] = useState<Record<string, { pallet: string; location: string }>>({});
+  const [scanState, setScanState] = useState<Record<string, { pallet: string; location: string; override: boolean; reason: string }>>({});
+  const [violations, setViolations] = useState<Record<string, string>>({});
   const locationRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const [completedIds, setCompletedIds] = useState<Set<string>>(new Set());
 
   const mutation = useMutation({
-    mutationFn: async ({ taskId, pallet, location }: { taskId: string; pallet: string; location: string }) =>
-      confirmPutaway(taskId, pallet, location),
+    mutationFn: async ({ taskId, pallet, location, override, reason }: { taskId: string; pallet: string; location: string; override?: boolean; reason?: string }) =>
+      confirmPutaway(taskId, pallet, location, { override, overrideReason: reason }),
     onSuccess: async (_, vars) => {
-      toast.success("Putaway confirmed");
+      toast.success(vars.override ? "Putaway confirmed with override" : "Putaway confirmed");
       setCompletedIds((prev) => new Set([...prev, vars.taskId]));
       setScanState((current) => {
+        const next = { ...current };
+        delete next[vars.taskId];
+        return next;
+      });
+      setViolations((current) => {
         const next = { ...current };
         delete next[vars.taskId];
         return next;
@@ -2276,7 +2331,16 @@ export function PutawayTasksPage() {
         queryClient.invalidateQueries({ queryKey: ["dashboard-metrics"] }),
       ]);
     },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Putaway failed"),
+    onError: (error, vars) => {
+      const msg = error instanceof Error ? error.message : String(error);
+      if (msg.startsWith("RULE_VIOLATION:")) {
+        const reason = msg.replace(/^RULE_VIOLATION:\s*/, "");
+        setViolations((current) => ({ ...current, [vars.taskId]: reason }));
+        toast.warning(`Location rule violation: ${reason}. Tick "Override" to put away anyway.`);
+      } else {
+        toast.error(msg || "Putaway failed");
+      }
+    },
   });
 
   const pendingTasks = data.filter((task: any) => !completedIds.has(task.id));
@@ -2304,9 +2368,11 @@ export function PutawayTasksPage() {
           </Card>
         ) : (
           pendingTasks.map((task: any) => {
-            const localState = scanState[task.id] ?? { pallet: "", location: "" };
+            const localState = scanState[task.id] ?? { pallet: "", location: "", override: false, reason: "" };
             const binOccupancy = localState.location.length >= 2;
-            const isFull = false; // BinCapacityBar handles the display; button is always enabled for now
+            const violation = violations[task.id];
+            const suggested = (task.locations as any)?.code;
+            const isOverridingSuggestion = Boolean(suggested && localState.location && localState.location !== suggested);
 
             return (
               <Card key={task.id} className="border-2">
@@ -2360,19 +2426,64 @@ export function PutawayTasksPage() {
                       onChange={(event) =>
                         setScanState((current) => ({
                           ...current,
-                          [task.id]: { ...localState, location: event.target.value.replace(/[\r\n]/g, "") },
+                        [task.id]: { ...localState, location: event.target.value.replace(/[\r\n]/g, "") },
                         }))
                       }
                     />
                   </div>
                   {binOccupancy && <BinCapacityBar locationCode={localState.location} taskId={task.id} />}
+                  {isOverridingSuggestion && (
+                    <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
+                      Operator override: scanned <span className="font-mono font-semibold">{localState.location}</span> instead of suggested <span className="font-mono font-semibold">{suggested}</span>. The audit log will record the change.
+                    </div>
+                  )}
+                  {violation && (
+                    <div className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-900 dark:border-red-700 dark:bg-red-950/40 dark:text-red-200">
+                      Rule violation: {violation}
+                    </div>
+                  )}
+                  <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4"
+                      checked={localState.override}
+                      onChange={(e) =>
+                        setScanState((current) => ({
+                          ...current,
+                          [task.id]: { ...localState, override: e.target.checked },
+                        }))
+                      }
+                    />
+                    Override location rules (warn only — logs reason)
+                  </label>
+                  {localState.override && (
+                    <Input
+                      className="min-h-10 text-sm"
+                      placeholder="Reason for override (e.g. lane blocked, urgent ship)"
+                      value={localState.reason}
+                      onChange={(e) =>
+                        setScanState((current) => ({
+                          ...current,
+                          [task.id]: { ...localState, reason: e.target.value },
+                        }))
+                      }
+                    />
+                  )}
                   <Button
                     className="min-h-12 w-full text-base"
                     disabled={mutation.isPending || !localState.pallet || !localState.location}
-                    onClick={() => mutation.mutate({ taskId: task.id, pallet: localState.pallet, location: localState.location })}
+                    onClick={() =>
+                      mutation.mutate({
+                        taskId: task.id,
+                        pallet: localState.pallet,
+                        location: localState.location,
+                        override: localState.override,
+                        reason: localState.reason,
+                      })
+                    }
                   >
                     {mutation.isPending ? <Loader2 className="animate-spin" /> : <CheckCircle2 data-icon="inline-start" />}
-                    Confirm Put-Away
+                    {localState.override ? "Override & Confirm Put-Away" : "Confirm Put-Away"}
                   </Button>
                 </CardContent>
               </Card>
