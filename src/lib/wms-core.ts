@@ -1053,7 +1053,7 @@ export async function createReceiptFlow(input: z.infer<typeof receivingSchema>) 
     status: "queued",
   });
 
-  await (supabase.rpc as any)("log_audit_event", {
+  const auditResult = await (supabase.rpc as any)("log_audit_event", {
     in_event_type: "receipt",
     in_entity_table: "pallets",
     in_entity_id: pallet.id,
@@ -1065,6 +1065,9 @@ export async function createReceiptFlow(input: z.infer<typeof receivingSchema>) 
       quantity: payload.quantity,
     } as any,
   });
+  if (auditResult.error) {
+    console.error("[createReceiptFlow] log_audit_event failed:", auditResult.error);
+  }
 
   await createLabelRecord("pallet", pallet.id, palletCode);
 
@@ -2016,7 +2019,10 @@ export async function completeReceiptFromDraft(
   values: z.infer<typeof receivingSchema>,
 ): Promise<{ palletBarcode: string; putawayTaskNumber: string }> {
   const result = await createReceiptFlow(values);
-  await db("receipts").update({ status: "cancelled" }).eq("id", draftId);
+  const { error: draftCancelError } = await db("receipts").update({ status: "cancelled" }).eq("id", draftId);
+  if (draftCancelError) {
+    console.error("[completeReceiptFromDraft] failed to cancel draft:", draftCancelError);
+  }
   return { palletBarcode: result.pallet.pallet_barcode, putawayTaskNumber: result.putawayTask.task_number };
 }
 

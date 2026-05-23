@@ -1717,12 +1717,13 @@ export function ReceivingPage() {
     },
   });
 
-  // Pre-fill warehouse when profile loads
+  // Pre-fill warehouse when profile loads or when only one warehouse exists
   useEffect(() => {
-    if (defaultWarehouseId && !form.getValues("warehouse_id")) {
-      form.setValue("warehouse_id", defaultWarehouseId);
+    if (!form.getValues("warehouse_id")) {
+      const fill = defaultWarehouseId || (warehouses.length === 1 ? (warehouses[0] as any).id : "");
+      if (fill) form.setValue("warehouse_id", fill);
     }
-  }, [defaultWarehouseId, form]);
+  }, [defaultWarehouseId, warehouses, form]);
 
   // Pre-fill client when only one exists
   useEffect(() => {
@@ -1902,7 +1903,13 @@ export function ReceivingPage() {
           </CardHeader>
           <CardContent>
             <Form {...form}>
-              <form className="grid gap-4" onSubmit={form.handleSubmit((values) => mutation.mutate(values))}>
+              <form className="grid gap-4" onSubmit={form.handleSubmit(
+                (values) => mutation.mutate(values),
+                (errors) => {
+                  const firstMsg = Object.values(errors).find((e) => e?.message)?.message;
+                  toast.error(firstMsg ? String(firstMsg) : "Please fix the form errors before submitting.");
+                }
+              )}>
                 {/* Core fields – always visible */}
                 <FormField
                   control={form.control}
