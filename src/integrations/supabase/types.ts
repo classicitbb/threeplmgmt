@@ -2959,6 +2959,15 @@ export type Database = {
         Args: { message_id: number; queue_name: string }
         Returns: boolean
       }
+      directed_putaway_candidates: {
+        Args: { in_pallet_id: string }
+        Returns: {
+          location_code: string
+          location_id: string
+          reason: string
+          score: number
+        }[]
+      }
       enqueue_email: {
         Args: { payload: Json; queue_name: string }
         Returns: number
