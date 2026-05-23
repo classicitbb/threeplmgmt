@@ -2239,7 +2239,7 @@ function SelectField({
   );
 }
 
-function BinCapacityBar({ locationCode, taskId }: { locationCode: string; taskId: string }) {
+function BinCapacityBar({ locationCode }: { locationCode: string; taskId?: string }) {
   const { data } = useQuery({
     queryKey: ["bin-occupancy", locationCode],
     queryFn: () => getBinOccupancy(locationCode),
