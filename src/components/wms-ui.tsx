@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm, type UseFormReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { supabase } from "@/integrations/supabase/client";
-import { Activity, BarChart3, Bot, Boxes, Building2, Camera, CheckCircle2, ClipboardCheck, ClipboardList, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, HelpCircle, Home, Info, LayoutDashboard, Loader2, LogOut, Mail, Maximize2, MapPinned, Menu, Minimize2, Package, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, QrCode, RadioTower, RotateCcw, Search, Settings, ShieldCheck, Tags, Truck, Upload, UserPlus, Users, Warehouse } from "lucide-react";
+import { Activity, Archive, BarChart3, Bot, Boxes, Building2, Camera, CheckCircle2, ClipboardCheck, ClipboardList, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, HelpCircle, Home, Info, LayoutDashboard, Loader2, LogOut, Mail, Maximize2, MapPinned, Menu, Minimize2, MoreVertical, Package, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, QrCode, RadioTower, RotateCcw, Search, Settings, ShieldCheck, Tags, Trash2, Truck, Upload, UserPlus, Users, Warehouse } from "lucide-react";
 import {
   DndContext,
   KeyboardSensor,
@@ -111,7 +111,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerTrigger } from "@/components/ui/drawer";
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
@@ -1799,7 +1801,7 @@ export function ReceivingPage() {
   });
 
   function resumeDraft(draft: DraftReceipt) {
-    const meta = draft.metadata ?? {};
+    const meta = draft.notes ? JSON.parse(draft.notes) : {};
     form.reset({
       receipt_type: "manual",
       reference_number: draft.reference_number ?? "",
@@ -1936,6 +1938,10 @@ export function ReceivingPage() {
                   <SelectField form={form} name="warehouse_id" label="Warehouse" options={warehouses.map((w: any) => ({ label: w.name, value: w.id }))} />
                 )}
 
+                {(options?.clients ?? []).length > 1 && (
+                  <SelectField form={form} name="client_id" label="Client / Owner" options={(options?.clients ?? []).map((client: any) => ({ label: `${client.code} · ${client.name}`, value: client.id }))} />
+                )}
+
                 {/* Show more toggle */}
                 <button
                   type="button"
@@ -1956,7 +1962,6 @@ export function ReceivingPage() {
                     {singleWarehouse && (
                       <SelectField form={form} name="warehouse_id" label="Warehouse" options={warehouses.map((w: any) => ({ label: w.name, value: w.id }))} />
                     )}
-                    <SelectField form={form} name="client_id" label="Client / Owner" options={(options?.clients ?? []).map((client: any) => ({ label: `${client.code} · ${client.name}`, value: client.id }))} />
                     <SelectField form={form} name="packaging_profile_id" label="Packaging profile" options={(options?.packagingProfiles ?? []).map((p: any) => ({ label: p.profile_name, value: p.id }))} />
                     <TextField form={form} name="lot_number" label="Lot number" />
                     <TextField form={form} name="batch_number" label="Batch number" />
@@ -2502,24 +2507,80 @@ export function InventorySearchPage() {
 
 export function PickListsPage() {
   const queryClient = useQueryClient();
+  const { roles } = useAuth();
+  const isAdmin = roles.includes("admin");
   const { data: options } = useQuery({ queryKey: ["options"], queryFn: () => fetchOptions() });
   const { data: pickLists = [] } = useQuery({ queryKey: ["pick-lists"], queryFn: listPickLists });
   const form = useForm<z.infer<typeof pickListSchema>>({
     resolver: zodResolver(pickListSchema),
-    defaultValues: { lines: [{ product_id: "", quantity: 1 }] },
+    defaultValues: { warehouse_id: "", client_id: "", order_number: "", lines: [{ product_id: "", quantity: 1 }] },
   });
+
+  // Auto-fill warehouse when only one exists
+  useEffect(() => {
+    const warehouses = options?.warehouses ?? [];
+    if (warehouses.length === 1 && !form.getValues("warehouse_id")) {
+      form.setValue("warehouse_id", warehouses[0].id);
+    }
+  }, [options?.warehouses, form]);
+
+  // Auto-fill client when only one exists
+  useEffect(() => {
+    const clients = options?.clients ?? [];
+    if (clients.length === 1 && !form.getValues("client_id")) {
+      form.setValue("client_id", clients[0].id);
+    }
+  }, [options?.clients, form]);
 
   const mutation = useMutation({
     mutationFn: async (values: z.infer<typeof pickListSchema>) => createPickListFlow(values),
     onSuccess: async () => {
       toast.success("Pick list released");
-      form.reset({ lines: [{ product_id: "", quantity: 1 }] });
+      form.reset({ warehouse_id: "", client_id: "", order_number: "", lines: [{ product_id: "", quantity: 1 }] });
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["pick-lists"] }),
         queryClient.invalidateQueries({ queryKey: ["dashboard-metrics"] }),
       ]);
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Pick list failed"),
+  });
+
+  const deletePickListMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("pick_lists").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: async () => {
+      toast.success("Pick list deleted");
+      await queryClient.invalidateQueries({ queryKey: ["pick-lists"] });
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Delete failed"),
+  });
+
+  const archivePickListMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("pick_lists").update({ status: "cancelled" }).eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: async () => {
+      toast.success("Pick list archived");
+      await queryClient.invalidateQueries({ queryKey: ["pick-lists"] });
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Archive failed"),
+  });
+
+  const clearPickListMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const { error: listError } = await supabase.from("pick_lists").update({ status: "draft" }).eq("id", id);
+      if (listError) throw listError;
+      const { error: taskError } = await supabase.from("pick_tasks").update({ status: "queued" }).eq("pick_list_id", id);
+      if (taskError) throw taskError;
+    },
+    onSuccess: async () => {
+      toast.success("Pick list cleared — tasks reset to queued");
+      await queryClient.invalidateQueries({ queryKey: ["pick-lists"] });
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Clear failed"),
   });
 
   const lines = form.watch("lines");
@@ -2540,7 +2601,63 @@ export function PickListsPage() {
             <CardHeader>
               <CardTitle className="flex items-center justify-between gap-4">
                 <span>{pickList.pick_list_number}</span>
-                <Badge>{pickList.status}</Badge>
+                <div className="flex items-center gap-2">
+                  <Badge>{pickList.status}</Badge>
+                  {isAdmin && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button size="icon" variant="ghost" className="h-7 w-7">
+                          <MoreVertical className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem
+                          onClick={() => clearPickListMutation.mutate(pickList.id)}
+                          disabled={clearPickListMutation.isPending}
+                        >
+                          <RotateCcw className="mr-2 h-4 w-4" />
+                          Clear (reset to draft)
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => archivePickListMutation.mutate(pickList.id)}
+                          disabled={archivePickListMutation.isPending}
+                        >
+                          <Archive className="mr-2 h-4 w-4" />
+                          Archive
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <DropdownMenuItem
+                              className="text-destructive focus:text-destructive"
+                              onSelect={(e) => e.preventDefault()}
+                            >
+                              <Trash2 className="mr-2 h-4 w-4" />
+                              Delete
+                            </DropdownMenuItem>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Delete pick list?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                This permanently deletes {pickList.pick_list_number} and all its tasks. This cannot be undone.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogAction
+                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                onClick={() => deletePickListMutation.mutate(pickList.id)}
+                              >
+                                Delete
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
+                </div>
               </CardTitle>
               <CardDescription>{pickList.notes || "Released outbound work"}</CardDescription>
             </CardHeader>
@@ -3764,11 +3881,14 @@ export function SettingsPage() {
         <p className="text-sm text-muted-foreground">Warehouse environment, client configuration, and system management.</p>
       </div>
       <Tabs defaultValue="modules">
-        <TabsList className="grid h-auto w-full grid-cols-5 sm:w-fit">
+        <TabsList className={cn("grid h-auto w-full sm:w-fit", roles.includes("admin") ? "grid-cols-6" : "grid-cols-5")}>
           <TabsTrigger value="modules">Modules</TabsTrigger>
           <TabsTrigger value="environment">Environment</TabsTrigger>
           <TabsTrigger value="client-vars">Client Variables</TabsTrigger>
           <TabsTrigger value="roles">Role Matrix</TabsTrigger>
+          {roles.includes("admin") && (
+            <TabsTrigger value="users-roles" className="gap-1.5"><Users className="h-3.5 w-3.5" />Users & Roles</TabsTrigger>
+          )}
           <TabsTrigger value="about" className="gap-1.5"><Info className="h-3.5 w-3.5" />About</TabsTrigger>
         </TabsList>
 
@@ -3834,6 +3954,12 @@ export function SettingsPage() {
           </Card>
         </TabsContent>
 
+        {roles.includes("admin") && (
+          <TabsContent value="users-roles" className="mt-4">
+            <UsersRolesPage />
+          </TabsContent>
+        )}
+
         <TabsContent value="about" className="mt-4 grid gap-6 xl:grid-cols-2">
           <Card>
             <CardHeader>
@@ -3849,6 +3975,19 @@ export function SettingsPage() {
                 <span className="font-mono text-xs font-semibold text-primary">v{__APP_VERSION__}</span>
               </div>
               {[
+                {
+                  version: "1.1.1",
+                  date: "May 2026",
+                  changes: [
+                    "Fix: Draft receipts now save correctly (notes column, not metadata)",
+                    "Fix: Receive & Create Pallet works without expanding Show More — client field always visible",
+                    "Fix: Pick list creation initialises all required fields correctly",
+                    "Fix: Move to Picking correctly resolves pallet barcodes",
+                    "Admin: Pick lists can now be cleared, archived, or deleted",
+                    "Settings: Users & Roles management accessible from Settings (admin tab)",
+                    "Help: Articles filtered by your role and enabled modules",
+                  ],
+                },
                 {
                   version: "1.1.0",
                   date: "May 2026",
