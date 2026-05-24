@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useImperativeHandle, useRef, useState, forwardRef } from "react";
 import { Check, ChevronsUpDown, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -30,9 +30,20 @@ type Props = {
   placeholder?: string;
   disabled?: boolean;
   error?: boolean;
+  /** Imperative handle ref — exposes open() to programmatically open the search popover */
+  ref?: React.Ref<ProductSearchHandle>;
 };
 
-export function ProductSearch({ value, onChange, options, placeholder = "Search product by code or name…", disabled, error }: Props) {
+export type ProductSearchHandle = {
+  open: () => void;
+  /** Attempt to match a raw barcode string and auto-select the product */
+  scanBarcode: (raw: string) => boolean;
+};
+
+export const ProductSearch = forwardRef<ProductSearchHandle, Omit<Props, "ref">>(function ProductSearch(
+  { value, onChange, options, placeholder = "Search product by code or name…", disabled, error },
+  ref,
+) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -52,7 +63,7 @@ export function ProductSearch({ value, onChange, options, placeholder = "Search 
         })
         .slice(0, 8);
 
-  // Bluetooth scanner support: if the query exactly matches a product barcode, auto-select
+  // Bluetooth / USB HID scanner support: if the query exactly matches a product barcode, auto-select
   useEffect(() => {
     if (!query) return;
     const match = options.find((o) => o.barcode && o.barcode === query);
@@ -62,6 +73,28 @@ export function ProductSearch({ value, onChange, options, placeholder = "Search 
       setOpen(false);
     }
   }, [query, options, onChange]);
+
+  // Expose imperative open() + scanBarcode() for parent components (e.g. camera scanner button)
+  useImperativeHandle(ref, () => ({
+    open: () => {
+      setOpen(true);
+      setTimeout(() => inputRef.current?.focus(), 50);
+    },
+    scanBarcode: (raw: string) => {
+      const match = options.find((o) => o.barcode && o.barcode === raw);
+      if (match) {
+        onChange(match.id);
+        setQuery("");
+        setOpen(false);
+        return true;
+      }
+      // Fall back: open popover and pre-fill query so operator can pick manually
+      setQuery(raw);
+      setOpen(true);
+      setTimeout(() => inputRef.current?.focus(), 50);
+      return false;
+    },
+  }), [options, onChange]);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -122,4 +155,4 @@ export function ProductSearch({ value, onChange, options, placeholder = "Search 
       </PopoverContent>
     </Popover>
   );
-}
+});
