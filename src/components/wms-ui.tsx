@@ -167,6 +167,44 @@ const DEFAULT_DASHBOARD_CARDS: DashboardCardConfig[] = [
 
 const DASHBOARD_LAYOUT_KEY = "wms.dashboard.layout.v1";
 
+// ---------------------------------------------------------------------------
+// Barcode scanner helpers
+// ---------------------------------------------------------------------------
+
+/** Play a short, pleasant confirmation beep via Web Audio API (works on iOS/Android too). */
+function playBarcodeBeep() {
+  try {
+    const ctx = new (window.AudioContext ?? (window as any).webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(1480, ctx.currentTime);          // E6 — bright & pleasant
+    osc.frequency.exponentialRampToValueAtTime(1760, ctx.currentTime + 0.06); // quick upward chirp
+    gain.gain.setValueAtTime(0.18, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.18);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.18);
+    osc.onended = () => ctx.close();
+  } catch {
+    // Audio not available — silent fallback
+  }
+}
+
+/**
+ * Flash an input element with a colour highlight for scanner feedback.
+ * colour: "orange" = next-field cue, "blue" = confirmed-field cue.
+ */
+function flashInput(el: HTMLElement | null, colour: "orange" | "blue") {
+  if (!el) return;
+  const cls = colour === "orange"
+    ? ["ring-2", "ring-orange-400", "ring-offset-1"]
+    : ["ring-2", "ring-blue-400", "ring-offset-1"];
+  el.classList.add(...cls);
+  setTimeout(() => el.classList.remove(...cls), 700);
+}
+
 function loadLayout(): DashboardCardConfig[] {
   if (typeof window === "undefined") return DEFAULT_DASHBOARD_CARDS;
   try {
@@ -1556,16 +1594,31 @@ function WarehouseFloorMode({ snapshot }: { snapshot: EnterpriseDashboardSnapsho
     <div className="grid h-full min-h-0 gap-3 xl:grid-cols-[minmax(0,1.35fr)_minmax(20rem,0.65fr)]">
       <div className="grid min-h-0 gap-3 md:grid-cols-2">
         {snapshot.floorQueues.map((queue) => (
-          <Card key={queue.label} className={cn("border-l-4", toneBorder(queue.tone))}>
-            <CardHeader className="p-4">
+          <Card key={queue.label} className={cn("border-l-4 flex flex-col", toneBorder(queue.tone))}>
+            <CardHeader className="p-4 pb-2">
               <CardTitle className="flex items-center justify-between gap-4">
                 <span>{queue.label}</span>
                 <span className="text-3xl">{formatNumber(queue.count)}</span>
               </CardTitle>
               <CardDescription>{queue.action}</CardDescription>
             </CardHeader>
-            <CardContent className="p-4 pt-0">
-              <Button className="h-10 w-full" asChild>
+            <CardContent className="flex flex-1 flex-col gap-2 p-4 pt-0">
+              {queue.tasks.length > 0 ? (
+                <ul className="mb-2 grid gap-1">
+                  {queue.tasks.map((task) => (
+                    <li key={task.id}>
+                      <Link
+                        to={task.route}
+                        className="flex items-center justify-between rounded-md border border-border bg-secondary/30 px-3 py-1.5 text-sm hover:bg-secondary/60 transition-colors"
+                      >
+                        <span className="font-medium truncate">{task.label}</span>
+                        <Badge variant="outline" className="ml-2 shrink-0 capitalize text-xs">{task.sublabel}</Badge>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              <Button className="mt-auto h-10 w-full" asChild>
                 <Link to={queue.route}>Open workflow</Link>
               </Button>
             </CardContent>
@@ -1573,21 +1626,23 @@ function WarehouseFloorMode({ snapshot }: { snapshot: EnterpriseDashboardSnapsho
         ))}
       </div>
       <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2"><RadioTower /> Andon & Lean Status</CardTitle>
-          <CardDescription>5S, Kanban, DPMO, and exception signals for the current shift.</CardDescription>
+        <CardHeader className="pb-2">
+          <CardTitle className="flex items-center gap-2 text-base"><RadioTower className="h-4 w-4" /> Warehouse Intelligence</CardTitle>
+          <CardDescription className="text-xs">Live shift signals — DPMO, 5S, Kanban, exceptions.</CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-3">
+        <CardContent className="grid gap-2">
           {snapshot.leanMetrics.map((metric) => (
-            <div key={metric.label} className="rounded-lg border border-border p-3">
-              <div className="flex items-center justify-between gap-4">
-                <span className="font-medium">{metric.label}</span>
-                <Badge variant={metric.status === "off_target" ? "destructive" : metric.status === "watch" ? "secondary" : "default"}>
+            <div key={metric.label} className="flex items-center justify-between gap-2 rounded-md border border-border px-3 py-2">
+              <div className="min-w-0">
+                <p className="truncate text-xs font-medium">{metric.label}</p>
+                <p className="text-xs text-muted-foreground">Target: {metric.target}</p>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <span className="text-lg font-semibold tabular-nums">{metric.value}</span>
+                <Badge className="text-[10px] px-1.5 py-0" variant={metric.status === "off_target" ? "destructive" : metric.status === "watch" ? "secondary" : "default"}>
                   {metric.status.replace("_", " ")}
                 </Badge>
               </div>
-              <p className="mt-1 text-2xl font-semibold">{metric.value}</p>
-              <p className="text-xs text-muted-foreground">Target: {metric.target}</p>
             </div>
           ))}
         </CardContent>
@@ -2321,7 +2376,9 @@ export function PutawayTasksPage() {
   });
   const [scanState, setScanState] = useState<Record<string, { pallet: string; location: string; override: boolean; reason: string }>>({});
   const [violations, setViolations] = useState<Record<string, string>>({});
+  const palletRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const locationRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const confirmRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const [completedIds, setCompletedIds] = useState<Set<string>>(new Set());
   const [revertedIds, setRevertedIds] = useState<Set<string>>(new Set());
 
@@ -5015,324 +5072,4 @@ export function SystemLogPage() {
                             <CheckCircle2 className="h-4 w-4" />
                           </Button>
                         ) : (
-                          <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </TableFrame>
-        </CardContent>
-      </Card>
-
-      <Dialog open={addOpen} onOpenChange={setAddOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Add log entry</DialogTitle>
-            <DialogDescription>Manually record a system change, bug, or infrastructure event.</DialogDescription>
-          </DialogHeader>
-          <Form {...addForm}>
-            <form className="grid gap-4" onSubmit={addForm.handleSubmit((v) => logMutation.mutate(v, { onSuccess: () => { addForm.reset(); setAddOpen(false); } }))}>
-              <FormField control={addForm.control} name="log_type" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Type</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value ?? "system_change"}>
-                    <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
-                    <SelectContent>
-                      {["error", "bug", "system_change", "infrastructure", "info"].map((t) => (
-                        <SelectItem key={t} value={t}>{t.replace("_", " ")}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )} />
-              <FormField control={addForm.control} name="severity" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Severity</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value ?? "info"}>
-                    <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
-                    <SelectContent>
-                      {["debug", "info", "warning", "error", "critical"].map((s) => (
-                        <SelectItem key={s} value={s}>{s}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )} />
-              <FormField control={addForm.control} name="title" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Title</FormLabel>
-                  <FormControl><Input {...field} placeholder="Brief summary of the event" /></FormControl>
-                  <FormMessage />
-                </FormItem>
-              )} />
-              <FormField control={addForm.control} name="message" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Details (optional)</FormLabel>
-                  <FormControl><Textarea {...field} rows={3} placeholder="Full description, steps to reproduce, or change notes" /></FormControl>
-                  <FormMessage />
-                </FormItem>
-              )} />
-              <Button type="submit" disabled={logMutation.isPending}>
-                {logMutation.isPending ? <Loader2 className="animate-spin" /> : null}
-                Save entry
-              </Button>
-            </form>
-          </Form>
-        </DialogContent>
-      </Dialog>
-    </div>
-  );
-}
-
-type QuickAction = {
-  label: string;
-  to?: AppRoute;
-  onClick?: () => void;
-  variant?: "default" | "outline" | "secondary";
-};
-
-function useContextActions(): QuickAction[] {
-  const { pathname } = useLocation();
-  const { isEnabled } = useFeatureFlags();
-
-  const can = (key: ModuleKey) => isEnabled(key);
-
-  const receiving: QuickAction = { label: "Receive stock", to: "/receiving", variant: "default" };
-  const putaway: QuickAction = { label: "Putaway queue", to: "/putaway-tasks", variant: "outline" };
-  const inventory: QuickAction = { label: "Search inventory", to: "/inventory-search", variant: "outline" };
-  const picking: QuickAction = { label: "Move to picking", to: "/transfers", variant: "outline" };
-
-  if (pathname === "/receiving") {
-    return [
-      can("putaway") ? putaway : null,
-      can("inventory") ? inventory : null,
-    ].filter(Boolean) as QuickAction[];
-  }
-  if (pathname === "/putaway-tasks") {
-    return [
-      can("receiving") ? receiving : null,
-      can("inventory") ? inventory : null,
-    ].filter(Boolean) as QuickAction[];
-  }
-  if (pathname === "/transfers") {
-    return [
-      can("receiving") ? receiving : null,
-      can("inventory") ? inventory : null,
-    ].filter(Boolean) as QuickAction[];
-  }
-  if (pathname === "/inventory-search") {
-    return [
-      can("receiving") ? receiving : null,
-      can("putaway") ? putaway : null,
-    ].filter(Boolean) as QuickAction[];
-  }
-  if (pathname === "/pick-lists") {
-    return [
-      can("inventory") ? inventory : null,
-      can("putaway") ? putaway : null,
-    ].filter(Boolean) as QuickAction[];
-  }
-
-  // Default / dashboard
-  return [
-    can("receiving") ? receiving : null,
-    can("putaway") ? putaway : null,
-    can("transfers") ? picking : null,
-    can("inventory") ? inventory : null,
-  ].filter(Boolean) as QuickAction[];
-}
-
-export function MobileActionBar() {
-  const actions = useContextActions();
-  if (actions.length === 0) return null;
-
-  return (
-    <Drawer>
-      <DrawerTrigger asChild>
-        <Button className="fixed bottom-4 right-4 z-40 shadow-lg lg:hidden">
-          <Plus data-icon="inline-start" />
-          Quick actions
-        </Button>
-      </DrawerTrigger>
-      <DrawerContent>
-        <DrawerHeader>
-          <DrawerTitle>Quick actions</DrawerTitle>
-        </DrawerHeader>
-        <div className="grid gap-2 p-4 pb-safe">
-          {actions.map((action) =>
-            action.to ? (
-              <Button key={action.label} asChild variant={action.variant ?? "outline"} className="min-h-12 text-base">
-                <Link to={action.to}>{action.label}</Link>
-              </Button>
-            ) : (
-              <Button key={action.label} variant={action.variant ?? "outline"} className="min-h-12 text-base" onClick={action.onClick}>
-                {action.label}
-              </Button>
-            ),
-          )}
-        </div>
-      </DrawerContent>
-    </Drawer>
-  );
-}
-
-type EmailLogRow = {
-  id: string;
-  message_id: string | null;
-  template_name: string;
-  recipient_email: string;
-  status: string;
-  error_message: string | null;
-  created_at: string;
-};
-
-export function EmailLogPage() {
-  const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [search, setSearch] = useState("");
-
-  const { data: rows = [], isLoading, refetch, isFetching } = useQuery({
-    queryKey: ["email-send-log"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("email_send_log")
-        .select("id,message_id,template_name,recipient_email,status,error_message,created_at")
-        .order("created_at", { ascending: false })
-        .limit(500);
-      if (error) throw error;
-      return (data ?? []) as EmailLogRow[];
-    },
-  });
-
-  const filtered = (rows as EmailLogRow[]).filter((r) => {
-    if (statusFilter !== "all" && r.status !== statusFilter) return false;
-    if (search.trim()) {
-      const q = search.trim().toLowerCase();
-      if (
-        !r.recipient_email.toLowerCase().includes(q) &&
-        !r.template_name.toLowerCase().includes(q) &&
-        !(r.message_id ?? "").toLowerCase().includes(q) &&
-        !(r.error_message ?? "").toLowerCase().includes(q)
-      ) {
-        return false;
-      }
-    }
-    return true;
-  });
-
-  const counts = (rows as EmailLogRow[]).reduce(
-    (acc, r) => {
-      acc.total += 1;
-      acc[r.status] = (acc[r.status] ?? 0) + 1;
-      return acc;
-    },
-    { total: 0 } as Record<string, number>,
-  );
-
-  const statusBadge = (s: string) => {
-    if (s === "sent") return "default" as const;
-    if (s === "failed" || s === "dlq" || s === "bounced") return "destructive" as const;
-    if (s === "pending" || s === "rate_limited") return "secondary" as const;
-    return "outline" as const;
-  };
-
-  return (
-    <div className="flex flex-col gap-6">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h2 className="text-2xl font-semibold">Email Log</h2>
-          <p className="text-sm text-muted-foreground">
-            Recent email send attempts with statuses and error messages for troubleshooting.
-          </p>
-        </div>
-        <Button variant="outline" onClick={() => refetch()} disabled={isFetching}>
-          {isFetching ? <Loader2 className="animate-spin" /> : <RotateCcw data-icon="inline-start" />}
-          Refresh
-        </Button>
-      </div>
-
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-        {[
-          { label: "Total", value: counts.total ?? 0 },
-          { label: "Sent", value: counts.sent ?? 0 },
-          { label: "Pending", value: counts.pending ?? 0 },
-          { label: "Failed", value: (counts.failed ?? 0) + (counts.dlq ?? 0) },
-          { label: "Suppressed", value: counts.suppressed ?? 0 },
-        ].map((s) => (
-          <Card key={s.label}>
-            <CardContent className="p-4">
-              <p className="text-xs uppercase text-muted-foreground">{s.label}</p>
-              <p className="text-2xl font-semibold">{formatNumber(s.value)}</p>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
-      <Card>
-        <CardContent className="grid gap-3 p-4 sm:grid-cols-[1fr_1fr]">
-          <Select onValueChange={setStatusFilter} value={statusFilter}>
-            <SelectTrigger><SelectValue placeholder="All statuses" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All statuses</SelectItem>
-              {["pending", "sent", "failed", "dlq", "rate_limited", "suppressed", "bounced", "complained"].map((s) => (
-                <SelectItem key={s} value={s}>{s}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Input
-            placeholder="Search recipient, template, message id, error…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardContent className="p-0">
-          <TableFrame>
-            <Table>
-              <TableHeader className="sticky top-0 z-10 bg-card">
-                <TableRow>
-                  <TableHead className="w-32">Status</TableHead>
-                  <TableHead className="w-48">Template</TableHead>
-                  <TableHead>Recipient</TableHead>
-                  <TableHead>Error</TableHead>
-                  <TableHead className="w-40">Message ID</TableHead>
-                  <TableHead className="w-40">Date</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {isLoading ? (
-                  <TableRow><TableCell className="h-24 text-center text-muted-foreground" colSpan={6}>Loading email log…</TableCell></TableRow>
-                ) : filtered.length === 0 ? (
-                  <TableRow><TableCell className="h-24 text-center text-muted-foreground" colSpan={6}>No email log entries found.</TableCell></TableRow>
-                ) : (
-                  filtered.map((row) => (
-                    <TableRow key={row.id} className="even:bg-muted/30 align-top">
-                      <TableCell><Badge variant={statusBadge(row.status)}>{row.status}</Badge></TableCell>
-                      <TableCell className="font-mono text-xs">{row.template_name}</TableCell>
-                      <TableCell className="text-sm">{row.recipient_email}</TableCell>
-                      <TableCell className="max-w-md text-xs text-destructive">
-                        {row.error_message ? (
-                          <span title={row.error_message} className="block break-words">{row.error_message}</span>
-                        ) : (
-                          <span className="text-muted-foreground">—</span>
-                        )}
-                      </TableCell>
-                      <TableCell className="font-mono text-xs text-muted-foreground">{row.message_id ?? "—"}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{formatDate(row.created_at)}</TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </TableFrame>
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
+                          <CheckCirc

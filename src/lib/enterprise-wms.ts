@@ -1,4 +1,4 @@
-import type { DashboardMetrics, RoleCode } from "@/lib/wms-core";
+import type { DashboardMetrics, DashboardTaskRow, RoleCode } from "@/lib/wms-core";
 
 type InventoryRow = {
   sku?: string | null;
@@ -59,7 +59,7 @@ export type DockHandoffLoad = {
 
 export type EnterpriseDashboardSnapshot = {
   officeWidgets: Array<{ label: string; value: string; tone: "success" | "warning" | "critical" | "info"; detail: string }>;
-  floorQueues: Array<{ label: string; count: number; action: string; route: string; tone: "success" | "warning" | "critical" | "info" }>;
+  floorQueues: Array<{ label: string; count: number; action: string; route: string; tone: "success" | "warning" | "critical" | "info"; tasks: DashboardTaskRow[] }>;
   dockLoads: DockHandoffLoad[];
   leanMetrics: Array<{ label: string; value: string; target: string; status: "on_target" | "watch" | "off_target" }>;
   setupChecklist: Array<{ label: string; complete: boolean; owner: string }>;
@@ -174,10 +174,47 @@ export function buildEnterpriseDashboard(
       { label: "DPMO", value: `${dpmo}`, tone: dpmo > 50_000 ? "critical" : dpmo > 10_000 ? "warning" : "success", detail: "Cycle-count defect signal" },
     ],
     floorQueues: [
-      { label: "Start Shift", count: (metrics?.openPutawayTasks ?? 0) + (metrics?.openPickLists ?? 0), action: "Open assigned scan work", route: "/putaway-tasks", tone: "info" },
-      { label: "Today’s Work", count: metrics?.openPickLists ?? 0, action: "Release or execute picks", route: "/pick-lists", tone: "success" },
-      { label: "Blocked Exceptions", count: controlled, action: "Review holds and quarantine", route: "/status", tone: controlled > 0 ? "critical" : "success" },
-      { label: "Setup Checklist", count: 6, action: "Finish go-live controls", route: "/setup-wizard", tone: "warning" },
+      {
+        label: "Start Shift",
+        count: (metrics?.openPutawayTasks ?? 0) + (metrics?.openPickLists ?? 0),
+        action: "Open assigned scan work",
+        route: "/putaway-tasks",
+        tone: "info",
+        tasks: [
+          ...(metrics?.putawayTaskRows ?? []),
+          ...(metrics?.pickListRows ?? []),
+        ].sort((a, b) => a.createdAt < b.createdAt ? -1 : 1).slice(0, 5),
+      },
+      {
+        label: "Today’s Work",
+        count: metrics?.openPickLists ?? 0,
+        action: "Release or execute picks",
+        route: "/pick-lists",
+        tone: "success",
+        tasks: (metrics?.pickListRows ?? []).slice(0, 5),
+      },
+      {
+        label: "Blocked Exceptions",
+        count: controlled,
+        action: "Review holds and quarantine",
+        route: "/status",
+        tone: controlled > 0 ? "critical" : "success",
+        tasks: (metrics?.blockedBalanceRows ?? []).slice(0, 5),
+      },
+      {
+        label: "Setup Checklist",
+        count: 6,
+        action: "Finish go-live controls",
+        route: "/setup-wizard",
+        tone: "warning",
+        tasks: [
+          { id: "setup-1", label: "Warehouse layout and zones", sublabel: "Admin", route: "/setup-wizard", createdAt: "" },
+          { id: "setup-2", label: "Zebra printer stations", sublabel: "Admin", route: "/setup-wizard", createdAt: "" },
+          { id: "setup-3", label: "NetSuite connector mapping", sublabel: "IT", route: "/setup-wizard", createdAt: "" },
+          { id: "setup-4", label: "Barcode standards and label templates", sublabel: "Warehouse manager", route: "/setup-wizard", createdAt: "" },
+          { id: "setup-5", label: "Operator tablet workflows", sublabel: "Supervisor", route: "/setup-wizard", createdAt: "" },
+        ],
+      },
     ],
     dockLoads: buildDockLoads(inventory),
     leanMetrics: [
