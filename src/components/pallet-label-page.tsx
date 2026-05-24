@@ -219,3 +219,4 @@ export function PalletLabelPage(props: PalletLabelPageProps) {
     </Dialog>
   );
 }
+

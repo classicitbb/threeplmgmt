@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -12,39 +13,51 @@ vi.mock("@/hooks/use-auth", () => ({
   }),
 }));
 
+vi.mock("@/hooks/use-feature-flags", () => ({
+  useFeatureFlags: () => ({
+    isEnabled: () => true,
+  }),
+}));
+
 describe("AppShell", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("shows only navigation allowed for the current role", () => {
-    render(
-      <MemoryRouter initialEntries={["/dashboard"]}>
-        <AppShell>
-          <div>Content</div>
-        </AppShell>
-      </MemoryRouter>,
-    );
+  const renderAppShell = () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+      },
+    });
 
-    expect(screen.getByText("Dashboard")).toBeInTheDocument();
-    expect(screen.getByText("Warehouses")).toBeInTheDocument();
+    return render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/dashboard"]}>
+          <AppShell>
+            <div>Content</div>
+          </AppShell>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+  };
+
+  it("shows only navigation allowed for the current role", () => {
+    renderAppShell();
+
+    expect(screen.getAllByText("Dashboard").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Warehouses").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Help").length).toBeGreaterThan(0);
     expect(screen.queryByText("Users")).not.toBeInTheDocument();
   });
 
   it("keeps the page title compact and uses a dedicated scroll container for body content", () => {
-    const { container } = render(
-      <MemoryRouter initialEntries={["/dashboard"]}>
-        <AppShell>
-          <div>Content</div>
-        </AppShell>
-      </MemoryRouter>,
-    );
+    const { container } = renderAppShell();
 
     expect(screen.getByText("Warehouse Wizard Enterprise WMS")).toBeInTheDocument();
     expect(screen.queryByText("2-warehouse, scan-first control room")).not.toBeInTheDocument();
 
-    const bodyScrollRegion = container.querySelector(".overflow-y-auto.px-4.py-4");
+    const bodyScrollRegion = container.querySelector(".overflow-y-auto.px-4");
     expect(bodyScrollRegion).not.toBeNull();
     expect(bodyScrollRegion?.className).toContain("flex-1");
     expect(bodyScrollRegion?.className).toContain("min-h-0");

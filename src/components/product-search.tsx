@@ -23,6 +23,11 @@ export type ProductOption = {
   barcode?: string;
 };
 
+export type ProductSearchHandle = {
+  open: () => void;
+  scanBarcode: (raw: string) => boolean;
+};
+
 type Props = {
   value: string;
   onChange: (id: string) => void;
@@ -30,17 +35,9 @@ type Props = {
   placeholder?: string;
   disabled?: boolean;
   error?: boolean;
-  /** Imperative handle ref — exposes open() to programmatically open the search popover */
-  ref?: React.Ref<ProductSearchHandle>;
 };
 
-export type ProductSearchHandle = {
-  open: () => void;
-  /** Attempt to match a raw barcode string and auto-select the product */
-  scanBarcode: (raw: string) => boolean;
-};
-
-export const ProductSearch = forwardRef<ProductSearchHandle, Omit<Props, "ref">>(function ProductSearch(
+export const ProductSearch = forwardRef<ProductSearchHandle, Props>(function ProductSearch(
   { value, onChange, options, placeholder = "Search product by code or name…", disabled, error },
   ref,
 ) {
@@ -50,20 +47,21 @@ export const ProductSearch = forwardRef<ProductSearchHandle, Omit<Props, "ref">>
 
   const selected = options.find((o) => o.id === value);
 
-  const filtered = query.length === 0
-    ? options.slice(0, 8)
-    : options
-        .filter((o) => {
-          const q = query.toLowerCase();
-          return (
-            o.sku.toLowerCase().includes(q) ||
-            o.name.toLowerCase().includes(q) ||
-            (o.barcode && o.barcode.toLowerCase().includes(q))
-          );
-        })
-        .slice(0, 8);
+  const filtered =
+    query.length === 0
+      ? options.slice(0, 8)
+      : options
+          .filter((o) => {
+            const q = query.toLowerCase();
+            return (
+              o.sku.toLowerCase().includes(q) ||
+              o.name.toLowerCase().includes(q) ||
+              (o.barcode && o.barcode.toLowerCase().includes(q))
+            );
+          })
+          .slice(0, 8);
 
-  // Bluetooth / USB HID scanner support: if the query exactly matches a product barcode, auto-select
+  // USB/Bluetooth HID scanner: exact barcode match → auto-select
   useEffect(() => {
     if (!query) return;
     const match = options.find((o) => o.barcode && o.barcode === query);
@@ -74,27 +72,29 @@ export const ProductSearch = forwardRef<ProductSearchHandle, Omit<Props, "ref">>
     }
   }, [query, options, onChange]);
 
-  // Expose imperative open() + scanBarcode() for parent components (e.g. camera scanner button)
-  useImperativeHandle(ref, () => ({
-    open: () => {
-      setOpen(true);
-      setTimeout(() => inputRef.current?.focus(), 50);
-    },
-    scanBarcode: (raw: string) => {
-      const match = options.find((o) => o.barcode && o.barcode === raw);
-      if (match) {
-        onChange(match.id);
-        setQuery("");
-        setOpen(false);
-        return true;
-      }
-      // Fall back: open popover and pre-fill query so operator can pick manually
-      setQuery(raw);
-      setOpen(true);
-      setTimeout(() => inputRef.current?.focus(), 50);
-      return false;
-    },
-  }), [options, onChange]);
+  useImperativeHandle(
+    ref,
+    () => ({
+      open: () => {
+        setOpen(true);
+        setTimeout(() => inputRef.current?.focus(), 50);
+      },
+      scanBarcode: (raw: string) => {
+        const match = options.find((o) => o.barcode && o.barcode === raw);
+        if (match) {
+          onChange(match.id);
+          setQuery("");
+          setOpen(false);
+          return true;
+        }
+        setQuery(raw);
+        setOpen(true);
+        setTimeout(() => inputRef.current?.focus(), 50);
+        return false;
+      },
+    }),
+    [options, onChange],
+  );
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -144,7 +144,9 @@ export const ProductSearch = forwardRef<ProductSearchHandle, Omit<Props, "ref">>
                     setOpen(false);
                   }}
                 >
-                  <Check className={cn("mr-2 h-4 w-4", value === product.id ? "opacity-100" : "opacity-0")} />
+                  <Check
+                    className={cn("mr-2 h-4 w-4", value === product.id ? "opacity-100" : "opacity-0")}
+                  />
                   <span className="font-mono text-xs text-muted-foreground mr-2">{product.sku}</span>
                   <span className="truncate">{product.name}</span>
                 </CommandItem>
