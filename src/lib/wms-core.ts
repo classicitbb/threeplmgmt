@@ -1131,25 +1131,44 @@ export async function getInventoryDetail(balanceId: string) {
     .single();
   if (balanceError) throw balanceError;
 
-  const [{ data: pallet }, { data: audit }, { data: lot }] = await Promise.all([
-    db("pallets").select("*").eq("id", balance.pallet_id).single(),
+  const { data: pallet, error: palletError } = await db("pallets").select("*").eq("id", balance.pallet_id).single();
+  if (palletError) throw palletError;
+
+  const [{ data: audit }, { data: lot }, { data: product }, { data: client }, { data: warehouse }, { data: location }, { data: receiptLine }] = await Promise.all([
     db("audit_events").select("*").eq("pallet_id", balance.pallet_id).order("created_at", { ascending: false }),
     balance.inventory_lot_id
       ? db("inventory_lots").select("*").eq("id", balance.inventory_lot_id).single()
+      : Promise.resolve({ data: null, error: null }),
+    db("products").select("*").eq("id", balance.product_id).maybeSingle(),
+    balance.client_id
+      ? db("clients").select("*").eq("id", balance.client_id).maybeSingle()
+      : Promise.resolve({ data: null, error: null }),
+    db("warehouses").select("*").eq("id", balance.warehouse_id).maybeSingle(),
+    balance.location_id
+      ? db("locations").select("*").eq("id", balance.location_id).maybeSingle()
+      : Promise.resolve({ data: null, error: null }),
+    pallet.receipt_line_id
+      ? db("receipt_lines").select("*, receipts(*)").eq("id", pallet.receipt_line_id).maybeSingle()
       : Promise.resolve({ data: null, error: null }),
   ]);
 
   return {
     balance,
-    pallet: pallet.data ?? null,
-    lot: lot.data ?? null,
+    pallet,
+    lot: lot ?? null,
+    product: product ?? null,
+    client: client ?? null,
+    warehouse: warehouse ?? null,
+    location: location ?? null,
+    receiptLine: receiptLine ?? null,
+    receipt: (receiptLine as any)?.receipts ?? null,
     audit: audit ?? [],
   };
 }
 
 export async function getPutawayTasks(userId?: string) {
   let query = db("putaway_tasks")
-    .select("*, pallets(*), locations: suggested_location_id(*)")
+    .select("*, pallets(*, products(*)), locations: suggested_location_id(*)")
     .order("created_at", { ascending: false });
 
   if (userId) {
@@ -1328,7 +1347,7 @@ export async function createPickListFlow(input: z.infer<typeof pickListSchema>) 
         pick_list_id: pickList.id,
         order_line_id: orderLine.id,
         pallet_id: candidate.pallet_id,
-        location_id: candidate.location_code ? undefined : null,
+        location_id: candidate.location_id ?? null,
         requested_quantity: Math.min(candidate.available_quantity, line.quantity),
         status: selection.short > 0 ? "exception" : "queued",
         short_reason: selection.short > 0 ? `Short by ${selection.short}` : null,
@@ -1352,7 +1371,7 @@ export async function getPickExecution(pickListId: string) {
   const [pickList, pickTasks] = await Promise.all([
     db("pick_lists").select("*").eq("id", pickListId).single(),
     db("pick_tasks")
-      .select("*")
+      .select("*, pallets(pallet_barcode, quantity, available_quantity, products(sku, name)), locations:location_id(code)")
       .eq("pick_list_id", pickListId)
       .order("created_at", { ascending: true }),
   ]);
@@ -1360,9 +1379,20 @@ export async function getPickExecution(pickListId: string) {
   if (pickList.error) throw pickList.error;
   if (pickTasks.error) throw pickTasks.error;
 
+  const enrichedTasks = await Promise.all(
+    (pickTasks.data ?? []).map(async (task: any) => {
+      if (!task.pallet_id || task.locations?.code) return task;
+      const { data: balance } = await db("inventory_balances")
+        .select("available_quantity, quantity, locations:location_id(code)")
+        .eq("pallet_id", task.pallet_id)
+        .maybeSingle();
+      return { ...task, pick_balance: balance ?? null };
+    }),
+  );
+
   return {
     pickList: pickList.data,
-    pickTasks: pickTasks.data ?? [],
+    pickTasks: enrichedTasks,
   };
 }
 
@@ -1588,6 +1618,14 @@ export async function cancelTransfer(transferId: string, reason: string) {
         .update({ status: "receiving", location_id: null, zone_id: null, available_quantity: 0 })
         .eq("pallet_id", line.pallet_id),
     ]);
+    await createReturnedPalletDraft({
+      palletId: line.pallet_id,
+      warehouseId: transfer.source_warehouse_id,
+      sourceLabel: `Cancelled transfer ${transfer.transfer_number}`,
+      sourceType: "transfer_cancelled",
+      sourceId: transferId,
+      reason,
+    });
   }
 
   await db("transfers")
@@ -2069,6 +2107,7 @@ export type DraftReceipt = {
   quantity: number | null;
   created_at: string;
   notes: string | null;
+  source_label: string | null;
 };
 
 export async function saveDraftReceipt(values: z.infer<typeof receivingSchema>): Promise<string> {
@@ -2101,6 +2140,54 @@ export async function saveDraftReceipt(values: z.infer<typeof receivingSchema>):
   return data.id;
 }
 
+async function createReturnedPalletDraft({
+  palletId,
+  warehouseId,
+  sourceLabel,
+  sourceType,
+  sourceId,
+  reason,
+}: {
+  palletId: string;
+  warehouseId: string;
+  sourceLabel: string;
+  sourceType: string;
+  sourceId?: string;
+  reason?: string;
+}): Promise<string> {
+  const [{ data: pallet, error: palletError }, { data: balance }] = await Promise.all([
+    db("pallets").select("*").eq("id", palletId).single(),
+    db("inventory_balances").select("*").eq("pallet_id", palletId).maybeSingle(),
+  ]);
+  if (palletError) throw palletError;
+
+  const receiptNumber = buildPalletCode("RCT");
+  const quantity = Number(balance?.quantity ?? pallet.quantity ?? 0);
+  const { data, error } = await db("receipts").insert({
+    receipt_number: receiptNumber,
+    receipt_type: "other",
+    reference_number: pallet.pallet_barcode ?? receiptNumber,
+    warehouse_id: warehouseId,
+    client_id: pallet.client_id ?? null,
+    status: "draft",
+    notes: JSON.stringify({
+      _draft: true,
+      _returned: true,
+      source_label: sourceLabel,
+      source_type: sourceType,
+      source_id: sourceId ?? null,
+      reason: reason ?? null,
+      returned_pallet_id: palletId,
+      product_id: pallet.product_id,
+      quantity,
+      packaging_profile_id: pallet.packaging_profile_id,
+      reuse_pallet_barcode: pallet.pallet_barcode,
+    }),
+  }).select("id").single();
+  if (error) throw error;
+  return data.id;
+}
+
 export async function listDraftReceipts(warehouseId: string): Promise<DraftReceipt[]> {
   const { data, error } = await db("receipts")
     .select("id, receipt_number, reference_number, warehouse_id, client_id, status, created_at, notes")
@@ -2115,14 +2202,131 @@ export async function listDraftReceipts(warehouseId: string): Promise<DraftRecei
       ...row,
       product_id: meta.product_id ?? null,
       quantity: meta.quantity ?? null,
+      source_label: meta.source_label ?? null,
     };
   });
+}
+
+async function completeReturnedPalletDraft(
+  draftId: string,
+  values: z.infer<typeof receivingSchema>,
+  meta: any,
+): Promise<{ palletBarcode: string; putawayTaskNumber: string }> {
+  const palletId = meta.returned_pallet_id as string | undefined;
+  if (!palletId) throw new Error("Returned draft is missing its pallet link.");
+
+  const [{ data: pallet, error: palletError }, { data: existingBalance }] = await Promise.all([
+    db("pallets").select("*").eq("id", palletId).single(),
+    db("inventory_balances").select("*").eq("pallet_id", palletId).maybeSingle(),
+  ]);
+  if (palletError) throw palletError;
+
+  const lot = await resolveInventoryLot(values);
+  const { data: product, error: productError } = await db("products").select("*").eq("id", values.product_id).single();
+  if (productError) throw productError;
+
+  const { error: receiptError } = await db("receipts")
+    .update({
+      receipt_type: values.receipt_type,
+      reference_number: values.reference_number || pallet.pallet_barcode,
+      warehouse_id: values.warehouse_id,
+      client_id: values.client_id || null,
+      status: "completed",
+    })
+    .eq("id", draftId);
+  if (receiptError) throw receiptError;
+
+  await upsertRecord("receipt_lines", {
+    receipt_id: draftId,
+    product_id: values.product_id,
+    packaging_profile_id: values.packaging_profile_id || pallet.packaging_profile_id || null,
+    client_id: values.client_id || pallet.client_id || null,
+    quantity: values.quantity,
+    received_quantity: values.quantity,
+    inventory_lot_id: lot.id,
+    notes: meta.source_label ? `Returned from ${meta.source_label}` : null,
+  });
+
+  await Promise.all([
+    db("pallets")
+      .update({
+        product_id: values.product_id,
+        client_id: values.client_id || pallet.client_id || null,
+        current_warehouse_id: values.warehouse_id,
+        current_location_id: null,
+        inventory_lot_id: lot.id,
+        packaging_profile_id: values.packaging_profile_id || pallet.packaging_profile_id || null,
+        quantity: values.quantity,
+        available_quantity: 0,
+        status: "receiving",
+        is_stored: false,
+        length: values.override_length ?? pallet.length ?? product.length,
+        width: values.override_width ?? pallet.width ?? product.width,
+        height: values.override_height ?? pallet.height ?? product.height,
+        weight: values.override_weight ?? pallet.weight ?? product.weight,
+      })
+      .eq("id", palletId),
+    existingBalance
+      ? db("inventory_balances")
+          .update({
+            product_id: values.product_id,
+            client_id: values.client_id || pallet.client_id || null,
+            warehouse_id: values.warehouse_id,
+            zone_id: null,
+            location_id: null,
+            inventory_lot_id: lot.id,
+            status: "receiving",
+            quantity: values.quantity,
+            available_quantity: 0,
+            expiry_date: lot.expiry_date,
+          })
+          .eq("id", existingBalance.id)
+      : upsertRecord("inventory_balances", {
+          pallet_id: palletId,
+          product_id: values.product_id,
+          client_id: values.client_id || pallet.client_id || null,
+          warehouse_id: values.warehouse_id,
+          inventory_lot_id: lot.id,
+          status: "receiving",
+          quantity: values.quantity,
+          available_quantity: 0,
+          expiry_date: lot.expiry_date,
+        }),
+  ]);
+
+  const suggestions = await (supabase.rpc as any)("directed_putaway_candidates", { in_pallet_id: palletId });
+  if (suggestions.error) console.error("[completeReturnedPalletDraft] directed_putaway_candidates failed:", suggestions.error);
+  const topSuggestion = suggestions.data?.[0] ?? null;
+  const putawayTask = await upsertRecord("putaway_tasks", {
+    task_number: buildPalletCode("PTA"),
+    pallet_id: palletId,
+    warehouse_id: values.warehouse_id,
+    suggested_location_id: topSuggestion?.location_id ?? null,
+    status: "queued",
+  });
+
+  await (supabase.rpc as any)("log_audit_event", {
+    in_event_type: "returned_receipt_completed",
+    in_entity_table: "receipts",
+    in_entity_id: draftId,
+    in_pallet_id: palletId,
+    in_warehouse_id: values.warehouse_id,
+    in_metadata: { source_label: meta.source_label ?? null, quantity: values.quantity },
+  });
+
+  return { palletBarcode: pallet.pallet_barcode, putawayTaskNumber: putawayTask.task_number };
 }
 
 export async function completeReceiptFromDraft(
   draftId: string,
   values: z.infer<typeof receivingSchema>,
 ): Promise<{ palletBarcode: string; putawayTaskNumber: string }> {
+  const { data: draft } = await db("receipts").select("notes").eq("id", draftId).single();
+  const meta = draft?.notes ? JSON.parse(draft.notes) : {};
+  if (meta._returned) {
+    return completeReturnedPalletDraft(draftId, values, meta);
+  }
+
   const result = await createReceiptFlow(values);
   const { error: draftCancelError } = await db("receipts").update({ status: "cancelled" }).eq("id", draftId);
   if (draftCancelError) {
@@ -2201,11 +2405,19 @@ export async function getPalletByBarcode(barcode: string): Promise<{
 
 // ── Putaway draft revert ───────────────────────────────────────────────────────
 export async function revertPutawayToDraft(taskId: string): Promise<void> {
-  const { data: task, error } = await db("putaway_tasks").select("*").eq("id", taskId).single();
+  const { data: task, error } = await db("putaway_tasks").select("*, pallets(pallet_barcode)").eq("id", taskId).single();
   if (error) throw error;
   if (task.status === "completed") throw new Error("Cannot revert a completed putaway task.");
   const { error: updErr } = await db("putaway_tasks").update({ status: "draft" } as any).eq("id", taskId);
   if (updErr) throw updErr;
+  await createReturnedPalletDraft({
+    palletId: task.pallet_id,
+    warehouseId: task.warehouse_id,
+    sourceLabel: `Putaway task ${task.task_number}`,
+    sourceType: "putaway_returned",
+    sourceId: taskId,
+    reason: "Returned to receiving from putaway",
+  });
   await (supabase.rpc as any)("log_audit_event", {
     in_event_type: "putaway_reverted_to_draft",
     in_entity_table: "putaway_tasks",

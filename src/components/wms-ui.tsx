@@ -1831,6 +1831,10 @@ export function ReceivingPage() {
     enabled: Boolean(currentWarehouseId),
   });
 
+  useEffect(() => {
+    if (drafts.length > 0) setShowDrafts(true);
+  }, [drafts.length]);
+
   const receivedQuantity = form.watch("quantity");
   const zplBarcode = lastResult?.barcode || manualBarcode;
   const zplPreview = useMemo(
@@ -1913,7 +1917,9 @@ export function ReceivingPage() {
       override_width: (meta.override_width as number) ?? undefined,
       override_height: (meta.override_height as number) ?? undefined,
       override_weight: (meta.override_weight as number) ?? undefined,
+      reuse_pallet_barcode: (meta.reuse_pallet_barcode as string) ?? "",
     });
+    setReuseEnabled(Boolean(meta.reuse_pallet_barcode));
     setResumingDraftId(draft.id);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -2268,6 +2274,11 @@ export function ReceivingPage() {
                           <p className="text-xs text-muted-foreground">
                             Qty: {draft.quantity ?? "?"} · Saved: {formatDate(draft.created_at)}
                           </p>
+                          {draft.source_label && (
+                            <p className="text-xs font-medium text-amber-700 dark:text-amber-300">
+                              Returned from {draft.source_label}
+                            </p>
+                          )}
                         </div>
                         <div className="flex shrink-0 gap-2">
                           <Button size="sm" onClick={() => resumeDraft(draft)}>Resume</Button>
@@ -2409,6 +2420,7 @@ function BinCapacityBar({ locationCode }: { locationCode: string; taskId?: strin
 
 export function PutawayTasksPage() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const { user } = useAuth();
   const { data = [], isLoading } = useQuery({
     queryKey: ["putaway-tasks", user?.id],
@@ -2423,11 +2435,15 @@ export function PutawayTasksPage() {
   const [revertedIds, setRevertedIds] = useState<Set<string>>(new Set());
 
   const revertMutation = useMutation({
-    mutationFn: (taskId: string) => revertPutawayToDraft(taskId),
-    onSuccess: async (_, taskId) => {
+    mutationFn: ({ taskId }: { taskId: string; openReceiving?: boolean }) => revertPutawayToDraft(taskId),
+    onSuccess: async (_, vars) => {
       toast.success("Task saved as draft");
-      setRevertedIds((prev) => new Set([...prev, taskId]));
-      await queryClient.invalidateQueries({ queryKey: ["putaway-tasks"] });
+      setRevertedIds((prev) => new Set([...prev, vars.taskId]));
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["putaway-tasks"] }),
+        queryClient.invalidateQueries({ queryKey: ["draft-receipts"] }),
+      ]);
+      if (vars.openReceiving) navigate("/receiving");
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Revert failed"),
   });
@@ -2466,8 +2482,7 @@ export function PutawayTasksPage() {
     },
   });
 
-  const pendingTasks = data.filter((task: any) => !completedIds.has(task.id) && !revertedIds.has(task.id));
-  const draftTasks = pendingTasks.filter((t: any) => t.status === "draft");
+  const pendingTasks = data.filter((task: any) => task.status !== "draft" && !completedIds.has(task.id) && !revertedIds.has(task.id));
   const activeTasks = pendingTasks.filter((t: any) => t.status !== "draft");
 
   // Auto-focus first pallet field on desktop when tasks load
@@ -2506,6 +2521,8 @@ export function PutawayTasksPage() {
             const binOccupancy = localState.location.length >= 2;
             const violation = violations[task.id];
             const suggested = (task.locations as any)?.code;
+            const taskPallet = task.pallets as any;
+            const palletBarcode = taskPallet?.pallet_barcode ?? taskPallet?.pallet_code ?? "";
             const isOverridingSuggestion = Boolean(suggested && localState.location && localState.location !== suggested);
 
             return (
@@ -2522,62 +2539,69 @@ export function PutawayTasksPage() {
                     {" — "}
                     {(task.pallets as any)?.quantity ?? "?"} units
                     <br />
+                    Pallet: <span className="font-mono">{palletBarcode || "No pallet assigned"}</span>
+                    <br />
                     Suggested: <span className="font-mono">{(task.locations as any)?.code ?? "Request alternative"}</span>
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="flex flex-col gap-3">
                   <div className="grid gap-3 lg:grid-cols-2">
                     {/* Pallet barcode field */}
-                    <div className="flex gap-2">
-                      <Input
-                        ref={(el) => { palletRefs.current[task.id] = el; }}
-                        className="min-h-12 min-w-0 flex-1 text-base transition-shadow duration-300"
-                        placeholder="Scan pallet barcode"
-                        value={localState.pallet}
-                        onChange={(event) => {
-                          const val = event.target.value;
-                          setScanState((current) => ({
-                            ...current,
-                            [task.id]: { ...localState, pallet: val },
-                          }));
-                          if (val.endsWith("\n") || val.endsWith("\r")) {
-                            const trimmed = val.trim();
+                    <div className="grid gap-1.5">
+                      <p className="text-xs text-muted-foreground">
+                        Confirm pallet <span className="font-mono font-medium text-foreground">{palletBarcode || "assigned to task"}</span>
+                      </p>
+                      <div className="flex gap-2">
+                        <Input
+                          ref={(el) => { palletRefs.current[task.id] = el; }}
+                          className="min-h-12 min-w-0 flex-1 text-base transition-shadow duration-300"
+                          placeholder="Scan pallet barcode"
+                          value={localState.pallet}
+                          onChange={(event) => {
+                            const val = event.target.value;
                             setScanState((current) => ({
                               ...current,
-                              [task.id]: { ...localState, pallet: trimmed },
+                              [task.id]: { ...localState, pallet: val },
                             }));
+                            if (val.endsWith("\n") || val.endsWith("\r")) {
+                              const trimmed = val.trim();
+                              setScanState((current) => ({
+                                ...current,
+                                [task.id]: { ...localState, pallet: trimmed },
+                              }));
+                              playBarcodeBeep();
+                              flashInput(palletRefs.current[task.id], "blue");
+                              setTimeout(() => {
+                                flashInput(locationRefs.current[task.id], "orange");
+                                locationRefs.current[task.id]?.focus();
+                              }, 50);
+                            }
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              playBarcodeBeep();
+                              flashInput(palletRefs.current[task.id], "blue");
+                              setTimeout(() => {
+                                flashInput(locationRefs.current[task.id], "orange");
+                                locationRefs.current[task.id]?.focus();
+                              }, 50);
+                            }
+                          }}
+                        />
+                        <BarcodeScanButton
+                          title="Scan pallet barcode"
+                          onScan={(v) => {
+                            setScanState((cur) => ({ ...cur, [task.id]: { ...localState, pallet: v } }));
                             playBarcodeBeep();
                             flashInput(palletRefs.current[task.id], "blue");
                             setTimeout(() => {
                               flashInput(locationRefs.current[task.id], "orange");
                               locationRefs.current[task.id]?.focus();
                             }, 50);
-                          }
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            e.preventDefault();
-                            playBarcodeBeep();
-                            flashInput(palletRefs.current[task.id], "blue");
-                            setTimeout(() => {
-                              flashInput(locationRefs.current[task.id], "orange");
-                              locationRefs.current[task.id]?.focus();
-                            }, 50);
-                          }
-                        }}
-                      />
-                      <BarcodeScanButton
-                        title="Scan pallet barcode"
-                        onScan={(v) => {
-                          setScanState((cur) => ({ ...cur, [task.id]: { ...localState, pallet: v } }));
-                          playBarcodeBeep();
-                          flashInput(palletRefs.current[task.id], "blue");
-                          setTimeout(() => {
-                            flashInput(locationRefs.current[task.id], "orange");
-                            locationRefs.current[task.id]?.focus();
-                          }, 50);
-                        }}
-                      />
+                          }}
+                        />
+                      </div>
                     </div>
                     {/* Location barcode field */}
                     <div className="flex gap-2">
@@ -2668,17 +2692,40 @@ export function PutawayTasksPage() {
                     {mutation.isPending ? <Loader2 className="animate-spin" /> : <CheckCircle2 data-icon="inline-start" />}
                     {localState.override ? "Override & Confirm Put-Away" : "Confirm Put-Away"}
                   </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="w-full text-muted-foreground"
-                    disabled={revertMutation.isPending}
-                    onClick={() => revertMutation.mutate(task.id)}
-                  >
-                    {revertMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <RotateCcw className="h-3.5 w-3.5 mr-1" />}
-                    Save as Draft / Return to Receiving
-                  </Button>
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="w-full text-muted-foreground"
+                        disabled={revertMutation.isPending}
+                      >
+                        {revertMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <RotateCcw className="h-3.5 w-3.5 mr-1" />}
+                        Save as Draft / Return to Receiving
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Return this task to Receiving?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          This removes {task.task_number} from Putaway Tasks and creates a Saved Draft in Receiving. To find it later, open Receiving and use the Saved Drafts panel; it will be expanded when drafts exist.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Keep task here</AlertDialogCancel>
+                        <AlertDialogAction
+                          className="bg-secondary text-secondary-foreground hover:bg-secondary/80"
+                          onClick={() => revertMutation.mutate({ taskId: task.id })}
+                        >
+                          Save draft
+                        </AlertDialogAction>
+                        <AlertDialogAction onClick={() => revertMutation.mutate({ taskId: task.id, openReceiving: true })}>
+                          Save draft & open Receiving
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
                 </CardContent>
               </Card>
             );

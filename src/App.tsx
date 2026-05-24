@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { BrowserRouter, Navigate, Outlet, Route, Routes, useNavigate, useParams } from "react-router-dom";
 import { QueryClient, QueryClientProvider, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
@@ -7,6 +7,7 @@ import { ArrowLeft, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { z } from "zod";
 import { Analytics } from "@vercel/analytics/react";
+import JsBarcode from "jsbarcode";
 
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
 import { FeatureFlagContext, useFeatureFlagState } from "@/hooks/use-feature-flags";
@@ -40,13 +41,74 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { BarcodeScanButton } from "@/components/barcode-scan-button";
+import { PalletLabelPage } from "@/components/pallet-label-page";
 import NotFound from "./pages/NotFound";
 import HelpCenterPage from "./pages/HelpCenter";
 import SetupWizardPage from "./pages/SetupWizardPage";
 
 const queryClient = new QueryClient();
+
+function playBarcodeBeep() {
+  try {
+    const ctx = new (window.AudioContext ?? (window as any).webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(1480, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(1760, ctx.currentTime + 0.06);
+    gain.gain.setValueAtTime(0.18, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.18);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.18);
+    osc.onended = () => ctx.close();
+  } catch {
+    // Silent fallback when Web Audio is unavailable.
+  }
+}
+
+function flashInput(el: HTMLElement | null, colour: "orange" | "blue") {
+  if (!el) return;
+  const cls = colour === "orange"
+    ? ["ring-2", "ring-orange-400", "ring-offset-1"]
+    : ["ring-2", "ring-blue-400", "ring-offset-1"];
+  el.classList.add(...cls);
+  setTimeout(() => el.classList.remove(...cls), 700);
+}
+
+function PalletBarcodePreview({ code }: { code?: string | null }) {
+  const ref = useRef<SVGSVGElement>(null);
+
+  useEffect(() => {
+    if (!ref.current || !code) return;
+    try {
+      JsBarcode(ref.current, code, {
+        format: "CODE128",
+        width: 2,
+        height: 64,
+        displayValue: true,
+        fontSize: 14,
+        margin: 0,
+        background: "#ffffff",
+        lineColor: "#000000",
+      });
+    } catch {
+      // Invalid barcode values are shown as plain text elsewhere on the page.
+    }
+  }, [code]);
+
+  if (!code) return null;
+  return (
+    <div className="rounded-lg border border-border bg-white p-3">
+      <svg ref={ref} className="h-auto max-w-full" />
+    </div>
+  );
+}
 
 function friendlyAuthError(error: unknown, context: "login" | "signup" | "code" | "oauth"): string {
   const raw = error instanceof Error ? error.message : String(error ?? "");
@@ -95,14 +157,35 @@ type InventoryDetailData = {
     status: string;
     quantity: number;
     available_quantity: number;
+    reserved_quantity?: number;
+    held_quantity?: number;
+    damaged_quantity?: number;
+    received_at?: string | null;
   };
   pallet: {
     pallet_code: string | null;
+    pallet_barcode: string | null;
+    length?: number | null;
+    width?: number | null;
+    height?: number | null;
+    weight?: number | null;
   } | null;
+  product?: {
+    sku?: string | null;
+    name?: string | null;
+    barcode?: string | null;
+    temperature_requirement?: string | null;
+  } | null;
+  client?: { code?: string | null; name?: string | null } | null;
+  warehouse?: { code?: string | null; name?: string | null } | null;
+  location?: { code?: string | null; aisle?: string | null; bay?: string | null; level?: string | null } | null;
+  receipt?: { receipt_number?: string | null; receipt_type?: string | null; reference_number?: string | null; created_at?: string | null } | null;
+  receiptLine?: { quantity?: number | null; received_quantity?: number | null; override_length?: number | null; override_width?: number | null; override_height?: number | null; override_weight?: number | null } | null;
   lot: {
     expiry_date: string | null;
     lot_number: string | null;
     batch_number: string | null;
+    manufacture_date?: string | null;
   } | null;
   audit: Array<{
     id: string;
@@ -376,6 +459,16 @@ function InventoryDetailPage() {
     queryFn: async () => (await getInventoryDetail(balanceId)) as unknown as InventoryDetailData,
     enabled: Boolean(balanceId),
   });
+  const palletBarcode = data?.pallet?.pallet_barcode ?? data?.pallet?.pallet_code ?? "";
+  const productLabel = data?.product?.sku || data?.product?.name
+    ? `${data.product?.sku ?? ""}${data.product?.sku && data.product?.name ? " · " : ""}${data.product?.name ?? ""}`
+    : "—";
+  const clientLabel = data?.client?.code || data?.client?.name
+    ? `${data.client?.code ?? ""}${data.client?.code && data.client?.name ? " · " : ""}${data.client?.name ?? ""}`
+    : "—";
+  const warehouseLabel = data?.warehouse?.code || data?.warehouse?.name
+    ? `${data.warehouse?.code ?? ""}${data.warehouse?.code && data.warehouse?.name ? " · " : ""}${data.warehouse?.name ?? ""}`
+    : "—";
 
   return (
     <AppShell>
@@ -394,34 +487,103 @@ function InventoryDetailPage() {
               <p className="text-muted-foreground">Loading…</p>
             ) : data ? (
               <>
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-4">
                   <span>Pallet</span>
-                  <span>{data.pallet?.pallet_code}</span>
+                  <span className="font-mono text-right">{data.pallet?.pallet_code ?? "—"}</span>
                 </div>
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-4">
+                  <span>Pallet barcode</span>
+                  <span className="font-mono text-right">{palletBarcode || "—"}</span>
+                </div>
+                <PalletBarcodePreview code={palletBarcode} />
+                <div className="flex items-center justify-between gap-4">
+                  <span>Product</span>
+                  <span className="text-right">{productLabel}</span>
+                </div>
+                <div className="flex items-center justify-between gap-4">
+                  <span>Product barcode</span>
+                  <span className="font-mono text-right">{data.product?.barcode ?? "—"}</span>
+                </div>
+                <div className="flex items-center justify-between gap-4">
+                  <span>Client</span>
+                  <span className="text-right">{clientLabel}</span>
+                </div>
+                <div className="flex items-center justify-between gap-4">
+                  <span>Warehouse</span>
+                  <span className="text-right">{warehouseLabel}</span>
+                </div>
+                <div className="flex items-center justify-between gap-4">
+                  <span>Location</span>
+                  <span className="font-mono text-right">{data.location?.code ?? "Receiving / not stored"}</span>
+                </div>
+                <div className="flex items-center justify-between gap-4">
                   <span>Status</span>
                   <Badge>{data.balance.status}</Badge>
                 </div>
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-4">
                   <span>Quantity</span>
                   <span>{formatNumber(data.balance.quantity)}</span>
                 </div>
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-4">
                   <span>Available</span>
                   <span>{formatNumber(data.balance.available_quantity)}</span>
                 </div>
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-4">
+                  <span>Received qty</span>
+                  <span>{formatNumber(data.receiptLine?.received_quantity ?? data.receiptLine?.quantity ?? data.balance.quantity)}</span>
+                </div>
+                <div className="flex items-center justify-between gap-4">
+                  <span>Receipt</span>
+                  <span className="font-mono text-right">{data.receipt?.receipt_number ?? "—"}</span>
+                </div>
+                <div className="flex items-center justify-between gap-4">
+                  <span>Reference</span>
+                  <span className="text-right">{data.receipt?.reference_number ?? "—"}</span>
+                </div>
+                <div className="flex items-center justify-between gap-4">
                   <span>Expiry</span>
                   <span>{formatDate(data.lot?.expiry_date)}</span>
                 </div>
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-4">
                   <span>Lot</span>
                   <span>{data.lot?.lot_number ?? "—"}</span>
                 </div>
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-4">
                   <span>Batch</span>
                   <span>{data.lot?.batch_number ?? "—"}</span>
                 </div>
+                <div className="flex items-center justify-between gap-4">
+                  <span>Manufactured</span>
+                  <span>{formatDate(data.lot?.manufacture_date)}</span>
+                </div>
+                <div className="grid gap-2 rounded-lg border border-border p-3">
+                  <div className="flex items-center justify-between gap-4">
+                    <span>Dimensions</span>
+                    <span className="text-right">
+                      {[data.receiptLine?.override_length ?? data.pallet?.length, data.receiptLine?.override_width ?? data.pallet?.width, data.receiptLine?.override_height ?? data.pallet?.height]
+                        .map((value) => value == null ? "—" : formatNumber(value))
+                        .join(" × ")}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-4">
+                    <span>Weight</span>
+                    <span>{formatNumber(data.receiptLine?.override_weight ?? data.pallet?.weight)} kg</span>
+                  </div>
+                </div>
+                {palletBarcode && (
+                  <PalletLabelPage
+                    barcode={palletBarcode}
+                    quantity={Number(data.balance.quantity ?? 0)}
+                    productSku={data.product?.sku ?? undefined}
+                    productName={data.product?.name ?? undefined}
+                    lotNumber={data.lot?.lot_number}
+                    expiryDate={data.lot?.expiry_date}
+                    clientName={data.client?.name ?? data.client?.code}
+                    warehouseName={data.warehouse?.name ?? data.warehouse?.code}
+                    temperatureClass={data.product?.temperature_requirement ?? undefined}
+                    trigger={<Button variant="outline">Preview pallet label</Button>}
+                  />
+                )}
               </>
             ) : null}
           </CardContent>
@@ -524,6 +686,20 @@ function PickTaskCard({
       shortReason: "",
     },
   });
+  const locationRef = useRef<HTMLInputElement | null>(null);
+  const palletRef = useRef<HTMLInputElement | null>(null);
+  const confirmRef = useRef<HTMLButtonElement | null>(null);
+  const pallet = task.pallets as any;
+  const product = pallet?.products as any;
+  const locationCode = task.locations?.code ?? task.pick_balance?.locations?.code ?? "";
+  const palletBarcode = pallet?.pallet_barcode ?? "";
+  const palletQuantity = task.pick_balance?.available_quantity ?? pallet?.available_quantity ?? pallet?.quantity ?? task.requested_quantity;
+  const instruction = [
+    `Go to: ${locationCode || "assigned location"}`,
+    `Pallet: ${palletBarcode || "assigned pallet"}`,
+    `Product: ${product?.sku ? `${product.sku} · ` : ""}${product?.name ?? "assigned product"}`,
+    `Pallet qty: ${formatNumber(Number(palletQuantity ?? 0))}`,
+  ].join("\n");
 
   return (
     <Card>
@@ -548,6 +724,9 @@ function PickTaskCard({
               }),
             )}
           >
+            <div className="lg:col-span-4">
+              <Textarea value={instruction} readOnly className="min-h-24 resize-none font-mono text-sm" aria-label="Pick task instructions" />
+            </div>
             <FormField
               control={form.control}
               name="locationCode"
@@ -555,7 +734,41 @@ function PickTaskCard({
                 <FormItem>
                   <FormLabel>Location barcode</FormLabel>
                   <FormControl>
-                    <Input {...field} />
+                    <div className="flex gap-2">
+                      <Input
+                        {...field}
+                        ref={(el) => {
+                          field.ref(el);
+                          locationRef.current = el;
+                        }}
+                        className="min-h-10 min-w-0 flex-1 transition-shadow duration-300"
+                        placeholder="Scan location barcode"
+                        onChange={(event) => field.onChange(event.target.value.replace(/[\r\n]/g, ""))}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            event.preventDefault();
+                            playBarcodeBeep();
+                            flashInput(locationRef.current, "blue");
+                            setTimeout(() => {
+                              flashInput(palletRef.current, "orange");
+                              palletRef.current?.focus();
+                            }, 50);
+                          }
+                        }}
+                      />
+                      <BarcodeScanButton
+                        title="Scan location barcode"
+                        onScan={(value) => {
+                          form.setValue("locationCode", value);
+                          playBarcodeBeep();
+                          flashInput(locationRef.current, "blue");
+                          setTimeout(() => {
+                            flashInput(palletRef.current, "orange");
+                            palletRef.current?.focus();
+                          }, 50);
+                        }}
+                      />
+                    </div>
                   </FormControl>
                 </FormItem>
               )}
@@ -567,7 +780,35 @@ function PickTaskCard({
                 <FormItem>
                   <FormLabel>Pallet barcode</FormLabel>
                   <FormControl>
-                    <Input {...field} />
+                    <div className="flex gap-2">
+                      <Input
+                        {...field}
+                        ref={(el) => {
+                          field.ref(el);
+                          palletRef.current = el;
+                        }}
+                        className="min-h-10 min-w-0 flex-1 transition-shadow duration-300"
+                        placeholder="Scan pallet barcode"
+                        onChange={(event) => field.onChange(event.target.value.replace(/[\r\n]/g, ""))}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            event.preventDefault();
+                            playBarcodeBeep();
+                            flashInput(palletRef.current, "blue");
+                            setTimeout(() => confirmRef.current?.focus(), 50);
+                          }
+                        }}
+                      />
+                      <BarcodeScanButton
+                        title="Scan pallet barcode"
+                        onScan={(value) => {
+                          form.setValue("palletBarcode", value);
+                          playBarcodeBeep();
+                          flashInput(palletRef.current, "blue");
+                          setTimeout(() => confirmRef.current?.focus(), 50);
+                        }}
+                      />
+                    </div>
                   </FormControl>
                 </FormItem>
               )}
@@ -596,7 +837,7 @@ function PickTaskCard({
                 </FormItem>
               )}
             />
-            <Button className="w-full lg:col-span-4" type="submit">
+            <Button ref={confirmRef} className="w-full lg:col-span-4" type="submit">
               Confirm pick
             </Button>
           </form>
