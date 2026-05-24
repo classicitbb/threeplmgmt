@@ -100,6 +100,7 @@ import {
 import { ProductSearch } from "@/components/product-search";
 import { PalletLabelPage } from "@/components/pallet-label-page";
 import { BarcodeScanButton } from "@/components/barcode-scan-button";
+import { type ProductSearchHandle } from "@/components/product-search";
 
 import { cn } from "@/lib/utils";
 import {
@@ -1797,10 +1798,20 @@ export function ReceivingPage() {
   }, [options?.clients, form]);
 
   const [showMore, setShowMore] = useState(false);
+  const [showLabelPopup, setShowLabelPopup] = useState(false);
   const [reuseEnabled, setReuseEnabled] = useState(false);
   const [showZplAdvanced, setShowZplAdvanced] = useState(false);
   const [showDrafts, setShowDrafts] = useState(false);
   const [resumingDraftId, setResumingDraftId] = useState<string | null>(null);
+  const productSearchRef = useRef<ProductSearchHandle>(null);
+
+  // Auto-open product search on desktop so handheld scanners can scan straight in
+  const isCoarsePointer = typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches;
+  useEffect(() => {
+    if (isCoarsePointer) return; // mobile / touch — don't auto-open
+    const timer = setTimeout(() => productSearchRef.current?.open(), 200);
+    return () => clearTimeout(timer);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [lastResult, setLastResult] = useState<{
     barcode: string;
     taskNumber: string;
@@ -1981,12 +1992,24 @@ export function ReceivingPage() {
                     <FormItem>
                       <FormLabel>Product</FormLabel>
                       <FormControl>
-                        <ProductSearch
-                          value={(field.value as string) ?? ""}
-                          onChange={field.onChange}
-                          options={productOptions}
-                          error={Boolean(fieldState.error)}
-                        />
+                        <div className="flex gap-2">
+                          <div className="flex-1 min-w-0">
+                            <ProductSearch
+                              ref={productSearchRef}
+                              value={(field.value as string) ?? ""}
+                              onChange={field.onChange}
+                              options={productOptions}
+                              error={Boolean(fieldState.error)}
+                            />
+                          </div>
+                          <BarcodeScanButton
+                            title="Scan product barcode"
+                            onScan={(v) => {
+                              const matched = productSearchRef.current?.scanBarcode(v);
+                              if (matched) playBarcodeBeep();
+                            }}
+                          />
+                        </div>
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -2430,6 +2453,15 @@ export function PutawayTasksPage() {
   const draftTasks = pendingTasks.filter((t: any) => t.status === "draft");
   const activeTasks = pendingTasks.filter((t: any) => t.status !== "draft");
 
+  // Auto-focus first pallet field on desktop when tasks load
+  const isMobile = typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches;
+  useEffect(() => {
+    if (isMobile || isLoading || activeTasks.length === 0) return;
+    const firstId = activeTasks[0].id;
+    const timer = setTimeout(() => palletRefs.current[firstId]?.focus(), 120);
+    return () => clearTimeout(timer);
+  }, [isLoading, activeTasks.length, isMobile]); // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between gap-4">
@@ -2478,9 +2510,11 @@ export function PutawayTasksPage() {
                 </CardHeader>
                 <CardContent className="flex flex-col gap-3">
                   <div className="grid gap-3 lg:grid-cols-2">
+                    {/* Pallet barcode field */}
                     <div className="flex gap-2">
                       <Input
-                        className="min-h-12 min-w-0 flex-1 text-base"
+                        ref={(el) => { palletRefs.current[task.id] = el; }}
+                        className="min-h-12 min-w-0 flex-1 text-base transition-shadow duration-300"
                         placeholder="Scan pallet barcode"
                         value={localState.pallet}
                         onChange={(event) => {
@@ -2490,17 +2524,28 @@ export function PutawayTasksPage() {
                             [task.id]: { ...localState, pallet: val },
                           }));
                           if (val.endsWith("\n") || val.endsWith("\r")) {
+                            const trimmed = val.trim();
                             setScanState((current) => ({
                               ...current,
-                              [task.id]: { ...localState, pallet: val.trim() },
+                              [task.id]: { ...localState, pallet: trimmed },
                             }));
-                            setTimeout(() => locationRefs.current[task.id]?.focus(), 50);
+                            playBarcodeBeep();
+                            flashInput(palletRefs.current[task.id], "blue");
+                            setTimeout(() => {
+                              flashInput(locationRefs.current[task.id], "orange");
+                              locationRefs.current[task.id]?.focus();
+                            }, 50);
                           }
                         }}
                         onKeyDown={(e) => {
                           if (e.key === "Enter") {
                             e.preventDefault();
-                            setTimeout(() => locationRefs.current[task.id]?.focus(), 50);
+                            playBarcodeBeep();
+                            flashInput(palletRefs.current[task.id], "blue");
+                            setTimeout(() => {
+                              flashInput(locationRefs.current[task.id], "orange");
+                              locationRefs.current[task.id]?.focus();
+                            }, 50);
                           }
                         }}
                       />
@@ -2508,26 +2553,46 @@ export function PutawayTasksPage() {
                         title="Scan pallet barcode"
                         onScan={(v) => {
                           setScanState((cur) => ({ ...cur, [task.id]: { ...localState, pallet: v } }));
-                          setTimeout(() => locationRefs.current[task.id]?.focus(), 50);
+                          playBarcodeBeep();
+                          flashInput(palletRefs.current[task.id], "blue");
+                          setTimeout(() => {
+                            flashInput(locationRefs.current[task.id], "orange");
+                            locationRefs.current[task.id]?.focus();
+                          }, 50);
                         }}
                       />
                     </div>
+                    {/* Location barcode field */}
                     <div className="flex gap-2">
                       <Input
                         ref={(el) => { locationRefs.current[task.id] = el; }}
-                        className="min-h-12 min-w-0 flex-1 text-base"
+                        className="min-h-12 min-w-0 flex-1 text-base transition-shadow duration-300"
                         placeholder="Scan location barcode"
                         value={localState.location}
-                        onChange={(event) =>
+                        onChange={(event) => {
+                          const val = event.target.value.replace(/[\r\n]/g, "");
                           setScanState((current) => ({
                             ...current,
-                            [task.id]: { ...localState, location: event.target.value.replace(/[\r\n]/g, "") },
-                          }))
-                        }
+                            [task.id]: { ...localState, location: val },
+                          }));
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            playBarcodeBeep();
+                            flashInput(locationRefs.current[task.id], "blue");
+                            setTimeout(() => confirmRefs.current[task.id]?.focus(), 50);
+                          }
+                        }}
                       />
                       <BarcodeScanButton
                         title="Scan location barcode"
-                        onScan={(v) => setScanState((cur) => ({ ...cur, [task.id]: { ...localState, location: v } }))}
+                        onScan={(v) => {
+                          setScanState((cur) => ({ ...cur, [task.id]: { ...localState, location: v } }));
+                          playBarcodeBeep();
+                          flashInput(locationRefs.current[task.id], "blue");
+                          setTimeout(() => confirmRefs.current[task.id]?.focus(), 50);
+                        }}
                       />
                     </div>
                   </div>
@@ -2570,6 +2635,7 @@ export function PutawayTasksPage() {
                     />
                   )}
                   <Button
+                    ref={(el) => { confirmRefs.current[task.id] = el; }}
                     className="min-h-12 w-full text-base"
                     disabled={mutation.isPending || !localState.pallet || !localState.location}
                     onClick={() =>
