@@ -107,8 +107,8 @@ export function PalletLabelPage(props: PalletLabelPageProps) {
     .pallet-code { font-size: 18pt; font-weight: 800; letter-spacing: 0.01em; line-height: 1; }
     .temp-badge { font-size: 8pt; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: ${accentColor}; color: #fff; white-space: nowrap; }
     .product { margin-bottom: 3mm; }
-    .sku { font-size: 11pt; font-weight: 700; }
-    .name { font-size: 9pt; color: #444; margin-top: 1mm; }
+    .sku { font-size: 16pt; font-weight: 700; }
+    .name { font-size: 13pt; color: #333; margin-top: 1.5mm; font-weight: 500; }
     .meta { display: grid; grid-template-columns: 1fr 1fr; gap: 2mm 4mm; margin-bottom: 4mm; }
     .meta-item { font-size: 8.5pt; }
     .meta-label { color: #888; text-transform: uppercase; font-size: 6.5pt; letter-spacing: 0.05em; }
@@ -185,9 +185,9 @@ export function PalletLabelPage(props: PalletLabelPageProps) {
           </div>
 
           {(productSku || productName) && (
-            <div className="text-xs">
-              {productSku && <div className="font-semibold">{productSku}</div>}
-              {productName && <div className="text-gray-600">{productName}</div>}
+            <div>
+              {productSku && <div className="text-sm font-bold leading-tight">{productSku}</div>}
+              {productName && <div className="text-sm font-medium text-gray-600 leading-snug mt-0.5">{productName}</div>}
             </div>
           )}
 

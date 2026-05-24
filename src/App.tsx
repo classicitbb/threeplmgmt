@@ -30,6 +30,7 @@ import {
   TransfersPage,
   UsersRolesPage,
   CycleCountsPage,
+  LocationMovesPage,
 } from "@/components/wms-ui";
 
 import { Toaster as Sonner } from "@/components/ui/sonner";
@@ -655,6 +656,7 @@ function ResourceRoutes() {
           <Route path="/inventory-search" element={<InventorySearchPage />} />
           <Route path="/pick-lists" element={<PickListsPage />} />
           <Route path="/transfers" element={<TransfersPage />} />
+          <Route path="/location-moves" element={<LocationMovesPage />} />
           <Route path="/cycle-counts" element={<CycleCountsPage />} />
           <Route path="/status" element={<StatusPage />} />
           <Route path="/reports" element={<ReportsPage />} />

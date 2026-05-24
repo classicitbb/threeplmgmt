@@ -36,6 +36,7 @@ export type AppRoute =
   | "/pick-lists"
   | "/pick-lists/:pickListId"
   | "/transfers"
+  | "/location-moves"
   | "/cycle-counts"
   | "/status"
   | "/reports"
@@ -170,6 +171,7 @@ export const NAVIGATION: Array<{ label: string; to: AppRoute; roles: RoleCode[];
   { label: "Inventory", to: "/inventory-search", roles: ["admin", "warehouse_manager", "inventory_clerk", "warehouse_operator"], moduleKey: "inventory" },
   { label: "Pick Lists", to: "/pick-lists", roles: ["admin", "warehouse_manager", "warehouse_operator"], moduleKey: "pick-lists" },
   { label: "Transfers", to: "/transfers", roles: ["admin", "warehouse_manager", "inventory_clerk", "dispatch_driver"], moduleKey: "transfers" },
+  { label: "Location Moves", to: "/location-moves", roles: ["admin", "warehouse_manager", "inventory_clerk", "warehouse_operator"], moduleKey: "transfers" },
   { label: "Cycle Counts", to: "/cycle-counts", roles: ["admin", "warehouse_manager", "inventory_clerk", "warehouse_operator"], moduleKey: "cycle-counts" },
   { label: "Statuses", to: "/status", roles: ["admin", "warehouse_manager", "inventory_clerk"], moduleKey: "status" },
   { label: "Reports", to: "/reports", roles: ["admin", "warehouse_manager", "inventory_clerk"], moduleKey: "reports" },
@@ -2150,6 +2152,99 @@ export async function getPalletByBarcode(barcode: string): Promise<{
     product_name: (product as any)?.name,
     location_code: (location as any)?.code,
   };
+}
+
+// ── Putaway draft revert ───────────────────────────────────────────────────────
+export async function revertPutawayToDraft(taskId: string): Promise<void> {
+  const { data: task, error } = await db("putaway_tasks").select("*").eq("id", taskId).single();
+  if (error) throw error;
+  if (task.status === "completed") throw new Error("Cannot revert a completed putaway task.");
+  const { error: updErr } = await db("putaway_tasks").update({ status: "draft" } as any).eq("id", taskId);
+  if (updErr) throw updErr;
+  await (supabase.rpc as any)("log_audit_event", {
+    in_event_type: "putaway_reverted_to_draft",
+    in_entity_table: "putaway_tasks",
+    in_entity_id: taskId,
+    in_warehouse_id: task.warehouse_id,
+    in_metadata: { previous_status: task.status },
+  });
+}
+
+// ── Location move tasks ────────────────────────────────────────────────────────
+export async function listMoveTasks() {
+  const { data, error } = await db("move_tasks")
+    .select("*, pallets(pallet_barcode, products(*)), from_location:from_location_id(code, aisle, bay, level), to_location:to_location_id(code, aisle, bay, level)")
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function createMoveTask(palletBarcode: string, toLocationCode: string, reason?: string): Promise<void> {
+  const pallet = await getPalletByBarcode(palletBarcode);
+  if (!pallet) throw new Error(`Pallet "${palletBarcode}" not found.`);
+  if (!pallet.current_location_id) throw new Error(`Pallet ${palletBarcode} is not stored at a location — run putaway first.`);
+
+  const { data: toLoc, error: locErr } = await db("locations")
+    .select("id")
+    .eq("code", toLocationCode.trim().toUpperCase())
+    .maybeSingle();
+  if (locErr) throw locErr;
+  if (!toLoc) throw new Error(`Location "${toLocationCode}" not found.`);
+  if (pallet.current_location_id === toLoc.id) throw new Error("Pallet is already at that location.");
+
+  await upsertRecord("move_tasks", {
+    task_number: buildPalletCode("MVT"),
+    pallet_id: pallet.id,
+    warehouse_id: pallet.current_warehouse_id,
+    from_location_id: pallet.current_location_id,
+    to_location_id: toLoc.id,
+    reason: reason?.trim() || null,
+    status: "queued",
+  });
+}
+
+export async function completeMoveTask(
+  taskId: string,
+  scannedPallet: string,
+  scannedLocation: string,
+): Promise<void> {
+  const { data: task, error: taskErr } = await db("move_tasks")
+    .select("*, pallets(pallet_barcode), to_location:to_location_id(id, code)")
+    .eq("id", taskId)
+    .single();
+  if (taskErr) throw taskErr;
+  if (task.status === "completed") throw new Error("Move task already completed.");
+
+  const expectedPallet = (task.pallets as any)?.pallet_barcode ?? "";
+  if (scannedPallet && scannedPallet !== expectedPallet)
+    throw new Error(`Scanned pallet ${scannedPallet} ≠ expected ${expectedPallet}.`);
+
+  const expectedLocation = (task.to_location as any)?.code ?? "";
+  if (scannedLocation && scannedLocation.toUpperCase() !== expectedLocation.toUpperCase())
+    throw new Error(`Scanned location ${scannedLocation} ≠ target ${expectedLocation}.`);
+
+  await Promise.all([
+    db("pallets")
+      .update({ current_location_id: task.to_location_id, is_stored: true })
+      .eq("id", task.pallet_id),
+    db("inventory_balances")
+      .update({ location_id: task.to_location_id })
+      .eq("pallet_id", task.pallet_id),
+    db("move_tasks")
+      .update({ status: "completed", completed_at: new Date().toISOString() } as any)
+      .eq("id", taskId),
+  ]);
+
+  await (supabase.rpc as any)("log_audit_event", {
+    in_event_type: "pallet_location_move",
+    in_entity_table: "move_tasks",
+    in_entity_id: taskId,
+    in_pallet_id: task.pallet_id,
+    in_warehouse_id: task.warehouse_id,
+    in_from_location_id: task.from_location_id,
+    in_to_location_id: task.to_location_id,
+    in_metadata: { task_number: task.task_number, reason: task.reason },
+  });
 }
 
 export async function moveToPickingArea(palletBarcode: string): Promise<void> {

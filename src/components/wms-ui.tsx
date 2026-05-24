@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm, type UseFormReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { supabase } from "@/integrations/supabase/client";
-import { Activity, AlertTriangle, Archive, BarChart3, Bot, Boxes, Building2, Camera, CheckCircle2, ClipboardCheck, ClipboardList, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, HelpCircle, Home, Info, LayoutDashboard, Loader2, LogOut, Mail, Maximize2, MapPinned, Menu, Minimize2, MoreVertical, Package, PackageX, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, QrCode, RadioTower, RotateCcw, Search, Settings, ShieldCheck, Tags, Trash2, Truck, Upload, UserPlus, Users, Warehouse } from "lucide-react";
+import { Activity, AlertTriangle, Archive, ArrowLeftRight, BarChart3, Bot, Boxes, Building2, Camera, CheckCircle2, ClipboardCheck, ClipboardList, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, HelpCircle, Home, Info, LayoutDashboard, Loader2, LogOut, Mail, Maximize2, MapPinned, Menu, Minimize2, MoreVertical, Package, PackageX, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, QrCode, RadioTower, RotateCcw, Search, Settings, ShieldCheck, Tags, Trash2, Truck, Upload, UserPlus, Users, Warehouse } from "lucide-react";
 import {
   DndContext,
   KeyboardSensor,
@@ -92,9 +92,14 @@ import {
   writeSystemLog,
   cancelTransfer,
   flagCountLineException,
+  revertPutawayToDraft,
+  listMoveTasks,
+  createMoveTask,
+  completeMoveTask,
 } from "@/lib/wms-core";
 import { ProductSearch } from "@/components/product-search";
 import { PalletLabelPage } from "@/components/pallet-label-page";
+import { BarcodeScanButton } from "@/components/barcode-scan-button";
 
 import { cn } from "@/lib/utils";
 import {
@@ -317,6 +322,7 @@ const navIcons: Record<AppRoute, typeof LayoutDashboard> = {
   "/pick-lists": ClipboardList,
   "/pick-lists/:pickListId": ClipboardList,
   "/transfers": Truck,
+  "/location-moves": ArrowLeftRight,
   "/cycle-counts": ClipboardCheck,
   "/status": ShieldCheck,
   "/reports": BarChart3,
@@ -2317,6 +2323,17 @@ export function PutawayTasksPage() {
   const [violations, setViolations] = useState<Record<string, string>>({});
   const locationRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const [completedIds, setCompletedIds] = useState<Set<string>>(new Set());
+  const [revertedIds, setRevertedIds] = useState<Set<string>>(new Set());
+
+  const revertMutation = useMutation({
+    mutationFn: (taskId: string) => revertPutawayToDraft(taskId),
+    onSuccess: async (_, taskId) => {
+      toast.success("Task saved as draft");
+      setRevertedIds((prev) => new Set([...prev, taskId]));
+      await queryClient.invalidateQueries({ queryKey: ["putaway-tasks"] });
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Revert failed"),
+  });
 
   const mutation = useMutation({
     mutationFn: async ({ taskId, pallet, location, override, reason }: { taskId: string; pallet: string; location: string; override?: boolean; reason?: string }) =>
@@ -2352,7 +2369,9 @@ export function PutawayTasksPage() {
     },
   });
 
-  const pendingTasks = data.filter((task: any) => !completedIds.has(task.id));
+  const pendingTasks = data.filter((task: any) => !completedIds.has(task.id) && !revertedIds.has(task.id));
+  const draftTasks = pendingTasks.filter((t: any) => t.status === "draft");
+  const activeTasks = pendingTasks.filter((t: any) => t.status !== "draft");
 
   return (
     <div className="flex flex-col gap-6">
@@ -2402,43 +2421,58 @@ export function PutawayTasksPage() {
                 </CardHeader>
                 <CardContent className="flex flex-col gap-3">
                   <div className="grid gap-3 lg:grid-cols-2">
-                    <Input
-                      className="min-h-12 min-w-0 text-base"
-                      placeholder="📷 Scan pallet barcode"
-                      value={localState.pallet}
-                      onChange={(event) => {
-                        const val = event.target.value;
-                        setScanState((current) => ({
-                          ...current,
-                          [task.id]: { ...localState, pallet: val },
-                        }));
-                        if (val.endsWith("\n") || val.endsWith("\r")) {
+                    <div className="flex gap-2">
+                      <Input
+                        className="min-h-12 min-w-0 flex-1 text-base"
+                        placeholder="Scan pallet barcode"
+                        value={localState.pallet}
+                        onChange={(event) => {
+                          const val = event.target.value;
                           setScanState((current) => ({
                             ...current,
-                            [task.id]: { ...localState, pallet: val.trim() },
+                            [task.id]: { ...localState, pallet: val },
                           }));
+                          if (val.endsWith("\n") || val.endsWith("\r")) {
+                            setScanState((current) => ({
+                              ...current,
+                              [task.id]: { ...localState, pallet: val.trim() },
+                            }));
+                            setTimeout(() => locationRefs.current[task.id]?.focus(), 50);
+                          }
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            setTimeout(() => locationRefs.current[task.id]?.focus(), 50);
+                          }
+                        }}
+                      />
+                      <BarcodeScanButton
+                        title="Scan pallet barcode"
+                        onScan={(v) => {
+                          setScanState((cur) => ({ ...cur, [task.id]: { ...localState, pallet: v } }));
                           setTimeout(() => locationRefs.current[task.id]?.focus(), 50);
+                        }}
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <Input
+                        ref={(el) => { locationRefs.current[task.id] = el; }}
+                        className="min-h-12 min-w-0 flex-1 text-base"
+                        placeholder="Scan location barcode"
+                        value={localState.location}
+                        onChange={(event) =>
+                          setScanState((current) => ({
+                            ...current,
+                            [task.id]: { ...localState, location: event.target.value.replace(/[\r\n]/g, "") },
+                          }))
                         }
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          setTimeout(() => locationRefs.current[task.id]?.focus(), 50);
-                        }
-                      }}
-                    />
-                    <Input
-                      ref={(el) => { locationRefs.current[task.id] = el; }}
-                      className="min-h-12 min-w-0 text-base"
-                      placeholder="📷 Scan location barcode"
-                      value={localState.location}
-                      onChange={(event) =>
-                        setScanState((current) => ({
-                          ...current,
-                        [task.id]: { ...localState, location: event.target.value.replace(/[\r\n]/g, "") },
-                        }))
-                      }
-                    />
+                      />
+                      <BarcodeScanButton
+                        title="Scan location barcode"
+                        onScan={(v) => setScanState((cur) => ({ ...cur, [task.id]: { ...localState, location: v } }))}
+                      />
+                    </div>
                   </div>
                   {binOccupancy && <BinCapacityBar locationCode={localState.location} taskId={task.id} />}
                   {isOverridingSuggestion && (
@@ -2493,6 +2527,17 @@ export function PutawayTasksPage() {
                   >
                     {mutation.isPending ? <Loader2 className="animate-spin" /> : <CheckCircle2 data-icon="inline-start" />}
                     {localState.override ? "Override & Confirm Put-Away" : "Confirm Put-Away"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="w-full text-muted-foreground"
+                    disabled={revertMutation.isPending}
+                    onClick={() => revertMutation.mutate(task.id)}
+                  >
+                    {revertMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <RotateCcw className="h-3.5 w-3.5 mr-1" />}
+                    Save as Draft / Return to Receiving
                   </Button>
                 </CardContent>
               </Card>
@@ -3429,6 +3474,213 @@ export function CycleCountsPage() {
           </details>
         )}
       </div>
+    </div>
+  );
+}
+
+// ── Location Moves Page ────────────────────────────────────────────────────────
+export function LocationMovesPage() {
+  const queryClient = useQueryClient();
+  const [newPallet, setNewPallet] = useState("");
+  const [newLocation, setNewLocation] = useState("");
+  const [newReason, setNewReason] = useState("");
+  const [scanState, setScanState] = useState<Record<string, { pallet: string; location: string }>>({});
+  const [completedIds, setCompletedIds] = useState<Set<string>>(new Set());
+
+  const { data: tasks = [], isLoading } = useQuery({
+    queryKey: ["move-tasks"],
+    queryFn: listMoveTasks,
+  });
+
+  const createMutation = useMutation({
+    mutationFn: () => createMoveTask(newPallet.trim(), newLocation.trim(), newReason.trim() || undefined),
+    onSuccess: async () => {
+      toast.success("Move task created");
+      setNewPallet(""); setNewLocation(""); setNewReason("");
+      await queryClient.invalidateQueries({ queryKey: ["move-tasks"] });
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to create move task"),
+  });
+
+  const completeMutation = useMutation({
+    mutationFn: ({ taskId, pallet, location }: { taskId: string; pallet: string; location: string }) =>
+      completeMoveTask(taskId, pallet, location),
+    onSuccess: async (_, vars) => {
+      toast.success("Move confirmed — pallet relocated");
+      setCompletedIds((prev) => new Set([...prev, vars.taskId]));
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["move-tasks"] }),
+        queryClient.invalidateQueries({ queryKey: ["inventory-search"] }),
+      ]);
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Move failed"),
+  });
+
+  const pending = (tasks as any[]).filter((t) => !completedIds.has(t.id) && t.status !== "completed");
+  const done    = (tasks as any[]).filter((t) =>  completedIds.has(t.id) || t.status === "completed");
+
+  return (
+    <div className="flex flex-col gap-6">
+      <div>
+        <h2 className="text-2xl font-semibold">Location Moves</h2>
+        <p className="text-sm text-muted-foreground">Relocate a pallet within the warehouse — inventory quantity is unchanged.</p>
+      </div>
+
+      {/* Create new move task */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">New Move Task</CardTitle>
+          <CardDescription>Enter the pallet barcode and target location to queue a move.</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="flex gap-2">
+              <Input
+                className="flex-1"
+                placeholder="Pallet barcode"
+                value={newPallet}
+                onChange={(e) => setNewPallet(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && createMutation.mutate()}
+              />
+              <BarcodeScanButton title="Scan pallet" onScan={(v) => setNewPallet(v)} />
+            </div>
+            <div className="flex gap-2">
+              <Input
+                className="flex-1"
+                placeholder="Target location (e.g. A-01-01)"
+                value={newLocation}
+                onChange={(e) => setNewLocation(e.target.value.toUpperCase())}
+                onKeyDown={(e) => e.key === "Enter" && createMutation.mutate()}
+              />
+              <BarcodeScanButton title="Scan target location" onScan={(v) => setNewLocation(v.toUpperCase())} />
+            </div>
+          </div>
+          <Input
+            placeholder="Reason (optional — e.g. aisle blocked, consolidation)"
+            value={newReason}
+            onChange={(e) => setNewReason(e.target.value)}
+          />
+          <Button
+            className="w-full"
+            disabled={createMutation.isPending || !newPallet || !newLocation}
+            onClick={() => createMutation.mutate()}
+          >
+            {createMutation.isPending ? <Loader2 className="animate-spin mr-2 h-4 w-4" /> : <Plus className="mr-2 h-4 w-4" />}
+            Queue Move Task
+          </Button>
+        </CardContent>
+      </Card>
+
+      {/* Pending tasks */}
+      {isLoading ? (
+        <Card><CardContent className="p-6 text-sm text-muted-foreground">Loading…</CardContent></Card>
+      ) : pending.length === 0 && done.length === 0 ? (
+        <Card>
+          <CardContent className="flex flex-col items-center gap-2 p-8 text-center text-sm text-muted-foreground">
+            <ArrowLeftRight className="h-8 w-8 text-muted-foreground/50" />
+            <p className="font-medium">No move tasks yet</p>
+            <p>Use the form above to queue a pallet relocation.</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="flex flex-col gap-4">
+          {pending.map((task: any) => {
+            const local = scanState[task.id] ?? { pallet: "", location: "" };
+            const fromLoc = (task.from_location as any)?.code ?? "—";
+            const toLoc   = (task.to_location   as any)?.code ?? "—";
+            const sku     = (task.pallets as any)?.products?.sku ?? "";
+            const name    = (task.pallets as any)?.products?.name ?? "";
+            const pBarcode = (task.pallets as any)?.pallet_barcode ?? "";
+
+            return (
+              <Card key={task.id} className="border-2">
+                <CardHeader className="pb-3">
+                  <CardTitle className="flex items-center justify-between text-base">
+                    <span className="font-mono">{task.task_number}</span>
+                    <Badge variant={task.status === "queued" ? "secondary" : "default"}>{task.status}</Badge>
+                  </CardTitle>
+                  <CardDescription>
+                    <span className="font-medium text-foreground">{sku}{sku && name ? " · " : ""}{name}</span>
+                    {sku || name ? " — " : ""}<span className="font-mono">{pBarcode}</span>
+                    <br />
+                    <span className="font-mono text-xs">{fromLoc}</span>
+                    <ArrowLeftRight className="inline mx-1 h-3 w-3" />
+                    <span className="font-mono text-xs font-semibold">{toLoc}</span>
+                    {task.reason && <span className="ml-2 text-xs text-muted-foreground">· {task.reason}</span>}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="flex flex-col gap-3">
+                  <div className="grid gap-3 lg:grid-cols-2">
+                    <div className="flex gap-2">
+                      <Input
+                        className="min-h-12 flex-1 text-base"
+                        placeholder={`Scan pallet (${pBarcode})`}
+                        value={local.pallet}
+                        onChange={(e) => setScanState((s) => ({ ...s, [task.id]: { ...local, pallet: e.target.value } }))}
+                      />
+                      <BarcodeScanButton
+                        title="Scan pallet barcode"
+                        onScan={(v) => setScanState((s) => ({ ...s, [task.id]: { ...local, pallet: v } }))}
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <Input
+                        className="min-h-12 flex-1 text-base"
+                        placeholder={`Scan target location (${toLoc})`}
+                        value={local.location}
+                        onChange={(e) => setScanState((s) => ({ ...s, [task.id]: { ...local, location: e.target.value } }))}
+                      />
+                      <BarcodeScanButton
+                        title="Scan target location"
+                        onScan={(v) => setScanState((s) => ({ ...s, [task.id]: { ...local, location: v } }))}
+                      />
+                    </div>
+                  </div>
+                  <Button
+                    className="min-h-12 w-full text-base"
+                    disabled={completeMutation.isPending || !local.pallet || !local.location}
+                    onClick={() => completeMutation.mutate({ taskId: task.id, pallet: local.pallet, location: local.location })}
+                  >
+                    {completeMutation.isPending ? <Loader2 className="animate-spin" /> : <ArrowLeftRight data-icon="inline-start" />}
+                    Confirm Move
+                  </Button>
+                </CardContent>
+              </Card>
+            );
+          })}
+
+          {done.length > 0 && (
+            <details className="group">
+              <summary className="cursor-pointer text-sm text-muted-foreground select-none">
+                {done.length} completed move{done.length !== 1 ? "s" : ""}
+              </summary>
+              <div className="mt-3 flex flex-col gap-2">
+                {done.map((task: any) => {
+                  const fromLoc = (task.from_location as any)?.code ?? "—";
+                  const toLoc   = (task.to_location   as any)?.code ?? "—";
+                  const pBarcode = (task.pallets as any)?.pallet_barcode ?? "";
+                  return (
+                    <Card key={task.id} className="opacity-60">
+                      <CardContent className="flex items-center justify-between gap-4 py-3 px-4">
+                        <div className="text-sm">
+                          <span className="font-mono text-xs">{task.task_number}</span>
+                          <span className="mx-2 text-muted-foreground">·</span>
+                          <span className="font-mono text-xs">{pBarcode}</span>
+                          <span className="mx-2 text-muted-foreground">·</span>
+                          <span className="font-mono text-xs">{fromLoc}</span>
+                          <ArrowLeftRight className="inline mx-1 h-3 w-3" />
+                          <span className="font-mono text-xs">{toLoc}</span>
+                        </div>
+                        <Badge variant="default">completed</Badge>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            </details>
+          )}
+        </div>
+      )}
     </div>
   );
 }
