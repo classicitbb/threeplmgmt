@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm, type UseFormReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { supabase } from "@/integrations/supabase/client";
-import { Activity, AlertTriangle, Archive, ArrowLeftRight, BarChart3, Bot, Boxes, Building2, Camera, CheckCircle2, ClipboardCheck, ClipboardList, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, HelpCircle, Home, Info, LayoutDashboard, Loader2, LogOut, Mail, Maximize2, MapPinned, Menu, Minimize2, MoreVertical, Package, PackageX, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, QrCode, RadioTower, RotateCcw, Search, Settings, ShieldCheck, Tags, Trash2, Truck, Upload, UserPlus, Users, Warehouse } from "lucide-react";
+import { Activity, AlertTriangle, Archive, ArrowLeftRight, BarChart3, Bot, Boxes, Building2, Camera, CheckCircle2, ClipboardCheck, ClipboardList, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, HelpCircle, Home, Info, LayoutDashboard, Loader2, LogOut, Mail, Maximize2, MapPinned, Menu, Minimize2, MoreVertical, Package, PackageX, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, QrCode, RadioTower, RotateCcw, Search, Settings, ShieldCheck, Star, Tags, Trash2, Truck, Upload, UserPlus, Users, Warehouse } from "lucide-react";
 import {
   DndContext,
   KeyboardSensor,
@@ -381,7 +381,7 @@ function TableFrame({
   className?: string;
 }) {
   return (
-    <div className={cn("h-[calc(100svh-14rem)] min-h-48 w-full overflow-auto", className)}>
+    <div className={cn("h-[calc(100svh-14rem)] min-h-48 w-full touch-pan-x overflow-auto overscroll-x-contain [&_table]:min-w-max", className)}>
       {children}
     </div>
   );
@@ -853,6 +853,7 @@ export function ResourcePage({
   const [includeHidden, setIncludeHidden] = useState(false);
   const [editRecord, setEditRecord] = useState<Record<string, unknown> | null>(null);
   const [filterQuery, setFilterQuery] = useState("");
+  const lastTapRef = useRef<{ id: string; time: number } | null>(null);
   const { data = [], isLoading } = useQuery({
     queryKey: [resource.table, includeHidden],
     queryFn: () => listRecords(resource.table, resource.select ?? "*", resource.orderBy, {
@@ -929,12 +930,24 @@ export function ResourcePage({
     );
   }, [data, filterQuery, resource.fields]);
 
+  function handleRowPointerUp(row: unknown) {
+    if (typeof window === "undefined" || !window.matchMedia("(pointer: coarse)").matches) return;
+    const id = String((row as { id?: string }).id ?? JSON.stringify(row));
+    const now = Date.now();
+    if (lastTapRef.current?.id === id && now - lastTapRef.current.time < 450) {
+      setEditRecord(row as Record<string, unknown>);
+      lastTapRef.current = null;
+      return;
+    }
+    lastTapRef.current = { id, time: now };
+  }
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div>
           <h2 className="text-2xl font-semibold">{resource.title}</h2>
-          <p className="text-sm text-muted-foreground">{resource.description} Double-click any row to edit.</p>
+          <p className="text-sm text-muted-foreground">{resource.description} Double-click any row to edit. Double-tap on touch screens.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {resource.exportable ? (
@@ -1008,6 +1021,7 @@ export function ResourcePage({
                       key={(row as { id?: string }).id ?? JSON.stringify(row)}
                       className="even:bg-muted/30 cursor-pointer"
                       onDoubleClick={() => setEditRecord(row as Record<string, unknown>)}
+                      onPointerUp={() => handleRowPointerUp(row)}
                     >
                       {resource.fields.map((field) => {
                         const rawValue = (row as Record<string, unknown>)[field.name];
@@ -2428,6 +2442,7 @@ export function PutawayTasksPage() {
   });
   const [scanState, setScanState] = useState<Record<string, { pallet: string; location: string; override: boolean; reason: string }>>({});
   const [violations, setViolations] = useState<Record<string, string>>({});
+  const [taskSearch, setTaskSearch] = useState("");
   const palletRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const locationRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const confirmRefs = useRef<Record<string, HTMLButtonElement | null>>({});
@@ -2483,7 +2498,21 @@ export function PutawayTasksPage() {
   });
 
   const pendingTasks = data.filter((task: any) => task.status !== "draft" && !completedIds.has(task.id) && !revertedIds.has(task.id));
-  const activeTasks = pendingTasks.filter((t: any) => t.status !== "draft");
+  const taskSearchTerm = taskSearch.trim().toLowerCase();
+  const visibleTasks = taskSearchTerm
+    ? pendingTasks.filter((task: any) =>
+      [
+        task.task_number,
+        task.status,
+        task.pallets?.pallet_barcode,
+        task.pallets?.pallet_code,
+        task.pallets?.products?.sku,
+        task.pallets?.products?.name,
+        task.locations?.code,
+      ].some((value) => String(value ?? "").toLowerCase().includes(taskSearchTerm)),
+    )
+    : pendingTasks;
+  const activeTasks = visibleTasks.filter((t: any) => t.status !== "draft");
 
   // Auto-focus first pallet field on desktop when tasks load
   const isMobile = typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches;
@@ -2496,27 +2525,41 @@ export function PutawayTasksPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h2 className="text-2xl font-semibold">Putaway Tasks</h2>
           <p className="text-sm text-muted-foreground">Scan pallet barcode, then location barcode, and confirm.</p>
         </div>
-        {pendingTasks.length > 0 && (
-          <Badge variant="secondary" className="text-sm">{pendingTasks.length} pending</Badge>
-        )}
+        <div className="flex min-w-0 flex-col gap-2 sm:min-w-80 sm:items-end">
+          {pendingTasks.length > 0 && (
+            <Badge variant="secondary" className="w-fit text-sm">{pendingTasks.length} pending</Badge>
+          )}
+          <div className="flex w-full min-w-0 gap-2">
+            <div className="relative min-w-0 flex-1">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                className="pl-9"
+                value={taskSearch}
+                onChange={(event) => setTaskSearch(event.target.value)}
+                placeholder="Search pallet barcode or task"
+              />
+            </div>
+            <BarcodeScanButton title="Scan pallet barcode" onScan={setTaskSearch} />
+          </div>
+        </div>
       </div>
       <div className="grid gap-4">
         {isLoading ? (
           <Card><CardContent className="p-6 text-sm text-muted-foreground">Loading putaway tasks…</CardContent></Card>
-        ) : pendingTasks.length === 0 ? (
+        ) : visibleTasks.length === 0 ? (
           <Card>
             <CardContent className="flex flex-col items-center gap-2 p-8 text-center text-sm text-muted-foreground">
               <CheckCircle2 className="h-8 w-8 text-green-500" />
-              <p className="font-medium">All putaway tasks complete</p>
+              <p className="font-medium">{pendingTasks.length === 0 ? "All putaway tasks complete" : "No putaway tasks matched"}</p>
             </CardContent>
           </Card>
         ) : (
-          pendingTasks.map((task: any) => {
+          visibleTasks.map((task: any) => {
             const localState = scanState[task.id] ?? { pallet: "", location: "", override: false, reason: "" };
             const binOccupancy = localState.location.length >= 2;
             const violation = violations[task.id];
@@ -2747,6 +2790,8 @@ export function InventorySearchPage() {
   });
   const [warehouseId, setWarehouseId] = useState(restrictedToDefaultWarehouse ? profile?.default_warehouse_id ?? "" : "");
   const [locationScan, setLocationScan] = useState("");
+  const selectedWarehouseValue = warehouseId || "all";
+  const hasInventoryFilters = Boolean(searchTerm || warehouseId || locationScan || status !== "all");
 
   const scanMutation = useMutation({
     mutationFn: getWarehouseForLocationBarcode,
@@ -2762,6 +2807,13 @@ export function InventorySearchPage() {
     queryFn: () => searchInventory({ search: searchTerm, status, warehouseId: warehouseId || undefined }),
   });
 
+  function clearInventoryFilters() {
+    setSearchTerm("");
+    setStatus("all");
+    setWarehouseId("");
+    setLocationScan("");
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <div>
@@ -2769,16 +2821,20 @@ export function InventorySearchPage() {
         <p className="text-sm text-muted-foreground">Search by SKU, pallet, barcode, lot, batch, expiry, owner, or location.</p>
       </div>
       <Card>
-        <CardContent className="grid gap-3 p-4 lg:grid-cols-[minmax(0,2fr)_minmax(12rem,1fr)_minmax(12rem,1fr)_minmax(16rem,1fr)]">
-          <div className="relative">
-            <Search className="absolute left-3 top-3 text-muted-foreground" />
-            <Input className="min-w-0 pl-10" value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Search inventory" />
+        <CardContent className="grid gap-3 p-4 lg:grid-cols-[minmax(0,2fr)_minmax(12rem,1fr)_minmax(12rem,1fr)_minmax(16rem,1fr)_auto]">
+          <div className="flex min-w-0 gap-2">
+            <div className="relative min-w-0 flex-1">
+              <Search className="absolute left-3 top-3 text-muted-foreground" />
+              <Input className="min-w-0 pl-10" value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Search SKU, pallet, or location" />
+            </div>
+            <BarcodeScanButton title="Scan SKU, pallet, or location barcode" onScan={setSearchTerm} />
           </div>
-          <Select onValueChange={setWarehouseId} value={warehouseId}>
+          <Select onValueChange={(value) => setWarehouseId(value === "all" ? "" : value)} value={selectedWarehouseValue}>
             <SelectTrigger>
               <SelectValue placeholder="All warehouses" />
             </SelectTrigger>
             <SelectContent>
+              <SelectItem value="all">All warehouses</SelectItem>
               {(options?.warehouses ?? []).map((warehouse) => (
                 <SelectItem key={warehouse.id} value={warehouse.id}>
                   {warehouse.name}
@@ -2803,6 +2859,9 @@ export function InventorySearchPage() {
               ))}
             </SelectContent>
           </Select>
+          <Button variant="outline" onClick={clearInventoryFilters} disabled={!hasInventoryFilters}>
+            Clear
+          </Button>
         </CardContent>
       </Card>
       <Card>
@@ -2867,6 +2926,7 @@ function statusBadgeVariant(status: string): "default" | "secondary" | "destruct
 export function PickListsPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const [pickSearch, setPickSearch] = useState("");
   const { data: options } = useQuery({ queryKey: ["options"], queryFn: () => fetchOptions() });
   const { data: pickLists = [] } = useQuery({ queryKey: ["pick-lists"], queryFn: listPickLists });
   const form = useForm<z.infer<typeof pickListSchema>>({
@@ -2891,14 +2951,48 @@ export function PickListsPage() {
   });
 
   const lines = form.watch("lines");
-  const active = (pickLists as any[]).filter((pl) => !["completed", "cancelled"].includes(pl.status));
-  const done = (pickLists as any[]).filter((pl) => ["completed", "cancelled"].includes(pl.status));
+  const pickSearchTerm = pickSearch.trim().toLowerCase();
+  const matchesPickSearch = (pickList: any) => {
+    if (!pickSearchTerm) return true;
+    const taskValues = (pickList.pick_tasks ?? []).flatMap((task: any) => [
+      task.status,
+      task.short_reason,
+      task.quantity,
+      task.pallets?.pallet_barcode,
+      task.pallets?.pallet_code,
+      task.pallets?.products?.sku,
+      task.pallets?.products?.name,
+    ]);
+    return [
+      pickList.pick_list_number,
+      pickList.status,
+      pickList.notes,
+      pickList.order_number,
+      ...taskValues,
+    ].some((value) => String(value ?? "").toLowerCase().includes(pickSearchTerm));
+  };
+  const active = (pickLists as any[]).filter((pl) => !["completed", "cancelled"].includes(pl.status)).filter(matchesPickSearch);
+  const done = (pickLists as any[]).filter((pl) => ["completed", "cancelled"].includes(pl.status)).filter(matchesPickSearch);
 
   return (
     <Tabs className="flex flex-col gap-6" defaultValue="lists">
-      <div className="flex flex-col gap-2">
-        <h2 className="text-2xl font-semibold">Pick Lists</h2>
-        <p className="text-sm text-muted-foreground">Release outbound work and execute scan-confirmed picks.</p>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h2 className="text-2xl font-semibold">Pick Lists</h2>
+          <p className="text-sm text-muted-foreground">Release outbound work and execute scan-confirmed picks.</p>
+        </div>
+        <div className="flex min-w-0 gap-2 sm:min-w-80">
+          <div className="relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              className="pl-9"
+              value={pickSearch}
+              onChange={(event) => setPickSearch(event.target.value)}
+              placeholder="Search pick lists or barcodes"
+            />
+          </div>
+          <BarcodeScanButton title="Scan pick list, pallet, or product barcode" onScan={setPickSearch} />
+        </div>
       </div>
       <TabsList className="grid h-auto w-full grid-cols-2 sm:w-fit">
         <TabsTrigger value="lists">Active Lists</TabsTrigger>
@@ -4596,7 +4690,7 @@ function UserProfileRow({
 const MODULE_GROUPS: { label: string; keys: ModuleKey[] }[] = [
   {
     label: "Core Operations",
-    keys: ["receiving", "putaway", "inventory", "transfers", "pick-lists"],
+    keys: ["receiving", "putaway", "inventory", "pick-lists", "location-moves", "transfers"],
   },
   {
     label: "Master Data",
@@ -4609,7 +4703,7 @@ const MODULE_GROUPS: { label: string; keys: ModuleKey[] }[] = [
 ];
 
 function ModulesSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
-  const { flags, setModule, resetToStarter } = useFeatureFlags();
+  const { flags, toolbarModules, isToolbarModule, setModule, setToolbarModule, resetToStarter } = useFeatureFlags();
 
   return (
     <div className="flex flex-col gap-6">
@@ -4636,18 +4730,34 @@ function ModulesSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
                 {group.keys.map((key) => {
                   const meta = MODULE_LABELS[key];
                   const enabled = flags[key] ?? STARTER_MODULES[key];
+                  const pinned = isToolbarModule(key);
+                  const toolbarDisabled = !isAdmin || (!pinned && (!enabled || toolbarModules.length >= 4));
                   return (
                     <div key={key} className="flex items-center justify-between gap-4 rounded-lg border border-border px-4 py-3">
                       <div className="min-w-0">
                         <p className="text-sm font-medium">{meta.label}</p>
                         <p className="text-xs text-muted-foreground">{meta.description}</p>
                       </div>
-                      <Switch
-                        checked={enabled}
-                        onCheckedChange={(v) => setModule(key, v)}
-                        disabled={!isAdmin}
-                        aria-label={`Toggle ${meta.label}`}
-                      />
+                      <div className="flex shrink-0 items-center gap-2">
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant={pinned ? "secondary" : "ghost"}
+                          className="h-8 w-8"
+                          disabled={toolbarDisabled}
+                          onClick={() => setToolbarModule(key, !pinned)}
+                          title={pinned ? `Remove ${meta.label} from mobile toolbar` : `Add ${meta.label} to mobile toolbar`}
+                          aria-label={pinned ? `Remove ${meta.label} from mobile toolbar` : `Add ${meta.label} to mobile toolbar`}
+                        >
+                          <Star className={cn("h-4 w-4", pinned && "fill-current")} />
+                        </Button>
+                        <Switch
+                          checked={enabled}
+                          onCheckedChange={(v) => setModule(key, v)}
+                          disabled={!isAdmin}
+                          aria-label={`Toggle ${meta.label}`}
+                        />
+                      </div>
                     </div>
                   );
                 })}
@@ -5059,12 +5169,19 @@ function ClientVariablesPanel() {
 export function MobileActionBar() {
   const { pathname } = useLocation();
   const { roles } = useAuth();
-  const { isEnabled } = useFeatureFlags();
-  const items = NAVIGATION.filter(
-    (item) =>
-      item.roles.some((role) => roles.includes(role)) &&
-      (!item.moduleKey || isEnabled(item.moduleKey as ModuleKey)),
-  ).slice(0, 5); // show up to 5 primary nav items
+  const { isEnabled, toolbarModules } = useFeatureFlags();
+  const dashboard = NAVIGATION.find((item) => item.to === "/dashboard");
+  const pinnedItems = toolbarModules
+    .map((key) => NAVIGATION.find((item) => item.moduleKey === key))
+    .filter((item): item is (typeof NAVIGATION)[number] => Boolean(item));
+  const items = [dashboard, ...pinnedItems]
+    .filter((item): item is (typeof NAVIGATION)[number] => Boolean(item))
+    .filter(
+      (item) =>
+        item.roles.some((role) => roles.includes(role)) &&
+        (!item.moduleKey || isEnabled(item.moduleKey as ModuleKey)),
+    )
+    .slice(0, 5);
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 flex h-14 items-center justify-around border-t border-border bg-background px-1 md:hidden">
@@ -5166,7 +5283,7 @@ export function SystemLogPage() {
       </Card>
       <Card>
         <CardContent className="p-0">
-          <ScrollArea>
+          <TableFrame>
             <Table>
               <TableHeader className="sticky top-0 z-10 bg-card">
                 <TableRow>
@@ -5210,7 +5327,7 @@ export function SystemLogPage() {
                 ))}
               </TableBody>
             </Table>
-          </ScrollArea>
+          </TableFrame>
         </CardContent>
       </Card>
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
@@ -5336,7 +5453,7 @@ export function EmailLogPage() {
       </Card>
       <Card>
         <CardContent className="p-0">
-          <ScrollArea>
+          <TableFrame>
             <Table>
               <TableHeader className="sticky top-0 z-10 bg-card">
                 <TableRow>
@@ -5367,7 +5484,7 @@ export function EmailLogPage() {
                 ))}
               </TableBody>
             </Table>
-          </ScrollArea>
+          </TableFrame>
         </CardContent>
       </Card>
     </div>

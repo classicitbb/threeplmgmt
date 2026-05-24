@@ -164,33 +164,33 @@ export const ROLE_LABELS: Record<RoleCode, string> = {
 };
 
 export type ModuleKey =
-  | "receiving" | "putaway" | "inventory" | "transfers" | "pick-lists"
+  | "receiving" | "putaway" | "inventory" | "location-moves" | "transfers" | "pick-lists"
   | "products" | "warehouses" | "zones" | "locations" | "users" | "settings"
   | "clients" | "packaging" | "cycle-counts" | "reports" | "status"
   | "system-log" | "email-log";
 
 export const NAVIGATION: Array<{ label: string; to: AppRoute; roles: RoleCode[]; moduleKey?: ModuleKey }> = [
   { label: "Dashboard", to: "/dashboard", roles: ["admin", "warehouse_manager", "inventory_clerk", "warehouse_operator", "dispatch_driver"] },
-  { label: "Warehouses", to: "/warehouses", roles: ["admin", "warehouse_manager"], moduleKey: "warehouses" },
-  { label: "Zones", to: "/zones", roles: ["admin", "warehouse_manager"], moduleKey: "zones" },
-  { label: "Locations", to: "/locations", roles: ["admin", "warehouse_manager"], moduleKey: "locations" },
-  { label: "Clients", to: "/clients", roles: ["admin", "warehouse_manager"], moduleKey: "clients" },
-  { label: "Products", to: "/products", roles: ["admin", "warehouse_manager", "inventory_clerk"], moduleKey: "products" },
-  { label: "Packaging", to: "/packaging-profiles", roles: ["admin", "warehouse_manager", "inventory_clerk"], moduleKey: "packaging" },
   { label: "Receiving", to: "/receiving", roles: ["admin", "warehouse_manager", "inventory_clerk"], moduleKey: "receiving" },
   { label: "Putaway", to: "/putaway-tasks", roles: ["admin", "warehouse_manager", "inventory_clerk", "warehouse_operator"], moduleKey: "putaway" },
   { label: "Inventory", to: "/inventory-search", roles: ["admin", "warehouse_manager", "inventory_clerk", "warehouse_operator"], moduleKey: "inventory" },
   { label: "Pick Lists", to: "/pick-lists", roles: ["admin", "warehouse_manager", "warehouse_operator"], moduleKey: "pick-lists" },
+  { label: "Location Moves", to: "/location-moves", roles: ["admin", "warehouse_manager", "inventory_clerk", "warehouse_operator"], moduleKey: "location-moves" },
   { label: "Transfers", to: "/transfers", roles: ["admin", "warehouse_manager", "inventory_clerk", "dispatch_driver"], moduleKey: "transfers" },
-  { label: "Location Moves", to: "/location-moves", roles: ["admin", "warehouse_manager", "inventory_clerk", "warehouse_operator"], moduleKey: "transfers" },
+  { label: "Warehouses", to: "/warehouses", roles: ["admin", "warehouse_manager"], moduleKey: "warehouses" },
+  { label: "Zones", to: "/zones", roles: ["admin", "warehouse_manager"], moduleKey: "zones" },
+  { label: "Locations", to: "/locations", roles: ["admin", "warehouse_manager"], moduleKey: "locations" },
+  { label: "Products", to: "/products", roles: ["admin", "warehouse_manager", "inventory_clerk"], moduleKey: "products" },
+  { label: "Clients", to: "/clients", roles: ["admin", "warehouse_manager"], moduleKey: "clients" },
+  { label: "Settings", to: "/settings", roles: ["admin", "warehouse_manager"], moduleKey: "settings" },
+  { label: "Help", to: "/help", roles: ["admin", "warehouse_manager", "inventory_clerk", "warehouse_operator", "dispatch_driver"] },
+  { label: "Packaging", to: "/packaging-profiles", roles: ["admin", "warehouse_manager", "inventory_clerk"], moduleKey: "packaging" },
   { label: "Cycle Counts", to: "/cycle-counts", roles: ["admin", "warehouse_manager", "inventory_clerk", "warehouse_operator"], moduleKey: "cycle-counts" },
   { label: "Statuses", to: "/status", roles: ["admin", "warehouse_manager", "inventory_clerk"], moduleKey: "status" },
   { label: "Reports", to: "/reports", roles: ["admin", "warehouse_manager", "inventory_clerk"], moduleKey: "reports" },
   { label: "Users", to: "/users", roles: ["admin"], moduleKey: "users" },
-  { label: "Settings", to: "/settings", roles: ["admin", "warehouse_manager"], moduleKey: "settings" },
   { label: "System Log", to: "/system-log", roles: ["admin", "warehouse_manager"], moduleKey: "system-log" },
   { label: "Email Log", to: "/email-log", roles: ["admin"], moduleKey: "email-log" },
-  { label: "Help", to: "/help", roles: ["admin", "warehouse_manager", "inventory_clerk", "warehouse_operator", "dispatch_driver"] },
 ];
 
 const tempOptions: FieldDefinition["options"] = [
