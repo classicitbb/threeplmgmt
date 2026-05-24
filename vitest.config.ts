@@ -3,6 +3,9 @@ import react from "@vitejs/plugin-react-swc";
 import path from "path";
 
 export default defineConfig({
+  define: {
+    __APP_VERSION__: JSON.stringify("test"),
+  },
   plugins: [react()],
   test: {
     environment: "jsdom",

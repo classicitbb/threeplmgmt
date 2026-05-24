@@ -3,27 +3,27 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 const migration = readFileSync(
-  path.resolve(process.cwd(), "supabase/migrations/20260402093000_init_wms.sql"),
+  path.resolve(process.cwd(), "supabase/migrations/_archive/20260402093000_init_wms.sql"),
   "utf8",
 );
 const helpMigration = readFileSync(
-  path.resolve(process.cwd(), "supabase/migrations/20260402193000_help_archive_reset_setup.sql"),
+  path.resolve(process.cwd(), "supabase/migrations/_archive/20260402193000_help_archive_reset_setup.sql"),
   "utf8",
 );
 const approvalRlsMigration = readFileSync(
-  path.resolve(process.cwd(), "supabase/migrations/20260402195000_fix_profile_approval_and_admin_rls.sql"),
+  path.resolve(process.cwd(), "supabase/migrations/_archive/20260402195000_fix_profile_approval_and_admin_rls.sql"),
   "utf8",
 );
 const enterpriseSchemaMigration = readFileSync(
-  path.resolve(process.cwd(), "supabase/migrations/20260507123000_enterprise_wms_extensions_part1_schema.sql"),
+  path.resolve(process.cwd(), "supabase/migrations/_archive/20260507123000_enterprise_wms_extensions_part1_schema.sql"),
   "utf8",
 );
 const enterprisePoliciesSeedMigration = readFileSync(
-  path.resolve(process.cwd(), "supabase/migrations/20260507123100_enterprise_wms_extensions_part2_policies_seed.sql"),
+  path.resolve(process.cwd(), "supabase/migrations/_archive/20260507123100_enterprise_wms_extensions_part2_policies_seed.sql"),
   "utf8",
 );
 const demoSeed = readFileSync(
-  path.resolve(process.cwd(), "supabase/seed.sql"),
+  path.resolve(process.cwd(), "supabase/seed.example.sql"),
   "utf8",
 );
 

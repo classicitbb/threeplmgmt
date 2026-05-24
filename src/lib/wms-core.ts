@@ -2218,116 +2218,98 @@ export async function revertPutawayToDraft(taskId: string): Promise<void> {
 // ── Location move tasks ────────────────────────────────────────────────────────
 export async function listMoveTasks() {
   const { data, error } = await db("move_tasks")
-    .select("*, pallets(pallet_barcode, products(*)), from_location:from_location_id(code, aisle, bay, level), to_location:to_location_id(code, aisle, bay, level)")
+    .select("*, pallets(pallet_barcode, products(*)), from_location:from_location_id(code, aisle, bay, level, depth), to_location:to_location_id(code, aisle, bay, level, depth)")
     .order("created_at", { ascending: false });
   if (error) throw error;
   return data ?? [];
 }
 
 export async function createMoveTask(palletBarcode: string, toLocationCode: string, reason?: string): Promise<void> {
-  const pallet = await getPalletByBarcode(palletBarcode);
-  if (!pallet) throw new Error(`Pallet "${palletBarcode}" not found.`);
-  if (!pallet.current_location_id) throw new Error(`Pallet ${palletBarcode} is not stored at a location — run putaway first.`);
+  const { data: pallet, error: palletErr } = await db("pallets")
+    .select("id, current_location_id, warehouse_id")
+    .eq("pallet_barcode", palletBarcode)
+    .single();
+  if (palletErr) throw new Error(`Pallet not found: ${palletBarcode}`);
 
-  const { data: toLoc, error: locErr } = await db("locations")
+  const { data: toLocation, error: locErr } = await db("locations")
     .select("id")
-    .eq("code", toLocationCode.trim().toUpperCase())
-    .maybeSingle();
-  if (locErr) throw locErr;
-  if (!toLoc) throw new Error(`Location "${toLocationCode}" not found.`);
-  if (pallet.current_location_id === toLoc.id) throw new Error("Pallet is already at that location.");
+    .eq("code", toLocationCode)
+    .single();
+  if (locErr) throw new Error(`Location not found: ${toLocationCode}`);
 
   await upsertRecord("move_tasks", {
-    task_number: buildPalletCode("MVT"),
+    task_number: buildPalletCode("MOV"),
     pallet_id: pallet.id,
-    warehouse_id: pallet.current_warehouse_id,
+    warehouse_id: pallet.warehouse_id,
     from_location_id: pallet.current_location_id,
-    to_location_id: toLoc.id,
-    reason: reason?.trim() || null,
+    to_location_id: toLocation.id,
     status: "queued",
+    reason: reason ?? null,
   });
 }
 
-export async function completeMoveTask(
-  taskId: string,
-  scannedPallet: string,
-  scannedLocation: string,
-): Promise<void> {
-  const { data: task, error: taskErr } = await db("move_tasks")
-    .select("*, pallets(pallet_barcode), to_location:to_location_id(id, code)")
-    .eq("id", taskId)
-    .single();
+export async function completeMoveTask(taskId: string, scannedPalletBarcode: string, scannedLocationCode: string): Promise<void> {
+  const { data: task, error: taskErr } = await db("move_tasks").select("*").eq("id", taskId).single();
   if (taskErr) throw taskErr;
-  if (task.status === "completed") throw new Error("Move task already completed.");
 
-  const expectedPallet = (task.pallets as any)?.pallet_barcode ?? "";
-  if (scannedPallet && scannedPallet !== expectedPallet)
-    throw new Error(`Scanned pallet ${scannedPallet} ≠ expected ${expectedPallet}.`);
+  const { data: pallet, error: palletErr } = await db("pallets")
+    .select("id, pallet_barcode, current_location_id, warehouse_id")
+    .eq("pallet_barcode", scannedPalletBarcode)
+    .single();
+  if (palletErr) throw new Error(`Pallet not found: ${scannedPalletBarcode}`);
 
-  const expectedLocation = (task.to_location as any)?.code ?? "";
-  if (scannedLocation && scannedLocation.toUpperCase() !== expectedLocation.toUpperCase())
-    throw new Error(`Scanned location ${scannedLocation} ≠ target ${expectedLocation}.`);
+  const { data: toLocation, error: locErr } = await db("locations")
+    .select("id")
+    .eq("code", scannedLocationCode)
+    .single();
+  if (locErr) throw new Error(`Location not found: ${scannedLocationCode}`);
 
-  await Promise.all([
-    db("pallets")
-      .update({ current_location_id: task.to_location_id, is_stored: true })
-      .eq("id", task.pallet_id),
-    db("inventory_balances")
-      .update({ location_id: task.to_location_id })
-      .eq("pallet_id", task.pallet_id),
-    db("move_tasks")
-      .update({ status: "completed", completed_at: new Date().toISOString() } as any)
-      .eq("id", taskId),
-  ]);
+  const { error: palletUpdErr } = await db("pallets")
+    .update({ current_location_id: toLocation.id } as any)
+    .eq("id", pallet.id);
+  if (palletUpdErr) throw palletUpdErr;
+
+  const { error: taskUpdErr } = await db("move_tasks")
+    .update({ status: "completed", to_location_id: toLocation.id, completed_at: new Date().toISOString() } as any)
+    .eq("id", taskId);
+  if (taskUpdErr) throw taskUpdErr;
 
   await (supabase.rpc as any)("log_audit_event", {
-    in_event_type: "pallet_location_move",
+    in_event_type: "move_task_completed",
     in_entity_table: "move_tasks",
     in_entity_id: taskId,
-    in_pallet_id: task.pallet_id,
     in_warehouse_id: task.warehouse_id,
-    in_from_location_id: task.from_location_id,
-    in_to_location_id: task.to_location_id,
-    in_metadata: { task_number: task.task_number, reason: task.reason },
+    in_metadata: { pallet_barcode: scannedPalletBarcode, to_location: scannedLocationCode },
   });
 }
 
 export async function moveToPickingArea(palletBarcode: string): Promise<void> {
-  const pallet = await getPalletByBarcode(palletBarcode);
-  if (!pallet) throw new Error(`Pallet "${palletBarcode}" not found.`);
-  if (pallet.status === "picked") throw new Error(`Pallet ${palletBarcode} is already in the picking area.`);
+  const { data: pallet, error: palletErr } = await db("pallets")
+    .select("id, warehouse_id")
+    .eq("pallet_barcode", palletBarcode)
+    .single();
+  if (palletErr) throw new Error(`Pallet not found: ${palletBarcode}`);
 
-  const { data: dispatchZone, error: zoneError } = await db("zones")
+  // Find or create a staging/picking location in the same warehouse
+  const { data: stagingLoc, error: locErr } = await db("locations")
     .select("id")
-    .eq("warehouse_id", pallet.current_warehouse_id)
-    .eq("is_dispatch", true)
+    .eq("warehouse_id", pallet.warehouse_id)
+    .eq("is_staging", true)
+    .limit(1)
     .maybeSingle();
-  if (zoneError) throw zoneError;
+  if (locErr) throw locErr;
 
-  await Promise.all([
-    db("pallets").update({
-      status: "picked",
-      current_location_id: null,
-      is_stored: false,
-      available_quantity: 0,
-    }).eq("id", pallet.id),
-    db("inventory_balances").update({
-      status: "picked",
-      location_id: null,
-      zone_id: dispatchZone?.id ?? null,
-      available_quantity: 0,
-    }).eq("pallet_id", pallet.id),
-  ]);
+  const toLocationId = stagingLoc?.id ?? null;
+  const { error: updErr } = await db("pallets")
+    .update({ current_location_id: toLocationId } as any)
+    .eq("id", pallet.id);
+  if (updErr) throw updErr;
 
-  const moveAudit = await (supabase.rpc as any)("log_audit_event", {
-    in_event_type: "transfer",
+  await (supabase.rpc as any)("log_audit_event", {
+    in_event_type: "pallet_moved_to_picking_area",
     in_entity_table: "pallets",
     in_entity_id: pallet.id,
-    in_pallet_id: pallet.id,
-    in_warehouse_id: pallet.current_warehouse_id,
-    in_from_location_id: pallet.current_location_id,
-    in_to_location_id: null,
-    in_metadata: { movement: "move_to_picking", pallet_barcode: palletBarcode },
+    in_warehouse_id: pallet.warehouse_id,
+    in_metadata: { pallet_barcode: palletBarcode },
   });
-  if (moveAudit.error) console.error("[moveToPickingArea] log_audit_event failed:", moveAudit.error);
 }
