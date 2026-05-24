@@ -86,5 +86,6 @@ If the user asks for a UI change:
 - `2026-05-09` — UI freeze established at commit `015b6f43`.
 - `2026-05-11` — Command Center/header explicitly updated with themed loading, pallet dials, desktop fit behavior, and manager warehouse switcher.
 - `2026-05-24` — User-approved updates to Putaway task pallet confirmation, return-to-Receiving draft prompt, and Inventory Detail barcode/label preview.
+- `2026-05-24` — User-approved updates to inventory, putaway, and pick list search; navigation order; mobile toolbar; responsive table editing; and login fit.
 
 Append new entries here only when the user explicitly approves a UI change.

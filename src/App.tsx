@@ -305,26 +305,26 @@ function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen bg-gradient-to-br from-background via-background to-muted/30">
+    <div className="flex h-svh overflow-hidden bg-gradient-to-br from-background via-background to-muted/30">
       {/* Left branding panel — hidden on small screens */}
-      <div className="hidden w-2/5 flex-col justify-between bg-primary p-10 text-primary-foreground lg:flex">
+      <div className="hidden w-2/5 flex-col justify-between bg-primary p-6 text-primary-foreground lg:flex xl:p-8">
         <div className="flex items-center gap-3">
-          <img src="/logo.png" alt="Warehouse Wizard" className="h-[11.25rem] w-[11.25rem] rounded-xl bg-primary-foreground/20 p-1 object-cover" />
-          <span className="font-semibold text-4xl font-sans">Warehouse Wizard</span>
+          <img src="/logo.png" alt="Warehouse Wizard" className="h-[clamp(4.5rem,14vh,8rem)] w-[clamp(4.5rem,14vh,8rem)] rounded-xl bg-primary-foreground/20 p-1 object-cover" />
+          <span className="font-semibold text-3xl font-sans xl:text-4xl">Warehouse Wizard</span>
         </div>
-        <div className="space-y-4">
-          <h1 className="text-3xl font-bold leading-tight">Enterprise Warehouse Management System</h1>
-          <p className="text-primary-foreground/70">
+        <div className="space-y-3">
+          <h1 className="text-2xl font-bold leading-tight xl:text-3xl">Enterprise Warehouse Management System</h1>
+          <p className="text-sm text-primary-foreground/70 xl:text-base">
             Scan-first operations, role-gated workflows, and complete audit trail for modern warehouse teams.
           </p>
-          <div className="grid grid-cols-2 gap-3 pt-2">
+          <div className="grid grid-cols-2 gap-2 pt-1 xl:gap-3">
             {[
               ["Pallet tracking", "Real-time location & status"],
               ["Pick & putaway", "Directed task execution"],
               ["Cycle counts", "Variance-aware counting"],
               ["Multi-warehouse", "Unified cross-site control"],
             ].map(([title, desc]) => (
-              <div key={title} className="rounded-lg bg-primary-foreground/10 p-3">
+              <div key={title} className="rounded-lg bg-primary-foreground/10 p-2 xl:p-3">
                 <p className="text-sm font-medium">{title}</p>
                 <p className="mt-0.5 text-xs text-primary-foreground/60">{desc}</p>
               </div>
@@ -335,12 +335,12 @@ function LoginPage() {
       </div>
 
       {/* Right login form */}
-      <div className="flex flex-1 items-center justify-center p-6">
-        <div className="w-full max-w-sm space-y-6">
+      <div className="flex min-h-0 flex-1 items-center justify-center p-3 sm:p-4">
+        <div className="w-full max-w-sm space-y-3 sm:space-y-4">
           {/* Mobile logo */}
-          <div className="flex flex-col items-center gap-3 lg:hidden">
-            <img src="/logo.png" alt="Warehouse Wizard" className="h-40 w-40 rounded-lg object-cover" />
-            <span className="font-semibold pb-[50px] text-4xl">Warehouse Wizard</span>
+          <div className="flex flex-col items-center gap-2 lg:hidden">
+            <img src="/logo.png" alt="Warehouse Wizard" className="h-[clamp(4.5rem,18vh,7rem)] w-[clamp(4.5rem,18vh,7rem)] rounded-lg object-cover" />
+            <span className="font-semibold text-[clamp(1.5rem,7vw,2.25rem)] leading-tight">Warehouse Wizard</span>
           </div>
 
           <div>
@@ -356,8 +356,8 @@ function LoginPage() {
 
           {mode === "login" ? (
             <Form {...loginForm}>
-              <form className="flex flex-col gap-4" onSubmit={loginForm.handleSubmit((v) => loginMutation.mutate(v))}>
-                <div className="rounded-lg border border-border bg-secondary/30 p-3">
+              <form className="flex flex-col gap-3" onSubmit={loginForm.handleSubmit((v) => loginMutation.mutate(v))}>
+                <div className="rounded-lg border border-border bg-secondary/30 p-2.5">
                   <p className="text-sm font-medium text-center">Email, user code, or badge</p>
                   <p className="text-xs text-muted-foreground text-center">Use an approved email, short code such as ADMIN01, or a scanned badge code.</p>
                 </div>
@@ -375,7 +375,7 @@ function LoginPage() {
             </Form>
           ) : (
             <Form {...signUpForm}>
-              <form className="space-y-4" onSubmit={signUpForm.handleSubmit((v) => signUpMutation.mutate(v))}>
+              <form className="space-y-3" onSubmit={signUpForm.handleSubmit((v) => signUpMutation.mutate(v))}>
                 <FormField
                   control={signUpForm.control}
                   name="fullName"
