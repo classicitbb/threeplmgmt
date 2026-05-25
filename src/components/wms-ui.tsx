@@ -87,6 +87,7 @@ import {
   setUserRoleVisibility,
   submitCycleCountLine,
   transferSchema,
+  updateRecord,
   upsertClientVariable,
   upsertRecord,
   writeSystemLog,
@@ -463,7 +464,7 @@ function ResourceFormDialog({
   });
 
   const createMutation = useMutation({
-    mutationFn: async (values: Record<string, unknown>) => upsertRecord(resource.table, normalizeResourceValues(resource, values)),
+    mutationFn: async (values: Record<string, unknown>) => upsertRecord(resource.table, normalizeResourceValues(resource, values, options)),
     onSuccess: () => {
       toast.success(`${resource.singular} saved`);
       queryClient.invalidateQueries({ queryKey: [resource.table] });
@@ -538,8 +539,11 @@ function ResourceEditDialog({
   const wasAlreadyDisabled = isLocations && (editRecord.status === "disabled" || editRecord.status === "maintenance");
 
   const updateMutation = useMutation({
-    mutationFn: async (values: Record<string, unknown>) =>
-      upsertRecord(resource.table, { id: editRecord.id, ...normalizeResourceValues(resource, values) }),
+    mutationFn: async (values: Record<string, unknown>) => {
+      const id = String(editRecord.id ?? "");
+      if (!id) throw new Error(`Missing ${resource.singular} id.`);
+      return updateRecord(resource.table, id, normalizeResourceValues(resource, values, options));
+    },
     onSuccess: () => {
       toast.success(`${resource.singular} updated`);
       queryClient.invalidateQueries({ queryKey: [resource.table] });
@@ -913,6 +917,13 @@ export function ResourcePage({
     );
     return map;
   }, [warehouseOptions]);
+  const warehouseInfoMap = useMemo(() => {
+    const map = new Map<string, { code: string; name: string }>();
+    (warehouseOptions as Array<{ id: string; code: string; name: string }>).forEach((w) =>
+      map.set(w.id, { code: w.code, name: w.name }),
+    );
+    return map;
+  }, [warehouseOptions]);
 
   const hasZoneRef = resource.fields.some((f) => f.name === "zone_id");
   const { data: zoneOptions = [] } = useQuery({
@@ -924,6 +935,13 @@ export function ResourcePage({
     const map = new Map<string, string>();
     (zoneOptions as Array<{ id: string; code: string; name: string }>).forEach((z) =>
       map.set(z.id, z.name ?? z.code),
+    );
+    return map;
+  }, [zoneOptions]);
+  const zoneInfoMap = useMemo(() => {
+    const map = new Map<string, { code: string; name: string }>();
+    (zoneOptions as Array<{ id: string; code: string; name: string }>).forEach((z) =>
+      map.set(z.id, { code: z.code, name: z.name }),
     );
     return map;
   }, [zoneOptions]);
@@ -1136,6 +1154,10 @@ export function ResourcePage({
                                 level={(row as Record<string, unknown>).level as number | null}
                                 locationType={(row as Record<string, unknown>).location_type as string | null}
                                 temperatureClass={String((row as Record<string, unknown>).temperature_class ?? "ambient")}
+                                warehouseCode={warehouseInfoMap.get(String((row as Record<string, unknown>).warehouse_id))?.code}
+                                zoneCode={zoneInfoMap.get(String((row as Record<string, unknown>).zone_id))?.code}
+                                warehouseName={warehouseInfoMap.get(String((row as Record<string, unknown>).warehouse_id))?.name}
+                                zoneName={zoneInfoMap.get(String((row as Record<string, unknown>).zone_id))?.name}
                               />
                             ) : (
                               <>
@@ -1302,10 +1324,11 @@ function LocationWizardDialog({ trigger }: { trigger?: React.ReactNode }) {
 
       for (let bay = values.start_bay; bay <= values.end_bay; bay += 1) {
         for (let level = 1; level <= values.levels; level += 1) {
+          const localCode = `${values.prefix}-${String(bay).padStart(2, "0")}-L${String(level).padStart(2, "0")}`;
           locations.push({
             warehouse_id: values.warehouse_id,
             zone_id: values.zone_id,
-            code: `${values.prefix}-${String(bay).padStart(2, "0")}-L${String(level).padStart(2, "0")}`,
+            code: composeLocationCode(options, values.warehouse_id, values.zone_id, localCode),
             aisle: values.prefix,
             bay: String(bay).padStart(2, "0"),
             level,
@@ -1521,16 +1544,41 @@ function defaultFieldValue(field: FieldDefinition) {
   return "";
 }
 
-function normalizeResourceValues(resource: ResourceDefinition, values: Record<string, unknown>) {
-  return resource.fields.reduce<Record<string, unknown>>((payload, field) => {
+function composeLocationCode(
+  options: Awaited<ReturnType<typeof fetchOptions>> | undefined,
+  warehouseId: unknown,
+  zoneId: unknown,
+  localCode: unknown,
+) {
+  const rawCode = String(localCode ?? "").trim();
+  if (!rawCode) return rawCode;
+  const warehouse = (options?.warehouses ?? []).find((row: any) => row.id === warehouseId);
+  const zone = (options?.zones ?? []).find((row: any) => row.id === zoneId);
+  const warehouseCode = String(warehouse?.code ?? "").trim();
+  const zoneCode = String(zone?.code ?? "").trim();
+  if (!warehouseCode || !zoneCode) return rawCode;
+  const prefix = `${warehouseCode}-${zoneCode}-`;
+  return rawCode.toUpperCase().startsWith(prefix.toUpperCase()) ? rawCode : `${prefix}${rawCode}`;
+}
+
+function normalizeResourceValues(
+  resource: ResourceDefinition,
+  values: Record<string, unknown>,
+  options?: Awaited<ReturnType<typeof fetchOptions>>,
+) {
+  const payload = resource.fields.reduce<Record<string, unknown>>((current, field) => {
     const value = values[field.name];
     if (value === "") {
-      payload[field.name] = field.required ? value : null;
-      return payload;
+      current[field.name] = field.required ? value : null;
+      return current;
     }
-    payload[field.name] = field.type === "number" && value != null ? Number(value) : value;
-    return payload;
+    current[field.name] = field.type === "number" && value != null ? Number(value) : value;
+    return current;
   }, {});
+  if (resource.table === "locations") {
+    payload.code = composeLocationCode(options, payload.warehouse_id, payload.zone_id, payload.code);
+  }
+  return payload;
 }
 
 function getResourceFieldOptions(field: FieldDefinition, options?: Awaited<ReturnType<typeof fetchOptions>>) {

@@ -618,6 +618,23 @@ export async function upsertRecord(
   return data as any;
 }
 
+export async function updateRecord(
+  table: string,
+  id: string,
+  payload: Record<string, unknown>,
+) {
+  const cleanedPayload = Object.fromEntries(
+    Object.entries(payload).map(([key, value]) => [key, value === "" ? null : value]),
+  );
+  const { data, error } = await (supabase.from as any)(table)
+    .update(cleanedPayload as never)
+    .eq("id", id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data as any;
+}
+
 export async function deleteRecord(table: string, id: string) {
   const { error } = await (supabase.from as any)(table).delete().eq("id", id);
   if (error) throw error;

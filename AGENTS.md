@@ -100,5 +100,8 @@ If the user asks for a UI change:
 - `2026-05-25` — User-approved correction to Inventory Search results table with fixed column headings and row-only scrolling.
 - `2026-05-25` — User-approved correction to Inventory Search results table to use one aligned sticky-header table with vertical and horizontal row scrolling.
 - `2026-05-25` — User-approved update to require double-click or double-tap before opening editable/detail table rows site-wide.
+- `2026-05-25` — User-approved update to Location code creation so saved codes include warehouse, zone, and location hierarchy.
+- `2026-05-25` — User-approved update to Location labels to show full hierarchy codes and use QR for complex codes.
+- `2026-05-25` — User-approved fix for Location edit saves and migration to normalize existing location hierarchy codes.
 
 Append new entries here only when the user explicitly approves a UI change.
