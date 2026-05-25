@@ -3,7 +3,7 @@ import { BrowserRouter, Navigate, Outlet, Route, Routes, useNavigate, useParams 
 import { QueryClient, QueryClientProvider, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { ArrowLeft, Loader2 } from "lucide-react";
+import { ArrowLeft, Eye, EyeOff, Loader2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { z } from "zod";
 import { Analytics } from "@vercel/analytics/react";
@@ -44,6 +44,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { BarcodeScanButton } from "@/components/barcode-scan-button";
 import { PalletLabelPage } from "@/components/pallet-label-page";
 import NotFound from "./pages/NotFound";
@@ -51,6 +52,39 @@ import HelpCenterPage from "./pages/HelpCenter";
 import SetupWizardPage from "./pages/SetupWizardPage";
 
 const queryClient = new QueryClient();
+
+const RELEASE_HISTORY = [
+  {
+    version: "1.1.1",
+    date: "May 2026",
+    changes: [
+      "Inventory Search: barcode-aware searching and warehouse scope filtering",
+      "Putaway: pallet confirmation, draft return prompts, and saved draft guidance",
+      "Pick Lists: searchable pick list contents with scan support",
+      "Inventory Detail: pallet barcode and full-page pallet label preview",
+      "Mobile: configurable bottom toolbar and responsive table scrolling",
+    ],
+  },
+  {
+    version: "1.1.0",
+    date: "May 2026",
+    changes: [
+      "Inline row editing with double-click and table action buttons",
+      "Sticky table headers and horizontal overflow scrolling",
+      "Back buttons on Inventory Detail and Pick Execution pages",
+      "Settings About tab with version history and feature register",
+    ],
+  },
+  {
+    version: "1.0.0",
+    date: "May 2026",
+    changes: [
+      "Warehouse, zone, location, client, product, and packaging master data",
+      "Receiving, directed putaway, inventory search, pick lists, and transfers",
+      "Dashboard, reporting, role-based access, barcode labels, and audit trail",
+    ],
+  },
+];
 
 function playBarcodeBeep() {
   try {
@@ -260,6 +294,8 @@ function RequireAuth({
 function LoginPage() {
   const auth = useAuth();
   const [mode, setMode] = useState<"login" | "signup">("login");
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
+  const [showSignUpPassword, setShowSignUpPassword] = useState(false);
 
   const loginForm = useForm({
     resolver: zodResolver(loginSchema.extend({ email: loginSchema.shape.email.or(z.string().min(3, "Enter an email, user code, or badge")) })),
@@ -305,11 +341,11 @@ function LoginPage() {
   }
 
   return (
-    <div className="flex h-svh overflow-hidden bg-gradient-to-br from-background via-background to-muted/30">
+    <div className="relative flex h-svh overflow-hidden bg-gradient-to-br from-background via-background to-muted/30">
       {/* Left branding panel — hidden on small screens */}
       <div className="hidden w-2/5 flex-col justify-between bg-primary p-6 text-primary-foreground lg:flex xl:p-8">
         <div className="flex items-center gap-3">
-          <img src="/logo.png" alt="Warehouse Wizard" className="h-[clamp(4.5rem,14vh,8rem)] w-[clamp(4.5rem,14vh,8rem)] rounded-xl bg-primary-foreground/20 p-1 object-cover" />
+          <img src="/logo.png" alt="Warehouse Wizard" className="h-[clamp(4.5rem,14vh,8rem)] w-[clamp(4.5rem,14vh,8rem)] rounded-xl bg-background p-1 object-cover" />
           <span className="font-semibold text-3xl font-sans xl:text-4xl">Warehouse Wizard</span>
         </div>
         <div className="space-y-3">
@@ -365,7 +401,26 @@ function LoginPage() {
                   <FormItem><FormLabel>Login</FormLabel><FormControl><Input {...field} autoComplete="username" /></FormControl><FormMessage /></FormItem>
                 )} />
                 <FormField control={loginForm.control} name="password" render={({ field }) => (
-                  <FormItem><FormLabel>Password</FormLabel><FormControl><Input {...field} type="password" autoComplete="current-password" /></FormControl><FormMessage /></FormItem>
+                  <FormItem>
+                    <FormLabel>Password</FormLabel>
+                    <FormControl>
+                      <div className="relative">
+                        <Input {...field} className="pr-12" type={showLoginPassword ? "text" : "password"} autoComplete="current-password" />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="absolute right-1 top-1/2 h-8 w-8 -translate-y-1/2 text-muted-foreground"
+                          onClick={() => setShowLoginPassword((current) => !current)}
+                          aria-label={showLoginPassword ? "Hide password" : "Show password"}
+                          title={showLoginPassword ? "Hide password" : "Show password"}
+                        >
+                          {showLoginPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </Button>
+                      </div>
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
                 )} />
                 <Button type="submit" disabled={loginMutation.isPending}>
                   {loginMutation.isPending ? <Loader2 className="animate-spin mr-2 h-4 w-4" /> : null}
@@ -415,7 +470,22 @@ function LoginPage() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Password</FormLabel>
-                      <FormControl><Input {...field} type="password" placeholder="Min 8 characters" /></FormControl>
+                      <FormControl>
+                        <div className="relative">
+                          <Input {...field} className="pr-12" type={showSignUpPassword ? "text" : "password"} placeholder="Min 8 characters" />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="absolute right-1 top-1/2 h-8 w-8 -translate-y-1/2 text-muted-foreground"
+                            onClick={() => setShowSignUpPassword((current) => !current)}
+                            aria-label={showSignUpPassword ? "Hide password" : "Show password"}
+                            title={showSignUpPassword ? "Hide password" : "Show password"}
+                          >
+                            {showSignUpPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                          </Button>
+                        </div>
+                      </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -446,6 +516,62 @@ function LoginPage() {
             )}
           </p>
         </div>
+      </div>
+      <div className="absolute bottom-3 right-3 flex items-center gap-2 text-xs text-muted-foreground">
+        <Dialog>
+          <DialogTrigger asChild>
+            <button className="inline-flex items-center gap-1 rounded-md px-2 py-1 font-medium text-primary underline-offset-4 hover:underline">
+              <Sparkles className="h-3.5 w-3.5" />
+              What's new
+            </button>
+          </DialogTrigger>
+          <DialogContent className="max-h-[86vh] sm:max-w-lg">
+            <DialogHeader>
+              <DialogTitle>New features</DialogTitle>
+              <DialogDescription>Highlights from the latest release.</DialogDescription>
+            </DialogHeader>
+            <ScrollArea className="max-h-[58vh] pr-4">
+              <div className="grid gap-3 text-sm">
+                {RELEASE_HISTORY[0].changes.map((change) => (
+                  <div key={change} className="rounded-md border border-border px-3 py-2">
+                    {change}
+                  </div>
+                ))}
+              </div>
+            </ScrollArea>
+          </DialogContent>
+        </Dialog>
+        <span className="text-muted-foreground/60">|</span>
+        <Dialog>
+          <DialogTrigger asChild>
+            <button className="rounded-md px-2 py-1 font-mono font-semibold text-primary underline-offset-4 hover:underline">
+              v{__APP_VERSION__}
+            </button>
+          </DialogTrigger>
+          <DialogContent className="max-h-[86vh] sm:max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Version history</DialogTitle>
+              <DialogDescription>Warehouse Wizard Enterprise WMS release notes.</DialogDescription>
+            </DialogHeader>
+            <ScrollArea className="max-h-[58vh] pr-4">
+              <div className="grid gap-3">
+                {RELEASE_HISTORY.map((release) => (
+                  <div key={release.version} className="rounded-lg border border-border p-3">
+                    <div className="mb-2 flex items-center gap-2">
+                      <Badge variant="secondary" className="font-mono">v{release.version}</Badge>
+                      <span className="text-xs text-muted-foreground">{release.date}</span>
+                    </div>
+                    <ul className="grid gap-1 text-sm text-muted-foreground">
+                      {release.changes.map((change) => (
+                        <li key={change}>{change}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            </ScrollArea>
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   );

@@ -441,8 +441,10 @@ function renderField(
 
 function ResourceFormDialog({
   resource,
+  trigger,
 }: {
   resource: ResourceDefinition;
+  trigger?: React.ReactNode;
 }) {
   const queryClient = useQueryClient();
   const { roles, profile } = useAuth();
@@ -476,10 +478,10 @@ function ResourceFormDialog({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button>
+        {trigger ?? <Button>
           <Plus data-icon="inline-start" />
           Add {resource.singular}
-        </Button>
+        </Button>}
       </DialogTrigger>
       <DialogContent className="max-h-[90vh] overflow-hidden sm:max-w-2xl">
         <DialogHeader>
@@ -838,7 +840,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </div>
             </div>
           </div>
-          <div className="flex-1 min-h-0 min-w-0 overflow-y-auto px-4 py-5 sm:px-5 lg:px-6">{children}</div>
+          <div
+            className={cn(
+              "flex-1 min-h-0 min-w-0 px-4 py-5 sm:px-5 lg:px-6",
+              pathname === "/inventory-search" ? "overflow-hidden" : "overflow-y-auto",
+            )}
+          >
+            {children}
+          </div>
         </main>
       </div>
     </div>
@@ -854,6 +863,7 @@ export function ResourcePage({
   const [editRecord, setEditRecord] = useState<Record<string, unknown> | null>(null);
   const [filterQuery, setFilterQuery] = useState("");
   const lastTapRef = useRef<{ id: string; time: number } | null>(null);
+  const useGearActions = ["warehouses", "zones", "locations", "products"].includes(resource.table);
   const { data = [], isLoading } = useQuery({
     queryKey: [resource.table, includeHidden],
     queryFn: () => listRecords(resource.table, resource.select ?? "*", resource.orderBy, {
@@ -950,21 +960,72 @@ export function ResourcePage({
           <p className="text-sm text-muted-foreground">{resource.description} Double-click any row to edit. Double-tap on touch screens.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {resource.exportable ? (
-            <Button variant="outline" onClick={() => downloadCsv(`${resource.table}.csv`, data as Array<Record<string, unknown>>)}>
-              <Download data-icon="inline-start" />
-              Export CSV
-            </Button>
-          ) : null}
-          {resource.supportsHide ? (
-            <Button variant="outline" onClick={() => setIncludeHidden((current) => !current)}>
-              {includeHidden ? <EyeOff data-icon="inline-start" /> : <Eye data-icon="inline-start" />}
-              {includeHidden ? "Hide archived" : "Show archived"}
-            </Button>
-          ) : null}
-          {resource.importable ? <ImportButton resource={resource} /> : null}
-          {resource.table === "locations" ? <LocationWizardDialog /> : null}
-          <ResourceFormDialog resource={resource} />
+          {useGearActions ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="icon" variant="outline" aria-label={`${resource.title} actions`}>
+                  <Settings className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                {resource.exportable ? (
+                  <DropdownMenuItem onClick={() => downloadCsv(`${resource.table}.csv`, data as Array<Record<string, unknown>>)}>
+                    <Download className="mr-2 h-4 w-4" />
+                    Export CSV
+                  </DropdownMenuItem>
+                ) : null}
+                {resource.supportsHide ? (
+                  <DropdownMenuItem onClick={() => setIncludeHidden((current) => !current)}>
+                    {includeHidden ? <EyeOff className="mr-2 h-4 w-4" /> : <Eye className="mr-2 h-4 w-4" />}
+                    {includeHidden ? "Hide archived" : "Show archived"}
+                  </DropdownMenuItem>
+                ) : null}
+                {resource.importable ? (
+                  <>
+                    <DropdownMenuSeparator />
+                    <ImportButton resource={resource} asMenuItems />
+                  </>
+                ) : null}
+                {resource.table === "locations" ? (
+                  <LocationWizardDialog
+                    trigger={
+                      <DropdownMenuItem onSelect={(event) => event.preventDefault()}>
+                        <MapPinned className="mr-2 h-4 w-4" />
+                        Location wizard
+                      </DropdownMenuItem>
+                    }
+                  />
+                ) : null}
+                <ResourceFormDialog
+                  resource={resource}
+                  trigger={
+                    <DropdownMenuItem onSelect={(event) => event.preventDefault()}>
+                      <Plus className="mr-2 h-4 w-4" />
+                      Add {resource.singular}
+                    </DropdownMenuItem>
+                  }
+                />
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : (
+            <>
+              {resource.exportable ? (
+                <Button variant="outline" onClick={() => downloadCsv(`${resource.table}.csv`, data as Array<Record<string, unknown>>)}>
+                  <Download data-icon="inline-start" />
+                  Export CSV
+                </Button>
+              ) : null}
+              {resource.supportsHide ? (
+                <Button variant="outline" onClick={() => setIncludeHidden((current) => !current)}>
+                  {includeHidden ? <EyeOff data-icon="inline-start" /> : <Eye data-icon="inline-start" />}
+                  {includeHidden ? "Hide archived" : "Show archived"}
+                </Button>
+              ) : null}
+              {resource.importable ? <ImportButton resource={resource} /> : null}
+              {resource.table === "locations" ? <LocationWizardDialog /> : null}
+              <ResourceFormDialog resource={resource} />
+            </>
+          )}
         </div>
       </div>
 
@@ -1147,7 +1208,40 @@ export function ResourcePage({
   );
 }
 
-function ImportButton({ resource }: { resource: ResourceDefinition }) {
+function ImportButton({ resource, asMenuItems = false }: { resource: ResourceDefinition; asMenuItems?: boolean }) {
+  function handleImport() {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".csv";
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      const errors = await importCsvToResource(resource, file);
+      if (errors.length > 0) {
+        downloadCsv(`${resource.table}-errors.csv`, errors);
+        toast.error(`Imported with ${errors.length} row errors`);
+      } else {
+        toast.success(`${resource.title} imported`);
+      }
+    };
+    input.click();
+  }
+
+  if (asMenuItems) {
+    return (
+      <>
+        <DropdownMenuItem onClick={() => downloadCsvTemplate(resource)}>
+          <FileDown className="mr-2 h-4 w-4" />
+          Template
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={(event) => { event.preventDefault(); handleImport(); }}>
+          <Upload className="mr-2 h-4 w-4" />
+          Import CSV
+        </DropdownMenuItem>
+      </>
+    );
+  }
+
   return (
     <>
       <Button variant="outline" onClick={() => downloadCsvTemplate(resource)}>
@@ -1156,23 +1250,7 @@ function ImportButton({ resource }: { resource: ResourceDefinition }) {
       </Button>
       <Button
         variant="outline"
-        onClick={() => {
-          const input = document.createElement("input");
-          input.type = "file";
-          input.accept = ".csv";
-          input.onchange = async () => {
-            const file = input.files?.[0];
-            if (!file) return;
-            const errors = await importCsvToResource(resource, file);
-            if (errors.length > 0) {
-              downloadCsv(`${resource.table}-errors.csv`, errors);
-              toast.error(`Imported with ${errors.length} row errors`);
-            } else {
-              toast.success(`${resource.title} imported`);
-            }
-          };
-          input.click();
-        }}
+        onClick={handleImport}
       >
         <Upload data-icon="inline-start" />
         Import CSV
@@ -1181,7 +1259,7 @@ function ImportButton({ resource }: { resource: ResourceDefinition }) {
   );
 }
 
-function LocationWizardDialog() {
+function LocationWizardDialog({ trigger }: { trigger?: React.ReactNode }) {
   const queryClient = useQueryClient();
   const { data: options } = useQuery({ queryKey: ["options", "location-wizard"], queryFn: () => fetchOptions() });
   const [open, setOpen] = useState(false);
@@ -1259,10 +1337,10 @@ function LocationWizardDialog() {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="outline">
+        {trigger ?? <Button variant="outline">
           <MapPinned data-icon="inline-start" />
           Location wizard
-        </Button>
+        </Button>}
       </DialogTrigger>
       <DialogContent className="max-h-[90vh] overflow-hidden sm:max-w-2xl">
         <DialogHeader>
@@ -1941,7 +2019,7 @@ export function ReceivingPage() {
   const productOptions = (options?.products ?? []).map((p: any) => ({ id: p.id, sku: p.sku, name: p.name, barcode: p.barcode }));
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex h-full min-h-0 flex-col gap-6 overflow-hidden">
       {/* Success banner */}
       {lastResult && (
         <div className="flex flex-col gap-2 rounded-lg border border-green-200 bg-green-50 p-4 dark:border-green-900 dark:bg-green-950/30 sm:flex-row sm:items-center sm:justify-between">
@@ -2588,7 +2666,7 @@ export function PutawayTasksPage() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="flex flex-col gap-3">
-                  <div className="grid gap-3 lg:grid-cols-2">
+                  <div className="grid items-start gap-3 lg:grid-cols-2">
                     {/* Pallet barcode field */}
                     <div className="grid gap-1.5">
                       <p className="text-xs text-muted-foreground">
@@ -2646,38 +2724,40 @@ export function PutawayTasksPage() {
                         />
                       </div>
                     </div>
-                    {/* Location barcode field */}
-                    <div className="flex gap-2">
-                      <Input
-                        ref={(el) => { locationRefs.current[task.id] = el; }}
-                        className="min-h-12 min-w-0 flex-1 text-base transition-shadow duration-300"
-                        placeholder="Scan location barcode"
-                        value={localState.location}
-                        onChange={(event) => {
-                          const val = event.target.value.replace(/[\r\n]/g, "");
-                          setScanState((current) => ({
-                            ...current,
-                            [task.id]: { ...localState, location: val },
-                          }));
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            e.preventDefault();
+                    <div className="grid gap-1.5">
+                      <p className="text-xs text-muted-foreground">Confirm location</p>
+                      <div className="flex gap-2">
+                        <Input
+                          ref={(el) => { locationRefs.current[task.id] = el; }}
+                          className="min-h-12 min-w-0 flex-1 text-base transition-shadow duration-300"
+                          placeholder="Scan location barcode"
+                          value={localState.location}
+                          onChange={(event) => {
+                            const val = event.target.value.replace(/[\r\n]/g, "");
+                            setScanState((current) => ({
+                              ...current,
+                              [task.id]: { ...localState, location: val },
+                            }));
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              playBarcodeBeep();
+                              flashInput(locationRefs.current[task.id], "blue");
+                              setTimeout(() => confirmRefs.current[task.id]?.focus(), 50);
+                            }
+                          }}
+                        />
+                        <BarcodeScanButton
+                          title="Scan location barcode"
+                          onScan={(v) => {
+                            setScanState((cur) => ({ ...cur, [task.id]: { ...localState, location: v } }));
                             playBarcodeBeep();
                             flashInput(locationRefs.current[task.id], "blue");
                             setTimeout(() => confirmRefs.current[task.id]?.focus(), 50);
-                          }
-                        }}
-                      />
-                      <BarcodeScanButton
-                        title="Scan location barcode"
-                        onScan={(v) => {
-                          setScanState((cur) => ({ ...cur, [task.id]: { ...localState, location: v } }));
-                          playBarcodeBeep();
-                          flashInput(locationRefs.current[task.id], "blue");
-                          setTimeout(() => confirmRefs.current[task.id]?.focus(), 50);
-                        }}
-                      />
+                          }}
+                        />
+                      </div>
                     </div>
                   </div>
                   {binOccupancy && <BinCapacityBar locationCode={localState.location} taskId={task.id} />}
@@ -2780,9 +2860,11 @@ export function PutawayTasksPage() {
 }
 
 export function InventorySearchPage() {
+  const navigate = useNavigate();
   const { roles, profile } = useAuth();
   const [searchTerm, setSearchTerm] = useState("");
   const [status, setStatus] = useState<string>("all");
+  const lastDetailTapRef = useRef<{ id: string; time: number } | null>(null);
   const restrictedToDefaultWarehouse = shouldRestrictToDefaultWarehouse(roles);
   const { data: options } = useQuery({
     queryKey: ["options", "inventory", restrictedToDefaultWarehouse, profile?.default_warehouse_id],
@@ -2792,6 +2874,12 @@ export function InventorySearchPage() {
   const [locationScan, setLocationScan] = useState("");
   const selectedWarehouseValue = warehouseId || "all";
   const hasInventoryFilters = Boolean(searchTerm || warehouseId || locationScan || status !== "all");
+  const scopeRows = useMemo(() => {
+    const warehouses = options?.warehouses ?? [];
+    const zones = options?.zones ?? [];
+    const locations = options?.locations ?? [];
+    return { warehouses, zones, locations };
+  }, [options]);
 
   const scanMutation = useMutation({
     mutationFn: getWarehouseForLocationBarcode,
@@ -2807,6 +2895,46 @@ export function InventorySearchPage() {
     queryFn: () => searchInventory({ search: searchTerm, status, warehouseId: warehouseId || undefined }),
   });
 
+  function resolveWarehouseScope(value: string, options?: { exact?: boolean; notify?: boolean }) {
+    const query = value.trim().toLowerCase();
+    if (!query) {
+      setWarehouseId("");
+      return false;
+    }
+    const matches = (...values: unknown[]) =>
+      values.some((item) => {
+        const text = String(item ?? "").trim().toLowerCase();
+        if (!text) return false;
+        return options?.exact ? text === query : text.includes(query);
+      });
+    const warehouse = scopeRows.warehouses.find((row: any) => matches(row.code, row.name));
+    const zone = scopeRows.zones.find((row: any) => matches(row.code, row.name));
+    const location = scopeRows.locations.find((row: any) => matches(row.code, row.aisle, row.bay, row.level, row.location_type));
+    const matchedWarehouseId = warehouse?.id ?? zone?.warehouse_id ?? location?.warehouse_id ?? "";
+    if (!matchedWarehouseId) {
+      setWarehouseId("");
+      return false;
+    }
+    setWarehouseId(matchedWarehouseId);
+    if (options?.notify) {
+      const label = warehouse?.name ?? zone?.code ?? location?.code ?? "matched warehouse";
+      toast.success(`Warehouse visibility switched from ${label}`);
+    }
+    return true;
+  }
+
+  function handleLocationScopeChange(value: string) {
+    setLocationScan(value);
+    resolveWarehouseScope(value);
+  }
+
+  function handleLocationScopeScan(value: string) {
+    setLocationScan(value);
+    if (!resolveWarehouseScope(value, { exact: true, notify: true })) {
+      scanMutation.mutate(value);
+    }
+  }
+
   function clearInventoryFilters() {
     setSearchTerm("");
     setStatus("all");
@@ -2814,15 +2942,30 @@ export function InventorySearchPage() {
     setLocationScan("");
   }
 
+  function openInventoryDetail(balanceId: string) {
+    navigate(`/inventory/${balanceId}`);
+  }
+
+  function handleInventoryRowPointerUp(balanceId: string) {
+    if (typeof window === "undefined" || !window.matchMedia("(pointer: coarse)").matches) return;
+    const now = Date.now();
+    if (lastDetailTapRef.current?.id === balanceId && now - lastDetailTapRef.current.time < 450) {
+      openInventoryDetail(balanceId);
+      lastDetailTapRef.current = null;
+      return;
+    }
+    lastDetailTapRef.current = { id: balanceId, time: now };
+  }
+
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex h-full min-h-0 flex-col gap-6 overflow-hidden">
       <div>
         <h2 className="text-2xl font-semibold">Inventory Search</h2>
         <p className="text-sm text-muted-foreground">Search by SKU, pallet, barcode, lot, batch, expiry, owner, or location.</p>
       </div>
       <Card>
-        <CardContent className="grid gap-3 p-4 lg:grid-cols-[minmax(0,2fr)_minmax(12rem,1fr)_minmax(12rem,1fr)_minmax(16rem,1fr)_auto]">
-          <div className="flex min-w-0 gap-2">
+        <CardContent className="flex flex-wrap items-stretch gap-3 p-4">
+          <div className="flex min-w-[17rem] flex-1 gap-2">
             <div className="relative min-w-0 flex-1">
               <Search className="absolute left-3 top-3 text-muted-foreground" />
               <Input className="min-w-0 pl-10" value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Search SKU, pallet, or location" />
@@ -2830,7 +2973,7 @@ export function InventorySearchPage() {
             <BarcodeScanButton title="Scan SKU, pallet, or location barcode" onScan={setSearchTerm} />
           </div>
           <Select onValueChange={(value) => setWarehouseId(value === "all" ? "" : value)} value={selectedWarehouseValue}>
-            <SelectTrigger>
+            <SelectTrigger className="min-w-[12rem] flex-1 sm:flex-none">
               <SelectValue placeholder="All warehouses" />
             </SelectTrigger>
             <SelectContent>
@@ -2842,14 +2985,17 @@ export function InventorySearchPage() {
               ))}
             </SelectContent>
           </Select>
-          <div className="flex min-w-0 gap-2">
-            <Input className="min-w-0" value={locationScan} onChange={(event) => setLocationScan(event.target.value)} placeholder="Scan location barcode" />
-            <Button size="icon" variant="outline" onClick={() => scanMutation.mutate(locationScan)} aria-label="Use scanned location warehouse">
-              <QrCode />
-            </Button>
+          <div className="flex min-w-[17rem] flex-1 gap-2">
+            <Input
+              className="min-w-0"
+              value={locationScan}
+              onChange={(event) => handleLocationScopeChange(event.target.value)}
+              placeholder="Search or scan warehouse, zone, aisle, or location"
+            />
+            <BarcodeScanButton title="Scan warehouse, zone, aisle, or location barcode" onScan={handleLocationScopeScan} />
           </div>
           <Select onValueChange={(value) => setStatus(value as typeof status)} value={status}>
-            <SelectTrigger>
+            <SelectTrigger className="min-w-[11rem] flex-1 sm:flex-none">
               <SelectValue placeholder="Status" />
             </SelectTrigger>
             <SelectContent>
@@ -2859,16 +3005,16 @@ export function InventorySearchPage() {
               ))}
             </SelectContent>
           </Select>
-          <Button variant="outline" onClick={clearInventoryFilters} disabled={!hasInventoryFilters}>
+          <Button className="min-w-24 flex-1 sm:flex-none" variant="outline" onClick={clearInventoryFilters} disabled={!hasInventoryFilters}>
             Clear
           </Button>
         </CardContent>
       </Card>
-      <Card>
-        <CardContent className="p-0">
-          <TableFrame>
-            <Table>
-              <TableHeader className="sticky top-0 z-10 bg-card">
+      <Card className="flex min-h-0 flex-1 flex-col">
+        <CardContent className="flex min-h-0 flex-1 p-0">
+          <TableFrame className="h-full">
+            <Table className="min-w-[58rem]">
+              <TableHeader className="sticky top-0 z-20 bg-card shadow-sm">
                 <TableRow>
                   <TableHead>SKU</TableHead>
                   <TableHead>Pallet</TableHead>
@@ -2877,21 +3023,26 @@ export function InventorySearchPage() {
                   <TableHead>Status</TableHead>
                   <TableHead>Available</TableHead>
                   <TableHead>Expiry</TableHead>
-                  <TableHead />
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {isLoading ? (
                   <TableRow>
-                    <TableCell className="h-24 text-center text-muted-foreground" colSpan={8}>Searching…</TableCell>
+                    <TableCell className="h-24 text-center text-muted-foreground" colSpan={7}>Searching…</TableCell>
                   </TableRow>
                 ) : data.length === 0 ? (
                   <TableRow>
-                    <TableCell className="h-24 text-center text-muted-foreground" colSpan={8}>No inventory matched.</TableCell>
+                    <TableCell className="h-24 text-center text-muted-foreground" colSpan={7}>No inventory matched.</TableCell>
                   </TableRow>
                 ) : (
                   data.map((row) => (
-                    <TableRow key={row.inventory_balance_id} className="even:bg-muted/30">
+                    <TableRow
+                      key={row.inventory_balance_id}
+                      className="cursor-pointer even:bg-muted/30 hover:bg-muted/50"
+                      onDoubleClick={() => openInventoryDetail(row.inventory_balance_id)}
+                      onPointerUp={() => handleInventoryRowPointerUp(row.inventory_balance_id)}
+                      title="Double-click or double-tap to open details"
+                    >
                       <TableCell>{row.sku}</TableCell>
                       <TableCell>{row.pallet_code}</TableCell>
                       <TableCell>{row.location_code ?? "Receiving"}</TableCell>
@@ -2899,11 +3050,6 @@ export function InventorySearchPage() {
                       <TableCell><Badge variant={row.status === "available" ? "default" : "secondary"}>{row.status}</Badge></TableCell>
                       <TableCell>{formatNumber(row.available_quantity)}</TableCell>
                       <TableCell>{formatDate(row.expiry_date)}</TableCell>
-                      <TableCell>
-                        <Button asChild size="sm" variant="ghost">
-                          <Link to={`/inventory/${row.inventory_balance_id}`}>Detail</Link>
-                        </Button>
-                      </TableCell>
                     </TableRow>
                   ))
                 )}
