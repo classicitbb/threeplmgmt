@@ -2691,7 +2691,12 @@ export function PutawayTasksPage() {
     mutationFn: async ({ taskId, pallet, location, override, reason }: { taskId: string; pallet: string; location: string; override?: boolean; reason?: string }) =>
       confirmPutaway(taskId, pallet, location, { override, overrideReason: reason }),
     onSuccess: async (_, vars) => {
-      toast.success(vars.override ? "Putaway confirmed with override" : "Putaway confirmed");
+      playBarcodeBeep();
+      toast.success(vars.override ? "Putaway locked in with override" : "Putaway locked in", {
+        description: `Pallet ${vars.pallet} stored at ${vars.location}.`,
+        duration: 7000,
+        className: "border-emerald-400 bg-emerald-50 text-emerald-950 dark:border-emerald-500 dark:bg-emerald-950 dark:text-emerald-50",
+      });
       setCompletedIds((prev) => new Set([...prev, vars.taskId]));
       setScanState((current) => {
         const next = { ...current };
@@ -2748,13 +2753,13 @@ export function PutawayTasksPage() {
   }, [isLoading, activeTasks.length, isMobile]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+    <div className="flex h-full min-h-0 flex-col gap-6 overflow-hidden">
+      <div className="shrink-0 rounded-lg border border-border bg-background/95 p-4 shadow-sm backdrop-blur sm:flex sm:items-end sm:justify-between sm:gap-3">
         <div>
           <h2 className="text-2xl font-semibold">Putaway Tasks</h2>
           <p className="text-sm text-muted-foreground">Scan pallet barcode, then location barcode, and confirm.</p>
         </div>
-        <div className="flex min-w-0 flex-col gap-2 sm:min-w-80 sm:items-end">
+        <div className="mt-3 flex min-w-0 flex-col gap-2 sm:mt-0 sm:min-w-80 sm:items-end">
           {pendingTasks.length > 0 && (
             <Badge variant="secondary" className="w-fit text-sm">{pendingTasks.length} pending</Badge>
           )}
@@ -2772,7 +2777,7 @@ export function PutawayTasksPage() {
           </div>
         </div>
       </div>
-      <div className="grid gap-4">
+      <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto pr-1">
         {isLoading ? (
           <Card><CardContent className="p-6 text-sm text-muted-foreground">Loading putaway tasks…</CardContent></Card>
         ) : visibleTasks.length === 0 ? (

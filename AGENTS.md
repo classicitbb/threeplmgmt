@@ -107,5 +107,6 @@ If the user asks for a UI change:
 - `2026-05-25` — User-approved update to Help Center contextual module topics for clients, location moves, system log, email log, and route coverage.
 - `2026-05-25` — User-approved update to Receiving page scrolling and Saved Drafts search with barcode scanner support.
 - `2026-05-25` — User-approved update to Pick List create defaults, order scanner, product/quantity controls, and active list count.
+- `2026-05-25` — User-approved update to Putaway task header fixed scrolling and more vibrant confirmation feedback with ding.
 
 Append new entries here only when the user explicitly approves a UI change.
