@@ -56,7 +56,6 @@ import {
   getWarehouseForLocationBarcode,
   getBinOccupancy,
   getPutawayTasks,
-  getPalletByBarcode,
   getReportData,
   importCsvToResource,
   listClientVariables,
