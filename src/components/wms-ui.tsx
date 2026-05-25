@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm, type UseFormReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { supabase } from "@/integrations/supabase/client";
-import { Activity, AlertTriangle, Archive, ArrowLeftRight, BarChart3, Bot, Boxes, Building2, Camera, CheckCircle2, ClipboardCheck, ClipboardList, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, HelpCircle, Home, Info, LayoutDashboard, Loader2, LogOut, Mail, Maximize2, MapPinned, Menu, Minimize2, MoreVertical, Package, PackageX, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, QrCode, RadioTower, RotateCcw, Search, Settings, ShieldCheck, Star, Tags, Trash2, Truck, Upload, UserPlus, Users, Warehouse } from "lucide-react";
+import { Activity, AlertTriangle, ArrowLeftRight, BarChart3, Bot, Boxes, Building2, CheckCircle2, ClipboardCheck, ClipboardList, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, HelpCircle, Home, Info, LayoutDashboard, Loader2, LogOut, Mail, Maximize2, MapPinned, Menu, Minimize2, Package, PackageX, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, QrCode, RadioTower, RotateCcw, Search, Settings, ShieldCheck, Star, Tags, Truck, Upload, UserPlus, Users, Warehouse } from "lucide-react";
 import {
   DndContext,
   KeyboardSensor,
@@ -35,7 +35,6 @@ import {
   type AppRoute,
   type FieldDefinition,
   type ResourceDefinition,
-  type SystemLogEntry,
   type DraftReceipt,
   adminInviteUser,
   changePalletStatus,
@@ -122,8 +121,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Checkbox } from "@/components/ui/checkbox";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerTrigger } from "@/components/ui/drawer";
+// removed unused dropdown-menu and drawer imports
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -3159,128 +3157,6 @@ export function PickListsPage() {
   );
 }
 
-function MoveToPickingPanel() {
-  const queryClient = useQueryClient();
-  const [barcode, setBarcode] = useState("");
-  const [pallet, setPallet] = useState<Awaited<ReturnType<typeof getPalletByBarcode>>>(null);
-  const [recentMoves, setRecentMoves] = useState<Array<{ barcode: string; time: Date }>>([]);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  const lookupMutation = useMutation({
-    mutationFn: getPalletByBarcode,
-    onSuccess: (data) => {
-      if (!data) {
-        toast.error("Pallet not found");
-        setPallet(null);
-      } else if (data.status === "picked") {
-        toast.error(`${data.pallet_barcode} is already in the picking area`);
-        setPallet(null);
-      } else {
-        setPallet(data);
-      }
-    },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Lookup failed"),
-  });
-
-  const moveMutation = useMutation({
-    mutationFn: moveToPickingArea,
-    onSuccess: (_, code) => {
-      toast.success(`${code} moved to picking area`);
-      setRecentMoves((prev) => [{ barcode: code, time: new Date() }, ...prev.slice(0, 9)]);
-      setPallet(null);
-      setBarcode("");
-      inputRef.current?.focus();
-      queryClient.invalidateQueries({ queryKey: ["inventory-search"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard-metrics"] });
-    },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Move failed"),
-  });
-
-  function handleScan() {
-    const code = barcode.trim();
-    if (!code) return;
-    setPallet(null);
-    lookupMutation.mutate(code);
-  }
-
-  return (
-    <div className="flex flex-col gap-6">
-      <Card>
-        <CardHeader>
-          <CardTitle>Move to Picking Area</CardTitle>
-          <CardDescription>
-            Scan a pallet barcode to move it from bulk storage to the picking area. Stock exits WMS tracking.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">
-          <div className="flex gap-2">
-            <Input
-              ref={inputRef}
-              className="min-h-12 text-base"
-              placeholder="📷 Scan pallet barcode…"
-              value={barcode}
-              onChange={(e) => setBarcode(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") handleScan(); }}
-              autoFocus
-            />
-            <Button className="min-h-12 shrink-0" onClick={handleScan} disabled={lookupMutation.isPending}>
-              {lookupMutation.isPending ? <Loader2 className="animate-spin" /> : "Find"}
-            </Button>
-          </div>
-
-          {pallet && (
-            <div className="rounded-lg border-2 border-primary/20 bg-primary/5 p-4">
-              <div className="mb-3 flex items-center justify-between gap-4">
-                <div>
-                  <p className="font-mono text-sm font-semibold">{pallet.pallet_barcode}</p>
-                  <p className="text-sm">{pallet.product_sku} · {pallet.product_name}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {pallet.quantity} units · Currently at{" "}
-                    <span className="font-mono">{pallet.location_code ?? "Receiving"}</span>
-                  </p>
-                </div>
-                <Badge>{pallet.status}</Badge>
-              </div>
-              <div className="flex gap-2">
-                <Button
-                  className="flex-1 min-h-11"
-                  onClick={() => moveMutation.mutate(pallet.pallet_barcode)}
-                  disabled={moveMutation.isPending}
-                >
-                  {moveMutation.isPending ? <Loader2 className="animate-spin" /> : <Forklift data-icon="inline-start" />}
-                  Confirm Move to Picking
-                </Button>
-                <Button variant="outline" className="min-h-11" onClick={() => { setPallet(null); setBarcode(""); inputRef.current?.focus(); }}>
-                  Cancel
-                </Button>
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {recentMoves.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm font-medium text-muted-foreground">Recent moves this session</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-col gap-1">
-              {recentMoves.map((move, i) => (
-                <div key={i} className="flex items-center justify-between gap-4 text-sm">
-                  <span className="font-mono">{move.barcode}</span>
-                  <span className="text-xs text-muted-foreground">
-                    {Math.round((Date.now() - move.time.getTime()) / 60000)} min ago
-                  </span>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-    </div>
-  );
-}
 
 export function TransfersPage() {
   const navigate = useNavigate();
