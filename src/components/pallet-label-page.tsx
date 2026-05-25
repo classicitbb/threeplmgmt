@@ -72,8 +72,10 @@ function BarcodePreview({ code }: { code: string }) {
         width: 2,
         height: 70,
         displayValue: true,
-        fontSize: 14,
+        fontSize: 28,
+        textMargin: 15,
         margin: 0,
+        marginRight: 11,
         background: "#ffffff",
         lineColor: "#000000",
       });
@@ -141,7 +143,7 @@ export function PalletLabelPage(props: PalletLabelPageProps) {
       display: flex;
       flex-direction: column;
       gap: 0.22in;
-      background: #eff6ff;
+      background: #ffffff;
       border: 0.08in solid ${accentColor};
     }
     .accent-bar { width: 100%; height: 0.08in; background: ${accentColor}; border-radius: 999px; }
@@ -156,7 +158,7 @@ export function PalletLabelPage(props: PalletLabelPageProps) {
     .barcode-section { margin-top: auto; border: 2px solid ${accentColor}; background: #fff; border-radius: 0.08in; padding: 0.2in; }
     .barcode-label { color: #475569; text-transform: uppercase; font-size: 9pt; font-weight: 800; letter-spacing: 0.05em; text-align: center; }
     .barcode-wrap { display: flex; justify-content: center; align-items: center; min-height: 2.1in; padding-top: 0.12in; }
-    .barcode-wrap svg { width: 100%; max-height: 1.8in; }
+    .barcode-wrap svg { width: 100%; max-height: 2in; }
     .footer { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #94a3b8; padding-top: 0.14in; }
     .footer-text { font-size: 9pt; color: #475569; font-weight: 650; }
     @media print {
@@ -216,7 +218,7 @@ export function PalletLabelPage(props: PalletLabelPageProps) {
         {/* Preview */}
         <div className="max-h-[68vh] overflow-auto rounded-lg bg-muted/30 p-3">
           <div
-            className="mx-auto flex aspect-[8.5/11] w-full max-w-[520px] flex-col gap-3 rounded-lg border-[6px] bg-blue-50 p-5 text-black shadow-sm"
+            className="mx-auto flex aspect-[8.5/11] w-full max-w-[520px] flex-col gap-3 rounded-lg border-[6px] bg-white p-5 text-black shadow-sm"
             style={{ borderColor: accentColor, fontFamily: "system-ui, sans-serif" }}
           >
             <div className="h-2 w-full rounded-full" style={{ background: accentColor }} />

@@ -1186,6 +1186,7 @@ export async function getInventoryDetail(balanceId: string) {
 export async function getPutawayTasks(userId?: string) {
   let query = db("putaway_tasks")
     .select("*, pallets(*, products(*)), locations: suggested_location_id(*)")
+    .in("status", ["queued", "assigned", "in_progress", "exception"])
     .order("created_at", { ascending: false });
 
   if (userId) {

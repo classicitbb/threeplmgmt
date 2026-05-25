@@ -108,5 +108,7 @@ If the user asks for a UI change:
 - `2026-05-25` — User-approved update to Receiving page scrolling and Saved Drafts search with barcode scanner support.
 - `2026-05-25` — User-approved update to Pick List create defaults, order scanner, product/quantity controls, and active list count.
 - `2026-05-25` — User-approved update to Putaway task header fixed scrolling and more vibrant confirmation feedback with ding.
+- `2026-05-25` — User-approved fix to keep completed/cancelled Putaway tasks out of the active Putaway queue.
+- `2026-05-25` — User-approved update to Pallet Label preview and print background plus larger barcode value placement.
 
 Append new entries here only when the user explicitly approves a UI change.
