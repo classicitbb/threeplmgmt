@@ -2723,7 +2723,8 @@ export function PutawayTasksPage() {
     },
   });
 
-  const pendingTasks = data.filter((task: any) => task.status !== "draft" && !completedIds.has(task.id) && !revertedIds.has(task.id));
+  const openPutawayStatuses = new Set(["queued", "assigned", "in_progress", "exception"]);
+  const pendingTasks = data.filter((task: any) => openPutawayStatuses.has(task.status) && !completedIds.has(task.id) && !revertedIds.has(task.id));
   const taskSearchTerm = taskSearch.trim().toLowerCase();
   const visibleTasks = taskSearchTerm
     ? pendingTasks.filter((task: any) =>
@@ -2738,7 +2739,7 @@ export function PutawayTasksPage() {
       ].some((value) => String(value ?? "").toLowerCase().includes(taskSearchTerm)),
     )
     : pendingTasks;
-  const activeTasks = visibleTasks.filter((t: any) => t.status !== "draft");
+  const activeTasks = visibleTasks.filter((t: any) => openPutawayStatuses.has(t.status));
 
   // Auto-focus first pallet field on desktop when tasks load
   const isMobile = typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches;
