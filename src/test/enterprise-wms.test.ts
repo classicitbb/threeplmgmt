@@ -85,6 +85,9 @@ describe("enterprise dashboard and brain", () => {
         openPickLists: 1,
         holdStock: 1,
         quarantineStock: 1,
+        putawayTaskRows: [],
+        pickListRows: [],
+        blockedBalanceRows: [],
       },
       {
         inventory: [
@@ -116,6 +119,9 @@ describe("enterprise dashboard and brain", () => {
         openPickLists: 0,
         holdStock: 0,
         quarantineStock: 0,
+        putawayTaskRows: [],
+        pickListRows: [],
+        blockedBalanceRows: [],
       },
       { inventory: [] },
     );
