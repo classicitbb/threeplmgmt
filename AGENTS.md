@@ -87,5 +87,21 @@ If the user asks for a UI change:
 - `2026-05-11` — Command Center/header explicitly updated with themed loading, pallet dials, desktop fit behavior, and manager warehouse switcher.
 - `2026-05-24` — User-approved updates to Putaway task pallet confirmation, return-to-Receiving draft prompt, and Inventory Detail barcode/label preview.
 - `2026-05-24` — User-approved updates to inventory, putaway, and pick list search; navigation order; mobile toolbar; responsive table editing; and login fit.
+- `2026-05-25` — User-approved update to Inventory Search warehouse scope field for live warehouse, zone, aisle, and location matching with scanner support.
+- `2026-05-25` — User-approved update to Pallet Label preview and print layout to fill Letter/A4-style sheets and always show all field labels.
+- `2026-05-25` — User-approved update to Login password visibility control and version/new-features popups.
+- `2026-05-25` — User-approved update to Login logo tile background to match the dark login side.
+- `2026-05-25` — User-approved update to Putaway task confirmation fields for aligned desktop layout and explicit location confirmation label.
+- `2026-05-25` — User-approved update to Putaway location confirmation label to omit the suggested location value.
+- `2026-05-25` — User-approved update to Inventory Search filter bar responsive wrapping to prevent control collisions.
+- `2026-05-25` — User-approved update to group Warehouses, Zones, Locations, and Products resource actions under a gear menu.
+- `2026-05-25` — User-approved update to Inventory Search scrolling so only table rows scroll.
+- `2026-05-25` — User-approved correction to Inventory Search route shell so the page header and filters remain fixed while results scroll.
+- `2026-05-25` — User-approved correction to Inventory Search results table with fixed column headings and row-only scrolling.
+- `2026-05-25` — User-approved correction to Inventory Search results table to use one aligned sticky-header table with vertical and horizontal row scrolling.
+- `2026-05-25` — User-approved update to require double-click or double-tap before opening editable/detail table rows site-wide.
+- `2026-05-25` — User-approved update to Location code creation so saved codes include warehouse, zone, and location hierarchy.
+- `2026-05-25` — User-approved update to Location labels to show full hierarchy codes and use QR for complex codes.
+- `2026-05-25` — User-approved fix for Location edit saves and migration to normalize existing location hierarchy codes.
 
 Append new entries here only when the user explicitly approves a UI change.
