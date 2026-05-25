@@ -4956,6 +4956,18 @@ export function SettingsPage() {
               </div>
               {[
                 {
+                  version: "1.1.2",
+                  date: "May 2026",
+                  changes: [
+                    "Inventory Search: fixed header and filter shell with row-only result scrolling",
+                    "Inventory Search: warehouse scope matching now includes live warehouse, zone, aisle, and location codes",
+                    "Locations: generated and migrated codes now preserve warehouse, zone, and location hierarchy",
+                    "Location Labels: full hierarchy codes with QR output for complex location codes",
+                    "Putaway: clearer location confirmation fields and aligned desktop task confirmation",
+                    "Tables: editable and detail rows now require double-click or double-tap before opening",
+                  ],
+                },
+                {
                   version: "1.1.1",
                   date: "May 2026",
                   changes: [
