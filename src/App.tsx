@@ -398,14 +398,14 @@ function LoginPage() {
                   <p className="text-xs text-muted-foreground text-center">Use an approved email, short code such as ADMIN01, or a scanned badge code.</p>
                 </div>
                 <FormField control={loginForm.control} name="email" render={({ field }) => (
-                  <FormItem><FormLabel>Login</FormLabel><FormControl><Input {...field} autoComplete="username" /></FormControl><FormMessage /></FormItem>
+                  <FormItem><FormLabel>Login</FormLabel><FormControl><Input {...field} autoComplete="username" className="bg-secondary" /></FormControl><FormMessage /></FormItem>
                 )} />
                 <FormField control={loginForm.control} name="password" render={({ field }) => (
                   <FormItem>
                     <FormLabel>Password</FormLabel>
                     <FormControl>
                       <div className="relative">
-                        <Input {...field} className="pr-12" type={showLoginPassword ? "text" : "password"} autoComplete="current-password" />
+                        <Input {...field} className="pr-12 bg-secondary" type={showLoginPassword ? "text" : "password"} autoComplete="current-password" />
                         <Button
                           type="button"
                           variant="ghost"
