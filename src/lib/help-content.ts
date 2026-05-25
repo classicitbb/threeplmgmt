@@ -109,6 +109,15 @@ const routeHelpDefinitions: Record<string, RouteHelpDefinition> = {
     permissions: "Managed by admins and warehouse managers.",
     wikiArticleIds: ["warehouse-setup", "settings-reset"],
   },
+  clients: {
+    id: "clients",
+    title: "Clients",
+    summary: "Clients identify stock ownership, receiving rules, and 3PL operating controls.",
+    keyActions: ["Create active client owners", "Review mixed-stock permissions", "Keep inactive clients visible for history"],
+    commonMistakes: ["Receiving stock under the wrong owner", "Deleting client context needed for historical receipts"],
+    permissions: "Managed by admins and warehouse managers.",
+    wikiArticleIds: ["client-ownership", "product-mastery", "receiving-flow"],
+  },
   zones: {
     id: "zones",
     title: "Zones",
@@ -190,6 +199,15 @@ const routeHelpDefinitions: Record<string, RouteHelpDefinition> = {
     permissions: "Used by admins, managers, clerks, and dispatch drivers for handoff visibility.",
     wikiArticleIds: ["transfer-flow"],
   },
+  "location-moves": {
+    id: "location-moves",
+    title: "Location Moves",
+    summary: "Location moves relocate stored pallets inside a warehouse while preserving pallet identity and audit history.",
+    keyActions: ["Look up the pallet", "Confirm the destination location", "Complete the scan-confirmed move"],
+    commonMistakes: ["Moving stock to a disabled or full location", "Using transfers when the pallet is staying in the same warehouse"],
+    permissions: "Used by admins, managers, inventory clerks, and operators.",
+    wikiArticleIds: ["location-move-flow", "inventory-search", "location-generation"],
+  },
   "cycle-counts": {
     id: "cycle-counts",
     title: "Cycle Counts",
@@ -225,6 +243,24 @@ const routeHelpDefinitions: Record<string, RouteHelpDefinition> = {
     commonMistakes: ["Removing the wrong role assignment", "Disabling a profile before reassigning operational work"],
     permissions: "Managed by admins.",
     wikiArticleIds: ["user-management"],
+  },
+  "system-log": {
+    id: "system-log",
+    title: "System Log",
+    summary: "System logs record operational issues, admin notes, snapshots, and resolution status.",
+    keyActions: ["Review recent log entries", "Resolve addressed issues", "Capture record-count snapshots"],
+    commonMistakes: ["Resolving a log before the underlying issue is fixed", "Using logs as a substitute for transactional audit history"],
+    permissions: "Visible to admins and warehouse managers.",
+    wikiArticleIds: ["system-log-operations", "reporting-basics"],
+  },
+  "email-log": {
+    id: "email-log",
+    title: "Email Log",
+    summary: "Email logs show outbound message attempts, delivery status, and failure details for support.",
+    keyActions: ["Review failed messages", "Check recipient and template", "Escalate repeated delivery failures"],
+    commonMistakes: ["Retrying without checking the error message", "Assuming an invitation was received without confirming delivery status"],
+    permissions: "Visible to admins.",
+    wikiArticleIds: ["email-log-operations", "user-management"],
   },
   settings: {
     id: "settings",
@@ -306,6 +342,21 @@ export const helpArticles: HelpArticle[] = [
     },
   },
   {
+    id: "client-ownership",
+    title: "Client Ownership and 3PL Rules",
+    module: "clients",
+    audience: "Admins and warehouse managers",
+    keywords: ["clients", "3pl", "owner", "mixed stock", "ownership", "receiving rules"],
+    sections: [
+      { title: "Purpose", content: ["Client records identify who owns the stock and which handling rules apply during receiving, storage, picking, and reporting.", "Keep client codes short and stable because they appear in searches, labels, exports, and audit trails."] },
+      { title: "Controls", content: ["Mixed-stock and expiry requirements should match the commercial operating agreement.", "Deactivate obsolete clients instead of deleting them so historical receipts, pallets, and reports still explain who owned the goods."] },
+    ],
+    acronyms: {
+      "3PL": "Third-party logistics provider.",
+      SLA: "Service-level agreement.",
+    },
+  },
+  {
     id: "receiving-flow",
     title: "Receiving Workflow",
     module: "receiving",
@@ -366,6 +417,17 @@ export const helpArticles: HelpArticle[] = [
     },
   },
   {
+    id: "location-move-flow",
+    title: "Location Moves",
+    module: "location-moves",
+    audience: "Operators and supervisors",
+    keywords: ["location move", "move task", "relocate", "pallet move", "same warehouse", "scan"],
+    sections: [
+      { title: "When to Use It", content: ["Use Location Moves when a pallet stays in the same warehouse but needs a new bin, staging area, or picking area.", "Use Transfers only when the stock changes warehouse or requires dispatch/receiving handoff."] },
+      { title: "Scan Control", content: ["The pallet barcode confirms identity and the destination location confirms where the stock physically moved.", "If the location is blocked, disabled, full, or physically wrong, stop and correct the destination before posting the move."] },
+    ],
+  },
+  {
     id: "cycle-counts",
     title: "Cycle Counts",
     module: "cycle-counts",
@@ -392,6 +454,17 @@ export const helpArticles: HelpArticle[] = [
     keywords: ["status", "hold", "quarantine", "damaged", "missing", "available"],
     sections: [
       { title: "Purpose", content: ["Status controls keep restricted stock visible and auditable.", "Every status change requires a reason because it affects downstream operations."] },
+    ],
+  },
+  {
+    id: "label-printing",
+    title: "Label Printing and Reprints",
+    module: "receiving",
+    audience: "Clerks and supervisors",
+    keywords: ["labels", "printing", "barcode", "reprint", "pallet label", "location label"],
+    sections: [
+      { title: "When Labels Matter", content: ["Labels connect the physical pallet, location, zone, or warehouse sign to the system record operators scan.", "Print labels immediately after receiving or master-data setup so the next workflow does not depend on hand-written identifiers."] },
+      { title: "Reprint Rules", content: ["Reprint when a barcode is damaged, unreadable, or missing; do not create a new pallet or location just to replace a label.", "For warehouse fallback, browser print previews are acceptable, but high-volume stations should use the configured printer process."] },
     ],
   },
   {
@@ -531,10 +604,33 @@ export const helpArticles: HelpArticle[] = [
       { label: "EPA Lean 5S Overview", url: "https://www.epa.gov/sustainability/lean-thinking-and-methods-5s", reason: "Clear public reference for 5S, workplace organization, waste, and standard work." },
     ],
   },
+  {
+    id: "system-log-operations",
+    title: "System Log Operations",
+    module: "system-log",
+    audience: "Admins and warehouse managers",
+    keywords: ["system log", "audit", "resolve", "snapshot", "severity", "operations"],
+    sections: [
+      { title: "Use Case", content: ["The System Log is for support notes, operational exceptions, and admin-visible events that need ownership or follow-up.", "Record-count snapshots are useful after setup, reset, import, or support activity because they provide a quick environment health checkpoint."] },
+      { title: "Resolution", content: ["Resolve a log entry only after the real issue has been handled.", "Use severity to keep attention on problems that can block work, corrupt data, or hide operational exceptions."] },
+    ],
+  },
+  {
+    id: "email-log-operations",
+    title: "Email Log Operations",
+    module: "email-log",
+    audience: "Admins",
+    keywords: ["email", "delivery", "delivery status", "invite", "failure", "template", "recipient", "queue"],
+    sections: [
+      { title: "What It Shows", content: ["The Email Log shows outbound message attempts by template, recipient, status, time, and error detail.", "Use it to verify invitations, password recovery messages, and other system-generated emails before escalating to users or IT."] },
+      { title: "Failure Handling", content: ["Check the recipient address, template, and error message before retrying or asking the user to check their mailbox.", "Repeated failures usually indicate provider configuration, DNS, suppression, or invalid address issues."] },
+    ],
+  },
 ];
 
 const routeMatchers: Array<{ match: (pathname: string) => boolean; helpId: string }> = [
   { match: (pathname) => pathname === "/dashboard", helpId: "dashboard" },
+  { match: (pathname) => pathname === "/clients", helpId: "clients" },
   { match: (pathname) => pathname === "/warehouses", helpId: "warehouses" },
   { match: (pathname) => pathname === "/zones", helpId: "zones" },
   { match: (pathname) => pathname === "/locations", helpId: "locations" },
@@ -545,10 +641,13 @@ const routeMatchers: Array<{ match: (pathname: string) => boolean; helpId: strin
   { match: (pathname) => pathname === "/inventory-search" || pathname.startsWith("/inventory/"), helpId: "inventory" },
   { match: (pathname) => pathname === "/pick-lists" || pathname.startsWith("/pick-lists/"), helpId: "pick-lists" },
   { match: (pathname) => pathname === "/transfers", helpId: "transfers" },
+  { match: (pathname) => pathname === "/location-moves", helpId: "location-moves" },
   { match: (pathname) => pathname === "/cycle-counts", helpId: "cycle-counts" },
   { match: (pathname) => pathname === "/status", helpId: "status" },
   { match: (pathname) => pathname === "/reports", helpId: "reports" },
   { match: (pathname) => pathname === "/users", helpId: "users" },
+  { match: (pathname) => pathname === "/system-log", helpId: "system-log" },
+  { match: (pathname) => pathname === "/email-log", helpId: "email-log" },
   { match: (pathname) => pathname === "/settings", helpId: "settings" },
   { match: (pathname) => pathname === "/help", helpId: "help" },
   { match: (pathname) => pathname === "/setup-wizard", helpId: "setup-wizard" },
@@ -561,6 +660,10 @@ export function getRouteHelp(pathname: string) {
 
 export function getArticleById(articleId: string) {
   return helpArticles.find((article) => article.id === articleId);
+}
+
+export function getAllRouteHelpDefinitions() {
+  return Object.values(routeHelpDefinitions);
 }
 
 export function searchHelpArticles(query: string) {

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { BrowserRouter, Navigate, Outlet, Route, Routes, useNavigate, useParams } from "react-router-dom";
-import { QueryClient, QueryClientProvider, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { QueryClientProvider, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { ArrowLeft, Eye, EyeOff, Loader2, Sparkles } from "lucide-react";
@@ -11,7 +11,9 @@ import JsBarcode from "jsbarcode";
 
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
 import { FeatureFlagContext, useFeatureFlagState } from "@/hooks/use-feature-flags";
+import { guardMutation } from "@/hooks/use-network-status";
 import { supabase } from "@/integrations/supabase/client";
+import { createAppQueryClient } from "@/lib/query-client";
 
 import { confirmPickTask, formatDate, formatNumber, getInventoryDetail, getPickExecution, loginSchema, recordUserSignIn, signUpSchema, RESOURCE_DEFINITIONS } from "@/lib/wms-core";
 import {
@@ -51,7 +53,7 @@ import NotFound from "./pages/NotFound";
 import HelpCenterPage from "./pages/HelpCenter";
 import SetupWizardPage from "./pages/SetupWizardPage";
 
-const queryClient = new QueryClient();
+const queryClient = createAppQueryClient();
 
 const RELEASE_HISTORY = [
   {
@@ -775,7 +777,7 @@ function PickExecutionPage() {
       palletBarcode: string;
       quantity: number;
       shortReason?: string;
-    }) => confirmPickTask(taskId, locationCode, palletBarcode, quantity, shortReason),
+    }) => guardMutation(confirmPickTask)(taskId, locationCode, palletBarcode, quantity, shortReason),
     onSuccess: async () => {
       toast.success("Pick task confirmed");
       await queryClient.invalidateQueries({ queryKey: ["pick-execution", pickListId] });

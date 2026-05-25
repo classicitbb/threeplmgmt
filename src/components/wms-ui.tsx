@@ -28,6 +28,7 @@ import { z } from "zod";
 
 import { useAuth } from "@/hooks/use-auth";
 import { useFeatureFlags, MODULE_LABELS, STARTER_MODULES, type ModuleKey } from "@/hooks/use-feature-flags";
+import { assertOnline, useNetworkStatus } from "@/hooks/use-network-status";
 import {
   NAVIGATION,
   ROLE_LABELS,
@@ -53,6 +54,8 @@ import {
   formatDate,
   formatNumber,
   getDashboardMetrics,
+  getInventoryDetail,
+  getPickExecution,
   getWarehouseForLocationBarcode,
   getBinOccupancy,
   getPutawayTasks,
@@ -101,6 +104,7 @@ import { BarcodeScanButton } from "@/components/barcode-scan-button";
 import { type ProductSearchHandle } from "@/components/product-search";
 
 import { cn } from "@/lib/utils";
+import { invalidateWarehouseData } from "@/lib/query-invalidation";
 import {
   buildCsvReportRows,
   buildEnterpriseDashboard,
@@ -628,8 +632,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const { profile, roles, signOut, user, refreshProfile } = useAuth();
   const queryClient = useQueryClient();
   const { isEnabled } = useFeatureFlags();
+  const { online } = useNetworkStatus();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const networkStatusSeenRef = useRef(false);
   const items = NAVIGATION.filter(
     (item) =>
       item.roles.some((role) => roles.includes(role)) &&
@@ -672,6 +678,56 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     .map((part) => part[0]?.toUpperCase() ?? "")
     .join("") || "WU";
 
+  useEffect(() => {
+    if (!networkStatusSeenRef.current) {
+      networkStatusSeenRef.current = true;
+      return;
+    }
+    if (online) {
+      toast.success("Connection restored. Live data will refresh.");
+      return;
+    }
+    toast.error("Connection lost. Cached screens remain visible, but work cannot be posted until reconnect.");
+  }, [online]);
+
+  const prefetchRouteData = useCallback((route: AppRoute) => {
+    const warehouseId = profile?.default_warehouse_id;
+    if (route === "/dashboard") {
+      void queryClient.prefetchQuery({
+        queryKey: ["dashboard-metrics", warehouseId],
+        queryFn: () => getDashboardMetrics(warehouseId),
+      });
+      return;
+    }
+    if (route === "/receiving") {
+      void queryClient.prefetchQuery({
+        queryKey: ["options", "receiving", shouldRestrictToDefaultWarehouse(roles), warehouseId],
+        queryFn: () => fetchOptions(false, { restrictToWarehouse: shouldRestrictToDefaultWarehouse(roles), warehouseId }),
+      });
+      return;
+    }
+    if (route === "/putaway-tasks") {
+      void queryClient.prefetchQuery({
+        queryKey: ["putaway-tasks", user?.id],
+        queryFn: () => getPutawayTasks(user?.id),
+      });
+      return;
+    }
+    if (route === "/inventory-search") {
+      void queryClient.prefetchQuery({
+        queryKey: ["inventory-search", "", "all", ""],
+        queryFn: () => searchInventory({ status: "all" }),
+      });
+      return;
+    }
+    if (route === "/pick-lists") {
+      void queryClient.prefetchQuery({
+        queryKey: ["pick-lists"],
+        queryFn: listPickLists,
+      });
+    }
+  }, [profile?.default_warehouse_id, queryClient, roles, user?.id]);
+
   const navigation = (
     <div
       className={cn(
@@ -709,6 +765,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 }
                 to={item.to}
                 aria-label={item.label}
+                onMouseEnter={() => prefetchRouteData(item.to)}
+                onFocus={() => prefetchRouteData(item.to)}
                 onClick={() => setMobileMenuOpen(false)}
               >
                 <Icon className={cn("shrink-0", sidebarCollapsed ? "h-5 w-5" : "h-4 w-4")} />
@@ -1185,13 +1243,18 @@ export function ResourcePage({
                             variant="ghost"
                             onClick={async (e) => {
                               e.stopPropagation();
-                              const record = row as Record<string, unknown> & { id?: string };
-                              const id = record.id;
-                              if (!id || !resource.archiveField) return;
-                              const hidden = resource.archiveField === "active" ? record.active !== false : record.is_hidden === true;
-                              await setResourceVisibility(resource.table, id, resource.archiveField, !hidden, !hidden ? "Hidden from UI" : undefined);
-                              toast.success(hidden ? `${resource.singular} restored` : `${resource.singular} hidden`);
-                              queryClient.invalidateQueries({ queryKey: [resource.table] });
+                              try {
+                                const record = row as Record<string, unknown> & { id?: string };
+                                const id = record.id;
+                                if (!id || !resource.archiveField) return;
+                                assertOnline();
+                                const hidden = resource.archiveField === "active" ? record.active !== false : record.is_hidden === true;
+                                await setResourceVisibility(resource.table, id, resource.archiveField, !hidden, !hidden ? "Hidden from UI" : undefined);
+                                toast.success(hidden ? `${resource.singular} restored` : `${resource.singular} hidden`);
+                                queryClient.invalidateQueries({ queryKey: [resource.table] });
+                              } catch (error) {
+                                toast.error(error instanceof Error ? error.message : "Visibility update failed");
+                              }
                             }}
                           >
                             {((resource.archiveField === "active" ? (row as Record<string, unknown>).active !== false : (row as Record<string, unknown>).is_hidden === true))
@@ -2906,6 +2969,7 @@ export function PutawayTasksPage() {
 
 export function InventorySearchPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { roles, profile } = useAuth();
   const [searchTerm, setSearchTerm] = useState("");
   const [status, setStatus] = useState<string>("all");
@@ -2989,6 +3053,13 @@ export function InventorySearchPage() {
 
   function openInventoryDetail(balanceId: string) {
     navigate(`/inventory/${balanceId}`);
+  }
+
+  function prefetchInventoryDetail(balanceId: string) {
+    void queryClient.prefetchQuery({
+      queryKey: ["inventory-detail", balanceId],
+      queryFn: () => getInventoryDetail(balanceId),
+    });
   }
 
   function handleInventoryRowPointerUp(balanceId: string) {
@@ -3084,6 +3155,8 @@ export function InventorySearchPage() {
                     <TableRow
                       key={row.inventory_balance_id}
                       className="cursor-pointer even:bg-muted/30 hover:bg-muted/50"
+                      onMouseEnter={() => prefetchInventoryDetail(row.inventory_balance_id)}
+                      onFocus={() => prefetchInventoryDetail(row.inventory_balance_id)}
                       onDoubleClick={() => openInventoryDetail(row.inventory_balance_id)}
                       onPointerUp={() => handleInventoryRowPointerUp(row.inventory_balance_id)}
                       title="Double-click or double-tap to open details"
@@ -3164,6 +3237,13 @@ export function PickListsPage() {
   };
   const active = (pickLists as any[]).filter((pl) => !["completed", "cancelled"].includes(pl.status)).filter(matchesPickSearch);
   const done = (pickLists as any[]).filter((pl) => ["completed", "cancelled"].includes(pl.status)).filter(matchesPickSearch);
+
+  function prefetchPickExecution(pickListId: string) {
+    void queryClient.prefetchQuery({
+      queryKey: ["pick-execution", pickListId],
+      queryFn: () => getPickExecution(pickListId),
+    });
+  }
 
   return (
     <Tabs className="flex flex-col gap-6" defaultValue="lists">
@@ -3250,7 +3330,13 @@ export function PickListsPage() {
                 })}
                 <div className="flex flex-wrap gap-2 pt-1">
                   <Button asChild variant="outline" size="sm">
-                    <Link to={`/pick-lists/${pickList.id}`}>Execute picks</Link>
+                    <Link
+                      to={`/pick-lists/${pickList.id}`}
+                      onMouseEnter={() => prefetchPickExecution(pickList.id)}
+                      onFocus={() => prefetchPickExecution(pickList.id)}
+                    >
+                      Execute picks
+                    </Link>
                   </Button>
                   {exceptionCount > 0 && (
                     <Button
@@ -4848,7 +4934,7 @@ export function SettingsPage() {
     mutationFn: resetWmsData,
     onSuccess: async () => {
       toast.success("Environment reset complete. Launching the warehouse setup wizard.");
-      await queryClient.invalidateQueries();
+      await invalidateWarehouseData(queryClient);
       navigate("/setup-wizard");
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Reset failed"),

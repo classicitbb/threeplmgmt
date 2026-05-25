@@ -14,6 +14,7 @@ import {
   type WarehouseSetupZone,
 } from "@/lib/wms-core";
 import { setupWizardSteps } from "@/lib/help-content";
+import { invalidateWarehouseData } from "@/lib/query-invalidation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
@@ -70,7 +71,7 @@ export default function SetupWizardPage() {
     mutationFn: async () => runWarehouseSetup(payload),
     onSuccess: async () => {
       toast.success("Warehouse setup completed and starter data seeded.");
-      await queryClient.invalidateQueries();
+      await invalidateWarehouseData(queryClient);
       navigate("/warehouses");
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Setup failed"),

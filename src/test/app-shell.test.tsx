@@ -14,6 +14,27 @@ vi.mock("@/hooks/use-auth", () => ({
 }));
 
 vi.mock("@/hooks/use-feature-flags", () => ({
+  STARTER_MODULES: {
+    receiving: true,
+    putaway: true,
+    inventory: true,
+    "location-moves": true,
+    transfers: true,
+    "pick-lists": true,
+    products: true,
+    warehouses: true,
+    zones: true,
+    locations: true,
+    users: true,
+    settings: true,
+    clients: true,
+    packaging: true,
+    "cycle-counts": true,
+    reports: true,
+    status: true,
+    "system-log": true,
+    "email-log": true,
+  },
   useFeatureFlags: () => ({
     isEnabled: () => true,
   }),
