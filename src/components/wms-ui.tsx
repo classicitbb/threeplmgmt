@@ -968,7 +968,7 @@ export function ResourcePage({
       <div className="relative">
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground pointer-events-none" />
         <Input
-          className="h-9 pl-9 pr-20"
+          className="h-9 pl-9 pr-20 bg-muted"
           placeholder={`Search ${resource.title.toLowerCase()}…`}
           value={filterQuery}
           onChange={(e) => setFilterQuery(e.target.value)}
@@ -2534,7 +2534,7 @@ export function PutawayTasksPage() {
             <div className="relative min-w-0 flex-1">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
-                className="pl-9"
+                className="pl-9 bg-muted"
                 value={taskSearch}
                 onChange={(event) => setTaskSearch(event.target.value)}
                 placeholder="Search pallet barcode or task"
@@ -2821,7 +2821,7 @@ export function InventorySearchPage() {
           <div className="flex min-w-0 gap-2">
             <div className="relative min-w-0 flex-1">
               <Search className="absolute left-3 top-3 text-muted-foreground" />
-              <Input className="min-w-0 pl-10" value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Search SKU, pallet, or location" />
+              <Input className="min-w-0 pl-10 bg-muted" value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Search SKU, pallet, or location" />
             </div>
             <BarcodeScanButton title="Scan SKU, pallet, or location barcode" onScan={setSearchTerm} />
           </div>
@@ -2981,7 +2981,7 @@ export function PickListsPage() {
           <div className="relative min-w-0 flex-1">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
-              className="pl-9"
+              className="pl-9 bg-muted"
               value={pickSearch}
               onChange={(event) => setPickSearch(event.target.value)}
               placeholder="Search pick lists or barcodes"
@@ -5322,7 +5322,7 @@ export function EmailLogPage() {
               ))}
             </SelectContent>
           </Select>
-          <Input placeholder="Search recipient, template, message id, error…" value={search} onChange={(e) => setSearch(e.target.value)} />
+          <Input className="bg-muted" placeholder="Search recipient, template, message id, error…" value={search} onChange={(e) => setSearch(e.target.value)} />
         </CardContent>
       </Card>
       <Card>
