@@ -371,7 +371,7 @@ function LoginPage() {
       </div>
 
       {/* Right login form */}
-      <div className="flex min-h-0 flex-1 items-center justify-center p-3 sm:p-4">
+      <div className="flex min-h-0 flex-1 items-center justify-center p-3 sm:p-4 bg-slate-950">
         <div className="w-full max-w-sm space-y-3 sm:space-y-4">
           {/* Mobile logo */}
           <div className="flex flex-col items-center gap-2 lg:hidden">
@@ -398,14 +398,14 @@ function LoginPage() {
                   <p className="text-xs text-muted-foreground text-center">Use an approved email, short code such as ADMIN01, or a scanned badge code.</p>
                 </div>
                 <FormField control={loginForm.control} name="email" render={({ field }) => (
-                  <FormItem><FormLabel>Login</FormLabel><FormControl><Input {...field} autoComplete="username" className="bg-secondary" /></FormControl><FormMessage /></FormItem>
+                  <FormItem><FormLabel>Login</FormLabel><FormControl><Input {...field} autoComplete="username" className="bg-secondary bg-slate-500" /></FormControl><FormMessage /></FormItem>
                 )} />
                 <FormField control={loginForm.control} name="password" render={({ field }) => (
                   <FormItem>
                     <FormLabel>Password</FormLabel>
                     <FormControl>
                       <div className="relative">
-                        <Input {...field} className="pr-12 bg-secondary" type={showLoginPassword ? "text" : "password"} autoComplete="current-password" />
+                        <Input {...field} className="pr-12 bg-secondary bg-slate-500" type={showLoginPassword ? "text" : "password"} autoComplete="current-password" />
                         <Button
                           type="button"
                           variant="ghost"
