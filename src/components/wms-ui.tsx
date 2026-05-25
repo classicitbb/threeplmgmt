@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm, type UseFormReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { supabase } from "@/integrations/supabase/client";
-import { Activity, AlertTriangle, Archive, ArrowLeftRight, BarChart3, Bot, Boxes, Building2, Camera, CheckCircle2, ClipboardCheck, ClipboardList, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, HelpCircle, Home, Info, LayoutDashboard, Loader2, LogOut, Mail, Maximize2, MapPinned, Menu, Minimize2, MoreVertical, Package, PackageX, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, QrCode, RadioTower, RotateCcw, Search, Settings, ShieldCheck, Star, Tags, Trash2, Truck, Upload, UserPlus, Users, Warehouse } from "lucide-react";
+import { Activity, AlertTriangle, ArrowLeftRight, BarChart3, Bot, Boxes, Building2, CheckCircle2, ClipboardCheck, ClipboardList, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, HelpCircle, Home, Info, LayoutDashboard, Loader2, LogOut, Mail, Maximize2, MapPinned, Menu, Minimize2, Package, PackageX, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, QrCode, RadioTower, RotateCcw, Search, Settings, ShieldCheck, Star, Tags, Truck, Upload, UserPlus, Users, Warehouse } from "lucide-react";
 import {
   DndContext,
   KeyboardSensor,
@@ -35,7 +35,6 @@ import {
   type AppRoute,
   type FieldDefinition,
   type ResourceDefinition,
-  type SystemLogEntry,
   type DraftReceipt,
   adminInviteUser,
   changePalletStatus,
