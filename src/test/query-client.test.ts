@@ -1,0 +1,34 @@
+import { describe, expect, it, vi } from "vitest";
+
+import { createAppQueryClient, queryClientDefaultOptions } from "@/lib/query-client";
+
+describe("query client", () => {
+  it("uses brisk-navigation defaults", () => {
+    expect(queryClientDefaultOptions.queries?.staleTime).toBe(30_000);
+    expect(queryClientDefaultOptions.queries?.gcTime).toBe(600_000);
+    expect(queryClientDefaultOptions.queries?.refetchOnWindowFocus).toBe(false);
+    expect(queryClientDefaultOptions.queries?.refetchOnReconnect).toBe(true);
+    expect(queryClientDefaultOptions.queries?.retry).toBe(1);
+    expect(queryClientDefaultOptions.mutations?.retry).toBe(0);
+  });
+
+  it("uses longer cache windows for shared reference data", () => {
+    const queryClient = createAppQueryClient();
+
+    expect(queryClient.getQueryDefaults(["options"]).staleTime).toBe(300_000);
+    expect(queryClient.getQueryDefaults(["options"]).gcTime).toBe(1_800_000);
+    expect(queryClient.getQueryDefaults(["products", "options-for-table"]).staleTime).toBe(300_000);
+  });
+
+  it("blocks mutations while offline", async () => {
+    const queryClient = createAppQueryClient();
+    const mutate = vi.fn();
+
+    vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+
+    await expect(
+      queryClient.getMutationCache().build(queryClient, { mutationFn: mutate }).execute(undefined),
+    ).rejects.toThrow("Connection lost");
+    expect(mutate).not.toHaveBeenCalled();
+  });
+});

@@ -104,5 +104,6 @@ If the user asks for a UI change:
 - `2026-05-25` — User-approved update to Location labels to show full hierarchy codes and use QR for complex codes.
 - `2026-05-25` — User-approved fix for Location edit saves and migration to normalize existing location hierarchy codes.
 - `2026-05-25` — User-approved update to publish version 1.1.2 release notes and What's New copy.
+- `2026-05-25` — User-approved update to Help Center contextual module topics for clients, location moves, system log, email log, and route coverage.
 
 Append new entries here only when the user explicitly approves a UI change.
