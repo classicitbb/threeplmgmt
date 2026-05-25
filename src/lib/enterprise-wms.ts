@@ -27,11 +27,63 @@ type CycleCountLine = {
   status?: string | null;
 };
 
+type StagingLoadRow = {
+  id?: string | null;
+  route_code?: string | null;
+  status?: DockHandoffLoad["status"] | null;
+  blocker?: string | null;
+  load_sequence?: number | null;
+  pick_list_id?: string | null;
+  dock_appointment_id?: string | null;
+  pick_lists?: {
+    pick_list_number?: string | null;
+    warehouse_id?: string | null;
+    clients?: { code?: string | null; name?: string | null } | null;
+  } | null;
+};
+
+type DockAppointmentRow = {
+  id?: string | null;
+  dock_door?: string | null;
+  carrier?: string | null;
+  driver_name?: string | null;
+  status?: string | null;
+};
+
+type PrinterStationRow = {
+  active?: boolean | null;
+};
+
+type LabelTemplateRow = {
+  active?: boolean | null;
+};
+
+type PrintJobRow = {
+  status?: string | null;
+};
+
+type AiRecommendationRow = {
+  id?: string | null;
+  recommendation_key?: string | null;
+  title?: string | null;
+  severity?: WarehouseBrainRecommendation["severity"] | null;
+  audience?: RoleCode[] | null;
+  reason?: string | null;
+  next_action?: string | null;
+};
+
 export type EnterpriseReportData = {
   inventory?: InventoryRow[];
   occupancy?: OccupancyRow[];
   audits?: Array<Record<string, unknown>>;
   cycleCounts?: CycleCountLine[];
+  stagingLoads?: StagingLoadRow[];
+  dockAppointments?: DockAppointmentRow[];
+  printerStations?: PrinterStationRow[];
+  labelTemplates?: LabelTemplateRow[];
+  printJobs?: PrintJobRow[];
+  replenishments?: Array<Record<string, unknown>>;
+  aiRecommendations?: AiRecommendationRow[];
 };
 
 export type DashboardMode = "floor" | "dock" | "office";
@@ -43,6 +95,7 @@ export type WarehouseBrainRecommendation = {
   audience: RoleCode[];
   reason: string;
   nextAction: string;
+  route: string;
 };
 
 export type DockHandoffLoad = {
@@ -58,10 +111,10 @@ export type DockHandoffLoad = {
 };
 
 export type EnterpriseDashboardSnapshot = {
-  officeWidgets: Array<{ label: string; value: string; tone: "success" | "warning" | "critical" | "info"; detail: string }>;
+  officeWidgets: Array<{ label: string; value: string; tone: "success" | "warning" | "critical" | "info"; detail: string; route: string }>;
   floorQueues: Array<{ label: string; count: number; action: string; route: string; tone: "success" | "warning" | "critical" | "info"; tasks: DashboardTaskRow[] }>;
   dockLoads: DockHandoffLoad[];
-  leanMetrics: Array<{ label: string; value: string; target: string; status: "on_target" | "watch" | "off_target" }>;
+  leanMetrics: Array<{ label: string; value: string; target: string; status: "on_target" | "watch" | "off_target"; route: string }>;
   setupChecklist: Array<{ label: string; complete: boolean; owner: string }>;
   recommendations: WarehouseBrainRecommendation[];
 };
@@ -165,33 +218,53 @@ export function buildEnterpriseDashboard(
   const fillRate = totalCapacity === 0 ? 0 : Math.round((usedCapacity / totalCapacity) * 100);
   const defects = cycleCounts.filter((line) => (line.variance_quantity ?? 0) !== 0 || line.status === "exception").length;
   const dpmo = cycleCounts.length === 0 ? 0 : Math.round((defects / cycleCounts.length) * 1_000_000);
+  const activePrinters = (reportData?.printerStations ?? []).filter((row) => row.active).length;
+  const activeLabelTemplates = (reportData?.labelTemplates ?? []).filter((row) => row.active).length;
+  const failedPrintJobs = (reportData?.printJobs ?? []).filter((row) => row.status === "failed").length;
 
   return {
     officeWidgets: [
-      { label: "Fill level", value: `${fillRate}%`, tone: fillRate > 92 ? "warning" : "success", detail: `${usedCapacity}/${totalCapacity || 0} slots used` },
-      { label: "Inventory turn watch", value: `${lowStock}`, tone: lowStock > 0 ? "warning" : "success", detail: "SKUs at or below lean reorder signal" },
-      { label: "Expiration risk", value: `${expiringSoon}`, tone: expiringSoon > 0 ? "critical" : "success", detail: "Lots expiring inside 30 days" },
-      { label: "DPMO", value: `${dpmo}`, tone: dpmo > 50_000 ? "critical" : dpmo > 10_000 ? "warning" : "success", detail: "Cycle-count defect signal" },
+      { label: "Fill level", value: `${fillRate}%`, tone: fillRate > 92 ? "warning" : "success", detail: `${usedCapacity}/${totalCapacity || 0} slots used`, route: "/locations" },
+      { label: "Inventory turn watch", value: `${lowStock}`, tone: lowStock > 0 ? "warning" : "success", detail: "SKU/location balances at or below 10 available units", route: "/inventory-search" },
+      { label: "Expiration risk", value: `${expiringSoon}`, tone: expiringSoon > 0 ? "critical" : "success", detail: "Lots expiring inside 30 days", route: "/inventory-search" },
+      { label: "DPMO", value: `${dpmo}`, tone: dpmo > 50_000 ? "critical" : dpmo > 10_000 ? "warning" : "success", detail: "Cycle-count defect signal", route: "/cycle-counts" },
     ],
     floorQueues: [
       {
-        label: "Start Shift",
-        count: (metrics?.openPutawayTasks ?? 0) + (metrics?.openPickLists ?? 0),
-        action: "Open assigned scan work",
-        route: "/putaway-tasks",
+        label: "Inbound",
+        count: metrics?.openReceipts ?? 0,
+        action: "Receive or resume open receipts",
+        route: "/receiving",
         tone: "info",
-        tasks: [
-          ...(metrics?.putawayTaskRows ?? []),
-          ...(metrics?.pickListRows ?? []),
-        ].sort((a, b) => a.createdAt < b.createdAt ? -1 : 1).slice(0, 5),
+        tasks: [],
       },
       {
-        label: "Today’s Work",
+        label: "Putaway",
+        count: metrics?.openPutawayTasks ?? 0,
+        action: "Complete scan-confirmed putaway",
+        route: "/putaway-tasks",
+        tone: (metrics?.openPutawayTasks ?? 0) > 0 ? "warning" : "success",
+        tasks: (metrics?.putawayTaskRows ?? []).slice(0, 5),
+      },
+      {
+        label: "Outbound",
         count: metrics?.openPickLists ?? 0,
         action: "Release or execute picks",
         route: "/pick-lists",
-        tone: "success",
+        tone: (metrics?.openPickLists ?? 0) > 0 ? "info" : "success",
         tasks: (metrics?.pickListRows ?? []).slice(0, 5),
+      },
+      {
+        label: "Moves & Counts",
+        count: (metrics?.openMoveTasks ?? 0) + (metrics?.openTransfers ?? 0) + (metrics?.openCycleCounts ?? 0),
+        action: "Review active moves, transfers, and counts",
+        route: "/location-moves",
+        tone: "info",
+        tasks: [
+          ...(metrics?.moveTaskRows ?? []),
+          ...(metrics?.transferRows ?? []),
+          ...(metrics?.cycleCountRows ?? []),
+        ].sort((a, b) => a.createdAt < b.createdAt ? -1 : 1).slice(0, 5),
       },
       {
         label: "Blocked Exceptions",
@@ -201,35 +274,21 @@ export function buildEnterpriseDashboard(
         tone: controlled > 0 ? "critical" : "success",
         tasks: (metrics?.blockedBalanceRows ?? []).slice(0, 5),
       },
-      {
-        label: "Setup Checklist",
-        count: 6,
-        action: "Finish go-live controls",
-        route: "/setup-wizard",
-        tone: "warning",
-        tasks: [
-          { id: "setup-1", label: "Warehouse layout and zones", sublabel: "Admin", route: "/setup-wizard", createdAt: "" },
-          { id: "setup-2", label: "Zebra printer stations", sublabel: "Admin", route: "/setup-wizard", createdAt: "" },
-          { id: "setup-3", label: "NetSuite connector mapping", sublabel: "IT", route: "/setup-wizard", createdAt: "" },
-          { id: "setup-4", label: "Barcode standards and label templates", sublabel: "Warehouse manager", route: "/setup-wizard", createdAt: "" },
-          { id: "setup-5", label: "Operator tablet workflows", sublabel: "Supervisor", route: "/setup-wizard", createdAt: "" },
-        ],
-      },
     ],
-    dockLoads: buildDockLoads(inventory),
+    dockLoads: buildDockLoads(reportData?.stagingLoads ?? [], reportData?.dockAppointments ?? []),
     leanMetrics: [
-      { label: "5S location health", value: fullLocations === 0 ? "Clear" : `${fullLocations} full`, target: "No blocked aisles", status: fullLocations > 4 ? "off_target" : fullLocations > 0 ? "watch" : "on_target" },
-      { label: "Kanban replenishment", value: `${lowStock} signals`, target: "Zero stockouts", status: lowStock > 8 ? "off_target" : lowStock > 0 ? "watch" : "on_target" },
-      { label: "Andon response", value: `${controlled} alerts`, target: "< 3 open", status: controlled > 8 ? "off_target" : controlled > 2 ? "watch" : "on_target" },
-      { label: "DMAIC variance", value: `${defects} defects`, target: "Trend down", status: defects > 6 ? "off_target" : defects > 0 ? "watch" : "on_target" },
+      { label: "5S location health", value: fullLocations === 0 ? "Clear" : `${fullLocations} full`, target: "No blocked aisles", status: fullLocations > 4 ? "off_target" : fullLocations > 0 ? "watch" : "on_target", route: "/locations" },
+      { label: "Kanban replenishment", value: `${lowStock} signals`, target: "Zero stockouts", status: lowStock > 8 ? "off_target" : lowStock > 0 ? "watch" : "on_target", route: "/inventory-search" },
+      { label: "Andon response", value: `${controlled} alerts`, target: "< 3 open", status: controlled > 8 ? "off_target" : controlled > 2 ? "watch" : "on_target", route: "/status" },
+      { label: "DMAIC variance", value: `${defects} defects`, target: "Trend down", status: defects > 6 ? "off_target" : defects > 0 ? "watch" : "on_target", route: "/cycle-counts" },
     ],
     setupChecklist: [
       { label: "Warehouse layout and zones", complete: occupancy.length > 0, owner: "Admin" },
-      { label: "Zebra printer stations", complete: false, owner: "Admin" },
+      { label: "Zebra printer stations", complete: activePrinters > 0 && failedPrintJobs === 0, owner: "Admin" },
       { label: "NetSuite connector mapping", complete: false, owner: "IT" },
-      { label: "Barcode standards and label templates", complete: true, owner: "Warehouse manager" },
-      { label: "Operator tablet workflows", complete: true, owner: "Supervisor" },
-      { label: "Saved reports and AI review cadence", complete: false, owner: "Manager" },
+      { label: "Barcode standards and label templates", complete: activeLabelTemplates > 0, owner: "Warehouse manager" },
+      { label: "Operator tablet workflows", complete: (metrics?.recentAuditEvents ?? 0) > 0, owner: "Supervisor" },
+      { label: "Saved reports and AI review cadence", complete: (reportData?.aiRecommendations ?? []).length > 0, owner: "Manager" },
     ],
     recommendations: buildWarehouseBrainRecommendations(metrics, reportData),
   };
@@ -244,7 +303,22 @@ export function buildWarehouseBrainRecommendations(
   const lowStock = inventory.filter((row) => (row.available_quantity ?? 0) > 0 && (row.available_quantity ?? 0) <= 10).length;
   const controlled = (metrics?.holdStock ?? 0) + (metrics?.quarantineStock ?? 0);
   const openWork = (metrics?.openPutawayTasks ?? 0) + (metrics?.openPickLists ?? 0);
+  const dockBlocks = (reportData?.stagingLoads ?? []).filter((row) => row.status === "blocked").length;
+  const failedPrintJobs = (reportData?.printJobs ?? []).filter((row) => row.status === "failed").length;
+  const savedRecommendations = (reportData?.aiRecommendations ?? []).filter((row) => row.title && row.reason && row.next_action);
   const recommendations: WarehouseBrainRecommendation[] = [];
+
+  for (const item of savedRecommendations) {
+    recommendations.push({
+      id: item.id ?? item.recommendation_key ?? `saved-${recommendations.length + 1}`,
+      title: item.title ?? "Saved recommendation",
+      severity: item.severity ?? "info",
+      audience: item.audience ?? ["warehouse_manager"],
+      reason: item.reason ?? "Saved live recommendation is open.",
+      nextAction: item.next_action ?? "Review the open recommendation.",
+      route: "/reports",
+    });
+  }
 
   if (expiringSoon > 0) {
     recommendations.push({
@@ -254,6 +328,7 @@ export function buildWarehouseBrainRecommendations(
       audience: ["warehouse_manager", "inventory_clerk"],
       reason: `${expiringSoon} lot${expiringSoon === 1 ? "" : "s"} expire inside the next 30 days.`,
       nextAction: "Prioritize those lots in wave release or move them to hold if QA requires review.",
+      route: "/inventory-search",
     });
   }
 
@@ -265,6 +340,7 @@ export function buildWarehouseBrainRecommendations(
       audience: ["warehouse_manager", "inventory_clerk"],
       reason: `${lowStock} SKU/location balance${lowStock === 1 ? "" : "s"} are at or below 10 available units.`,
       nextAction: "Create replenishment work or confirm the NetSuite reorder signal before the next wave.",
+      route: "/inventory-search",
     });
   }
 
@@ -276,6 +352,7 @@ export function buildWarehouseBrainRecommendations(
       audience: ["warehouse_manager", "inventory_clerk", "warehouse_operator"],
       reason: `${controlled} pallet${controlled === 1 ? "" : "s"} are on hold or quarantine.`,
       nextAction: "Resolve QA decisions, record root cause, and release or disposition the stock.",
+      route: "/status",
     });
   }
 
@@ -287,17 +364,43 @@ export function buildWarehouseBrainRecommendations(
       audience: ["warehouse_operator", "warehouse_manager"],
       reason: `${openWork} task group${openWork === 1 ? "" : "s"} are open across putaway and picking.`,
       nextAction: "Use Start Shift on a tablet and work through scan-confirmed tasks.",
+      route: "/putaway-tasks",
+    });
+  }
+
+  if (dockBlocks > 0) {
+    recommendations.push({
+      id: "blocked-dock-loads",
+      title: "Dock handoff has blocked loads",
+      severity: "critical",
+      audience: ["warehouse_manager", "warehouse_operator", "dispatch_driver"],
+      reason: `${dockBlocks} staging load${dockBlocks === 1 ? "" : "s"} are blocked.`,
+      nextAction: "Clear the blocker before calling the driver or loading the route.",
+      route: "/pick-lists",
+    });
+  }
+
+  if (failedPrintJobs > 0) {
+    recommendations.push({
+      id: "failed-print-jobs",
+      title: "Label printing needs attention",
+      severity: "warning",
+      audience: ["admin", "warehouse_manager"],
+      reason: `${failedPrintJobs} recent print job${failedPrintJobs === 1 ? "" : "s"} failed.`,
+      nextAction: "Check printer stations and reprint failed labels before the next scan workflow.",
+      route: "/settings",
     });
   }
 
   if (recommendations.length === 0) {
     recommendations.push({
-      id: "stable-flow",
-      title: "Warehouse flow is stable",
-      severity: "success",
+      id: "insufficient-data",
+      title: "Not enough live data yet",
+      severity: "info",
       audience: ["admin", "warehouse_manager", "inventory_clerk", "warehouse_operator"],
-      reason: "No urgent expiration, low-stock, hold, or open-work signals are currently elevated.",
-      nextAction: "Continue standard work and monitor the office dashboard.",
+      reason: "Warehouse Intelligence needs current inventory, task, dock, audit, or cycle-count activity before it can make a supported recommendation.",
+      nextAction: "Run normal receiving, putaway, picking, dock, or count workflows, then return here for evidence-backed signals.",
+      route: "/dashboard",
     });
   }
 
@@ -339,19 +442,20 @@ function countExpiringSoon(inventory: InventoryRow[], days: number) {
   }).length;
 }
 
-function buildDockLoads(inventory: InventoryRow[]): DockHandoffLoad[] {
-  const staged = inventory.filter((row) => row.status === "staged" || row.status === "picked").slice(0, 6);
-  const source = staged.length > 0 ? staged : inventory.slice(0, 4);
-
-  return source.map((row, index) => ({
-    id: row.pallet_code ?? `dock-${index + 1}`,
-    route: `R-${String(index + 1).padStart(2, "0")}`,
-    door: `D${(index % 4) + 1}`,
-    customer: row.product_name ?? row.sku ?? "Open order",
-    driver: index % 2 === 0 ? "Assigned" : "Awaiting check-in",
-    status: index === 0 ? "ready" : index === 1 ? "called" : index === 2 ? "loading" : index === 3 ? "blocked" : "loaded",
-    pallets: Math.max(1, Math.round((row.available_quantity ?? 1) / 20)),
-    temperatureClass: row.expiry_date ? "cool" : "ambient",
-    blocker: index === 3 ? "QA release required" : undefined,
-  }));
+function buildDockLoads(stagingLoads: StagingLoadRow[], appointments: DockAppointmentRow[]): DockHandoffLoad[] {
+  return stagingLoads.map((row, index) => {
+    const appointment = appointments.find((item) => item.id === row.dock_appointment_id);
+    const customer = row.pick_lists?.clients?.name ?? row.pick_lists?.clients?.code ?? row.pick_lists?.pick_list_number ?? "Open load";
+    return {
+      id: row.id ?? `dock-${index + 1}`,
+      route: row.route_code ?? row.pick_lists?.pick_list_number ?? `Load ${index + 1}`,
+      door: appointment?.dock_door ?? "Unassigned",
+      customer,
+      driver: appointment?.driver_name ?? appointment?.carrier ?? "Awaiting check-in",
+      status: row.status ?? "ready",
+      pallets: 1,
+      temperatureClass: "live load",
+      blocker: row.blocker ?? undefined,
+    };
+  });
 }
