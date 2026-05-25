@@ -63,7 +63,6 @@ import {
   saveDraftReceipt,
   completeReceiptFromDraft,
   deleteDraftReceipt,
-  moveToPickingArea,
   listSystemLogs,
   listUserActivities,
   listCycleCounts,
