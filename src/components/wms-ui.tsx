@@ -2005,6 +2005,7 @@ export function ReceivingPage() {
   const [reuseEnabled, setReuseEnabled] = useState(false);
   const [showZplAdvanced, setShowZplAdvanced] = useState(false);
   const [showDrafts, setShowDrafts] = useState(false);
+  const [draftSearch, setDraftSearch] = useState("");
   const [resumingDraftId, setResumingDraftId] = useState<string | null>(null);
   const productSearchRef = useRef<ProductSearchHandle>(null);
 
@@ -2128,9 +2129,25 @@ export function ReceivingPage() {
   }
 
   const productOptions = (options?.products ?? []).map((p: any) => ({ id: p.id, sku: p.sku, name: p.name, barcode: p.barcode }));
+  const draftSearchTerm = draftSearch.trim().toLowerCase();
+  const visibleDrafts = useMemo(() => {
+    if (!draftSearchTerm) return drafts;
+    return drafts.filter((draft) => {
+      const product = productOptions.find((p) => p.id === draft.product_id);
+      return [
+        draft.receipt_number,
+        draft.reference_number,
+        draft.source_label,
+        draft.quantity,
+        product?.sku,
+        product?.name,
+        product?.barcode,
+      ].some((value) => String(value ?? "").toLowerCase().includes(draftSearchTerm));
+    });
+  }, [draftSearchTerm, drafts, productOptions]);
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-6 overflow-hidden">
+    <div className="flex min-h-full flex-col gap-6">
       {/* Success banner */}
       {lastResult && (
         <div className="flex flex-col gap-2 rounded-lg border border-green-200 bg-green-50 p-4 dark:border-green-900 dark:bg-green-950/30 sm:flex-row sm:items-center sm:justify-between">
@@ -2461,12 +2478,29 @@ export function ReceivingPage() {
             </button>
           </CardHeader>
           {showDrafts && (
-            <CardContent>
+            <CardContent className="grid gap-3">
               {drafts.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No saved drafts for this warehouse.</p>
               ) : (
-                <div className="grid gap-3">
-                  {drafts.map((draft) => {
+                <>
+                  <div className="flex min-w-0 gap-2">
+                    <div className="relative min-w-0 flex-1">
+                      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        className="pl-9"
+                        value={draftSearch}
+                        onChange={(event) => setDraftSearch(event.target.value)}
+                        placeholder="Search drafts by code, product name, receipt, or barcode"
+                      />
+                    </div>
+                    <BarcodeScanButton title="Scan draft product, receipt, or barcode" onScan={setDraftSearch} />
+                  </div>
+                  <div className="grid gap-3">
+                  {visibleDrafts.length === 0 ? (
+                    <p className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+                      No saved drafts matched "{draftSearch}".
+                    </p>
+                  ) : visibleDrafts.map((draft) => {
                     const product = productOptions.find((p) => p.id === draft.product_id);
                     return (
                       <div key={draft.id} className="flex items-center justify-between gap-4 rounded-lg border border-border px-4 py-3">
@@ -2490,7 +2524,8 @@ export function ReceivingPage() {
                       </div>
                     );
                   })}
-                </div>
+                  </div>
+                </>
               )}
             </CardContent>
           )}
@@ -3193,13 +3228,44 @@ function statusBadgeVariant(status: string): "default" | "secondary" | "destruct
 export function PickListsPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { profile } = useAuth();
   const [pickSearch, setPickSearch] = useState("");
+  const [activeTab, setActiveTab] = useState("lists");
+  const clientTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const pickProductRefs = useRef<Record<number, ProductSearchHandle | null>>({});
   const { data: options } = useQuery({ queryKey: ["options"], queryFn: () => fetchOptions() });
   const { data: pickLists = [] } = useQuery({ queryKey: ["pick-lists"], queryFn: listPickLists });
   const form = useForm<z.infer<typeof pickListSchema>>({
     resolver: zodResolver(pickListSchema),
-    defaultValues: { lines: [{ product_id: "", quantity: 1 }] },
+    defaultValues: {
+      warehouse_id: profile?.default_warehouse_id || undefined,
+      client_id: undefined,
+      order_number: "",
+      requested_ship_date: new Date().toISOString().slice(0, 10),
+      notes: "",
+      lines: [{ product_id: "", quantity: 1 }],
+    },
   });
+
+  useEffect(() => {
+    const warehouseId = form.getValues("warehouse_id");
+    const defaultWarehouseId = profile?.default_warehouse_id || (options?.warehouses?.length === 1 ? options.warehouses[0].id : "");
+    if (!warehouseId && defaultWarehouseId) {
+      form.setValue("warehouse_id", defaultWarehouseId);
+    }
+  }, [form, options?.warehouses, profile?.default_warehouse_id]);
+
+  useEffect(() => {
+    if (!form.getValues("requested_ship_date")) {
+      form.setValue("requested_ship_date", new Date().toISOString().slice(0, 10));
+    }
+  }, [form]);
+
+  useEffect(() => {
+    if (activeTab !== "create") return;
+    const timer = setTimeout(() => clientTriggerRef.current?.focus(), 80);
+    return () => clearTimeout(timer);
+  }, [activeTab]);
 
   const mutation = useMutation({
     mutationFn: async (values: z.infer<typeof pickListSchema>) => createPickListFlow(values),
@@ -3208,7 +3274,14 @@ export function PickListsPage() {
         action: { label: "View lists", onClick: () => navigate("/pick-lists") },
         duration: 6000,
       });
-      form.reset({ lines: [{ product_id: "", quantity: 1 }] });
+      form.reset({
+        warehouse_id: profile?.default_warehouse_id || undefined,
+        client_id: undefined,
+        order_number: "",
+        requested_ship_date: new Date().toISOString().slice(0, 10),
+        notes: "",
+        lines: [{ product_id: "", quantity: 1 }],
+      });
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["pick-lists"] }),
         queryClient.invalidateQueries({ queryKey: ["dashboard-metrics"] }),
@@ -3238,8 +3311,15 @@ export function PickListsPage() {
       ...taskValues,
     ].some((value) => String(value ?? "").toLowerCase().includes(pickSearchTerm));
   };
-  const active = (pickLists as any[]).filter((pl) => !["completed", "cancelled"].includes(pl.status)).filter(matchesPickSearch);
+  const allActive = (pickLists as any[]).filter((pl) => !["completed", "cancelled"].includes(pl.status));
+  const active = allActive.filter(matchesPickSearch);
   const done = (pickLists as any[]).filter((pl) => ["completed", "cancelled"].includes(pl.status)).filter(matchesPickSearch);
+  const productOptions = (options?.products ?? []).map((product: any) => ({
+    id: product.id,
+    sku: product.sku,
+    name: product.name,
+    barcode: product.barcode,
+  }));
 
   function prefetchPickExecution(pickListId: string) {
     void queryClient.prefetchQuery({
@@ -3249,7 +3329,7 @@ export function PickListsPage() {
   }
 
   return (
-    <Tabs className="flex flex-col gap-6" defaultValue="lists">
+    <Tabs className="flex flex-col gap-6" value={activeTab} onValueChange={setActiveTab}>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h2 className="text-2xl font-semibold">Pick Lists</h2>
@@ -3269,7 +3349,10 @@ export function PickListsPage() {
         </div>
       </div>
       <TabsList className="grid h-auto w-full grid-cols-2 sm:w-fit">
-        <TabsTrigger value="lists">Active Lists</TabsTrigger>
+        <TabsTrigger value="lists" className="gap-2">
+          Active Lists
+          <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">{allActive.length}</Badge>
+        </TabsTrigger>
         <TabsTrigger value="create">Create Pick List</TabsTrigger>
       </TabsList>
       <TabsContent value="lists" className="grid gap-4">
@@ -3382,8 +3465,50 @@ export function PickListsPage() {
             <Form {...form}>
               <form className="grid gap-4 lg:grid-cols-2" onSubmit={form.handleSubmit((values) => mutation.mutate(values))}>
                 <SelectField form={form} name="warehouse_id" label="Warehouse" options={(options?.warehouses ?? []).map((warehouse) => ({ label: warehouse.name, value: warehouse.id }))} />
-                <SelectField form={form} name="client_id" label="Client" options={(options?.clients ?? []).map((client) => ({ label: client.name, value: client.id }))} />
-                <TextField form={form} name="order_number" label="Order number" />
+                <FormField
+                  control={form.control}
+                  name="client_id"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Client</FormLabel>
+                      <Select
+                        onValueChange={(value) => field.onChange(value === "__none__" ? undefined : value)}
+                        value={(field.value as string | undefined) ?? "__none__"}
+                      >
+                        <FormControl>
+                          <SelectTrigger ref={clientTriggerRef}>
+                            <SelectValue placeholder="Select client" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="__none__">No client</SelectItem>
+                          {(options?.clients ?? []).map((client) => (
+                            <SelectItem key={client.id} value={client.id}>
+                              {client.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="order_number"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Order number</FormLabel>
+                      <FormControl>
+                        <div className="flex gap-2">
+                          <Input {...field} value={field.value ?? ""} />
+                          <BarcodeScanButton title="Scan order number" onScan={field.onChange} />
+                        </div>
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
                 <TextField form={form} name="requested_ship_date" label="Requested ship date" type="date" />
                 <FormField
                   control={form.control}
@@ -3392,7 +3517,7 @@ export function PickListsPage() {
                     <FormItem className="lg:col-span-2">
                       <FormLabel>Notes</FormLabel>
                       <FormControl>
-                        <Textarea {...field} value={field.value ?? ""} />
+                        <Input {...field} value={field.value ?? ""} />
                       </FormControl>
                     </FormItem>
                   )}
@@ -3404,13 +3529,77 @@ export function PickListsPage() {
                   <CardContent className="grid gap-3">
                     {lines.map((_, index) => (
                       <div key={index} className="grid gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(8rem,1fr)_auto]">
-                        <SelectField
-                          form={form}
+                        <FormField
+                          control={form.control}
                           name={`lines.${index}.product_id`}
-                          label="Product"
-                          options={(options?.products ?? []).map((product) => ({ label: `${product.sku} · ${product.name}`, value: product.id }))}
+                          render={({ field, fieldState }) => (
+                            <FormItem>
+                              <FormLabel>Product</FormLabel>
+                              <FormControl>
+                                <div className="flex gap-2">
+                                  <div className="min-w-0 flex-1">
+                                    <ProductSearch
+                                      ref={(node) => {
+                                        pickProductRefs.current[index] = node;
+                                      }}
+                                      value={(field.value as string) ?? ""}
+                                      onChange={field.onChange}
+                                      options={productOptions}
+                                      error={Boolean(fieldState.error)}
+                                    />
+                                  </div>
+                                  <BarcodeScanButton
+                                    title="Scan product barcode"
+                                    onScan={(value) => {
+                                      const matched = pickProductRefs.current[index]?.scanBarcode(value);
+                                      if (matched) playBarcodeBeep();
+                                    }}
+                                  />
+                                </div>
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
                         />
-                        <TextField form={form} name={`lines.${index}.quantity`} label="Qty" type="number" />
+                        <FormField
+                          control={form.control}
+                          name={`lines.${index}.quantity`}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Qty</FormLabel>
+                              <FormControl>
+                                <div className="flex items-center gap-2">
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="icon"
+                                    className="h-10 w-10 shrink-0"
+                                    onClick={() => field.onChange(Math.max(1, Number(field.value) - 1))}
+                                  >
+                                    −
+                                  </Button>
+                                  <Input
+                                    {...field}
+                                    type="number"
+                                    className="text-center text-lg font-semibold"
+                                    value={(field.value as number) ?? 1}
+                                    onChange={(event) => field.onChange(event.target.valueAsNumber)}
+                                  />
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="icon"
+                                    className="h-10 w-10 shrink-0"
+                                    onClick={() => field.onChange(Number(field.value) + 1)}
+                                  >
+                                    +
+                                  </Button>
+                                </div>
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
                         <Button
                           className="w-full lg:mt-auto lg:w-auto"
                           type="button"
