@@ -148,10 +148,21 @@ export type DashboardMetrics = {
   openReceipts: number;
   openPutawayTasks: number;
   openPickLists: number;
+  openMoveTasks: number;
+  openTransfers: number;
+  openCycleCounts: number;
+  openDockLoads: number;
+  openReplenishmentTasks: number;
+  recentAuditEvents: number;
   holdStock: number;
   quarantineStock: number;
   putawayTaskRows: DashboardTaskRow[];
   pickListRows: DashboardTaskRow[];
+  moveTaskRows: DashboardTaskRow[];
+  transferRows: DashboardTaskRow[];
+  cycleCountRows: DashboardTaskRow[];
+  dockLoadRows: DashboardTaskRow[];
+  replenishmentRows: DashboardTaskRow[];
   blockedBalanceRows: DashboardTaskRow[];
 };
 
@@ -1818,12 +1829,18 @@ async function resolvePalletId(palletInput: string) {
 }
 
 export async function getDashboardMetrics(warehouseId?: string | null) {
-  const [balances, locations, receipts, putawayTasks, pickLists] = await Promise.all([
+  const [balances, locations, receipts, putawayTasks, pickLists, moveTasks, transfers, cycleCounts, stagingLoads, replenishments, audits] = await Promise.all([
     db("inventory_balances").select("*"),
     db("locations").select("warehouse_id, max_pallets"),
     db("receipts").select("*").in("status", ["draft", "queued", "assigned", "in_progress"]),
     db("putaway_tasks").select("*").in("status", ["queued", "assigned", "in_progress", "exception"]),
     db("pick_lists").select("*").in("status", ["draft", "queued", "assigned", "in_progress", "exception"]),
+    db("move_tasks").select("*").in("status", ["queued", "assigned", "in_progress", "exception"]),
+    db("transfers").select("*").in("status", ["draft", "queued", "assigned", "in_progress", "exception"]),
+    db("cycle_counts").select("*").in("status", ["queued", "assigned", "in_progress", "exception"]),
+    db("staging_loads").select("*, pick_lists(warehouse_id)").in("status", ["ready", "called", "loading", "blocked"]),
+    db("replenishment_tasks").select("*").in("status", ["queued", "assigned", "in_progress", "exception"]),
+    db("audit_events").select("id, warehouse_id").order("created_at", { ascending: false }).limit(50),
   ]);
 
   if (balances.error) throw balances.error;
@@ -1831,19 +1848,39 @@ export async function getDashboardMetrics(warehouseId?: string | null) {
   if (receipts.error) throw receipts.error;
   if (putawayTasks.error) throw putawayTasks.error;
   if (pickLists.error) throw pickLists.error;
+  if (moveTasks.error) throw moveTasks.error;
+  if (transfers.error) throw transfers.error;
+  if (cycleCounts.error) throw cycleCounts.error;
+  if (stagingLoads.error) throw stagingLoads.error;
+  if (replenishments.error) throw replenishments.error;
+  if (audits.error) throw audits.error;
 
-  const balanceRows = balances.data ?? [];
+  const allBalanceRows = balances.data ?? [];
+  const balanceRows = warehouseId ? allBalanceRows.filter((row: any) => row.warehouse_id === warehouseId) : allBalanceRows;
   const coolRows = balanceRows.filter((row: any) => row.zone_id);
   const locationRows = locations.data ?? [];
   const totalPalletCapacity = locationRows.reduce((sum: number, row: any) => sum + Number(row.max_pallets ?? 0), 0);
-  const warehouseRows = warehouseId ? balanceRows.filter((row: any) => row.warehouse_id === warehouseId) : [];
+  const warehouseRows = warehouseId ? balanceRows : [];
   const warehousePalletCapacity = warehouseId
     ? locationRows
         .filter((row: any) => row.warehouse_id === warehouseId)
         .reduce((sum: number, row: any) => sum + Number(row.max_pallets ?? 0), 0)
     : 0;
+  const scopedReceipts = warehouseId ? (receipts.data ?? []).filter((row: any) => row.warehouse_id === warehouseId) : (receipts.data ?? []);
+  const scopedPutaway = warehouseId ? (putawayTasks.data ?? []).filter((row: any) => row.warehouse_id === warehouseId) : (putawayTasks.data ?? []);
+  const scopedPickLists = warehouseId ? (pickLists.data ?? []).filter((row: any) => row.warehouse_id === warehouseId) : (pickLists.data ?? []);
+  const scopedMoveTasks = warehouseId ? (moveTasks.data ?? []).filter((row: any) => row.warehouse_id === warehouseId) : (moveTasks.data ?? []);
+  const scopedTransfers = warehouseId
+    ? (transfers.data ?? []).filter((row: any) => row.source_warehouse_id === warehouseId || row.destination_warehouse_id === warehouseId)
+    : (transfers.data ?? []);
+  const scopedCycleCounts = warehouseId ? (cycleCounts.data ?? []).filter((row: any) => row.warehouse_id === warehouseId) : (cycleCounts.data ?? []);
+  const scopedStagingLoads = warehouseId
+    ? (stagingLoads.data ?? []).filter((row: any) => row.pick_lists?.warehouse_id === warehouseId)
+    : (stagingLoads.data ?? []);
+  const scopedReplenishments = warehouseId ? (replenishments.data ?? []).filter((row: any) => row.warehouse_id === warehouseId) : (replenishments.data ?? []);
+  const scopedAudits = warehouseId ? (audits.data ?? []).filter((row: any) => row.warehouse_id === warehouseId) : (audits.data ?? []);
 
-  const putawayRows: DashboardTaskRow[] = (putawayTasks.data ?? [])
+  const putawayRows: DashboardTaskRow[] = scopedPutaway
     .sort((a: any, b: any) => a.created_at < b.created_at ? -1 : 1)
     .map((row: any) => ({
       id: row.id,
@@ -1853,13 +1890,63 @@ export async function getDashboardMetrics(warehouseId?: string | null) {
       createdAt: row.created_at,
     }));
 
-  const pickRows: DashboardTaskRow[] = (pickLists.data ?? [])
+  const pickRows: DashboardTaskRow[] = scopedPickLists
     .sort((a: any, b: any) => a.created_at < b.created_at ? -1 : 1)
     .map((row: any) => ({
       id: row.id,
       label: row.pick_list_number,
       sublabel: row.status,
       route: "/pick-lists",
+      createdAt: row.created_at,
+    }));
+
+  const moveRows: DashboardTaskRow[] = scopedMoveTasks
+    .sort((a: any, b: any) => a.created_at < b.created_at ? -1 : 1)
+    .map((row: any) => ({
+      id: row.id,
+      label: row.task_number,
+      sublabel: row.status,
+      route: "/location-moves",
+      createdAt: row.created_at,
+    }));
+
+  const transferRows: DashboardTaskRow[] = scopedTransfers
+    .sort((a: any, b: any) => a.created_at < b.created_at ? -1 : 1)
+    .map((row: any) => ({
+      id: row.id,
+      label: row.transfer_number,
+      sublabel: row.status,
+      route: "/transfers",
+      createdAt: row.created_at,
+    }));
+
+  const cycleCountRows: DashboardTaskRow[] = scopedCycleCounts
+    .sort((a: any, b: any) => a.created_at < b.created_at ? -1 : 1)
+    .map((row: any) => ({
+      id: row.id,
+      label: row.count_number,
+      sublabel: row.status,
+      route: "/cycle-counts",
+      createdAt: row.created_at,
+    }));
+
+  const dockLoadRows: DashboardTaskRow[] = scopedStagingLoads
+    .sort((a: any, b: any) => a.created_at < b.created_at ? -1 : 1)
+    .map((row: any) => ({
+      id: row.id,
+      label: row.route_code,
+      sublabel: row.status,
+      route: "/pick-lists",
+      createdAt: row.created_at,
+    }));
+
+  const replenishmentRows: DashboardTaskRow[] = scopedReplenishments
+    .sort((a: any, b: any) => a.created_at < b.created_at ? -1 : 1)
+    .map((row: any) => ({
+      id: row.id,
+      label: row.task_number,
+      sublabel: row.status,
+      route: "/inventory-search",
       createdAt: row.created_at,
     }));
 
@@ -1875,31 +1962,49 @@ export async function getDashboardMetrics(warehouseId?: string | null) {
     }));
 
   return {
-    totalPallets: balanceRows.length,
+    totalPallets: allBalanceRows.length,
     totalPalletCapacity,
     warehousePallets: warehouseRows.length,
     warehousePalletCapacity,
     availablePallets: balanceRows.filter((row: any) => row.status === "available").length,
     coolZoneOccupancy: coolRows.length,
-    openReceipts: receipts.data?.length ?? 0,
-    openPutawayTasks: putawayTasks.data?.length ?? 0,
-    openPickLists: pickLists.data?.length ?? 0,
+    openReceipts: scopedReceipts.length,
+    openPutawayTasks: scopedPutaway.length,
+    openPickLists: scopedPickLists.length,
+    openMoveTasks: scopedMoveTasks.length,
+    openTransfers: scopedTransfers.length,
+    openCycleCounts: scopedCycleCounts.length,
+    openDockLoads: scopedStagingLoads.length,
+    openReplenishmentTasks: scopedReplenishments.length,
+    recentAuditEvents: scopedAudits.length,
     holdStock: balanceRows.filter((row: any) => row.status === "hold").length,
     quarantineStock: balanceRows.filter((row: any) => row.status === "quarantine").length,
     putawayTaskRows: putawayRows,
     pickListRows: pickRows,
+    moveTaskRows: moveRows,
+    transferRows,
+    cycleCountRows,
+    dockLoadRows,
+    replenishmentRows,
     blockedBalanceRows: blockedRows,
   } satisfies DashboardMetrics;
 }
 
 export async function getReportData() {
-  const [balances, occupancy, audits, clients, warehouses, cycleCounts] = await Promise.all([
+  const [balances, occupancy, audits, clients, warehouses, cycleCounts, stagingLoads, dockAppointments, printerStations, labelTemplates, printJobs, replenishments, aiRecommendations] = await Promise.all([
     db("inventory_search_view").select("*"),
     db("location_occupancy_view").select("*"),
     db("audit_events").select("*").order("created_at", { ascending: false }).limit(12),
     db("clients").select("*"),
     db("warehouses").select("*"),
     db("cycle_count_lines").select("*").order("updated_at", { ascending: false }).limit(12),
+    db("staging_loads").select("*, pick_lists(pick_list_number, warehouse_id, clients(code, name))").order("created_at", { ascending: false }),
+    db("dock_appointments").select("*").order("scheduled_at", { ascending: true }),
+    db("printer_stations").select("*"),
+    db("label_templates").select("*"),
+    db("print_jobs").select("*").order("created_at", { ascending: false }).limit(20),
+    db("replenishment_tasks").select("*").order("created_at", { ascending: false }).limit(20),
+    db("ai_recommendations").select("*").eq("status", "open").order("created_at", { ascending: false }).limit(10),
   ]);
 
   if (balances.error) throw balances.error;
@@ -1908,6 +2013,13 @@ export async function getReportData() {
   if (clients.error) throw clients.error;
   if (warehouses.error) throw warehouses.error;
   if (cycleCounts.error) throw cycleCounts.error;
+  if (stagingLoads.error) throw stagingLoads.error;
+  if (dockAppointments.error) throw dockAppointments.error;
+  if (printerStations.error) throw printerStations.error;
+  if (labelTemplates.error) throw labelTemplates.error;
+  if (printJobs.error) throw printJobs.error;
+  if (replenishments.error) throw replenishments.error;
+  if (aiRecommendations.error) throw aiRecommendations.error;
 
   return {
     inventory: balances.data ?? [],
@@ -1916,6 +2028,13 @@ export async function getReportData() {
     clients: clients.data ?? [],
     warehouses: warehouses.data ?? [],
     cycleCounts: cycleCounts.data ?? [],
+    stagingLoads: stagingLoads.data ?? [],
+    dockAppointments: dockAppointments.data ?? [],
+    printerStations: printerStations.data ?? [],
+    labelTemplates: labelTemplates.data ?? [],
+    printJobs: printJobs.data ?? [],
+    replenishments: replenishments.data ?? [],
+    aiRecommendations: aiRecommendations.data ?? [],
   };
 }
 

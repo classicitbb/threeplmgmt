@@ -8,6 +8,38 @@ import {
   generateZplLabel,
   mapNetSuiteItemToProduct,
 } from "@/lib/enterprise-wms";
+import type { DashboardMetrics } from "@/lib/wms-core";
+
+function dashboardMetrics(overrides: Partial<DashboardMetrics> = {}): DashboardMetrics {
+  return {
+    totalPallets: 0,
+    availablePallets: 0,
+    totalPalletCapacity: 0,
+    warehousePallets: 0,
+    warehousePalletCapacity: 0,
+    coolZoneOccupancy: 0,
+    openReceipts: 0,
+    openPutawayTasks: 0,
+    openPickLists: 0,
+    openMoveTasks: 0,
+    openTransfers: 0,
+    openCycleCounts: 0,
+    openDockLoads: 0,
+    openReplenishmentTasks: 0,
+    recentAuditEvents: 0,
+    holdStock: 0,
+    quarantineStock: 0,
+    putawayTaskRows: [],
+    pickListRows: [],
+    moveTaskRows: [],
+    transferRows: [],
+    cycleCountRows: [],
+    dockLoadRows: [],
+    replenishmentRows: [],
+    blockedBalanceRows: [],
+    ...overrides,
+  };
+}
 
 describe("generateZplLabel", () => {
   it("creates queue-ready Zebra ZPL and sanitizes control characters", () => {
@@ -73,7 +105,7 @@ describe("enterprise dashboard and brain", () => {
     soon.setDate(soon.getDate() + 7);
 
     const snapshot = buildEnterpriseDashboard(
-      {
+      dashboardMetrics({
         totalPallets: 4,
         availablePallets: 2,
         totalPalletCapacity: 10,
@@ -88,7 +120,7 @@ describe("enterprise dashboard and brain", () => {
         putawayTaskRows: [],
         pickListRows: [],
         blockedBalanceRows: [],
-      },
+      }),
       {
         inventory: [
           { sku: "A", available_quantity: 5, expiry_date: soon.toISOString(), status: "staged", pallet_code: "P1" },
@@ -96,6 +128,7 @@ describe("enterprise dashboard and brain", () => {
         ],
         occupancy: [{ location_id: "L1", occupied_pallets: 1, max_pallets: 2, is_full: false }],
         cycleCounts: [{ variance_quantity: 2, status: "exception" }],
+        stagingLoads: [{ id: "SL1", route_code: "R-01", status: "ready" }],
       },
     );
 
@@ -105,29 +138,20 @@ describe("enterprise dashboard and brain", () => {
     expect(snapshot.recommendations.map((item) => item.id)).toContain("expiry-risk");
   });
 
-  it("returns a stable-flow recommendation when no alerts are elevated", () => {
+  it("returns an insufficient-data recommendation when no live evidence supports intel", () => {
     const recommendations = buildWarehouseBrainRecommendations(
-      {
-        totalPallets: 0,
-        availablePallets: 0,
-        totalPalletCapacity: 0,
-        warehousePallets: 0,
-        warehousePalletCapacity: 0,
-        coolZoneOccupancy: 0,
-        openReceipts: 0,
-        openPutawayTasks: 0,
-        openPickLists: 0,
-        holdStock: 0,
-        quarantineStock: 0,
-        putawayTaskRows: [],
-        pickListRows: [],
-        blockedBalanceRows: [],
-      },
+      dashboardMetrics(),
       { inventory: [] },
     );
 
     expect(recommendations).toHaveLength(1);
-    expect(recommendations[0].id).toBe("stable-flow");
+    expect(recommendations[0].id).toBe("insufficient-data");
+  });
+
+  it("does not invent dock loads without live staging load data", () => {
+    const snapshot = buildEnterpriseDashboard(dashboardMetrics(), { inventory: [{ sku: "A", available_quantity: 4 }] });
+
+    expect(snapshot.dockLoads).toEqual([]);
   });
 });
 

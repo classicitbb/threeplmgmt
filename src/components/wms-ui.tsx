@@ -149,6 +149,12 @@ type DashboardMetricKey =
   | "openReceipts"
   | "openPutawayTasks"
   | "openPickLists"
+  | "openMoveTasks"
+  | "openTransfers"
+  | "openCycleCounts"
+  | "openDockLoads"
+  | "openReplenishmentTasks"
+  | "recentAuditEvents"
   | "holdStock"
   | "quarantineStock";
 
@@ -162,13 +168,48 @@ type DashboardCardConfig = {
 };
 
 const DEFAULT_DASHBOARD_CARDS: DashboardCardConfig[] = [
-  { id: "totalPallets", label: "Total Pallets", metricKey: "totalPallets", size: "sm" },
-  { id: "availablePallets", label: "Available Pallets", metricKey: "availablePallets", size: "sm" },
   { id: "openReceipts", label: "Open Receipts", metricKey: "openReceipts", size: "sm" },
+  { id: "openPutawayTasks", label: "Open Putaway", metricKey: "openPutawayTasks", size: "sm" },
   { id: "openPickLists", label: "Open Pick Lists", metricKey: "openPickLists", size: "sm" },
+  { id: "openMoveTasks", label: "Open Moves", metricKey: "openMoveTasks", size: "sm" },
 ];
 
 const DASHBOARD_LAYOUT_KEY = "wms.dashboard.layout.v1";
+const DASHBOARD_DIAL_METRICS = new Set<DashboardMetricKey>(["totalPallets", "warehousePallets"]);
+const DASHBOARD_METRIC_ROUTES: Record<DashboardMetricKey, AppRoute> = {
+  totalPallets: "/inventory-search",
+  warehousePallets: "/inventory-search",
+  availablePallets: "/inventory-search",
+  coolZoneOccupancy: "/locations",
+  openReceipts: "/receiving",
+  openPutawayTasks: "/putaway-tasks",
+  openPickLists: "/pick-lists",
+  openMoveTasks: "/location-moves",
+  openTransfers: "/transfers",
+  openCycleCounts: "/cycle-counts",
+  openDockLoads: "/pick-lists",
+  openReplenishmentTasks: "/inventory-search",
+  recentAuditEvents: "/system-log",
+  holdStock: "/status",
+  quarantineStock: "/status",
+};
+const DASHBOARD_METRIC_LABELS: Record<DashboardMetricKey, string> = {
+  totalPallets: "Total Pallets",
+  warehousePallets: "This Warehouse",
+  availablePallets: "Available Pallets",
+  coolZoneOccupancy: "Located Pallets",
+  openReceipts: "Open Receipts",
+  openPutawayTasks: "Open Putaway",
+  openPickLists: "Open Pick Lists",
+  openMoveTasks: "Open Moves",
+  openTransfers: "Open Transfers",
+  openCycleCounts: "Open Counts",
+  openDockLoads: "Dock Loads",
+  openReplenishmentTasks: "Replenishment",
+  recentAuditEvents: "Recent Events",
+  holdStock: "Hold Stock",
+  quarantineStock: "Quarantine",
+};
 
 // ---------------------------------------------------------------------------
 // Barcode scanner helpers
@@ -215,7 +256,21 @@ function loadLayout(): DashboardCardConfig[] {
     if (!raw) return DEFAULT_DASHBOARD_CARDS;
     const parsed = JSON.parse(raw) as DashboardCardConfig[];
     if (!Array.isArray(parsed) || parsed.length === 0) return DEFAULT_DASHBOARD_CARDS;
-    return parsed;
+    const seen = new Set<DashboardMetricKey>();
+    const sanitized = parsed
+      .filter((card) => card && card.metricKey in DASHBOARD_METRIC_ROUTES && !DASHBOARD_DIAL_METRICS.has(card.metricKey))
+      .filter((card) => {
+        if (seen.has(card.metricKey)) return false;
+        seen.add(card.metricKey);
+        return true;
+      })
+      .map((card) => ({
+        id: card.id || card.metricKey,
+        label: DASHBOARD_METRIC_LABELS[card.metricKey] ?? card.label,
+        metricKey: card.metricKey,
+        size: card.size === "lg" ? "lg" : "sm",
+      }));
+    return sanitized.length > 0 ? sanitized : DEFAULT_DASHBOARD_CARDS;
   } catch {
     return DEFAULT_DASHBOARD_CARDS;
   }
@@ -273,9 +328,11 @@ function SortableMetricCard({
           </div>
         </CardHeader>
         <CardContent>
-          <div className="text-3xl font-bold">
+          <Link to={DASHBOARD_METRIC_ROUTES[card.metricKey]} className="block rounded-sm transition hover:text-primary focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
+            <div className="text-3xl font-bold">
             {isLoading ? <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /> : formatNumber(value)}
-          </div>
+            </div>
+          </Link>
         </CardContent>
       </Card>
     </div>
@@ -288,32 +345,42 @@ function PalletDialCard({
   capacity,
   caption,
   isLoading,
+  route,
 }: {
   label: string;
   value: number;
   capacity: number;
   caption: string;
   isLoading: boolean;
+  route: AppRoute;
 }) {
   const percentage = capacity > 0 ? Math.min(100, Math.round((value / capacity) * 100)) : 0;
 
   return (
     <Card className="min-h-0">
       <CardContent className="flex items-center gap-4 p-4">
+        <Link
+          to={route}
+          className="grid h-24 w-24 shrink-0 place-items-center rounded-full transition focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+          aria-label={`${label} ${percentage}%`}
+          title={`Open source: ${label}`}
+        >
         <div
           className="grid h-24 w-24 shrink-0 place-items-center rounded-full"
           style={{
             background: `conic-gradient(hsl(var(--primary)) ${percentage}%, hsl(var(--accent) / 0.35) ${percentage}% 100%)`,
           }}
-          aria-label={`${label} ${percentage}%`}
         >
           <div className="grid h-16 w-16 place-items-center rounded-full bg-card text-sm font-semibold">
             {isLoading ? <Loader2 className="h-5 w-5 animate-themed-loader" /> : `${percentage}%`}
           </div>
         </div>
+        </Link>
         <div className="min-w-0">
           <p className="text-xs font-medium uppercase text-muted-foreground">{label}</p>
-          <p className="text-3xl font-bold tracking-tight">{isLoading ? "..." : formatNumber(value)}</p>
+          <Link to={route} className="block rounded-sm transition hover:text-primary focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
+            <p className="text-3xl font-bold tracking-tight">{isLoading ? "..." : formatNumber(value)}</p>
+          </Link>
           <p className="truncate text-xs text-muted-foreground">{caption}</p>
         </div>
       </CardContent>
@@ -1722,7 +1789,7 @@ export function DashboardPage() {
     <div
       ref={dashboardRef}
       className={cn(
-        "flex min-h-0 flex-col gap-6 lg:h-full lg:gap-3 lg:overflow-hidden",
+        "flex min-h-0 flex-col gap-6 overflow-y-auto overflow-x-hidden lg:h-full lg:gap-3",
         (isFullscreen || fitToScreen) && "h-screen overflow-auto bg-background p-4",
       )}
     >
@@ -1755,6 +1822,7 @@ export function DashboardPage() {
           capacity={metrics?.totalPalletCapacity ?? 0}
           caption={`${formatNumber(metrics?.totalPalletCapacity ?? 0)} location capacity`}
           isLoading={isLoading}
+          route="/inventory-search"
         />
         <PalletDialCard
           label="This Warehouse"
@@ -1762,6 +1830,7 @@ export function DashboardPage() {
           capacity={metrics?.warehousePalletCapacity ?? 0}
           caption={profile?.default_warehouse_id ? `${formatNumber(metrics?.warehousePalletCapacity ?? 0)} location capacity` : "No warehouse selected"}
           isLoading={isLoading}
+          route="/inventory-search"
         />
       </div>
 
@@ -1781,7 +1850,7 @@ export function DashboardPage() {
         </SortableContext>
       </DndContext>
 
-      <div className="min-h-0 flex-1 overflow-auto lg:overflow-hidden">
+      <div className="min-h-0 flex-1 overflow-auto">
         {mode === "floor" ? <WarehouseFloorMode snapshot={snapshot} /> : null}
         {mode === "dock" ? <DockHandoffBoard loads={snapshot.dockLoads} recommendations={snapshot.recommendations} /> : null}
         {mode === "office" ? <OfficeMonitoringMode snapshot={snapshot} /> : null}
@@ -1792,14 +1861,16 @@ export function DashboardPage() {
 
 function WarehouseFloorMode({ snapshot }: { snapshot: EnterpriseDashboardSnapshot }) {
   return (
-    <div className="grid h-full min-h-0 gap-3 xl:grid-cols-[minmax(0,1.35fr)_minmax(20rem,0.65fr)]">
+    <div className="grid min-h-0 gap-3 xl:grid-cols-[minmax(0,1.35fr)_minmax(20rem,0.65fr)]">
       <div className="grid min-h-0 gap-3 md:grid-cols-2">
         {snapshot.floorQueues.map((queue) => (
-          <Card key={queue.label} className={cn("border-l-4 flex flex-col", toneBorder(queue.tone))}>
+          <Card key={queue.label} className={cn("min-w-0 border-l-4 flex flex-col", toneBorder(queue.tone))}>
             <CardHeader className="p-4 pb-2">
               <CardTitle className="flex items-center justify-between gap-4">
                 <span>{queue.label}</span>
-                <span className="text-3xl">{formatNumber(queue.count)}</span>
+                <Link to={queue.route} className="shrink-0 rounded-sm text-3xl transition hover:text-primary focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
+                  {formatNumber(queue.count)}
+                </Link>
               </CardTitle>
               <CardDescription>{queue.action}</CardDescription>
             </CardHeader>
@@ -1826,14 +1897,14 @@ function WarehouseFloorMode({ snapshot }: { snapshot: EnterpriseDashboardSnapsho
           </Card>
         ))}
       </div>
-      <Card>
+      <Card className="min-w-0">
         <CardHeader className="pb-2">
           <CardTitle className="flex items-center gap-2 text-base"><RadioTower className="h-4 w-4" /> Warehouse Intelligence</CardTitle>
           <CardDescription className="text-xs">Live shift signals — DPMO, 5S, Kanban, exceptions.</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-2">
           {snapshot.leanMetrics.map((metric) => (
-            <div key={metric.label} className="flex items-center justify-between gap-2 rounded-md border border-border px-3 py-2">
+            <Link key={metric.label} to={metric.route} className="flex items-center justify-between gap-2 rounded-md border border-border px-3 py-2 transition hover:bg-secondary/40 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
               <div className="min-w-0">
                 <p className="truncate text-xs font-medium">{metric.label}</p>
                 <p className="text-xs text-muted-foreground">Target: {metric.target}</p>
@@ -1844,7 +1915,7 @@ function WarehouseFloorMode({ snapshot }: { snapshot: EnterpriseDashboardSnapsho
                   {metric.status.replace("_", " ")}
                 </Badge>
               </div>
-            </div>
+            </Link>
           ))}
         </CardContent>
       </Card>
@@ -1861,11 +1932,16 @@ function DockHandoffBoard({
 }) {
   return (
     <div className="grid gap-6">
-      <div className="grid gap-4 lg:grid-cols-5">
+      <div className="grid min-w-0 gap-4 sm:grid-cols-2 xl:grid-cols-5">
         {["ready", "called", "loading", "blocked", "loaded"].map((status) => (
-          <Card key={status} className={cn("min-h-72", status === "blocked" ? "border-destructive/50" : "")}>
+          <Card key={status} className={cn("min-h-72 min-w-0", status === "blocked" ? "border-destructive/50" : "")}>
             <CardHeader>
-              <CardTitle className="capitalize">{status}</CardTitle>
+              <CardTitle className="flex items-center justify-between gap-2 capitalize">
+                <span>{status}</span>
+                <Link to="/pick-lists" className="rounded-sm text-2xl transition hover:text-primary focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
+                  {formatNumber(loads.filter((load) => load.status === status).length)}
+                </Link>
+              </CardTitle>
               <CardDescription>Dock handoff lane</CardDescription>
             </CardHeader>
             <CardContent className="grid gap-3">
@@ -1891,13 +1967,17 @@ function DockHandoffBoard({
 
 function OfficeMonitoringMode({ snapshot }: { snapshot: EnterpriseDashboardSnapshot }) {
   return (
-    <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(22rem,0.7fr)]">
+    <div className="grid min-w-0 gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(22rem,0.7fr)]">
       <div className="grid gap-4 md:grid-cols-2">
         {snapshot.officeWidgets.map((widget) => (
-          <Card key={widget.label} className={cn("border-l-4", toneBorder(widget.tone))}>
+          <Card key={widget.label} className={cn("min-w-0 border-l-4", toneBorder(widget.tone))}>
             <CardHeader>
               <CardDescription>{widget.label}</CardDescription>
-              <CardTitle className="text-4xl">{widget.value}</CardTitle>
+              <CardTitle className="text-4xl">
+                <Link to={widget.route} className="rounded-sm transition hover:text-primary focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
+                  {widget.value}
+                </Link>
+              </CardTitle>
               <CardDescription>{widget.detail}</CardDescription>
             </CardHeader>
           </Card>
@@ -1936,14 +2016,14 @@ function WarehouseBrainPanel({ recommendations }: { recommendations: WarehouseBr
       </CardHeader>
       <CardContent className="grid gap-3">
         {recommendations.map((recommendation) => (
-          <div key={recommendation.id} className={cn("rounded-lg border border-border p-3", recommendation.severity === "critical" ? "bg-destructive/10" : recommendation.severity === "warning" ? "bg-warning/10" : "bg-secondary/30")}>
+          <Link key={recommendation.id} to={recommendation.route} className={cn("block rounded-lg border border-border p-3 transition hover:bg-secondary/50 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2", recommendation.severity === "critical" ? "bg-destructive/10" : recommendation.severity === "warning" ? "bg-warning/10" : "bg-secondary/30")}>
             <div className="flex items-center justify-between gap-3">
               <p className="font-medium">{recommendation.title}</p>
               <Badge variant={recommendation.severity === "critical" ? "destructive" : "secondary"}>{recommendation.severity}</Badge>
             </div>
             <p className="mt-2 text-sm text-muted-foreground">{recommendation.reason}</p>
             <p className="mt-2 text-sm">{recommendation.nextAction}</p>
-          </div>
+          </Link>
         ))}
       </CardContent>
     </Card>
