@@ -1,3 +1,18 @@
+/**
+ * @file use-network-status.ts — Browser online/offline detection and mutation guard
+ *
+ * assertOnline()       — Throws OFFLINE_WORK_MESSAGE if navigator.onLine is false.
+ *                        Called by MutationCache.onMutate in query-client.ts to block
+ *                        ALL mutations while offline. Import directly for manual guards.
+ *
+ * guardMutation(fn)    — Higher-order function: wraps any async fn to call assertOnline()
+ *                        before executing. Used in App.tsx for confirmPickTask:
+ *                        `guardMutation(confirmPickTask)(taskId, ...)`
+ *
+ * useNetworkStatus()   — React hook → { online: boolean }. Subscribe to online/offline
+ *                        events; use in UI components to show connectivity banners.
+ */
+
 import { useEffect, useState } from "react";
 
 export const OFFLINE_WORK_MESSAGE = "Connection lost. Work was not posted. Reconnect and try again.";
