@@ -1,3 +1,41 @@
+/**
+ * @file use-feature-flags.ts — Module enable/disable system and mobile toolbar config
+ *
+ * PURPOSE
+ * -------
+ * Controls which WMS modules are visible in the sidebar navigation.
+ * User preferences are persisted in localStorage under "wms.modules.v1".
+ * Mobile bottom-toolbar pinned modules are stored under "wms.mobile-toolbar.v1" (max 4 items).
+ *
+ * STARTER MODULES — enabled by default
+ * -------------------------------------
+ * receiving, putaway, inventory, location-moves, transfers, pick-lists,
+ * products, warehouses, zones, locations, users, settings
+ *
+ * ADVANCED MODULES — disabled by default (must be enabled in Settings → Modules)
+ * -------------------------------------------------------------------------------
+ * clients, packaging, cycle-counts, reports, status, system-log, email-log
+ *
+ * HOW IT WORKS
+ * ------------
+ * 1. NAVIGATION array in wms-core.ts declares an optional moduleKey per route.
+ * 2. AppShell in wms-ui.tsx filters the nav links by isEnabled(moduleKey).
+ * 3. SettingsPage renders a toggle for every module so users can customise the UI.
+ * 4. Changes are written to localStorage immediately (no server round-trip needed).
+ *
+ * USAGE
+ * -----
+ * const { isEnabled, setModule } = useFeatureFlags()
+ * isEnabled("cycle-counts")       // false until enabled
+ * setModule("cycle-counts", true) // persisted to localStorage
+ *
+ * MOBILE TOOLBAR
+ * --------------
+ * isToolbarModule(key)         // true if key is pinned to the bottom bar
+ * setToolbarModule(key, true)  // pin (max 4); setToolbarModule(key, false) to unpin
+ * DEFAULT_TOOLBAR_MODULES: receiving, putaway, inventory, pick-lists
+ */
+
 import { createContext, useCallback, useContext, useState } from "react";
 
 export type ModuleKey =
