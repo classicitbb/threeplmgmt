@@ -41,7 +41,7 @@ export const queryClientDefaultOptions = {
   mutations: {
     retry: 0,
   },
-} satisfies NonNullable<ConstructorParameters<typeof QueryClient>[0]>["defaultOptions"];
+} satisfies ConstructorParameters<typeof QueryClient>[0]["defaultOptions"];
 
 export function createAppQueryClient() {
   const client = new QueryClient({

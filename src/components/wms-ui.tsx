@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm, type UseFormReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { supabase } from "@/integrations/supabase/client";
-import { Activity, AlertTriangle, ArrowLeftRight, BarChart3, Bot, Boxes, Building2, CheckCircle2, ClipboardCheck, ClipboardList, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, HelpCircle, Home, Info, LayoutDashboard, Loader2, LogOut, Mail, Maximize2, MapPinned, Menu, Minimize2, Package, PackageX, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, QrCode, RadioTower, RotateCcw, Search, Settings, ShieldCheck, Tags, Truck, Upload, UserPlus, Users, Warehouse } from "lucide-react";
+import { Activity, AlertTriangle, ArrowLeftRight, BarChart3, Bot, Boxes, Building2, CheckCircle2, ClipboardCheck, ClipboardList, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, HelpCircle, Home, Info, LayoutDashboard, Loader2, LogOut, Mail, Maximize2, MapPinned, Menu, Minimize2, Package, PackageX, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, QrCode, RadioTower, RotateCcw, Search, Settings, ShieldCheck, Star, Tags, Truck, Upload, UserPlus, Users, Warehouse } from "lucide-react";
 import {
   DndContext,
   KeyboardSensor,
@@ -28,6 +28,7 @@ import { z } from "zod";
 
 import { useAuth } from "@/hooks/use-auth";
 import { useFeatureFlags, MODULE_LABELS, STARTER_MODULES, type ModuleKey } from "@/hooks/use-feature-flags";
+import { assertOnline, useNetworkStatus } from "@/hooks/use-network-status";
 import {
   NAVIGATION,
   ROLE_LABELS,
@@ -53,10 +54,11 @@ import {
   formatDate,
   formatNumber,
   getDashboardMetrics,
+  getInventoryDetail,
+  getPickExecution,
   getWarehouseForLocationBarcode,
   getBinOccupancy,
   getPutawayTasks,
-  getPalletByBarcode,
   getReportData,
   importCsvToResource,
   listClientVariables,
@@ -64,7 +66,6 @@ import {
   saveDraftReceipt,
   completeReceiptFromDraft,
   deleteDraftReceipt,
-  moveToPickingArea,
   listSystemLogs,
   listUserActivities,
   listCycleCounts,
@@ -86,6 +87,7 @@ import {
   setUserRoleVisibility,
   submitCycleCountLine,
   transferSchema,
+  updateRecord,
   upsertClientVariable,
   upsertRecord,
   writeSystemLog,
@@ -102,6 +104,7 @@ import { BarcodeScanButton } from "@/components/barcode-scan-button";
 import { type ProductSearchHandle } from "@/components/product-search";
 
 import { cn } from "@/lib/utils";
+import { invalidateWarehouseData } from "@/lib/query-invalidation";
 import {
   buildCsvReportRows,
   buildEnterpriseDashboard,
@@ -121,6 +124,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Checkbox } from "@/components/ui/checkbox";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+// removed unused dropdown-menu and drawer imports
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -144,6 +149,12 @@ type DashboardMetricKey =
   | "openReceipts"
   | "openPutawayTasks"
   | "openPickLists"
+  | "openMoveTasks"
+  | "openTransfers"
+  | "openCycleCounts"
+  | "openDockLoads"
+  | "openReplenishmentTasks"
+  | "recentAuditEvents"
   | "holdStock"
   | "quarantineStock";
 
@@ -157,13 +168,48 @@ type DashboardCardConfig = {
 };
 
 const DEFAULT_DASHBOARD_CARDS: DashboardCardConfig[] = [
-  { id: "totalPallets", label: "Total Pallets", metricKey: "totalPallets", size: "sm" },
-  { id: "availablePallets", label: "Available Pallets", metricKey: "availablePallets", size: "sm" },
   { id: "openReceipts", label: "Open Receipts", metricKey: "openReceipts", size: "sm" },
+  { id: "openPutawayTasks", label: "Open Putaway", metricKey: "openPutawayTasks", size: "sm" },
   { id: "openPickLists", label: "Open Pick Lists", metricKey: "openPickLists", size: "sm" },
+  { id: "openMoveTasks", label: "Open Moves", metricKey: "openMoveTasks", size: "sm" },
 ];
 
 const DASHBOARD_LAYOUT_KEY = "wms.dashboard.layout.v1";
+const DASHBOARD_DIAL_METRICS = new Set<DashboardMetricKey>(["totalPallets", "warehousePallets"]);
+const DASHBOARD_METRIC_ROUTES: Record<DashboardMetricKey, AppRoute> = {
+  totalPallets: "/inventory-search",
+  warehousePallets: "/inventory-search",
+  availablePallets: "/inventory-search",
+  coolZoneOccupancy: "/locations",
+  openReceipts: "/receiving",
+  openPutawayTasks: "/putaway-tasks",
+  openPickLists: "/pick-lists",
+  openMoveTasks: "/location-moves",
+  openTransfers: "/transfers",
+  openCycleCounts: "/cycle-counts",
+  openDockLoads: "/pick-lists",
+  openReplenishmentTasks: "/inventory-search",
+  recentAuditEvents: "/system-log",
+  holdStock: "/status",
+  quarantineStock: "/status",
+};
+const DASHBOARD_METRIC_LABELS: Record<DashboardMetricKey, string> = {
+  totalPallets: "Total Pallets",
+  warehousePallets: "This Warehouse",
+  availablePallets: "Available Pallets",
+  coolZoneOccupancy: "Located Pallets",
+  openReceipts: "Open Receipts",
+  openPutawayTasks: "Open Putaway",
+  openPickLists: "Open Pick Lists",
+  openMoveTasks: "Open Moves",
+  openTransfers: "Open Transfers",
+  openCycleCounts: "Open Counts",
+  openDockLoads: "Dock Loads",
+  openReplenishmentTasks: "Replenishment",
+  recentAuditEvents: "Recent Events",
+  holdStock: "Hold Stock",
+  quarantineStock: "Quarantine",
+};
 
 // ---------------------------------------------------------------------------
 // Barcode scanner helpers
@@ -210,7 +256,21 @@ function loadLayout(): DashboardCardConfig[] {
     if (!raw) return DEFAULT_DASHBOARD_CARDS;
     const parsed = JSON.parse(raw) as DashboardCardConfig[];
     if (!Array.isArray(parsed) || parsed.length === 0) return DEFAULT_DASHBOARD_CARDS;
-    return parsed;
+    const seen = new Set<DashboardMetricKey>();
+    const sanitized = parsed
+      .filter((card) => card && card.metricKey in DASHBOARD_METRIC_ROUTES && !DASHBOARD_DIAL_METRICS.has(card.metricKey))
+      .filter((card) => {
+        if (seen.has(card.metricKey)) return false;
+        seen.add(card.metricKey);
+        return true;
+      })
+      .map((card) => ({
+        id: card.id || card.metricKey,
+        label: DASHBOARD_METRIC_LABELS[card.metricKey] ?? card.label,
+        metricKey: card.metricKey,
+        size: card.size === "lg" ? "lg" : "sm",
+      }));
+    return sanitized.length > 0 ? sanitized : DEFAULT_DASHBOARD_CARDS;
   } catch {
     return DEFAULT_DASHBOARD_CARDS;
   }
@@ -243,7 +303,7 @@ function SortableMetricCard({
     opacity: isDragging ? 0.6 : 1,
   };
   return (
-    <div ref={setNodeRef} style={style} className={cn("group", card.size === "lg" ? "sm:col-span-2" : undefined)}>
+    <div ref={setNodeRef} style={style} className={cn(card.size === "lg" ? "sm:col-span-2" : undefined)}>
       <Card className="relative">
         <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
           <CardTitle className="text-sm font-medium text-muted-foreground">{card.label}</CardTitle>
@@ -251,14 +311,14 @@ function SortableMetricCard({
             <button
               type="button"
               onClick={() => onResize(card.id)}
-              className="opacity-0 group-hover:opacity-60 text-muted-foreground transition hover:text-foreground"
+              className="text-muted-foreground transition hover:text-foreground"
               aria-label="Resize card"
             >
               {card.size === "sm" ? <Maximize2 className="h-3.5 w-3.5" /> : <Minimize2 className="h-3.5 w-3.5" />}
             </button>
             <button
               type="button"
-              className="opacity-0 group-hover:opacity-60 cursor-grab text-muted-foreground transition hover:text-foreground active:cursor-grabbing"
+              className="cursor-grab text-muted-foreground transition hover:text-foreground active:cursor-grabbing"
               aria-label="Drag card"
               {...attributes}
               {...listeners}
@@ -268,9 +328,11 @@ function SortableMetricCard({
           </div>
         </CardHeader>
         <CardContent>
-          <div className="text-3xl font-bold">
+          <Link to={DASHBOARD_METRIC_ROUTES[card.metricKey]} className="block rounded-sm transition hover:text-primary focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
+            <div className="text-3xl font-bold">
             {isLoading ? <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /> : formatNumber(value)}
-          </div>
+            </div>
+          </Link>
         </CardContent>
       </Card>
     </div>
@@ -283,32 +345,42 @@ function PalletDialCard({
   capacity,
   caption,
   isLoading,
+  route,
 }: {
   label: string;
   value: number;
   capacity: number;
   caption: string;
   isLoading: boolean;
+  route: AppRoute;
 }) {
   const percentage = capacity > 0 ? Math.min(100, Math.round((value / capacity) * 100)) : 0;
 
   return (
     <Card className="min-h-0">
       <CardContent className="flex items-center gap-4 p-4">
+        <Link
+          to={route}
+          className="grid h-24 w-24 shrink-0 place-items-center rounded-full transition focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+          aria-label={`${label} ${percentage}%`}
+          title={`Open source: ${label}`}
+        >
         <div
           className="grid h-24 w-24 shrink-0 place-items-center rounded-full"
           style={{
             background: `conic-gradient(hsl(var(--primary)) ${percentage}%, hsl(var(--accent) / 0.35) ${percentage}% 100%)`,
           }}
-          aria-label={`${label} ${percentage}%`}
         >
           <div className="grid h-16 w-16 place-items-center rounded-full bg-card text-sm font-semibold">
             {isLoading ? <Loader2 className="h-5 w-5 animate-themed-loader" /> : `${percentage}%`}
           </div>
         </div>
+        </Link>
         <div className="min-w-0">
           <p className="text-xs font-medium uppercase text-muted-foreground">{label}</p>
-          <p className="text-3xl font-bold tracking-tight">{isLoading ? "..." : formatNumber(value)}</p>
+          <Link to={route} className="block rounded-sm transition hover:text-primary focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
+            <p className="text-3xl font-bold tracking-tight">{isLoading ? "..." : formatNumber(value)}</p>
+          </Link>
           <p className="truncate text-xs text-muted-foreground">{caption}</p>
         </div>
       </CardContent>
@@ -378,7 +450,7 @@ function TableFrame({
   className?: string;
 }) {
   return (
-    <div className={cn("h-[calc(100svh-14rem)] min-h-48 w-full overflow-auto", className)}>
+    <div className={cn("h-[calc(100svh-14rem)] min-h-48 w-full touch-pan-x overflow-auto overscroll-x-contain [&_table]:min-w-max", className)}>
       {children}
     </div>
   );
@@ -438,8 +510,10 @@ function renderField(
 
 function ResourceFormDialog({
   resource,
+  trigger,
 }: {
   resource: ResourceDefinition;
+  trigger?: React.ReactNode;
 }) {
   const queryClient = useQueryClient();
   const { roles, profile } = useAuth();
@@ -458,7 +532,7 @@ function ResourceFormDialog({
   });
 
   const createMutation = useMutation({
-    mutationFn: async (values: Record<string, unknown>) => upsertRecord(resource.table, normalizeResourceValues(resource, values)),
+    mutationFn: async (values: Record<string, unknown>) => upsertRecord(resource.table, normalizeResourceValues(resource, values, options)),
     onSuccess: () => {
       toast.success(`${resource.singular} saved`);
       queryClient.invalidateQueries({ queryKey: [resource.table] });
@@ -473,10 +547,10 @@ function ResourceFormDialog({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button>
+        {trigger ?? <Button>
           <Plus data-icon="inline-start" />
           Add {resource.singular}
-        </Button>
+        </Button>}
       </DialogTrigger>
       <DialogContent className="max-h-[90vh] overflow-hidden sm:max-w-2xl">
         <DialogHeader>
@@ -533,8 +607,11 @@ function ResourceEditDialog({
   const wasAlreadyDisabled = isLocations && (editRecord.status === "disabled" || editRecord.status === "maintenance");
 
   const updateMutation = useMutation({
-    mutationFn: async (values: Record<string, unknown>) =>
-      upsertRecord(resource.table, { id: editRecord.id, ...normalizeResourceValues(resource, values) }),
+    mutationFn: async (values: Record<string, unknown>) => {
+      const id = String(editRecord.id ?? "");
+      if (!id) throw new Error(`Missing ${resource.singular} id.`);
+      return updateRecord(resource.table, id, normalizeResourceValues(resource, values, options));
+    },
     onSuccess: () => {
       toast.success(`${resource.singular} updated`);
       queryClient.invalidateQueries({ queryKey: [resource.table] });
@@ -622,8 +699,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const { profile, roles, signOut, user, refreshProfile } = useAuth();
   const queryClient = useQueryClient();
   const { isEnabled } = useFeatureFlags();
+  const { online } = useNetworkStatus();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const networkStatusSeenRef = useRef(false);
   const items = NAVIGATION.filter(
     (item) =>
       item.roles.some((role) => roles.includes(role)) &&
@@ -666,6 +745,56 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     .map((part) => part[0]?.toUpperCase() ?? "")
     .join("") || "WU";
 
+  useEffect(() => {
+    if (!networkStatusSeenRef.current) {
+      networkStatusSeenRef.current = true;
+      return;
+    }
+    if (online) {
+      toast.success("Connection restored. Live data will refresh.");
+      return;
+    }
+    toast.error("Connection lost. Cached screens remain visible, but work cannot be posted until reconnect.");
+  }, [online]);
+
+  const prefetchRouteData = useCallback((route: AppRoute) => {
+    const warehouseId = profile?.default_warehouse_id;
+    if (route === "/dashboard") {
+      void queryClient.prefetchQuery({
+        queryKey: ["dashboard-metrics", warehouseId],
+        queryFn: () => getDashboardMetrics(warehouseId),
+      });
+      return;
+    }
+    if (route === "/receiving") {
+      void queryClient.prefetchQuery({
+        queryKey: ["options", "receiving", shouldRestrictToDefaultWarehouse(roles), warehouseId],
+        queryFn: () => fetchOptions(false, { restrictToWarehouse: shouldRestrictToDefaultWarehouse(roles), warehouseId }),
+      });
+      return;
+    }
+    if (route === "/putaway-tasks") {
+      void queryClient.prefetchQuery({
+        queryKey: ["putaway-tasks", user?.id],
+        queryFn: () => getPutawayTasks(user?.id),
+      });
+      return;
+    }
+    if (route === "/inventory-search") {
+      void queryClient.prefetchQuery({
+        queryKey: ["inventory-search", "", "all", ""],
+        queryFn: () => searchInventory({ status: "all" }),
+      });
+      return;
+    }
+    if (route === "/pick-lists") {
+      void queryClient.prefetchQuery({
+        queryKey: ["pick-lists"],
+        queryFn: listPickLists,
+      });
+    }
+  }, [profile?.default_warehouse_id, queryClient, roles, user?.id]);
+
   const navigation = (
     <div
       className={cn(
@@ -703,6 +832,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 }
                 to={item.to}
                 aria-label={item.label}
+                onMouseEnter={() => prefetchRouteData(item.to)}
+                onFocus={() => prefetchRouteData(item.to)}
                 onClick={() => setMobileMenuOpen(false)}
               >
                 <Icon className={cn("shrink-0", sidebarCollapsed ? "h-5 w-5" : "h-4 w-4")} />
@@ -835,7 +966,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </div>
             </div>
           </div>
-          <div className="flex-1 min-h-0 min-w-0 overflow-y-auto px-4 py-5 sm:px-5 lg:px-6">{children}</div>
+          <div
+            className={cn(
+              "flex-1 min-h-0 min-w-0 px-4 py-5 sm:px-5 lg:px-6",
+              pathname === "/inventory-search" ? "overflow-hidden" : "overflow-y-auto",
+            )}
+          >
+            {children}
+          </div>
         </main>
       </div>
     </div>
@@ -850,6 +988,8 @@ export function ResourcePage({
   const [includeHidden, setIncludeHidden] = useState(false);
   const [editRecord, setEditRecord] = useState<Record<string, unknown> | null>(null);
   const [filterQuery, setFilterQuery] = useState("");
+  const lastTapRef = useRef<{ id: string; time: number } | null>(null);
+  const useGearActions = ["warehouses", "zones", "locations", "products"].includes(resource.table);
   const { data = [], isLoading } = useQuery({
     queryKey: [resource.table, includeHidden],
     queryFn: () => listRecords(resource.table, resource.select ?? "*", resource.orderBy, {
@@ -899,6 +1039,13 @@ export function ResourcePage({
     );
     return map;
   }, [warehouseOptions]);
+  const warehouseInfoMap = useMemo(() => {
+    const map = new Map<string, { code: string; name: string }>();
+    (warehouseOptions as Array<{ id: string; code: string; name: string }>).forEach((w) =>
+      map.set(w.id, { code: w.code, name: w.name }),
+    );
+    return map;
+  }, [warehouseOptions]);
 
   const hasZoneRef = resource.fields.some((f) => f.name === "zone_id");
   const { data: zoneOptions = [] } = useQuery({
@@ -910,6 +1057,13 @@ export function ResourcePage({
     const map = new Map<string, string>();
     (zoneOptions as Array<{ id: string; code: string; name: string }>).forEach((z) =>
       map.set(z.id, z.name ?? z.code),
+    );
+    return map;
+  }, [zoneOptions]);
+  const zoneInfoMap = useMemo(() => {
+    const map = new Map<string, { code: string; name: string }>();
+    (zoneOptions as Array<{ id: string; code: string; name: string }>).forEach((z) =>
+      map.set(z.id, { code: z.code, name: z.name }),
     );
     return map;
   }, [zoneOptions]);
@@ -926,29 +1080,92 @@ export function ResourcePage({
     );
   }, [data, filterQuery, resource.fields]);
 
+  function handleRowPointerUp(row: unknown) {
+    if (typeof window === "undefined" || !window.matchMedia("(pointer: coarse)").matches) return;
+    const id = String((row as { id?: string }).id ?? JSON.stringify(row));
+    const now = Date.now();
+    if (lastTapRef.current?.id === id && now - lastTapRef.current.time < 450) {
+      setEditRecord(row as Record<string, unknown>);
+      lastTapRef.current = null;
+      return;
+    }
+    lastTapRef.current = { id, time: now };
+  }
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div>
           <h2 className="text-2xl font-semibold">{resource.title}</h2>
-          <p className="text-sm text-muted-foreground">{resource.description} Double-click any row to edit.</p>
+          <p className="text-sm text-muted-foreground">{resource.description} Double-click any row to edit. Double-tap on touch screens.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {resource.exportable ? (
-            <Button variant="outline" onClick={() => downloadCsv(`${resource.table}.csv`, data as Array<Record<string, unknown>>)}>
-              <Download data-icon="inline-start" />
-              Export CSV
-            </Button>
-          ) : null}
-          {resource.supportsHide ? (
-            <Button variant="outline" onClick={() => setIncludeHidden((current) => !current)}>
-              {includeHidden ? <EyeOff data-icon="inline-start" /> : <Eye data-icon="inline-start" />}
-              {includeHidden ? "Hide archived" : "Show archived"}
-            </Button>
-          ) : null}
-          {resource.importable ? <ImportButton resource={resource} /> : null}
-          {resource.table === "locations" ? <LocationWizardDialog /> : null}
-          <ResourceFormDialog resource={resource} />
+          {useGearActions ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="icon" variant="outline" aria-label={`${resource.title} actions`}>
+                  <Settings className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                {resource.exportable ? (
+                  <DropdownMenuItem onClick={() => downloadCsv(`${resource.table}.csv`, data as Array<Record<string, unknown>>)}>
+                    <Download className="mr-2 h-4 w-4" />
+                    Export CSV
+                  </DropdownMenuItem>
+                ) : null}
+                {resource.supportsHide ? (
+                  <DropdownMenuItem onClick={() => setIncludeHidden((current) => !current)}>
+                    {includeHidden ? <EyeOff className="mr-2 h-4 w-4" /> : <Eye className="mr-2 h-4 w-4" />}
+                    {includeHidden ? "Hide archived" : "Show archived"}
+                  </DropdownMenuItem>
+                ) : null}
+                {resource.importable ? (
+                  <>
+                    <DropdownMenuSeparator />
+                    <ImportButton resource={resource} asMenuItems />
+                  </>
+                ) : null}
+                {resource.table === "locations" ? (
+                  <LocationWizardDialog
+                    trigger={
+                      <DropdownMenuItem onSelect={(event) => event.preventDefault()}>
+                        <MapPinned className="mr-2 h-4 w-4" />
+                        Location wizard
+                      </DropdownMenuItem>
+                    }
+                  />
+                ) : null}
+                <ResourceFormDialog
+                  resource={resource}
+                  trigger={
+                    <DropdownMenuItem onSelect={(event) => event.preventDefault()}>
+                      <Plus className="mr-2 h-4 w-4" />
+                      Add {resource.singular}
+                    </DropdownMenuItem>
+                  }
+                />
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : (
+            <>
+              {resource.exportable ? (
+                <Button variant="outline" onClick={() => downloadCsv(`${resource.table}.csv`, data as Array<Record<string, unknown>>)}>
+                  <Download data-icon="inline-start" />
+                  Export CSV
+                </Button>
+              ) : null}
+              {resource.supportsHide ? (
+                <Button variant="outline" onClick={() => setIncludeHidden((current) => !current)}>
+                  {includeHidden ? <EyeOff data-icon="inline-start" /> : <Eye data-icon="inline-start" />}
+                  {includeHidden ? "Hide archived" : "Show archived"}
+                </Button>
+              ) : null}
+              {resource.importable ? <ImportButton resource={resource} /> : null}
+              {resource.table === "locations" ? <LocationWizardDialog /> : null}
+              <ResourceFormDialog resource={resource} />
+            </>
+          )}
         </div>
       </div>
 
@@ -956,7 +1173,7 @@ export function ResourcePage({
       <div className="relative">
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground pointer-events-none" />
         <Input
-          className="h-9 pl-9 pr-20"
+          className="h-9 pl-9 pr-20 bg-muted"
           placeholder={`Search ${resource.title.toLowerCase()}…`}
           value={filterQuery}
           onChange={(e) => setFilterQuery(e.target.value)}
@@ -1005,6 +1222,7 @@ export function ResourcePage({
                       key={(row as { id?: string }).id ?? JSON.stringify(row)}
                       className="even:bg-muted/30 cursor-pointer"
                       onDoubleClick={() => setEditRecord(row as Record<string, unknown>)}
+                      onPointerUp={() => handleRowPointerUp(row)}
                     >
                       {resource.fields.map((field) => {
                         const rawValue = (row as Record<string, unknown>)[field.name];
@@ -1058,6 +1276,10 @@ export function ResourcePage({
                                 level={(row as Record<string, unknown>).level as number | null}
                                 locationType={(row as Record<string, unknown>).location_type as string | null}
                                 temperatureClass={String((row as Record<string, unknown>).temperature_class ?? "ambient")}
+                                warehouseCode={warehouseInfoMap.get(String((row as Record<string, unknown>).warehouse_id))?.code}
+                                zoneCode={zoneInfoMap.get(String((row as Record<string, unknown>).zone_id))?.code}
+                                warehouseName={warehouseInfoMap.get(String((row as Record<string, unknown>).warehouse_id))?.name}
+                                zoneName={zoneInfoMap.get(String((row as Record<string, unknown>).zone_id))?.name}
                               />
                             ) : (
                               <>
@@ -1088,13 +1310,18 @@ export function ResourcePage({
                             variant="ghost"
                             onClick={async (e) => {
                               e.stopPropagation();
-                              const record = row as Record<string, unknown> & { id?: string };
-                              const id = record.id;
-                              if (!id || !resource.archiveField) return;
-                              const hidden = resource.archiveField === "active" ? record.active !== false : record.is_hidden === true;
-                              await setResourceVisibility(resource.table, id, resource.archiveField, !hidden, !hidden ? "Hidden from UI" : undefined);
-                              toast.success(hidden ? `${resource.singular} restored` : `${resource.singular} hidden`);
-                              queryClient.invalidateQueries({ queryKey: [resource.table] });
+                              try {
+                                const record = row as Record<string, unknown> & { id?: string };
+                                const id = record.id;
+                                if (!id || !resource.archiveField) return;
+                                assertOnline();
+                                const hidden = resource.archiveField === "active" ? record.active !== false : record.is_hidden === true;
+                                await setResourceVisibility(resource.table, id, resource.archiveField, !hidden, !hidden ? "Hidden from UI" : undefined);
+                                toast.success(hidden ? `${resource.singular} restored` : `${resource.singular} hidden`);
+                                queryClient.invalidateQueries({ queryKey: [resource.table] });
+                              } catch (error) {
+                                toast.error(error instanceof Error ? error.message : "Visibility update failed");
+                              }
                             }}
                           >
                             {((resource.archiveField === "active" ? (row as Record<string, unknown>).active !== false : (row as Record<string, unknown>).is_hidden === true))
@@ -1130,7 +1357,40 @@ export function ResourcePage({
   );
 }
 
-function ImportButton({ resource }: { resource: ResourceDefinition }) {
+function ImportButton({ resource, asMenuItems = false }: { resource: ResourceDefinition; asMenuItems?: boolean }) {
+  function handleImport() {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".csv";
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      const errors = await importCsvToResource(resource, file);
+      if (errors.length > 0) {
+        downloadCsv(`${resource.table}-errors.csv`, errors);
+        toast.error(`Imported with ${errors.length} row errors`);
+      } else {
+        toast.success(`${resource.title} imported`);
+      }
+    };
+    input.click();
+  }
+
+  if (asMenuItems) {
+    return (
+      <>
+        <DropdownMenuItem onClick={() => downloadCsvTemplate(resource)}>
+          <FileDown className="mr-2 h-4 w-4" />
+          Template
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={(event) => { event.preventDefault(); handleImport(); }}>
+          <Upload className="mr-2 h-4 w-4" />
+          Import CSV
+        </DropdownMenuItem>
+      </>
+    );
+  }
+
   return (
     <>
       <Button variant="outline" onClick={() => downloadCsvTemplate(resource)}>
@@ -1139,23 +1399,7 @@ function ImportButton({ resource }: { resource: ResourceDefinition }) {
       </Button>
       <Button
         variant="outline"
-        onClick={() => {
-          const input = document.createElement("input");
-          input.type = "file";
-          input.accept = ".csv";
-          input.onchange = async () => {
-            const file = input.files?.[0];
-            if (!file) return;
-            const errors = await importCsvToResource(resource, file);
-            if (errors.length > 0) {
-              downloadCsv(`${resource.table}-errors.csv`, errors);
-              toast.error(`Imported with ${errors.length} row errors`);
-            } else {
-              toast.success(`${resource.title} imported`);
-            }
-          };
-          input.click();
-        }}
+        onClick={handleImport}
       >
         <Upload data-icon="inline-start" />
         Import CSV
@@ -1164,7 +1408,7 @@ function ImportButton({ resource }: { resource: ResourceDefinition }) {
   );
 }
 
-function LocationWizardDialog() {
+function LocationWizardDialog({ trigger }: { trigger?: React.ReactNode }) {
   const queryClient = useQueryClient();
   const { data: options } = useQuery({ queryKey: ["options", "location-wizard"], queryFn: () => fetchOptions() });
   const [open, setOpen] = useState(false);
@@ -1207,10 +1451,11 @@ function LocationWizardDialog() {
 
       for (let bay = values.start_bay; bay <= values.end_bay; bay += 1) {
         for (let level = 1; level <= values.levels; level += 1) {
+          const localCode = `${values.prefix}-${String(bay).padStart(2, "0")}-L${String(level).padStart(2, "0")}`;
           locations.push({
             warehouse_id: values.warehouse_id,
             zone_id: values.zone_id,
-            code: `${values.prefix}-${String(bay).padStart(2, "0")}-L${String(level).padStart(2, "0")}`,
+            code: composeLocationCode(options, values.warehouse_id, values.zone_id, localCode),
             aisle: values.prefix,
             bay: String(bay).padStart(2, "0"),
             level,
@@ -1242,10 +1487,10 @@ function LocationWizardDialog() {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="outline">
+        {trigger ?? <Button variant="outline">
           <MapPinned data-icon="inline-start" />
           Location wizard
-        </Button>
+        </Button>}
       </DialogTrigger>
       <DialogContent className="max-h-[90vh] overflow-hidden sm:max-w-2xl">
         <DialogHeader>
@@ -1426,16 +1671,41 @@ function defaultFieldValue(field: FieldDefinition) {
   return "";
 }
 
-function normalizeResourceValues(resource: ResourceDefinition, values: Record<string, unknown>) {
-  return resource.fields.reduce<Record<string, unknown>>((payload, field) => {
+function composeLocationCode(
+  options: Awaited<ReturnType<typeof fetchOptions>> | undefined,
+  warehouseId: unknown,
+  zoneId: unknown,
+  localCode: unknown,
+) {
+  const rawCode = String(localCode ?? "").trim();
+  if (!rawCode) return rawCode;
+  const warehouse = (options?.warehouses ?? []).find((row: any) => row.id === warehouseId);
+  const zone = (options?.zones ?? []).find((row: any) => row.id === zoneId);
+  const warehouseCode = String(warehouse?.code ?? "").trim();
+  const zoneCode = String(zone?.code ?? "").trim();
+  if (!warehouseCode || !zoneCode) return rawCode;
+  const prefix = `${warehouseCode}-${zoneCode}-`;
+  return rawCode.toUpperCase().startsWith(prefix.toUpperCase()) ? rawCode : `${prefix}${rawCode}`;
+}
+
+function normalizeResourceValues(
+  resource: ResourceDefinition,
+  values: Record<string, unknown>,
+  options?: Awaited<ReturnType<typeof fetchOptions>>,
+) {
+  const payload = resource.fields.reduce<Record<string, unknown>>((current, field) => {
     const value = values[field.name];
     if (value === "") {
-      payload[field.name] = field.required ? value : null;
-      return payload;
+      current[field.name] = field.required ? value : null;
+      return current;
     }
-    payload[field.name] = field.type === "number" && value != null ? Number(value) : value;
-    return payload;
+    current[field.name] = field.type === "number" && value != null ? Number(value) : value;
+    return current;
   }, {});
+  if (resource.table === "locations") {
+    payload.code = composeLocationCode(options, payload.warehouse_id, payload.zone_id, payload.code);
+  }
+  return payload;
 }
 
 function getResourceFieldOptions(field: FieldDefinition, options?: Awaited<ReturnType<typeof fetchOptions>>) {
@@ -1519,7 +1789,7 @@ export function DashboardPage() {
     <div
       ref={dashboardRef}
       className={cn(
-        "flex min-h-0 flex-col gap-6 lg:h-full lg:gap-3 lg:overflow-hidden",
+        "flex min-h-0 flex-col gap-6 overflow-y-auto overflow-x-hidden lg:h-full lg:gap-3",
         (isFullscreen || fitToScreen) && "h-screen overflow-auto bg-background p-4",
       )}
     >
@@ -1552,6 +1822,7 @@ export function DashboardPage() {
           capacity={metrics?.totalPalletCapacity ?? 0}
           caption={`${formatNumber(metrics?.totalPalletCapacity ?? 0)} location capacity`}
           isLoading={isLoading}
+          route="/inventory-search"
         />
         <PalletDialCard
           label="This Warehouse"
@@ -1559,6 +1830,7 @@ export function DashboardPage() {
           capacity={metrics?.warehousePalletCapacity ?? 0}
           caption={profile?.default_warehouse_id ? `${formatNumber(metrics?.warehousePalletCapacity ?? 0)} location capacity` : "No warehouse selected"}
           isLoading={isLoading}
+          route="/inventory-search"
         />
       </div>
 
@@ -1578,7 +1850,7 @@ export function DashboardPage() {
         </SortableContext>
       </DndContext>
 
-      <div className="min-h-0 flex-1 overflow-auto lg:overflow-hidden">
+      <div className="min-h-0 flex-1 overflow-auto">
         {mode === "floor" ? <WarehouseFloorMode snapshot={snapshot} /> : null}
         {mode === "dock" ? <DockHandoffBoard loads={snapshot.dockLoads} recommendations={snapshot.recommendations} /> : null}
         {mode === "office" ? <OfficeMonitoringMode snapshot={snapshot} /> : null}
@@ -1589,14 +1861,16 @@ export function DashboardPage() {
 
 function WarehouseFloorMode({ snapshot }: { snapshot: EnterpriseDashboardSnapshot }) {
   return (
-    <div className="grid h-full min-h-0 gap-3 xl:grid-cols-[minmax(0,1.35fr)_minmax(20rem,0.65fr)]">
+    <div className="grid min-h-0 gap-3 xl:grid-cols-[minmax(0,1.35fr)_minmax(20rem,0.65fr)]">
       <div className="grid min-h-0 gap-3 md:grid-cols-2">
         {snapshot.floorQueues.map((queue) => (
-          <Card key={queue.label} className={cn("border-l-4 flex flex-col", toneBorder(queue.tone))}>
+          <Card key={queue.label} className={cn("min-w-0 border-l-4 flex flex-col", toneBorder(queue.tone))}>
             <CardHeader className="p-4 pb-2">
               <CardTitle className="flex items-center justify-between gap-4">
                 <span>{queue.label}</span>
-                <span className="text-3xl">{formatNumber(queue.count)}</span>
+                <Link to={queue.route} className="shrink-0 rounded-sm text-3xl transition hover:text-primary focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
+                  {formatNumber(queue.count)}
+                </Link>
               </CardTitle>
               <CardDescription>{queue.action}</CardDescription>
             </CardHeader>
@@ -1623,18 +1897,14 @@ function WarehouseFloorMode({ snapshot }: { snapshot: EnterpriseDashboardSnapsho
           </Card>
         ))}
       </div>
-      <Card>
+      <Card className="min-w-0">
         <CardHeader className="pb-2">
           <CardTitle className="flex items-center gap-2 text-base"><RadioTower className="h-4 w-4" /> Warehouse Intelligence</CardTitle>
           <CardDescription className="text-xs">Live shift signals — DPMO, 5S, Kanban, exceptions.</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-2">
           {snapshot.leanMetrics.map((metric) => (
-            <div key={metric.label} className={cn(
-              "flex items-center justify-between gap-2 rounded-md border border-border px-3 py-2 transition-shadow",
-              metric.status === "off_target" && "drop-shadow-[0_0_8px_hsl(var(--destructive)/0.40)]",
-              metric.status === "watch"      && "drop-shadow-[0_0_7px_hsl(var(--warning)/0.35)]",
-            )}>
+            <Link key={metric.label} to={metric.route} className="flex items-center justify-between gap-2 rounded-md border border-border px-3 py-2 transition hover:bg-secondary/40 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
               <div className="min-w-0">
                 <p className="truncate text-xs font-medium">{metric.label}</p>
                 <p className="text-xs text-muted-foreground">Target: {metric.target}</p>
@@ -1645,7 +1915,7 @@ function WarehouseFloorMode({ snapshot }: { snapshot: EnterpriseDashboardSnapsho
                   {metric.status.replace("_", " ")}
                 </Badge>
               </div>
-            </div>
+            </Link>
           ))}
         </CardContent>
       </Card>
@@ -1662,11 +1932,16 @@ function DockHandoffBoard({
 }) {
   return (
     <div className="grid gap-6">
-      <div className="grid gap-4 lg:grid-cols-5">
+      <div className="grid min-w-0 gap-4 sm:grid-cols-2 xl:grid-cols-5">
         {["ready", "called", "loading", "blocked", "loaded"].map((status) => (
-          <Card key={status} className={cn("min-h-72", status === "blocked" ? "border-destructive/50" : "")}>
+          <Card key={status} className={cn("min-h-72 min-w-0", status === "blocked" ? "border-destructive/50" : "")}>
             <CardHeader>
-              <CardTitle className="capitalize">{status}</CardTitle>
+              <CardTitle className="flex items-center justify-between gap-2 capitalize">
+                <span>{status}</span>
+                <Link to="/pick-lists" className="rounded-sm text-2xl transition hover:text-primary focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
+                  {formatNumber(loads.filter((load) => load.status === status).length)}
+                </Link>
+              </CardTitle>
               <CardDescription>Dock handoff lane</CardDescription>
             </CardHeader>
             <CardContent className="grid gap-3">
@@ -1692,13 +1967,17 @@ function DockHandoffBoard({
 
 function OfficeMonitoringMode({ snapshot }: { snapshot: EnterpriseDashboardSnapshot }) {
   return (
-    <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(22rem,0.7fr)]">
+    <div className="grid min-w-0 gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(22rem,0.7fr)]">
       <div className="grid gap-4 md:grid-cols-2">
         {snapshot.officeWidgets.map((widget) => (
-          <Card key={widget.label} className={cn("border-l-4", toneBorder(widget.tone))}>
+          <Card key={widget.label} className={cn("min-w-0 border-l-4", toneBorder(widget.tone))}>
             <CardHeader>
               <CardDescription>{widget.label}</CardDescription>
-              <CardTitle className="text-4xl">{widget.value}</CardTitle>
+              <CardTitle className="text-4xl">
+                <Link to={widget.route} className="rounded-sm transition hover:text-primary focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
+                  {widget.value}
+                </Link>
+              </CardTitle>
               <CardDescription>{widget.detail}</CardDescription>
             </CardHeader>
           </Card>
@@ -1737,20 +2016,14 @@ function WarehouseBrainPanel({ recommendations }: { recommendations: WarehouseBr
       </CardHeader>
       <CardContent className="grid gap-3">
         {recommendations.map((recommendation) => (
-          <div key={recommendation.id} className={cn(
-              "rounded-lg border border-border p-3 transition-shadow",
-              recommendation.severity === "critical" ? "bg-destructive/10 drop-shadow-[0_0_8px_hsl(var(--destructive)/0.45)]" :
-              recommendation.severity === "warning"  ? "bg-warning/10  drop-shadow-[0_0_8px_hsl(var(--warning)/0.35)]"  :
-              recommendation.severity === "success"  ? "bg-success/10  drop-shadow-[0_0_6px_hsl(var(--success)/0.25)]"  :
-              "bg-secondary/30"
-            )}>
+          <Link key={recommendation.id} to={recommendation.route} className={cn("block rounded-lg border border-border p-3 transition hover:bg-secondary/50 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2", recommendation.severity === "critical" ? "bg-destructive/10" : recommendation.severity === "warning" ? "bg-warning/10" : "bg-secondary/30")}>
             <div className="flex items-center justify-between gap-3">
               <p className="font-medium">{recommendation.title}</p>
               <Badge variant={recommendation.severity === "critical" ? "destructive" : "secondary"}>{recommendation.severity}</Badge>
             </div>
             <p className="mt-2 text-sm text-muted-foreground">{recommendation.reason}</p>
             <p className="mt-2 text-sm">{recommendation.nextAction}</p>
-          </div>
+          </Link>
         ))}
       </CardContent>
     </Card>
@@ -1758,10 +2031,10 @@ function WarehouseBrainPanel({ recommendations }: { recommendations: WarehouseBr
 }
 
 function toneBorder(tone: "success" | "warning" | "critical" | "info") {
-  if (tone === "critical") return "border-l-destructive drop-shadow-[0_0_8px_hsl(var(--destructive)/0.45)]";
-  if (tone === "warning")  return "border-l-warning  drop-shadow-[0_0_8px_hsl(var(--warning)/0.35)]";
-  if (tone === "info")     return "border-l-info     drop-shadow-[0_0_6px_hsl(var(--info)/0.30)]";
-  return "border-l-success drop-shadow-[0_0_6px_hsl(var(--success)/0.25)]";
+  if (tone === "critical") return "border-l-destructive";
+  if (tone === "warning") return "border-l-warning";
+  if (tone === "info") return "border-l-info";
+  return "border-l-success";
 }
 
 export function ReceivingPage() {
@@ -1809,6 +2082,7 @@ export function ReceivingPage() {
   const [reuseEnabled, setReuseEnabled] = useState(false);
   const [showZplAdvanced, setShowZplAdvanced] = useState(false);
   const [showDrafts, setShowDrafts] = useState(false);
+  const [draftSearch, setDraftSearch] = useState("");
   const [resumingDraftId, setResumingDraftId] = useState<string | null>(null);
   const productSearchRef = useRef<ProductSearchHandle>(null);
 
@@ -1932,9 +2206,25 @@ export function ReceivingPage() {
   }
 
   const productOptions = (options?.products ?? []).map((p: any) => ({ id: p.id, sku: p.sku, name: p.name, barcode: p.barcode }));
+  const draftSearchTerm = draftSearch.trim().toLowerCase();
+  const visibleDrafts = useMemo(() => {
+    if (!draftSearchTerm) return drafts;
+    return drafts.filter((draft) => {
+      const product = productOptions.find((p) => p.id === draft.product_id);
+      return [
+        draft.receipt_number,
+        draft.reference_number,
+        draft.source_label,
+        draft.quantity,
+        product?.sku,
+        product?.name,
+        product?.barcode,
+      ].some((value) => String(value ?? "").toLowerCase().includes(draftSearchTerm));
+    });
+  }, [draftSearchTerm, drafts, productOptions]);
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex min-h-full flex-col gap-6">
       {/* Success banner */}
       {lastResult && (
         <div className="flex flex-col gap-2 rounded-lg border border-green-200 bg-green-50 p-4 dark:border-green-900 dark:bg-green-950/30 sm:flex-row sm:items-center sm:justify-between">
@@ -2265,12 +2555,29 @@ export function ReceivingPage() {
             </button>
           </CardHeader>
           {showDrafts && (
-            <CardContent>
+            <CardContent className="grid gap-3">
               {drafts.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No saved drafts for this warehouse.</p>
               ) : (
-                <div className="grid gap-3">
-                  {drafts.map((draft) => {
+                <>
+                  <div className="flex min-w-0 gap-2">
+                    <div className="relative min-w-0 flex-1">
+                      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        className="pl-9"
+                        value={draftSearch}
+                        onChange={(event) => setDraftSearch(event.target.value)}
+                        placeholder="Search drafts by code, product name, receipt, or barcode"
+                      />
+                    </div>
+                    <BarcodeScanButton title="Scan draft product, receipt, or barcode" onScan={setDraftSearch} />
+                  </div>
+                  <div className="grid gap-3">
+                  {visibleDrafts.length === 0 ? (
+                    <p className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+                      No saved drafts matched "{draftSearch}".
+                    </p>
+                  ) : visibleDrafts.map((draft) => {
                     const product = productOptions.find((p) => p.id === draft.product_id);
                     return (
                       <div key={draft.id} className="flex items-center justify-between gap-4 rounded-lg border border-border px-4 py-3">
@@ -2294,7 +2601,8 @@ export function ReceivingPage() {
                       </div>
                     );
                   })}
-                </div>
+                  </div>
+                </>
               )}
             </CardContent>
           )}
@@ -2435,6 +2743,7 @@ export function PutawayTasksPage() {
   });
   const [scanState, setScanState] = useState<Record<string, { pallet: string; location: string; override: boolean; reason: string }>>({});
   const [violations, setViolations] = useState<Record<string, string>>({});
+  const [taskSearch, setTaskSearch] = useState("");
   const palletRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const locationRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const confirmRefs = useRef<Record<string, HTMLButtonElement | null>>({});
@@ -2459,7 +2768,12 @@ export function PutawayTasksPage() {
     mutationFn: async ({ taskId, pallet, location, override, reason }: { taskId: string; pallet: string; location: string; override?: boolean; reason?: string }) =>
       confirmPutaway(taskId, pallet, location, { override, overrideReason: reason }),
     onSuccess: async (_, vars) => {
-      toast.success(vars.override ? "Putaway confirmed with override" : "Putaway confirmed");
+      playBarcodeBeep();
+      toast.success(vars.override ? "Putaway locked in with override" : "Putaway locked in", {
+        description: `Pallet ${vars.pallet} stored at ${vars.location}.`,
+        duration: 7000,
+        className: "border-emerald-400 bg-emerald-50 text-emerald-950 dark:border-emerald-500 dark:bg-emerald-950 dark:text-emerald-50",
+      });
       setCompletedIds((prev) => new Set([...prev, vars.taskId]));
       setScanState((current) => {
         const next = { ...current };
@@ -2489,8 +2803,23 @@ export function PutawayTasksPage() {
     },
   });
 
-  const pendingTasks = data.filter((task: any) => task.status !== "draft" && !completedIds.has(task.id) && !revertedIds.has(task.id));
-  const activeTasks = pendingTasks.filter((t: any) => t.status !== "draft");
+  const openPutawayStatuses = new Set(["queued", "assigned", "in_progress", "exception"]);
+  const pendingTasks = data.filter((task: any) => openPutawayStatuses.has(task.status) && !completedIds.has(task.id) && !revertedIds.has(task.id));
+  const taskSearchTerm = taskSearch.trim().toLowerCase();
+  const visibleTasks = taskSearchTerm
+    ? pendingTasks.filter((task: any) =>
+      [
+        task.task_number,
+        task.status,
+        task.pallets?.pallet_barcode,
+        task.pallets?.pallet_code,
+        task.pallets?.products?.sku,
+        task.pallets?.products?.name,
+        task.locations?.code,
+      ].some((value) => String(value ?? "").toLowerCase().includes(taskSearchTerm)),
+    )
+    : pendingTasks;
+  const activeTasks = visibleTasks.filter((t: any) => openPutawayStatuses.has(t.status));
 
   // Auto-focus first pallet field on desktop when tasks load
   const isMobile = typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches;
@@ -2502,28 +2831,42 @@ export function PutawayTasksPage() {
   }, [isLoading, activeTasks.length, isMobile]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between gap-4">
+    <div className="flex h-full min-h-0 flex-col gap-6 overflow-hidden">
+      <div className="shrink-0 rounded-lg border border-border bg-background/95 p-4 shadow-sm backdrop-blur sm:flex sm:items-end sm:justify-between sm:gap-3">
         <div>
           <h2 className="text-2xl font-semibold">Putaway Tasks</h2>
           <p className="text-sm text-muted-foreground">Scan pallet barcode, then location barcode, and confirm.</p>
         </div>
-        {pendingTasks.length > 0 && (
-          <Badge variant="secondary" className="text-sm">{pendingTasks.length} pending</Badge>
-        )}
+        <div className="mt-3 flex min-w-0 flex-col gap-2 sm:mt-0 sm:min-w-80 sm:items-end">
+          {pendingTasks.length > 0 && (
+            <Badge variant="secondary" className="w-fit text-sm">{pendingTasks.length} pending</Badge>
+          )}
+          <div className="flex w-full min-w-0 gap-2">
+            <div className="relative min-w-0 flex-1">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                className="pl-9 bg-muted"
+                value={taskSearch}
+                onChange={(event) => setTaskSearch(event.target.value)}
+                placeholder="Search pallet barcode or task"
+              />
+            </div>
+            <BarcodeScanButton title="Scan pallet barcode" onScan={setTaskSearch} />
+          </div>
+        </div>
       </div>
-      <div className="grid gap-4">
+      <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto pr-1">
         {isLoading ? (
           <Card><CardContent className="p-6 text-sm text-muted-foreground">Loading putaway tasks…</CardContent></Card>
-        ) : pendingTasks.length === 0 ? (
+        ) : visibleTasks.length === 0 ? (
           <Card>
             <CardContent className="flex flex-col items-center gap-2 p-8 text-center text-sm text-muted-foreground">
               <CheckCircle2 className="h-8 w-8 text-green-500" />
-              <p className="font-medium">All putaway tasks complete</p>
+              <p className="font-medium">{pendingTasks.length === 0 ? "All putaway tasks complete" : "No putaway tasks matched"}</p>
             </CardContent>
           </Card>
         ) : (
-          pendingTasks.map((task: any) => {
+          visibleTasks.map((task: any) => {
             const localState = scanState[task.id] ?? { pallet: "", location: "", override: false, reason: "" };
             const binOccupancy = localState.location.length >= 2;
             const violation = violations[task.id];
@@ -2552,7 +2895,7 @@ export function PutawayTasksPage() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="flex flex-col gap-3">
-                  <div className="grid gap-3 lg:grid-cols-2">
+                  <div className="grid items-start gap-3 lg:grid-cols-2">
                     {/* Pallet barcode field */}
                     <div className="grid gap-1.5">
                       <p className="text-xs text-muted-foreground">
@@ -2610,38 +2953,40 @@ export function PutawayTasksPage() {
                         />
                       </div>
                     </div>
-                    {/* Location barcode field */}
-                    <div className="flex gap-2">
-                      <Input
-                        ref={(el) => { locationRefs.current[task.id] = el; }}
-                        className="min-h-12 min-w-0 flex-1 text-base transition-shadow duration-300"
-                        placeholder="Scan location barcode"
-                        value={localState.location}
-                        onChange={(event) => {
-                          const val = event.target.value.replace(/[\r\n]/g, "");
-                          setScanState((current) => ({
-                            ...current,
-                            [task.id]: { ...localState, location: val },
-                          }));
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            e.preventDefault();
+                    <div className="grid gap-1.5">
+                      <p className="text-xs text-muted-foreground">Confirm location</p>
+                      <div className="flex gap-2">
+                        <Input
+                          ref={(el) => { locationRefs.current[task.id] = el; }}
+                          className="min-h-12 min-w-0 flex-1 text-base transition-shadow duration-300"
+                          placeholder="Scan location barcode"
+                          value={localState.location}
+                          onChange={(event) => {
+                            const val = event.target.value.replace(/[\r\n]/g, "");
+                            setScanState((current) => ({
+                              ...current,
+                              [task.id]: { ...localState, location: val },
+                            }));
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              playBarcodeBeep();
+                              flashInput(locationRefs.current[task.id], "blue");
+                              setTimeout(() => confirmRefs.current[task.id]?.focus(), 50);
+                            }
+                          }}
+                        />
+                        <BarcodeScanButton
+                          title="Scan location barcode"
+                          onScan={(v) => {
+                            setScanState((cur) => ({ ...cur, [task.id]: { ...localState, location: v } }));
                             playBarcodeBeep();
                             flashInput(locationRefs.current[task.id], "blue");
                             setTimeout(() => confirmRefs.current[task.id]?.focus(), 50);
-                          }
-                        }}
-                      />
-                      <BarcodeScanButton
-                        title="Scan location barcode"
-                        onScan={(v) => {
-                          setScanState((cur) => ({ ...cur, [task.id]: { ...localState, location: v } }));
-                          playBarcodeBeep();
-                          flashInput(locationRefs.current[task.id], "blue");
-                          setTimeout(() => confirmRefs.current[task.id]?.focus(), 50);
-                        }}
-                      />
+                          }}
+                        />
+                      </div>
                     </div>
                   </div>
                   {binOccupancy && <BinCapacityBar locationCode={localState.location} taskId={task.id} />}
@@ -2744,9 +3089,12 @@ export function PutawayTasksPage() {
 }
 
 export function InventorySearchPage() {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { roles, profile } = useAuth();
   const [searchTerm, setSearchTerm] = useState("");
   const [status, setStatus] = useState<string>("all");
+  const lastDetailTapRef = useRef<{ id: string; time: number } | null>(null);
   const restrictedToDefaultWarehouse = shouldRestrictToDefaultWarehouse(roles);
   const { data: options } = useQuery({
     queryKey: ["options", "inventory", restrictedToDefaultWarehouse, profile?.default_warehouse_id],
@@ -2754,6 +3102,14 @@ export function InventorySearchPage() {
   });
   const [warehouseId, setWarehouseId] = useState(restrictedToDefaultWarehouse ? profile?.default_warehouse_id ?? "" : "");
   const [locationScan, setLocationScan] = useState("");
+  const selectedWarehouseValue = warehouseId || "all";
+  const hasInventoryFilters = Boolean(searchTerm || warehouseId || locationScan || status !== "all");
+  const scopeRows = useMemo(() => {
+    const warehouses = options?.warehouses ?? [];
+    const zones = options?.zones ?? [];
+    const locations = options?.locations ?? [];
+    return { warehouses, zones, locations };
+  }, [options]);
 
   const scanMutation = useMutation({
     mutationFn: getWarehouseForLocationBarcode,
@@ -2769,26 +3125,96 @@ export function InventorySearchPage() {
     queryFn: () => searchInventory({ search: searchTerm, status, warehouseId: warehouseId || undefined }),
   });
 
+  function resolveWarehouseScope(value: string, options?: { exact?: boolean; notify?: boolean }) {
+    const query = value.trim().toLowerCase();
+    if (!query) {
+      setWarehouseId("");
+      return false;
+    }
+    const matches = (...values: unknown[]) =>
+      values.some((item) => {
+        const text = String(item ?? "").trim().toLowerCase();
+        if (!text) return false;
+        return options?.exact ? text === query : text.includes(query);
+      });
+    const warehouse = scopeRows.warehouses.find((row: any) => matches(row.code, row.name));
+    const zone = scopeRows.zones.find((row: any) => matches(row.code, row.name));
+    const location = scopeRows.locations.find((row: any) => matches(row.code, row.aisle, row.bay, row.level, row.location_type));
+    const matchedWarehouseId = warehouse?.id ?? zone?.warehouse_id ?? location?.warehouse_id ?? "";
+    if (!matchedWarehouseId) {
+      setWarehouseId("");
+      return false;
+    }
+    setWarehouseId(matchedWarehouseId);
+    if (options?.notify) {
+      const label = warehouse?.name ?? zone?.code ?? location?.code ?? "matched warehouse";
+      toast.success(`Warehouse visibility switched from ${label}`);
+    }
+    return true;
+  }
+
+  function handleLocationScopeChange(value: string) {
+    setLocationScan(value);
+    resolveWarehouseScope(value);
+  }
+
+  function handleLocationScopeScan(value: string) {
+    setLocationScan(value);
+    if (!resolveWarehouseScope(value, { exact: true, notify: true })) {
+      scanMutation.mutate(value);
+    }
+  }
+
+  function clearInventoryFilters() {
+    setSearchTerm("");
+    setStatus("all");
+    setWarehouseId("");
+    setLocationScan("");
+  }
+
+  function openInventoryDetail(balanceId: string) {
+    navigate(`/inventory/${balanceId}`);
+  }
+
+  function prefetchInventoryDetail(balanceId: string) {
+    void queryClient.prefetchQuery({
+      queryKey: ["inventory-detail", balanceId],
+      queryFn: () => getInventoryDetail(balanceId),
+    });
+  }
+
+  function handleInventoryRowPointerUp(balanceId: string) {
+    if (typeof window === "undefined" || !window.matchMedia("(pointer: coarse)").matches) return;
+    const now = Date.now();
+    if (lastDetailTapRef.current?.id === balanceId && now - lastDetailTapRef.current.time < 450) {
+      openInventoryDetail(balanceId);
+      lastDetailTapRef.current = null;
+      return;
+    }
+    lastDetailTapRef.current = { id: balanceId, time: now };
+  }
+
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex h-full min-h-0 flex-col gap-6 overflow-hidden">
       <div>
         <h2 className="text-2xl font-semibold">Inventory Search</h2>
-        <p className="text-sm text-muted-foreground">
-          Search by SKU, pallet, barcode, lot, batch, expiry, owner, or location.{" "}
-          <span className="italic text-muted-foreground/60">Double-click a row to view details.</span>
-        </p>
+        <p className="text-sm text-muted-foreground">Search by SKU, pallet, barcode, lot, batch, expiry, owner, or location.</p>
       </div>
       <Card>
-        <CardContent className="grid gap-3 p-4 lg:grid-cols-[minmax(0,2fr)_minmax(12rem,1fr)_minmax(12rem,1fr)_minmax(16rem,1fr)]">
-          <div className="relative">
-            <Search className="absolute left-3 top-3 text-muted-foreground" />
-            <Input className="min-w-0 pl-10" value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Search inventory" />
+        <CardContent className="flex flex-wrap items-stretch gap-3 p-4">
+          <div className="flex min-w-[17rem] flex-1 gap-2">
+            <div className="relative min-w-0 flex-1">
+              <Search className="absolute left-3 top-3 text-muted-foreground" />
+              <Input className="min-w-0 pl-10 bg-muted" value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Search SKU, pallet, or location" />
+            </div>
+            <BarcodeScanButton title="Scan SKU, pallet, or location barcode" onScan={setSearchTerm} />
           </div>
-          <Select onValueChange={setWarehouseId} value={warehouseId}>
-            <SelectTrigger>
+          <Select onValueChange={(value) => setWarehouseId(value === "all" ? "" : value)} value={selectedWarehouseValue}>
+            <SelectTrigger className="min-w-[12rem] flex-1 sm:flex-none">
               <SelectValue placeholder="All warehouses" />
             </SelectTrigger>
             <SelectContent>
+              <SelectItem value="all">All warehouses</SelectItem>
               {(options?.warehouses ?? []).map((warehouse) => (
                 <SelectItem key={warehouse.id} value={warehouse.id}>
                   {warehouse.name}
@@ -2796,14 +3222,17 @@ export function InventorySearchPage() {
               ))}
             </SelectContent>
           </Select>
-          <div className="flex min-w-0 gap-2">
-            <Input className="min-w-0" value={locationScan} onChange={(event) => setLocationScan(event.target.value)} placeholder="Scan location barcode" />
-            <Button size="icon" variant="outline" onClick={() => scanMutation.mutate(locationScan)} aria-label="Use scanned location warehouse">
-              <QrCode />
-            </Button>
+          <div className="flex min-w-[17rem] flex-1 gap-2">
+            <Input
+              className="min-w-0"
+              value={locationScan}
+              onChange={(event) => handleLocationScopeChange(event.target.value)}
+              placeholder="Search or scan warehouse, zone, aisle, or location"
+            />
+            <BarcodeScanButton title="Scan warehouse, zone, aisle, or location barcode" onScan={handleLocationScopeScan} />
           </div>
           <Select onValueChange={(value) => setStatus(value as typeof status)} value={status}>
-            <SelectTrigger>
+            <SelectTrigger className="min-w-[11rem] flex-1 sm:flex-none">
               <SelectValue placeholder="Status" />
             </SelectTrigger>
             <SelectContent>
@@ -2813,13 +3242,16 @@ export function InventorySearchPage() {
               ))}
             </SelectContent>
           </Select>
+          <Button className="min-w-24 flex-1 sm:flex-none" variant="outline" onClick={clearInventoryFilters} disabled={!hasInventoryFilters}>
+            Clear
+          </Button>
         </CardContent>
       </Card>
-      <Card>
-        <CardContent className="p-0">
-          <TableFrame>
-            <Table>
-              <TableHeader className="sticky top-0 z-10 bg-card">
+      <Card className="flex min-h-0 flex-1 flex-col">
+        <CardContent className="flex min-h-0 flex-1 p-0">
+          <TableFrame className="h-full">
+            <Table className="min-w-[58rem]">
+              <TableHeader className="sticky top-0 z-20 bg-card shadow-sm">
                 <TableRow>
                   <TableHead>SKU</TableHead>
                   <TableHead>Pallet</TableHead>
@@ -2828,40 +3260,28 @@ export function InventorySearchPage() {
                   <TableHead>Status</TableHead>
                   <TableHead>Available</TableHead>
                   <TableHead>Expiry</TableHead>
-                  <TableHead />
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {isLoading ? (
                   <TableRow>
-                    <TableCell className="h-24 text-center text-muted-foreground" colSpan={8}>Searching…</TableCell>
+                    <TableCell className="h-24 text-center text-muted-foreground" colSpan={7}>Searching…</TableCell>
                   </TableRow>
                 ) : data.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8}>
-                      <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
-                        <Boxes className="h-10 w-10 text-muted-foreground/40" />
-                        <div>
-                          <p className="font-medium text-muted-foreground">No inventory matched</p>
-                          <p className="mt-0.5 text-sm text-muted-foreground/60">Try adjusting your search term, warehouse, or status filter.</p>
-                        </div>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => {
-                            setSearchTerm("");
-                            setStatus("all");
-                            setWarehouseId(restrictedToDefaultWarehouse ? profile?.default_warehouse_id ?? "" : "");
-                          }}
-                        >
-                          Clear filters
-                        </Button>
-                      </div>
-                    </TableCell>
+                    <TableCell className="h-24 text-center text-muted-foreground" colSpan={7}>No inventory matched.</TableCell>
                   </TableRow>
                 ) : (
                   data.map((row) => (
-                    <TableRow key={row.inventory_balance_id} className="even:bg-muted/30">
+                    <TableRow
+                      key={row.inventory_balance_id}
+                      className="cursor-pointer even:bg-muted/30 hover:bg-muted/50"
+                      onMouseEnter={() => prefetchInventoryDetail(row.inventory_balance_id)}
+                      onFocus={() => prefetchInventoryDetail(row.inventory_balance_id)}
+                      onDoubleClick={() => openInventoryDetail(row.inventory_balance_id)}
+                      onPointerUp={() => handleInventoryRowPointerUp(row.inventory_balance_id)}
+                      title="Double-click or double-tap to open details"
+                    >
                       <TableCell>{row.sku}</TableCell>
                       <TableCell>{row.pallet_code}</TableCell>
                       <TableCell>{row.location_code ?? "Receiving"}</TableCell>
@@ -2869,11 +3289,6 @@ export function InventorySearchPage() {
                       <TableCell><Badge variant={row.status === "available" ? "default" : "secondary"}>{row.status}</Badge></TableCell>
                       <TableCell>{formatNumber(row.available_quantity)}</TableCell>
                       <TableCell>{formatDate(row.expiry_date)}</TableCell>
-                      <TableCell>
-                        <Button asChild size="sm" variant="ghost">
-                          <Link to={`/inventory/${row.inventory_balance_id}`}>Detail</Link>
-                        </Button>
-                      </TableCell>
                     </TableRow>
                   ))
                 )}
@@ -2896,12 +3311,44 @@ function statusBadgeVariant(status: string): "default" | "secondary" | "destruct
 export function PickListsPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { profile } = useAuth();
+  const [pickSearch, setPickSearch] = useState("");
+  const [activeTab, setActiveTab] = useState("lists");
+  const clientTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const pickProductRefs = useRef<Record<number, ProductSearchHandle | null>>({});
   const { data: options } = useQuery({ queryKey: ["options"], queryFn: () => fetchOptions() });
   const { data: pickLists = [] } = useQuery({ queryKey: ["pick-lists"], queryFn: listPickLists });
   const form = useForm<z.infer<typeof pickListSchema>>({
     resolver: zodResolver(pickListSchema),
-    defaultValues: { lines: [{ product_id: "", quantity: 1 }] },
+    defaultValues: {
+      warehouse_id: profile?.default_warehouse_id || undefined,
+      client_id: undefined,
+      order_number: "",
+      requested_ship_date: new Date().toISOString().slice(0, 10),
+      notes: "",
+      lines: [{ product_id: "", quantity: 1 }],
+    },
   });
+
+  useEffect(() => {
+    const warehouseId = form.getValues("warehouse_id");
+    const defaultWarehouseId = profile?.default_warehouse_id || (options?.warehouses?.length === 1 ? options.warehouses[0].id : "");
+    if (!warehouseId && defaultWarehouseId) {
+      form.setValue("warehouse_id", defaultWarehouseId);
+    }
+  }, [form, options?.warehouses, profile?.default_warehouse_id]);
+
+  useEffect(() => {
+    if (!form.getValues("requested_ship_date")) {
+      form.setValue("requested_ship_date", new Date().toISOString().slice(0, 10));
+    }
+  }, [form]);
+
+  useEffect(() => {
+    if (activeTab !== "create") return;
+    const timer = setTimeout(() => clientTriggerRef.current?.focus(), 80);
+    return () => clearTimeout(timer);
+  }, [activeTab]);
 
   const mutation = useMutation({
     mutationFn: async (values: z.infer<typeof pickListSchema>) => createPickListFlow(values),
@@ -2910,7 +3357,14 @@ export function PickListsPage() {
         action: { label: "View lists", onClick: () => navigate("/pick-lists") },
         duration: 6000,
       });
-      form.reset({ lines: [{ product_id: "", quantity: 1 }] });
+      form.reset({
+        warehouse_id: profile?.default_warehouse_id || undefined,
+        client_id: undefined,
+        order_number: "",
+        requested_ship_date: new Date().toISOString().slice(0, 10),
+        notes: "",
+        lines: [{ product_id: "", quantity: 1 }],
+      });
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["pick-lists"] }),
         queryClient.invalidateQueries({ queryKey: ["dashboard-metrics"] }),
@@ -2920,17 +3374,68 @@ export function PickListsPage() {
   });
 
   const lines = form.watch("lines");
-  const active = (pickLists as any[]).filter((pl) => !["completed", "cancelled"].includes(pl.status));
-  const done = (pickLists as any[]).filter((pl) => ["completed", "cancelled"].includes(pl.status));
+  const pickSearchTerm = pickSearch.trim().toLowerCase();
+  const matchesPickSearch = (pickList: any) => {
+    if (!pickSearchTerm) return true;
+    const taskValues = (pickList.pick_tasks ?? []).flatMap((task: any) => [
+      task.status,
+      task.short_reason,
+      task.quantity,
+      task.pallets?.pallet_barcode,
+      task.pallets?.pallet_code,
+      task.pallets?.products?.sku,
+      task.pallets?.products?.name,
+    ]);
+    return [
+      pickList.pick_list_number,
+      pickList.status,
+      pickList.notes,
+      pickList.order_number,
+      ...taskValues,
+    ].some((value) => String(value ?? "").toLowerCase().includes(pickSearchTerm));
+  };
+  const allActive = (pickLists as any[]).filter((pl) => !["completed", "cancelled"].includes(pl.status));
+  const active = allActive.filter(matchesPickSearch);
+  const done = (pickLists as any[]).filter((pl) => ["completed", "cancelled"].includes(pl.status)).filter(matchesPickSearch);
+  const productOptions = (options?.products ?? []).map((product: any) => ({
+    id: product.id,
+    sku: product.sku,
+    name: product.name,
+    barcode: product.barcode,
+  }));
+
+  function prefetchPickExecution(pickListId: string) {
+    void queryClient.prefetchQuery({
+      queryKey: ["pick-execution", pickListId],
+      queryFn: () => getPickExecution(pickListId),
+    });
+  }
 
   return (
-    <Tabs className="flex flex-col gap-6" defaultValue="lists">
-      <div className="flex flex-col gap-2">
-        <h2 className="text-2xl font-semibold">Pick Lists</h2>
-        <p className="text-sm text-muted-foreground">Release outbound work and execute scan-confirmed picks.</p>
+    <Tabs className="flex flex-col gap-6" value={activeTab} onValueChange={setActiveTab}>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h2 className="text-2xl font-semibold">Pick Lists</h2>
+          <p className="text-sm text-muted-foreground">Release outbound work and execute scan-confirmed picks.</p>
+        </div>
+        <div className="flex min-w-0 gap-2 sm:min-w-80">
+          <div className="relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              className="pl-9 bg-muted"
+              value={pickSearch}
+              onChange={(event) => setPickSearch(event.target.value)}
+              placeholder="Search pick lists or barcodes"
+            />
+          </div>
+          <BarcodeScanButton title="Scan pick list, pallet, or product barcode" onScan={setPickSearch} />
+        </div>
       </div>
       <TabsList className="grid h-auto w-full grid-cols-2 sm:w-fit">
-        <TabsTrigger value="lists">Active Lists</TabsTrigger>
+        <TabsTrigger value="lists" className="gap-2">
+          Active Lists
+          <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">{allActive.length}</Badge>
+        </TabsTrigger>
         <TabsTrigger value="create">Create Pick List</TabsTrigger>
       </TabsList>
       <TabsContent value="lists" className="grid gap-4">
@@ -2994,7 +3499,13 @@ export function PickListsPage() {
                 })}
                 <div className="flex flex-wrap gap-2 pt-1">
                   <Button asChild variant="outline" size="sm">
-                    <Link to={`/pick-lists/${pickList.id}`}>Execute picks</Link>
+                    <Link
+                      to={`/pick-lists/${pickList.id}`}
+                      onMouseEnter={() => prefetchPickExecution(pickList.id)}
+                      onFocus={() => prefetchPickExecution(pickList.id)}
+                    >
+                      Execute picks
+                    </Link>
                   </Button>
                   {exceptionCount > 0 && (
                     <Button
@@ -3037,8 +3548,50 @@ export function PickListsPage() {
             <Form {...form}>
               <form className="grid gap-4 lg:grid-cols-2" onSubmit={form.handleSubmit((values) => mutation.mutate(values))}>
                 <SelectField form={form} name="warehouse_id" label="Warehouse" options={(options?.warehouses ?? []).map((warehouse) => ({ label: warehouse.name, value: warehouse.id }))} />
-                <SelectField form={form} name="client_id" label="Client" options={(options?.clients ?? []).map((client) => ({ label: client.name, value: client.id }))} />
-                <TextField form={form} name="order_number" label="Order number" />
+                <FormField
+                  control={form.control}
+                  name="client_id"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Client</FormLabel>
+                      <Select
+                        onValueChange={(value) => field.onChange(value === "__none__" ? undefined : value)}
+                        value={(field.value as string | undefined) ?? "__none__"}
+                      >
+                        <FormControl>
+                          <SelectTrigger ref={clientTriggerRef}>
+                            <SelectValue placeholder="Select client" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="__none__">No client</SelectItem>
+                          {(options?.clients ?? []).map((client) => (
+                            <SelectItem key={client.id} value={client.id}>
+                              {client.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="order_number"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Order number</FormLabel>
+                      <FormControl>
+                        <div className="flex gap-2">
+                          <Input {...field} value={field.value ?? ""} />
+                          <BarcodeScanButton title="Scan order number" onScan={field.onChange} />
+                        </div>
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
                 <TextField form={form} name="requested_ship_date" label="Requested ship date" type="date" />
                 <FormField
                   control={form.control}
@@ -3047,7 +3600,7 @@ export function PickListsPage() {
                     <FormItem className="lg:col-span-2">
                       <FormLabel>Notes</FormLabel>
                       <FormControl>
-                        <Textarea {...field} value={field.value ?? ""} />
+                        <Input {...field} value={field.value ?? ""} />
                       </FormControl>
                     </FormItem>
                   )}
@@ -3059,13 +3612,77 @@ export function PickListsPage() {
                   <CardContent className="grid gap-3">
                     {lines.map((_, index) => (
                       <div key={index} className="grid gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(8rem,1fr)_auto]">
-                        <SelectField
-                          form={form}
+                        <FormField
+                          control={form.control}
                           name={`lines.${index}.product_id`}
-                          label="Product"
-                          options={(options?.products ?? []).map((product) => ({ label: `${product.sku} · ${product.name}`, value: product.id }))}
+                          render={({ field, fieldState }) => (
+                            <FormItem>
+                              <FormLabel>Product</FormLabel>
+                              <FormControl>
+                                <div className="flex gap-2">
+                                  <div className="min-w-0 flex-1">
+                                    <ProductSearch
+                                      ref={(node) => {
+                                        pickProductRefs.current[index] = node;
+                                      }}
+                                      value={(field.value as string) ?? ""}
+                                      onChange={field.onChange}
+                                      options={productOptions}
+                                      error={Boolean(fieldState.error)}
+                                    />
+                                  </div>
+                                  <BarcodeScanButton
+                                    title="Scan product barcode"
+                                    onScan={(value) => {
+                                      const matched = pickProductRefs.current[index]?.scanBarcode(value);
+                                      if (matched) playBarcodeBeep();
+                                    }}
+                                  />
+                                </div>
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
                         />
-                        <TextField form={form} name={`lines.${index}.quantity`} label="Qty" type="number" />
+                        <FormField
+                          control={form.control}
+                          name={`lines.${index}.quantity`}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Qty</FormLabel>
+                              <FormControl>
+                                <div className="flex items-center gap-2">
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="icon"
+                                    className="h-10 w-10 shrink-0"
+                                    onClick={() => field.onChange(Math.max(1, Number(field.value) - 1))}
+                                  >
+                                    −
+                                  </Button>
+                                  <Input
+                                    {...field}
+                                    type="number"
+                                    className="text-center text-lg font-semibold"
+                                    value={(field.value as number) ?? 1}
+                                    onChange={(event) => field.onChange(event.target.valueAsNumber)}
+                                  />
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="icon"
+                                    className="h-10 w-10 shrink-0"
+                                    onClick={() => field.onChange(Number(field.value) + 1)}
+                                  >
+                                    +
+                                  </Button>
+                                </div>
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
                         <Button
                           className="w-full lg:mt-auto lg:w-auto"
                           type="button"
@@ -3094,128 +3711,6 @@ export function PickListsPage() {
   );
 }
 
-export function _MoveToPickingPanel() {
-  const queryClient = useQueryClient();
-  const [barcode, setBarcode] = useState("");
-  const [pallet, setPallet] = useState<Awaited<ReturnType<typeof getPalletByBarcode>>>(null);
-  const [recentMoves, setRecentMoves] = useState<Array<{ barcode: string; time: Date }>>([]);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  const lookupMutation = useMutation({
-    mutationFn: getPalletByBarcode,
-    onSuccess: (data) => {
-      if (!data) {
-        toast.error("Pallet not found");
-        setPallet(null);
-      } else if (data.status === "picked") {
-        toast.error(`${data.pallet_barcode} is already in the picking area`);
-        setPallet(null);
-      } else {
-        setPallet(data);
-      }
-    },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Lookup failed"),
-  });
-
-  const moveMutation = useMutation({
-    mutationFn: moveToPickingArea,
-    onSuccess: (_, code) => {
-      toast.success(`${code} moved to picking area`);
-      setRecentMoves((prev) => [{ barcode: code, time: new Date() }, ...prev.slice(0, 9)]);
-      setPallet(null);
-      setBarcode("");
-      inputRef.current?.focus();
-      queryClient.invalidateQueries({ queryKey: ["inventory-search"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard-metrics"] });
-    },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Move failed"),
-  });
-
-  function handleScan() {
-    const code = barcode.trim();
-    if (!code) return;
-    setPallet(null);
-    lookupMutation.mutate(code);
-  }
-
-  return (
-    <div className="flex flex-col gap-6">
-      <Card>
-        <CardHeader>
-          <CardTitle>Move to Picking Area</CardTitle>
-          <CardDescription>
-            Scan a pallet barcode to move it from bulk storage to the picking area. Stock exits WMS tracking.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">
-          <div className="flex gap-2">
-            <Input
-              ref={inputRef}
-              className="min-h-12 text-base"
-              placeholder="📷 Scan pallet barcode…"
-              value={barcode}
-              onChange={(e) => setBarcode(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") handleScan(); }}
-              autoFocus
-            />
-            <Button className="min-h-12 shrink-0" onClick={handleScan} disabled={lookupMutation.isPending}>
-              {lookupMutation.isPending ? <Loader2 className="animate-spin" /> : "Find"}
-            </Button>
-          </div>
-
-          {pallet && (
-            <div className="rounded-lg border-2 border-primary/20 bg-primary/5 p-4">
-              <div className="mb-3 flex items-center justify-between gap-4">
-                <div>
-                  <p className="font-mono text-sm font-semibold">{pallet.pallet_barcode}</p>
-                  <p className="text-sm">{pallet.product_sku} · {pallet.product_name}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {pallet.quantity} units · Currently at{" "}
-                    <span className="font-mono">{pallet.location_code ?? "Receiving"}</span>
-                  </p>
-                </div>
-                <Badge>{pallet.status}</Badge>
-              </div>
-              <div className="flex gap-2">
-                <Button
-                  className="flex-1 min-h-11"
-                  onClick={() => moveMutation.mutate(pallet.pallet_barcode)}
-                  disabled={moveMutation.isPending}
-                >
-                  {moveMutation.isPending ? <Loader2 className="animate-spin" /> : <Forklift data-icon="inline-start" />}
-                  Confirm Move to Picking
-                </Button>
-                <Button variant="outline" className="min-h-11" onClick={() => { setPallet(null); setBarcode(""); inputRef.current?.focus(); }}>
-                  Cancel
-                </Button>
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {recentMoves.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm font-medium text-muted-foreground">Recent moves this session</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-col gap-1">
-              {recentMoves.map((move, i) => (
-                <div key={i} className="flex items-center justify-between gap-4 text-sm">
-                  <span className="font-mono">{move.barcode}</span>
-                  <span className="text-xs text-muted-foreground">
-                    {Math.round((Date.now() - move.time.getTime()) / 60000)} min ago
-                  </span>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-    </div>
-  );
-}
 
 export function TransfersPage() {
   const navigate = useNavigate();
@@ -4625,7 +5120,7 @@ function UserProfileRow({
 const MODULE_GROUPS: { label: string; keys: ModuleKey[] }[] = [
   {
     label: "Core Operations",
-    keys: ["receiving", "putaway", "inventory", "transfers", "pick-lists"],
+    keys: ["receiving", "putaway", "inventory", "pick-lists", "location-moves", "transfers"],
   },
   {
     label: "Master Data",
@@ -4638,7 +5133,7 @@ const MODULE_GROUPS: { label: string; keys: ModuleKey[] }[] = [
 ];
 
 function ModulesSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
-  const { flags, setModule, resetToStarter } = useFeatureFlags();
+  const { flags, toolbarModules, isToolbarModule, setModule, setToolbarModule, resetToStarter } = useFeatureFlags();
 
   return (
     <div className="flex flex-col gap-6">
@@ -4665,18 +5160,34 @@ function ModulesSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
                 {group.keys.map((key) => {
                   const meta = MODULE_LABELS[key];
                   const enabled = flags[key] ?? STARTER_MODULES[key];
+                  const pinned = isToolbarModule(key);
+                  const toolbarDisabled = !isAdmin || (!pinned && (!enabled || toolbarModules.length >= 4));
                   return (
                     <div key={key} className="flex items-center justify-between gap-4 rounded-lg border border-border px-4 py-3">
                       <div className="min-w-0">
                         <p className="text-sm font-medium">{meta.label}</p>
                         <p className="text-xs text-muted-foreground">{meta.description}</p>
                       </div>
-                      <Switch
-                        checked={enabled}
-                        onCheckedChange={(v) => setModule(key, v)}
-                        disabled={!isAdmin}
-                        aria-label={`Toggle ${meta.label}`}
-                      />
+                      <div className="flex shrink-0 items-center gap-2">
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant={pinned ? "secondary" : "ghost"}
+                          className="h-8 w-8"
+                          disabled={toolbarDisabled}
+                          onClick={() => setToolbarModule(key, !pinned)}
+                          title={pinned ? `Remove ${meta.label} from mobile toolbar` : `Add ${meta.label} to mobile toolbar`}
+                          aria-label={pinned ? `Remove ${meta.label} from mobile toolbar` : `Add ${meta.label} to mobile toolbar`}
+                        >
+                          <Star className={cn("h-4 w-4", pinned && "fill-current")} />
+                        </Button>
+                        <Switch
+                          checked={enabled}
+                          onCheckedChange={(v) => setModule(key, v)}
+                          disabled={!isAdmin}
+                          aria-label={`Toggle ${meta.label}`}
+                        />
+                      </div>
                     </div>
                   );
                 })}
@@ -4698,7 +5209,7 @@ export function SettingsPage() {
     mutationFn: resetWmsData,
     onSuccess: async () => {
       toast.success("Environment reset complete. Launching the warehouse setup wizard.");
-      await queryClient.invalidateQueries();
+      await invalidateWarehouseData(queryClient);
       navigate("/setup-wizard");
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Reset failed"),
@@ -4805,6 +5316,18 @@ export function SettingsPage() {
                 <span className="font-mono text-xs font-semibold text-primary">v{__APP_VERSION__}</span>
               </div>
               {[
+                {
+                  version: "1.1.2",
+                  date: "May 2026",
+                  changes: [
+                    "Inventory Search: fixed header and filter shell with row-only result scrolling",
+                    "Inventory Search: warehouse scope matching now includes live warehouse, zone, aisle, and location codes",
+                    "Locations: generated and migrated codes now preserve warehouse, zone, and location hierarchy",
+                    "Location Labels: full hierarchy codes with QR output for complex location codes",
+                    "Putaway: clearer location confirmation fields and aligned desktop task confirmation",
+                    "Tables: editable and detail rows now require double-click or double-tap before opening",
+                  ],
+                },
                 {
                   version: "1.1.1",
                   date: "May 2026",
@@ -5088,12 +5611,19 @@ function ClientVariablesPanel() {
 export function MobileActionBar() {
   const { pathname } = useLocation();
   const { roles } = useAuth();
-  const { isEnabled } = useFeatureFlags();
-  const items = NAVIGATION.filter(
-    (item) =>
-      item.roles.some((role) => roles.includes(role)) &&
-      (!item.moduleKey || isEnabled(item.moduleKey as ModuleKey)),
-  ).slice(0, 5); // show up to 5 primary nav items
+  const { isEnabled, toolbarModules } = useFeatureFlags();
+  const dashboard = NAVIGATION.find((item) => item.to === "/dashboard");
+  const pinnedItems = toolbarModules
+    .map((key) => NAVIGATION.find((item) => item.moduleKey === key))
+    .filter((item): item is (typeof NAVIGATION)[number] => Boolean(item));
+  const items = [dashboard, ...pinnedItems]
+    .filter((item): item is (typeof NAVIGATION)[number] => Boolean(item))
+    .filter(
+      (item) =>
+        item.roles.some((role) => roles.includes(role)) &&
+        (!item.moduleKey || isEnabled(item.moduleKey as ModuleKey)),
+    )
+    .slice(0, 5);
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 flex h-14 items-center justify-around border-t border-border bg-background px-1 md:hidden">
@@ -5195,7 +5725,7 @@ export function SystemLogPage() {
       </Card>
       <Card>
         <CardContent className="p-0">
-          <ScrollArea>
+          <TableFrame>
             <Table>
               <TableHeader className="sticky top-0 z-10 bg-card">
                 <TableRow>
@@ -5239,7 +5769,7 @@ export function SystemLogPage() {
                 ))}
               </TableBody>
             </Table>
-          </ScrollArea>
+          </TableFrame>
         </CardContent>
       </Card>
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
@@ -5360,12 +5890,12 @@ export function EmailLogPage() {
               ))}
             </SelectContent>
           </Select>
-          <Input placeholder="Search recipient, template, message id, error…" value={search} onChange={(e) => setSearch(e.target.value)} />
+          <Input className="bg-muted" placeholder="Search recipient, template, message id, error…" value={search} onChange={(e) => setSearch(e.target.value)} />
         </CardContent>
       </Card>
       <Card>
         <CardContent className="p-0">
-          <ScrollArea>
+          <TableFrame>
             <Table>
               <TableHeader className="sticky top-0 z-10 bg-card">
                 <TableRow>
@@ -5396,7 +5926,7 @@ export function EmailLogPage() {
                 ))}
               </TableBody>
             </Table>
-          </ScrollArea>
+          </TableFrame>
         </CardContent>
       </Card>
     </div>
