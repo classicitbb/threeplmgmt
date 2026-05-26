@@ -1,48 +1,9 @@
-/**
- * @file use-feature-flags.ts — Module enable/disable system and mobile toolbar config
- *
- * PURPOSE
- * -------
- * Controls which WMS modules are visible in the sidebar navigation.
- * User preferences are persisted in localStorage under "wms.modules.v1".
- * Mobile bottom-toolbar pinned modules are stored under "wms.mobile-toolbar.v1" (max 4 items).
- *
- * STARTER MODULES — enabled by default
- * -------------------------------------
- * receiving, putaway, inventory, location-moves, transfers, pick-lists,
- * products, warehouses, zones, locations, users, settings
- *
- * ADVANCED MODULES — disabled by default (must be enabled in Settings → Modules)
- * -------------------------------------------------------------------------------
- * clients, packaging, cycle-counts, reports, status, system-log, email-log
- *
- * HOW IT WORKS
- * ------------
- * 1. NAVIGATION array in wms-core.ts declares an optional moduleKey per route.
- * 2. AppShell in wms-ui.tsx filters the nav links by isEnabled(moduleKey).
- * 3. SettingsPage renders a toggle for every module so users can customise the UI.
- * 4. Changes are written to localStorage immediately (no server round-trip needed).
- *
- * USAGE
- * -----
- * const { isEnabled, setModule } = useFeatureFlags()
- * isEnabled("cycle-counts")       // false until enabled
- * setModule("cycle-counts", true) // persisted to localStorage
- *
- * MOBILE TOOLBAR
- * --------------
- * isToolbarModule(key)         // true if key is pinned to the bottom bar
- * setToolbarModule(key, true)  // pin (max 4); setToolbarModule(key, false) to unpin
- * DEFAULT_TOOLBAR_MODULES: receiving, putaway, inventory, pick-lists
- */
-
 import { createContext, useCallback, useContext, useState } from "react";
 
 export type ModuleKey =
   | "receiving"
   | "putaway"
   | "inventory"
-  | "location-moves"
   | "transfers"
   | "pick-lists"
   | "products"
@@ -63,7 +24,6 @@ export const STARTER_MODULES: Record<ModuleKey, boolean> = {
   receiving: true,
   putaway: true,
   inventory: true,
-  "location-moves": true,
   transfers: true,
   "pick-lists": true,
   products: true,
@@ -85,7 +45,6 @@ const MODULE_LABELS: Record<ModuleKey, { label: string; description: string }> =
   receiving: { label: "Receiving", description: "Receive stock and create pallet labels" },
   putaway: { label: "Put-Away", description: "Scan pallets into storage locations" },
   inventory: { label: "Inventory Search", description: "Search and inspect current stock" },
-  "location-moves": { label: "Location Moves", description: "Move pallets between locations in the same warehouse" },
   transfers: { label: "Transfers", description: "Move pallets between warehouses and picking areas" },
   "pick-lists": { label: "Pick Lists", description: "Create and execute pick orders" },
   products: { label: "Products", description: "Manage product catalogue and SKUs" },
@@ -106,8 +65,6 @@ const MODULE_LABELS: Record<ModuleKey, { label: string; description: string }> =
 export { MODULE_LABELS };
 
 const STORAGE_KEY = "wms.modules.v1";
-const TOOLBAR_STORAGE_KEY = "wms.mobile-toolbar.v1";
-const DEFAULT_TOOLBAR_MODULES: ModuleKey[] = ["receiving", "putaway", "inventory", "pick-lists"];
 
 function loadFlags(): Record<ModuleKey, boolean> {
   try {
@@ -123,30 +80,10 @@ function saveFlags(flags: Record<ModuleKey, boolean>) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(flags));
 }
 
-function loadToolbarModules(): ModuleKey[] {
-  try {
-    const raw = localStorage.getItem(TOOLBAR_STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw) as ModuleKey[];
-      if (Array.isArray(parsed)) return parsed.filter((key) => key in STARTER_MODULES).slice(0, 4);
-    }
-  } catch {
-    // ignore
-  }
-  return [...DEFAULT_TOOLBAR_MODULES];
-}
-
-function saveToolbarModules(keys: ModuleKey[]) {
-  localStorage.setItem(TOOLBAR_STORAGE_KEY, JSON.stringify(keys.slice(0, 4)));
-}
-
 type FeatureFlagContextValue = {
   flags: Record<ModuleKey, boolean>;
-  toolbarModules: ModuleKey[];
-  isToolbarModule: (key: ModuleKey) => boolean;
   isEnabled: (key: ModuleKey) => boolean;
   setModule: (key: ModuleKey, enabled: boolean) => void;
-  setToolbarModule: (key: ModuleKey, pinned: boolean) => void;
   resetToStarter: () => void;
 };
 
@@ -154,10 +91,8 @@ export const FeatureFlagContext = createContext<FeatureFlagContextValue | null>(
 
 export function useFeatureFlagState(): FeatureFlagContextValue {
   const [flags, setFlags] = useState<Record<ModuleKey, boolean>>(loadFlags);
-  const [toolbarModules, setToolbarModules] = useState<ModuleKey[]>(loadToolbarModules);
 
   const isEnabled = useCallback((key: ModuleKey) => flags[key] ?? true, [flags]);
-  const isToolbarModule = useCallback((key: ModuleKey) => toolbarModules.includes(key), [toolbarModules]);
 
   const setModule = useCallback((key: ModuleKey, enabled: boolean) => {
     setFlags((prev) => {
@@ -167,24 +102,13 @@ export function useFeatureFlagState(): FeatureFlagContextValue {
     });
   }, []);
 
-  const setToolbarModule = useCallback((key: ModuleKey, pinned: boolean) => {
-    setToolbarModules((prev) => {
-      const without = prev.filter((item) => item !== key);
-      const next = pinned ? [...without, key].slice(0, 4) : without;
-      saveToolbarModules(next);
-      return next;
-    });
-  }, []);
-
   const resetToStarter = useCallback(() => {
     const defaults = { ...STARTER_MODULES };
     setFlags(defaults);
     saveFlags(defaults);
-    setToolbarModules([...DEFAULT_TOOLBAR_MODULES]);
-    saveToolbarModules(DEFAULT_TOOLBAR_MODULES);
   }, []);
 
-  return { flags, toolbarModules, isToolbarModule, isEnabled, setModule, setToolbarModule, resetToStarter };
+  return { flags, isEnabled, setModule, resetToStarter };
 }
 
 export function useFeatureFlags(): FeatureFlagContextValue {

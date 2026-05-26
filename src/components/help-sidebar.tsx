@@ -1,40 +1,15 @@
 import { Link } from "react-router-dom";
 import { HelpCircle } from "lucide-react";
 
-import { useAuth } from "@/hooks/use-auth";
-import { STARTER_MODULES, type ModuleKey, useFeatureFlags } from "@/hooks/use-feature-flags";
-import { getArticleById, getRouteHelp, type HelpArticle } from "@/lib/help-content";
+import { getArticleById, getRouteHelp } from "@/lib/help-content";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 
-const KNOWN_MODULE_KEYS = Object.keys(STARTER_MODULES) as ModuleKey[];
-
-function articleModuleKey(mod: string): ModuleKey | null {
-  if (KNOWN_MODULE_KEYS.includes(mod as ModuleKey)) return mod as ModuleKey;
-  if (mod === "packaging-profiles") return "packaging";
-  if (mod === "help" || mod === "setup-wizard" || mod === "dashboard") return null;
-  return null;
-}
-
-function canShowArticle(article: HelpArticle, roles: string[], isEnabled: (key: ModuleKey) => boolean) {
-  const modKey = articleModuleKey(article.module);
-  if (modKey && !isEnabled(modKey)) return false;
-  if (article.audience === "Admins" || article.audience === "Admins and IT") {
-    return roles.includes("admin");
-  }
-  return true;
-}
-
 export function HelpSidebar({ pathname }: { pathname: string }) {
   const help = getRouteHelp(pathname);
-  const { roles } = useAuth();
-  const { isEnabled } = useFeatureFlags();
-  const linkedArticles = help.wikiArticleIds
-    .map((articleId) => getArticleById(articleId))
-    .filter((article): article is HelpArticle => Boolean(article))
-    .filter((article) => canShowArticle(article, roles, isEnabled));
+  const linkedArticles = help.wikiArticleIds.map((articleId) => getArticleById(articleId)).filter(Boolean);
 
   return (
     <Sheet>

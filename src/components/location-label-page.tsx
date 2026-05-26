@@ -1,6 +1,5 @@
 import { useEffect, useRef } from "react";
 import JsBarcode from "jsbarcode";
-import { QRCodeSVG } from "qrcode.react";
 import { Printer } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -19,8 +18,6 @@ interface LocationLabelPageProps {
   level?: number | null;
   locationType?: string | null;
   temperatureClass?: string;
-  warehouseCode?: string | null;
-  zoneCode?: string | null;
   warehouseName?: string;
   zoneName?: string;
   trigger?: React.ReactNode;
@@ -48,17 +45,6 @@ const TYPE_LABELS: Record<string, string> = {
   returns: "Returns",
 };
 
-const QR_THRESHOLD = 24;
-
-function escapeHtml(value: unknown) {
-  return String(value ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
 function BarcodePreview({ code }: { code: string }) {
   const ref = useRef<SVGSVGElement>(null);
 
@@ -82,13 +68,6 @@ function BarcodePreview({ code }: { code: string }) {
   return <svg ref={ref} />;
 }
 
-function MachineCodePreview({ code }: { code: string }) {
-  if (code.length > QR_THRESHOLD) {
-    return <QRCodeSVG value={code} size={132} level="M" />;
-  }
-  return <BarcodePreview code={code} />;
-}
-
 export function LocationLabelPage(props: LocationLabelPageProps) {
   const {
     code,
@@ -97,8 +76,6 @@ export function LocationLabelPage(props: LocationLabelPageProps) {
     level,
     locationType,
     temperatureClass = "ambient",
-    warehouseCode,
-    zoneCode,
     warehouseName,
     zoneName,
     trigger,
@@ -107,13 +84,6 @@ export function LocationLabelPage(props: LocationLabelPageProps) {
   const accentColor = TEMP_COLOURS[temperatureClass] ?? TEMP_COLOURS.ambient;
   const tempLabel = TEMP_LABELS[temperatureClass] ?? temperatureClass;
   const typeLabel = locationType ? (TYPE_LABELS[locationType] ?? locationType) : null;
-  const warehousePrefix = String(warehouseCode ?? "").trim();
-  const zonePrefix = String(zoneCode ?? "").trim();
-  const fullCodePrefix = warehousePrefix && zonePrefix ? `${warehousePrefix}-${zonePrefix}-` : "";
-  const fullCode = fullCodePrefix && !code.toUpperCase().startsWith(fullCodePrefix.toUpperCase())
-    ? `${fullCodePrefix}${code}`
-    : code;
-  const useQr = fullCode.length > QR_THRESHOLD;
 
   const locationParts = [
     aisle ? `Aisle ${aisle}` : null,
@@ -122,8 +92,8 @@ export function LocationLabelPage(props: LocationLabelPageProps) {
   ].filter(Boolean).join(" · ");
 
   function handlePrint() {
-    const machineEl = document.getElementById(`__loc-machine-${code}`);
-    const machineMarkup = machineEl?.innerHTML ?? "";
+    const barcodeEl = document.getElementById(`__loc-bc-${code}`);
+    const barcodeSvg = barcodeEl?.innerHTML ?? "";
 
     const win = window.open("", "_blank", "width=560,height=380");
     if (!win) return;
@@ -131,7 +101,7 @@ export function LocationLabelPage(props: LocationLabelPageProps) {
     win.document.write(`<!DOCTYPE html>
 <html>
 <head>
-  <title>Location Label — ${escapeHtml(fullCode)}</title>
+  <title>Location Label — ${code}</title>
   <meta charset="utf-8" />
   <style>
     @page { size: 101.6mm 63.5mm landscape; margin: 0; }
@@ -155,8 +125,6 @@ export function LocationLabelPage(props: LocationLabelPageProps) {
     .sub { font-size: 8.5pt; color: #555; margin-bottom: 2mm; }
     .barcode-wrap { display: flex; justify-content: center; flex: 1; align-items: center; }
     .barcode-wrap svg { width: 100%; max-height: 18mm; }
-    .qr-wrap { display: flex; justify-content: center; flex: 1; align-items: center; }
-    .qr-wrap svg { width: 30mm; height: 30mm; }
     .footer { display: flex; justify-content: space-between; align-items: center; margin-top: 2mm; }
     .footer-text { font-size: 7pt; color: #aaa; }
   </style>
@@ -164,18 +132,18 @@ export function LocationLabelPage(props: LocationLabelPageProps) {
 <body>
   <div class="accent-bar"></div>
   <div class="header">
-    <span class="location-code">${escapeHtml(fullCode)}</span>
+    <span class="location-code">${code}</span>
     <div class="badges">
-      <span class="badge temp-badge">${escapeHtml(tempLabel)}</span>
-      ${typeLabel ? `<span class="badge type-badge">${escapeHtml(typeLabel)}</span>` : ""}
+      <span class="badge temp-badge">${tempLabel}</span>
+      ${typeLabel ? `<span class="badge type-badge">${typeLabel}</span>` : ""}
     </div>
   </div>
-  ${locationParts ? `<p class="sub">${escapeHtml(locationParts)}</p>` : ""}
-  ${zoneName ? `<p class="sub">Zone: ${escapeHtml(zoneName)}${warehouseName ? ` · ${escapeHtml(warehouseName)}` : ""}</p>` : (warehouseName ? `<p class="sub">${escapeHtml(warehouseName)}</p>` : "")}
-  <div class="${useQr ? "qr-wrap" : "barcode-wrap"}">${machineMarkup}</div>
+  ${locationParts ? `<p class="sub">${locationParts}</p>` : ""}
+  ${zoneName ? `<p class="sub">Zone: ${zoneName}${warehouseName ? ` · ${warehouseName}` : ""}</p>` : (warehouseName ? `<p class="sub">${warehouseName}</p>` : "")}
+  <div class="barcode-wrap">${barcodeSvg}</div>
   <div class="footer">
     <span class="footer-text">3PL Management</span>
-    <span class="footer-text">${escapeHtml(new Date().toLocaleDateString())}</span>
+    <span class="footer-text">${new Date().toLocaleDateString()}</span>
   </div>
   <script>window.onload=()=>{window.print();window.close();}<\/script>
 </body>
@@ -195,12 +163,12 @@ export function LocationLabelPage(props: LocationLabelPageProps) {
       </DialogTrigger>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle>Location Label — {fullCode}</DialogTitle>
+          <DialogTitle>Location Label — {code}</DialogTitle>
         </DialogHeader>
 
-        {/* Hidden machine-code render target for print capture */}
-        <div id={`__loc-machine-${code}`} className="sr-only" aria-hidden>
-          <MachineCodePreview code={fullCode} />
+        {/* Hidden barcode render target for print capture */}
+        <div id={`__loc-bc-${code}`} className="sr-only" aria-hidden>
+          <BarcodePreview code={code} />
         </div>
 
         {/* Preview */}
@@ -211,7 +179,7 @@ export function LocationLabelPage(props: LocationLabelPageProps) {
           <div className="w-full h-1.5 rounded" style={{ background: accentColor }} />
 
           <div className="flex items-start justify-between gap-2">
-            <span className="break-words text-2xl font-extrabold leading-tight tracking-tight">{fullCode}</span>
+            <span className="text-2xl font-extrabold leading-tight tracking-tight">{code}</span>
             <div className="flex flex-col items-end gap-1">
               <span
                 className="rounded-full px-2 py-0.5 text-[10px] font-semibold text-white whitespace-nowrap"
@@ -242,7 +210,7 @@ export function LocationLabelPage(props: LocationLabelPageProps) {
           )}
 
           <div className="flex justify-center py-1">
-            <MachineCodePreview code={fullCode} />
+            <BarcodePreview code={code} />
           </div>
         </div>
 
