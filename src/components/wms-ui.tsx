@@ -3094,7 +3094,7 @@ export function PickListsPage() {
   );
 }
 
-function _MoveToPickingPanel() {
+export function _MoveToPickingPanel() {
   const queryClient = useQueryClient();
   const [barcode, setBarcode] = useState("");
   const [pallet, setPallet] = useState<Awaited<ReturnType<typeof getPalletByBarcode>>>(null);
