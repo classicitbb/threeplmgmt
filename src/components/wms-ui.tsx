@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm, type UseFormReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { supabase } from "@/integrations/supabase/client";
-import { Activity, AlertTriangle, Archive, ArrowLeftRight, BarChart3, Bot, Boxes, Building2, Camera, CheckCircle2, ClipboardCheck, ClipboardList, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, HelpCircle, Home, Info, LayoutDashboard, Loader2, LogOut, Mail, Maximize2, MapPinned, Menu, Minimize2, MoreVertical, Package, PackageX, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, QrCode, RadioTower, RotateCcw, Search, Settings, ShieldCheck, Tags, Trash2, Truck, Upload, UserPlus, Users, Warehouse } from "lucide-react";
+import { Activity, AlertTriangle, ArrowLeftRight, BarChart3, Bot, Boxes, Building2, CheckCircle2, ClipboardCheck, ClipboardList, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, HelpCircle, Home, Info, LayoutDashboard, Loader2, LogOut, Mail, Maximize2, MapPinned, Menu, Minimize2, Package, PackageX, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, QrCode, RadioTower, RotateCcw, Search, Settings, ShieldCheck, Tags, Truck, Upload, UserPlus, Users, Warehouse } from "lucide-react";
 import {
   DndContext,
   KeyboardSensor,
@@ -35,7 +35,6 @@ import {
   type AppRoute,
   type FieldDefinition,
   type ResourceDefinition,
-  type SystemLogEntry,
   type DraftReceipt,
   adminInviteUser,
   changePalletStatus,
@@ -122,8 +121,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Checkbox } from "@/components/ui/checkbox";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerTrigger } from "@/components/ui/drawer";
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -3097,7 +3094,7 @@ export function PickListsPage() {
   );
 }
 
-function MoveToPickingPanel() {
+function _MoveToPickingPanel() {
   const queryClient = useQueryClient();
   const [barcode, setBarcode] = useState("");
   const [pallet, setPallet] = useState<Awaited<ReturnType<typeof getPalletByBarcode>>>(null);
