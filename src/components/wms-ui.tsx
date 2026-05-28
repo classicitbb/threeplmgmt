@@ -44,6 +44,7 @@ import {
   createPickListFlow,
   createReceiptFlow,
   createTransferFlow,
+  cancelPickList,
   deleteClientVariable,
   dispatchTransfer,
   cycleCountSchema,
@@ -3318,6 +3319,15 @@ export function PickListsPage() {
   const pickProductRefs = useRef<Record<number, ProductSearchHandle | null>>({});
   const { data: options } = useQuery({ queryKey: ["options"], queryFn: () => fetchOptions() });
   const { data: pickLists = [] } = useQuery({ queryKey: ["pick-lists"], queryFn: listPickLists });
+  const cancelMutation = useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason?: string }) => cancelPickList(id, reason),
+    onSuccess: () => {
+      toast.success("Pick list cancelled");
+      queryClient.invalidateQueries({ queryKey: ["pick-lists"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard-metrics"] });
+    },
+    onError: (error: unknown) => toast.error(error instanceof Error ? error.message : "Failed to cancel pick list"),
+  });
   const form = useForm<z.infer<typeof pickListSchema>>({
     resolver: zodResolver(pickListSchema),
     defaultValues: {
@@ -3520,6 +3530,29 @@ export function PickListsPage() {
                       Resolve shortage
                     </Button>
                   )}
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button variant="outline" size="sm" className="text-destructive hover:text-destructive">
+                        Cancel pick
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Cancel pick list {pickList.pick_list_number}?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          This closes the pick list and cancels any open pick tasks. Completed picks remain recorded. This action cannot be undone.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Keep pick list</AlertDialogCancel>
+                        <AlertDialogAction
+                          onClick={() => cancelMutation.mutate({ id: pickList.id })}
+                        >
+                          Cancel pick
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
                 </div>
               </CardContent>
             </Card>
