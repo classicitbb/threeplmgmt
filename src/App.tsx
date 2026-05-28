@@ -217,8 +217,17 @@ const LOGIN_BARCODE_FORMATS = [
   "ean_13", "ean_8", "upc_a", "upc_e",
   "data_matrix", "pdf417", "aztec",
 ];
+const LOGIN_METHOD_STORAGE_KEY = "warehouse-wizard.login.last-method";
 
-function LoginBadgeScanner({ onScan }: { onScan: (value: string) => void }) {
+function LoginBadgeScanner({
+  onScan,
+  onErrorChange,
+  scannedCode,
+}: {
+  onScan: (value: string) => void;
+  onErrorChange: (error: string | null) => void;
+  scannedCode?: string;
+}) {
   const [error, setError] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -240,9 +249,12 @@ function LoginBadgeScanner({ onScan }: { onScan: (value: string) => void }) {
   const startScanner = useCallback(async () => {
     stopStream();
     setError(null);
+    onErrorChange(null);
 
     if (!("BarcodeDetector" in window)) {
-      setError("Live scanning requires Chrome on Android or Safari 17+. Enter the badge code below.");
+      const nextError = "Live scanning requires Chrome on Android or Safari 17+.";
+      setError(nextError);
+      onErrorChange(nextError);
       return;
     }
 
@@ -288,12 +300,14 @@ function LoginBadgeScanner({ onScan }: { onScan: (value: string) => void }) {
       rafRef.current = requestAnimationFrame(scanFrame);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      setError(msg.toLowerCase().includes("permission")
-        ? "Camera permission denied. Allow camera access or enter the badge code below."
-        : `Camera error: ${msg}`);
+      const nextError = msg.toLowerCase().includes("permission")
+        ? "Camera permission denied. Allow camera access and try again."
+        : `Camera error: ${msg}`;
+      setError(nextError);
+      onErrorChange(nextError);
       stopStream();
     }
-  }, [onScan, stopStream]);
+  }, [onErrorChange, onScan, stopStream]);
 
   useEffect(() => {
     startScanner();
@@ -317,13 +331,82 @@ function LoginBadgeScanner({ onScan }: { onScan: (value: string) => void }) {
           {scanning ? <ScanLine className="h-3.5 w-3.5" /> : <Camera className="h-3.5 w-3.5" />}
           {scanning ? "Scanning" : error ? "Scanner unavailable" : "Camera ready"}
         </div>
+        {scannedCode ? (
+          <div className="absolute inset-x-4 bottom-4 rounded-md bg-background/90 px-3 py-2 text-center">
+            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Scanned badge</p>
+            <p className="break-all font-mono text-sm font-semibold text-foreground">{scannedCode}</p>
+          </div>
+        ) : null}
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="absolute bottom-3 right-3 bg-background/90"
+          onClick={startScanner}
+        >
+          <Camera className="mr-2 h-4 w-4" />
+          Restart
+        </Button>
       </div>
       {error ? <p className="rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</p> : null}
-      <Button type="button" variant="outline" className="w-full" onClick={startScanner}>
-        <Camera className="mr-2 h-4 w-4" />
-        Restart scanner
-      </Button>
     </div>
+  );
+}
+
+function PinKeypadDialog({
+  open,
+  pin,
+  pending,
+  onOpenChange,
+  onPinChange,
+  onSubmit,
+}: {
+  open: boolean;
+  pin: string;
+  pending: boolean;
+  onOpenChange: (open: boolean) => void;
+  onPinChange: (pin: string) => void;
+  onSubmit: () => void;
+}) {
+  const appendDigit = (digit: string) => {
+    if (pin.length >= 12) return;
+    onPinChange(`${pin}${digit}`);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-xs">
+        <DialogHeader>
+          <DialogTitle>Enter PIN</DialogTitle>
+          <DialogDescription>Use the on-screen keypad to unlock the app.</DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-4">
+          <div className="rounded-lg border border-border bg-secondary/40 px-3 py-4 text-center font-mono text-2xl tracking-[0.4em]">
+            {pin ? "•".repeat(pin.length) : "----"}
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((digit) => (
+              <Button key={digit} type="button" variant="outline" className="h-14 text-xl" onClick={() => appendDigit(digit)}>
+                {digit}
+              </Button>
+            ))}
+            <Button type="button" variant="outline" className="h-14" onClick={() => onPinChange(pin.slice(0, -1))}>
+              Clear
+            </Button>
+            <Button type="button" variant="outline" className="h-14 text-xl" onClick={() => appendDigit("0")}>
+              0
+            </Button>
+            <Button type="button" variant="outline" className="h-14" onClick={() => onPinChange("")}>
+              Reset
+            </Button>
+          </div>
+          <Button type="button" className="h-12" disabled={pending || pin.length < 4} onClick={onSubmit}>
+            {pending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+            Unlock app
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -549,10 +632,15 @@ function LoginPage() {
   const [mode, setMode] = useState<"login" | "signup" | "reset" | "update">(() =>
     typeof window !== "undefined" && new URLSearchParams(window.location.search).get("reset") === "1" ? "update" : "login",
   );
-  const [loginMethod, setLoginMethod] = useState<"badge" | "code">("badge");
+  const [loginMethod, setLoginMethod] = useState<"badge" | "code">(() => {
+    if (typeof window === "undefined") return "badge";
+    return window.localStorage.getItem(LOGIN_METHOD_STORAGE_KEY) === "code" ? "code" : "badge";
+  });
   const [scannedBadge, setScannedBadge] = useState("");
   const [manualBadge, setManualBadge] = useState("");
   const [badgePin, setBadgePin] = useState("");
+  const [badgeScannerError, setBadgeScannerError] = useState<string | null>(null);
+  const [pinDialogOpen, setPinDialogOpen] = useState(false);
   const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [showSignUpPassword, setShowSignUpPassword] = useState(false);
 
@@ -635,6 +723,11 @@ function LoginPage() {
   });
 
   const selectedBadge = scannedBadge || manualBadge.trim();
+  const rememberLoginMethod = useCallback((method: "badge" | "code") => {
+    setLoginMethod(method);
+    window.localStorage.setItem(LOGIN_METHOD_STORAGE_KEY, method);
+  }, []);
+
   const submitBadgePin = () => {
     if (!selectedBadge) {
       toast.error("Scan or enter a badge code first.");
@@ -644,6 +737,8 @@ function LoginPage() {
       toast.error("Enter your PIN to continue.");
       return;
     }
+    // TODO: Replace this password-backed challenge with the per-user PIN preference once that setting exists.
+    window.localStorage.setItem(LOGIN_METHOD_STORAGE_KEY, "badge");
     loginMutation.mutate({ email: selectedBadge, password: badgePin });
   };
 
@@ -651,6 +746,8 @@ function LoginPage() {
     setScannedBadge(value);
     setManualBadge("");
     setBadgePin("");
+    setPinDialogOpen(true);
+    window.localStorage.setItem(LOGIN_METHOD_STORAGE_KEY, "badge");
     toast.success("Badge scanned. Enter your PIN.");
   }, []);
 
@@ -719,7 +816,7 @@ function LoginPage() {
                   type="button"
                   variant={loginMethod === "badge" ? "default" : "ghost"}
                   className="h-9"
-                  onClick={() => setLoginMethod("badge")}
+                  onClick={() => rememberLoginMethod("badge")}
                 >
                   <ScanLine className="mr-2 h-4 w-4" />
                   Badge scan
@@ -728,7 +825,7 @@ function LoginPage() {
                   type="button"
                   variant={loginMethod === "code" ? "default" : "ghost"}
                   className="h-9"
-                  onClick={() => setLoginMethod("code")}
+                  onClick={() => rememberLoginMethod("code")}
                 >
                   <Keyboard className="mr-2 h-4 w-4" />
                   User code
@@ -737,64 +834,49 @@ function LoginPage() {
 
               {loginMethod === "badge" ? (
                 <div className="flex flex-col gap-3">
-                  <LoginBadgeScanner onScan={handleBadgeScan} />
+                  <LoginBadgeScanner onScan={handleBadgeScan} onErrorChange={setBadgeScannerError} scannedCode={selectedBadge} />
                   <div className="rounded-lg border border-border bg-secondary/30 p-2.5">
                     <p className="text-sm font-medium text-center">Badge login</p>
                     <p className="text-xs text-muted-foreground text-center">Scan your badge, then enter your PIN to load the app.</p>
                   </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium" htmlFor="badge-code">Badge code</label>
-                    <Input
-                      id="badge-code"
-                      value={selectedBadge}
-                      placeholder="Scan badge or enter code"
-                      autoComplete="username"
-                      className="bg-secondary bg-slate-500"
-                      onChange={(event) => {
-                        setScannedBadge("");
-                        setManualBadge(event.target.value);
-                      }}
-                    />
-                  </div>
-                  <div className="space-y-2">
+                  {badgeScannerError ? (
+                    <div className="rounded-lg border border-border bg-secondary/30 p-2.5">
+                      <p className="text-sm font-medium text-center">Badge code</p>
+                      <p className="text-xs text-muted-foreground text-center">Badge codes can only be captured by scanner. Use User code if the camera is unavailable.</p>
+                    </div>
+                  ) : null}
+                  {selectedBadge ? (
+                    <Button type="button" disabled={loginMutation.isPending} onClick={() => setPinDialogOpen(true)}>
+                      Enter PIN
+                    </Button>
+                  ) : null}
+                  <PinKeypadDialog
+                    open={pinDialogOpen}
+                    pin={badgePin}
+                    pending={loginMutation.isPending}
+                    onOpenChange={setPinDialogOpen}
+                    onPinChange={setBadgePin}
+                    onSubmit={submitBadgePin}
+                  />
+                  <div className="hidden">
                     <label className="text-sm font-medium" htmlFor="badge-pin">PIN</label>
-                    <div className="relative">
+                    <div>
                       <Input
                         id="badge-pin"
                         value={badgePin}
-                        className="pr-12 bg-secondary bg-slate-500"
-                        type={showLoginPassword ? "text" : "password"}
-                        autoComplete="current-password"
-                        inputMode="numeric"
+                        type="password"
+                        readOnly
                         onChange={(event) => setBadgePin(event.target.value)}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter") {
-                            event.preventDefault();
-                            submitBadgePin();
-                          }
-                        }}
                       />
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="absolute right-1 top-1/2 h-8 w-8 -translate-y-1/2 text-muted-foreground"
-                        onClick={() => setShowLoginPassword((current) => !current)}
-                        aria-label={showLoginPassword ? "Hide challenge value" : "Show challenge value"}
-                        title={showLoginPassword ? "Hide challenge value" : "Show challenge value"}
-                      >
-                        {showLoginPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                      </Button>
                     </div>
                   </div>
-                  <Button type="button" disabled={loginMutation.isPending} onClick={submitBadgePin}>
-                    {loginMutation.isPending ? <Loader2 className="animate-spin mr-2 h-4 w-4" /> : null}
-                    Unlock app
-                  </Button>
                 </div>
               ) : (
                 <Form {...loginForm}>
-                  <form className="flex flex-col gap-3" onSubmit={loginForm.handleSubmit((v) => loginMutation.mutate(v))}>
+                  <form className="flex flex-col gap-3" onSubmit={loginForm.handleSubmit((v) => {
+                    window.localStorage.setItem(LOGIN_METHOD_STORAGE_KEY, "code");
+                    loginMutation.mutate(v);
+                  })}>
                     <div className="rounded-lg border border-border bg-secondary/30 p-2.5">
                       <p className="text-sm font-medium text-center">User code or email</p>
                       <p className="text-xs text-muted-foreground text-center">Use an approved email or short code such as ADMIN01.</p>

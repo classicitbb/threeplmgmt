@@ -120,5 +120,6 @@ If the user asks for a UI change:
 - `2026-05-28` — User-approved update to Settings tabs so Users & Roles is first for admins and the tab row wraps responsively.
 - `2026-05-28` — User-approved update to move Role Matrix from main Settings tabs into the Users & Roles tab group.
 - `2026-05-28` — User-approved update to add placeholder Reset password and gated Print badge actions to Settings user edit.
+- `2026-05-28` — User-approved update to Login badge scanner flow with scanner-area restart, scanned-code display, keypad PIN popup, and per-device method memory.
 
 Append new entries here only when the user explicitly approves a UI change.
