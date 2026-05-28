@@ -203,30 +203,6 @@ const DASHBOARD_METRIC_ROUTES: Record<DashboardMetricKey, AppRoute> = {
   holdStock: "/status",
   quarantineStock: "/status",
 };
-const DASHBOARD_METRIC_NAV: Partial<Record<DashboardMetricKey, (typeof NAVIGATION)[number]>> = Object.fromEntries(
-  (Object.entries(DASHBOARD_METRIC_ROUTES) as [DashboardMetricKey, AppRoute][])
-    .map(([key, route]) => [key, NAVIGATION.find((n) => n.to === route)])
-    .filter(([, nav]) => nav !== undefined),
-) as Partial<Record<DashboardMetricKey, (typeof NAVIGATION)[number]>>;
-
-const DASHBOARD_METRIC_LABELS: Record<DashboardMetricKey, string> = {
-  totalPallets: "Total Pallets",
-  warehousePallets: "This Warehouse",
-  availablePallets: "Available Pallets",
-  coolZoneOccupancy: "Located Pallets",
-  openReceipts: "Open Receipts",
-  openPutawayTasks: "Open Putaway",
-  openPickLists: "Open Pick Lists",
-  openMoveTasks: "Open Moves",
-  openTransfers: "Open Transfers",
-  openCycleCounts: "Open Counts",
-  openDockLoads: "Dock Loads",
-  openReplenishmentTasks: "Replenishment",
-  recentAuditEvents: "Recent Events",
-  holdStock: "Hold Stock",
-  quarantineStock: "Quarantine",
-};
-
 type DashboardTileConfig = {
   id: string;
   size: DashboardCardSize;
@@ -1908,8 +1884,7 @@ function shouldRestrictToDefaultWarehouse(roles: string[]) {
 }
 
 export function DashboardPage() {
-  const { profile, roles } = useAuth();
-  const { isEnabled } = useFeatureFlags();
+  const { profile } = useAuth();
   const [mode, setMode] = useState<DashboardMode>("floor");
   const floorLayoutKey = profileLayoutKey(DASHBOARD_FLOOR_LAYOUT_KEY, profile?.id);
   const dockLayoutKey = profileLayoutKey(DASHBOARD_DOCK_LAYOUT_KEY, profile?.id);
@@ -1981,11 +1956,7 @@ export function DashboardPage() {
     });
   }, []);
 
-  const canAccessMetric = useCallback((key: DashboardMetricKey): boolean => {
-    const nav = DASHBOARD_METRIC_NAV[key];
-    if (!nav) return true;
-    return nav.roles.some((r) => roles.includes(r)) && (!nav.moduleKey || isEnabled(nav.moduleKey as ModuleKey));
-  }, [isEnabled, roles]);
+  const canAccessMetric = useCallback((_key: DashboardMetricKey): boolean => true, []);
 
   const renderSummaryTile = useCallback((tile: DashboardTileConfig, onResize: (id: string) => void) => {
     const card = summaryCardsById.get(tile.id);
