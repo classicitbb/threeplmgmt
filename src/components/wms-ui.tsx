@@ -1805,8 +1805,7 @@ function shouldRestrictToDefaultWarehouse(roles: string[]) {
 }
 
 export function DashboardPage() {
-  const { profile, roles } = useAuth();
-  const { isEnabled } = useFeatureFlags();
+  const { profile } = useAuth();
   const [mode, setMode] = useState<DashboardMode>("floor");
   const floorLayoutKey = profileLayoutKey(DASHBOARD_FLOOR_LAYOUT_KEY, profile?.id);
   const dockLayoutKey = profileLayoutKey(DASHBOARD_DOCK_LAYOUT_KEY, profile?.id);
