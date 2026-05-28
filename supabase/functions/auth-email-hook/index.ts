@@ -36,7 +36,7 @@ const EMAIL_TEMPLATES: Record<string, React.ComponentType<any>> = {
 }
 
 // Configuration
-const SITE_NAME = "threeplmgmt"
+const SITE_NAME = "Warehouse Wizard"
 const SENDER_DOMAIN = "notify.warehousewizard.app"
 const ROOT_DOMAIN = "warehousewizard.app"
 const FROM_DOMAIN = "warehousewizard.app" // Domain shown in From address (may be root or sender subdomain)
