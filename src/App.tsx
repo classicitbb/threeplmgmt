@@ -57,6 +57,17 @@ const queryClient = createAppQueryClient();
 
 const RELEASE_HISTORY = [
   {
+    version: "1.1.3",
+    date: "May 2026",
+    changes: [
+      "Command Center: all Floor, Dock, and Office tiles are draggable and resizable",
+      "Command Center: summary metrics and workflow tiles now share one dynamic layout surface per view",
+      "Command Center: tile size and position preferences are remembered per signed-in user when available",
+      "Navigation: Users shortcut removed from the sidebar while admin user management remains in Settings",
+      "Dashboard: pallet dials, workflow queues, Warehouse Intelligence, Dock lanes, Office widgets, and Warehouse Brain use the same tile controls",
+    ],
+  },
+  {
     version: "1.1.2",
     date: "May 2026",
     changes: [
