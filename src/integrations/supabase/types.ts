@@ -2955,6 +2955,10 @@ export type Database = {
       }
     }
     Functions: {
+      admin_update_user_password: {
+        Args: { in_password: string; in_user_id: string }
+        Returns: undefined
+      }
       delete_email: {
         Args: { message_id: number; queue_name: string }
         Returns: boolean
