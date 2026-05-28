@@ -91,6 +91,19 @@ export type ProfileUpdateInput = {
   badge_code?: string | null;
 };
 
+function formatSupabaseError(error: unknown, fallback: string) {
+  if (!error) return fallback;
+  if (error instanceof Error) return error.message;
+  if (typeof error === "object") {
+    const details = error as { message?: unknown; details?: unknown; hint?: unknown; code?: unknown };
+    return [details.message, details.details, details.hint, details.code ? `(${details.code})` : null]
+      .filter(Boolean)
+      .map(String)
+      .join(" ");
+  }
+  return String(error);
+}
+
 export type WarehouseSetupWarehouse = {
   code: string;
   name: string;
@@ -688,7 +701,16 @@ export async function updateProfileDetails(input: ProfileUpdateInput) {
   };
 
   const { error } = await (supabase.from as any)("profiles").update(payload).eq("id", input.profileId);
-  if (error) throw error;
+  if (error) {
+    const formattedError = formatSupabaseError(error, "Update failed");
+    if (formattedError.includes("badge_code") || formattedError.includes("user_code")) {
+      const { user_code: _userCode, badge_code: _badgeCode, ...legacyPayload } = payload;
+      const { error: legacyError } = await (supabase.from as any)("profiles").update(legacyPayload).eq("id", input.profileId);
+      if (legacyError) throw new Error(formatSupabaseError(legacyError, "Update failed"));
+    } else {
+      throw new Error(formattedError);
+    }
+  }
   await logUserActivity("user_access_change", "profiles", input.profileId, {
     fields: Object.keys(payload),
     approved: input.approved,

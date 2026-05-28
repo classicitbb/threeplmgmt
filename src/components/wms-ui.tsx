@@ -4986,6 +4986,7 @@ function AddUserDialog({
 
 export function UsersRolesPage() {
   const queryClient = useQueryClient();
+  const { roles } = useAuth();
   const [includeHidden, setIncludeHidden] = useState(false);
   const { data: options } = useQuery({ queryKey: ["options", includeHidden], queryFn: () => fetchOptions(includeHidden) });
   const { data: activities = [] } = useQuery({ queryKey: ["user-activities"], queryFn: () => listUserActivities() });
@@ -5054,16 +5055,20 @@ export function UsersRolesPage() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="w-full sm:w-auto">
-          <TabsTrigger value="users" className="gap-1.5">
+        <TabsList className="flex h-auto w-full flex-wrap items-stretch justify-start gap-1 sm:w-fit">
+          <TabsTrigger value="users" className="min-h-9 flex-1 gap-1.5 sm:flex-none">
             <Users className="h-3.5 w-3.5" />
             Users ({profiles.length})
           </TabsTrigger>
-          <TabsTrigger value="roles" className="gap-1.5">
+          <TabsTrigger value="roles" className="min-h-9 flex-1 gap-1.5 sm:flex-none">
             <ShieldCheck className="h-3.5 w-3.5" />
             Access
           </TabsTrigger>
-          <TabsTrigger value="activity" className="gap-1.5">
+          <TabsTrigger value="role-matrix" className="min-h-9 flex-1 gap-1.5 sm:flex-none">
+            <ShieldCheck className="h-3.5 w-3.5" />
+            Role Matrix
+          </TabsTrigger>
+          <TabsTrigger value="activity" className="min-h-9 flex-1 gap-1.5 sm:flex-none">
             <Activity className="h-3.5 w-3.5" />
             Activity
           </TabsTrigger>
@@ -5181,6 +5186,33 @@ export function UsersRolesPage() {
           </div>
         </TabsContent>
 
+        <TabsContent value="role-matrix" className="mt-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Role Matrix</CardTitle>
+              <CardDescription>Your current role assignments and their access scope.</CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-2">
+              {roles.map((role) => (
+                <div key={role} className="rounded-lg border border-border px-3 py-2">
+                  <p className="font-medium">{ROLE_LABELS[role]}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {role === "admin"
+                      ? "Full system access including reset, user management, and all configuration"
+                      : role === "warehouse_manager"
+                        ? "Operational control across all warehouse functions and reporting"
+                        : role === "inventory_clerk"
+                          ? "Receiving, cycle counts, inventory search, and routine stock moves"
+                          : role === "dispatch_driver"
+                            ? "Transfer sign-off and inter-warehouse handoff visibility"
+                            : "Assigned task execution and limited inventory search"}
+                  </p>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
         <TabsContent value="activity" className="mt-4">
           <Card>
             <CardHeader>
@@ -5241,6 +5273,17 @@ function UserProfileRow({
     .filter((ur) => !ur.is_hidden)
     .map((ur) => (ur.roles as { name?: string } | null)?.name ?? "")
     .filter(Boolean);
+  const hasBadgeCode = values.badge_code.trim().length > 0;
+
+  const handleResetPasswordPlaceholder = () => {
+    // TODO: Wire this placeholder to the admin password reset flow.
+    toast.info("Password reset action is planned.");
+  };
+
+  const handlePrintBadgePlaceholder = () => {
+    // TODO: Build badge printing from the saved profile and badge code.
+    toast.info("Badge printing is planned.");
+  };
 
   return (
     <div className={cn(
@@ -5352,6 +5395,22 @@ function UserProfileRow({
                         <p className="text-xs text-muted-foreground">Admin confirmed</p>
                       </div>
                     </label>
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <Button type="button" variant="outline" onClick={handleResetPasswordPlaceholder}>
+                      <Mail className="mr-2 h-4 w-4" />
+                      Reset password
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={!hasBadgeCode}
+                      title={hasBadgeCode ? "Print badge" : "Enter a badge code before printing"}
+                      onClick={handlePrintBadgePlaceholder}
+                    >
+                      <Printer className="mr-2 h-4 w-4" />
+                      Print badge
+                    </Button>
                   </div>
                   <Button
                     className="w-full"
@@ -5476,16 +5535,15 @@ export function SettingsPage() {
         <h2 className="text-2xl font-semibold">Settings</h2>
         <p className="text-sm text-muted-foreground">Warehouse environment, client configuration, and system management.</p>
       </div>
-      <Tabs defaultValue="modules">
-        <TabsList className={cn("grid h-auto w-full sm:w-fit", roles.includes("admin") ? "grid-cols-6" : "grid-cols-5")}>
-          <TabsTrigger value="modules">Modules</TabsTrigger>
-          <TabsTrigger value="environment">Environment</TabsTrigger>
-          <TabsTrigger value="client-vars">Client Variables</TabsTrigger>
-          <TabsTrigger value="roles">Role Matrix</TabsTrigger>
+      <Tabs defaultValue={roles.includes("admin") ? "users-roles" : "modules"}>
+        <TabsList className="flex h-auto w-full flex-wrap items-stretch justify-start gap-1 sm:w-fit">
           {roles.includes("admin") && (
-            <TabsTrigger value="users-roles" className="gap-1.5"><Users className="h-3.5 w-3.5" />Users & Roles</TabsTrigger>
+            <TabsTrigger value="users-roles" className="min-h-9 flex-1 gap-1.5 sm:flex-none"><Users className="h-3.5 w-3.5" />Users & Roles</TabsTrigger>
           )}
-          <TabsTrigger value="about" className="gap-1.5"><Info className="h-3.5 w-3.5" />About</TabsTrigger>
+          <TabsTrigger value="modules" className="min-h-9 flex-1 sm:flex-none">Modules</TabsTrigger>
+          <TabsTrigger value="environment" className="min-h-9 flex-1 sm:flex-none">Environment</TabsTrigger>
+          <TabsTrigger value="client-vars" className="min-h-9 flex-1 sm:flex-none">Client Variables</TabsTrigger>
+          <TabsTrigger value="about" className="min-h-9 flex-1 gap-1.5 sm:flex-none"><Info className="h-3.5 w-3.5" />About</TabsTrigger>
         </TabsList>
 
         <TabsContent value="modules" className="mt-4">
@@ -5523,33 +5581,6 @@ export function SettingsPage() {
           <ClientVariablesPanel />
         </TabsContent>
 
-        <TabsContent value="roles" className="mt-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Role Matrix</CardTitle>
-              <CardDescription>Your current role assignments and their access scope.</CardDescription>
-            </CardHeader>
-            <CardContent className="grid gap-2">
-              {roles.map((role) => (
-                <div key={role} className="rounded-lg border border-border px-3 py-2">
-                  <p className="font-medium">{ROLE_LABELS[role]}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {role === "admin"
-                      ? "Full system access including reset, user management, and all configuration"
-                      : role === "warehouse_manager"
-                        ? "Operational control across all warehouse functions and reporting"
-                        : role === "inventory_clerk"
-                          ? "Receiving, cycle counts, inventory search, and routine stock moves"
-                          : role === "dispatch_driver"
-                            ? "Transfer sign-off and inter-warehouse handoff visibility"
-                            : "Assigned task execution and limited inventory search"}
-                  </p>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
         {roles.includes("admin") && (
           <TabsContent value="users-roles" className="mt-4">
             <UsersRolesPage />
@@ -5571,6 +5602,17 @@ export function SettingsPage() {
                 <span className="font-mono text-xs font-semibold text-primary">v{__APP_VERSION__}</span>
               </div>
               {[
+                {
+                  version: "1.1.3",
+                  date: "May 2026",
+                  changes: [
+                    "Command Center: all Floor, Dock, and Office tiles are draggable and resizable",
+                    "Command Center: summary metrics and workflow tiles now share one dynamic layout surface per view",
+                    "Command Center: tile size and position preferences are remembered per signed-in user when available",
+                    "Navigation: Users shortcut removed from the sidebar while admin user management remains in Settings",
+                    "Dashboard: pallet dials, workflow queues, Warehouse Intelligence, Dock lanes, Office widgets, and Warehouse Brain use the same tile controls",
+                  ],
+                },
                 {
                   version: "1.1.2",
                   date: "May 2026",

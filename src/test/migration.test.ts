@@ -26,6 +26,10 @@ const demoSeed = readFileSync(
   path.resolve(process.cwd(), "supabase/seed.example.sql"),
   "utf8",
 );
+const profileLoginCodesMigration = readFileSync(
+  path.resolve(process.cwd(), "supabase/migrations/20260528000000_restore_profile_login_codes.sql"),
+  "utf8",
+);
 
 describe("init_wms migration", () => {
   it("creates the core warehouse tables", () => {
@@ -99,5 +103,14 @@ describe("demo seed", () => {
     expect(demoSeed).toContain("TRF-INTRA-0509");
     expect(demoSeed).toContain("APPT-IN-0509");
     expect(demoSeed).toContain("FULL-FLOW-DEMO-RECEIVE");
+  });
+});
+
+describe("profile login codes migration", () => {
+  it("restores user and badge code columns for self-serve access", () => {
+    expect(profileLoginCodesMigration).toContain("add column if not exists user_code text");
+    expect(profileLoginCodesMigration).toContain("add column if not exists badge_code text");
+    expect(profileLoginCodesMigration).toContain("idx_profiles_badge_code_unique");
+    expect(profileLoginCodesMigration).toContain("public.resolve_login_code");
   });
 });
