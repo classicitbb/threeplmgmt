@@ -3016,6 +3016,7 @@ export type Database = {
         | "inventory_clerk"
         | "warehouse_operator"
         | "dispatch_driver"
+        | "dev"
       count_scope: "location" | "zone" | "sku" | "spot"
       integration_job_status:
         | "queued"
@@ -3203,6 +3204,7 @@ export const Constants = {
         "inventory_clerk",
         "warehouse_operator",
         "dispatch_driver",
+        "dev",
       ],
       count_scope: ["location", "zone", "sku", "spot"],
       integration_job_status: [

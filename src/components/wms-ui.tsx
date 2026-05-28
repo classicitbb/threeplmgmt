@@ -201,24 +201,6 @@ const DASHBOARD_METRIC_ROUTES: Record<DashboardMetricKey, AppRoute> = {
   holdStock: "/status",
   quarantineStock: "/status",
 };
-const DASHBOARD_METRIC_LABELS: Record<DashboardMetricKey, string> = {
-  totalPallets: "Total Pallets",
-  warehousePallets: "This Warehouse",
-  availablePallets: "Available Pallets",
-  coolZoneOccupancy: "Located Pallets",
-  openReceipts: "Open Receipts",
-  openPutawayTasks: "Open Putaway",
-  openPickLists: "Open Pick Lists",
-  openMoveTasks: "Open Moves",
-  openTransfers: "Open Transfers",
-  openCycleCounts: "Open Counts",
-  openDockLoads: "Dock Loads",
-  openReplenishmentTasks: "Replenishment",
-  recentAuditEvents: "Recent Events",
-  holdStock: "Hold Stock",
-  quarantineStock: "Quarantine",
-};
-
 type DashboardTileConfig = {
   id: string;
   size: DashboardCardSize;
