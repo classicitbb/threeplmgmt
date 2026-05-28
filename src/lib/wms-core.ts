@@ -844,6 +844,21 @@ export async function getWarehouseForLocationBarcode(locationCode: string) {
   return data as any;
 }
 
+/** Returns the set of product IDs that have at least 1 available unit in a
+ *  known location (location_id IS NOT NULL). Used to gate pick list creation
+ *  so operators can't add products that have no pickable stock. */
+export async function getPickableProductIds(warehouseId?: string): Promise<Set<string>> {
+  let query = db("inventory_balances")
+    .select("product_id")
+    .eq("status", "available")
+    .gt("available_quantity", 0)
+    .not("location_id", "is", null);
+  if (warehouseId) query = query.eq("warehouse_id", warehouseId);
+  const { data, error } = await query;
+  if (error) throw error;
+  return new Set((data ?? []).map((row: any) => row.product_id as string));
+}
+
 export async function listUserActivities(limit = 25) {
   const { data, error } = await db("audit_events")
     .select("*, profiles:actor_user_id(full_name, email)")
