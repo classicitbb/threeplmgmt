@@ -4648,7 +4648,7 @@ export function LocationMovesPage() {
                     {completeMutation.isPending ? <Loader2 className="animate-spin" /> : <ArrowLeftRight data-icon="inline-start" />}
                     Confirm Move
                   </Button>
-                  {task.status === "queued" && (
+                  {["queued", "in_progress"].includes(task.status) && (
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
                         <Button variant="outline" className="w-full text-destructive hover:text-destructive">

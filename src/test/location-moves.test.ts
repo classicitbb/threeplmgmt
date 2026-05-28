@@ -103,9 +103,9 @@ describe("location move helpers", () => {
     expect(mockDb.rpcs).toEqual([]);
   });
 
-  it("cancels a queued move without moving the pallet", async () => {
+  it("cancels an in-progress move without moving the pallet", async () => {
     mockDb.selects = {
-      move_tasks: [{ data: { id: "move-1", pallet_id: "pallet-1", from_location_id: "loc-old", to_location_id: "loc-new", status: "queued", warehouse_id: "wh-1" }, error: null }],
+      move_tasks: [{ data: { id: "move-1", pallet_id: "pallet-1", from_location_id: "loc-old", to_location_id: "loc-new", status: "in_progress", warehouse_id: "wh-1" }, error: null }],
     };
 
     await cancelMoveTask("move-1");
