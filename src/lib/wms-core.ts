@@ -1496,7 +1496,6 @@ export async function confirmPickTask(taskId: string, scannedLocation: string, s
   if (pickAudit.error) console.error("[submitPickTaskLine] log_audit_event failed:", pickAudit.error);
 }
 
-export async function createTransferFlow(input: z.infer<typeof transferSchema>) {
 export async function cancelPickList(pickListId: string, reason?: string) {
   const { data: pickList, error: pickListError } = await db("pick_lists")
     .select("*, pick_tasks(id, status)")
