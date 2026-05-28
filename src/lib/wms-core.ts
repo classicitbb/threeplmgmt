@@ -10,8 +10,10 @@ const db = supabase.from.bind(supabase) as (table: string) => any;
 // These types will come from the DB once all WMS tables are created.
 // For now we define them locally so the code compiles.
 export type RoleCode =
+  | "developer"
   | "admin"
   | "warehouse_manager"
+  | "warehouse_supervisor"
   | "inventory_clerk"
   | "warehouse_operator"
   | "dispatch_driver";
@@ -181,11 +183,23 @@ export type DashboardMetrics = {
 };
 
 export const ROLE_LABELS: Record<RoleCode, string> = {
+  developer: "Developer",
   admin: "Admin",
   warehouse_manager: "Warehouse Manager",
+  warehouse_supervisor: "Warehouse Supervisor",
   inventory_clerk: "Inventory Clerk",
   warehouse_operator: "Warehouse Operator",
   dispatch_driver: "Dispatch Driver",
+};
+
+export const ROLE_DESCRIPTIONS: Record<RoleCode, string> = {
+  developer: "Full system capabilities including developer tooling, role management, and all configuration",
+  admin: "Full system access including reset, user management, and all configuration",
+  warehouse_manager: "Operational control across all warehouse functions and reporting",
+  warehouse_supervisor: "Operational oversight with team scheduling, task assignment, and escalation handling",
+  inventory_clerk: "Receiving, cycle counts, inventory search, and routine stock moves",
+  warehouse_operator: "Assigned task execution and limited inventory search",
+  dispatch_driver: "Transfer sign-off and inter-warehouse handoff visibility",
 };
 
 export type ModuleKey =
@@ -195,26 +209,26 @@ export type ModuleKey =
   | "system-log" | "email-log";
 
 export const NAVIGATION: Array<{ label: string; to: AppRoute; roles: RoleCode[]; moduleKey?: ModuleKey }> = [
-  { label: "Dashboard", to: "/dashboard", roles: ["admin", "warehouse_manager", "inventory_clerk", "warehouse_operator", "dispatch_driver"] },
-  { label: "Receiving", to: "/receiving", roles: ["admin", "warehouse_manager", "inventory_clerk"], moduleKey: "receiving" },
-  { label: "Putaway", to: "/putaway-tasks", roles: ["admin", "warehouse_manager", "inventory_clerk", "warehouse_operator"], moduleKey: "putaway" },
-  { label: "Inventory", to: "/inventory-search", roles: ["admin", "warehouse_manager", "inventory_clerk", "warehouse_operator"], moduleKey: "inventory" },
-  { label: "Pick Lists", to: "/pick-lists", roles: ["admin", "warehouse_manager", "warehouse_operator"], moduleKey: "pick-lists" },
-  { label: "Location Moves", to: "/location-moves", roles: ["admin", "warehouse_manager", "inventory_clerk", "warehouse_operator"], moduleKey: "location-moves" },
-  { label: "Transfers", to: "/transfers", roles: ["admin", "warehouse_manager", "inventory_clerk", "dispatch_driver"], moduleKey: "transfers" },
-  { label: "Warehouses", to: "/warehouses", roles: ["admin", "warehouse_manager"], moduleKey: "warehouses" },
-  { label: "Zones", to: "/zones", roles: ["admin", "warehouse_manager"], moduleKey: "zones" },
-  { label: "Locations", to: "/locations", roles: ["admin", "warehouse_manager"], moduleKey: "locations" },
-  { label: "Products", to: "/products", roles: ["admin", "warehouse_manager", "inventory_clerk"], moduleKey: "products" },
-  { label: "Clients", to: "/clients", roles: ["admin", "warehouse_manager"], moduleKey: "clients" },
-  { label: "Settings", to: "/settings", roles: ["admin", "warehouse_manager"], moduleKey: "settings" },
-  { label: "Help", to: "/help", roles: ["admin", "warehouse_manager", "inventory_clerk", "warehouse_operator", "dispatch_driver"] },
-  { label: "Packaging", to: "/packaging-profiles", roles: ["admin", "warehouse_manager", "inventory_clerk"], moduleKey: "packaging" },
-  { label: "Cycle Counts", to: "/cycle-counts", roles: ["admin", "warehouse_manager", "inventory_clerk", "warehouse_operator"], moduleKey: "cycle-counts" },
-  { label: "Statuses", to: "/status", roles: ["admin", "warehouse_manager", "inventory_clerk"], moduleKey: "status" },
-  { label: "Reports", to: "/reports", roles: ["admin", "warehouse_manager", "inventory_clerk"], moduleKey: "reports" },
-  { label: "System Log", to: "/system-log", roles: ["admin", "warehouse_manager"], moduleKey: "system-log" },
-  { label: "Email Log", to: "/email-log", roles: ["admin"], moduleKey: "email-log" },
+  { label: "Dashboard", to: "/dashboard", roles: ["developer", "admin", "warehouse_manager", "warehouse_supervisor", "inventory_clerk", "warehouse_operator", "dispatch_driver"] },
+  { label: "Receiving", to: "/receiving", roles: ["developer", "admin", "warehouse_manager", "warehouse_supervisor", "inventory_clerk"], moduleKey: "receiving" },
+  { label: "Putaway", to: "/putaway-tasks", roles: ["developer", "admin", "warehouse_manager", "warehouse_supervisor", "inventory_clerk", "warehouse_operator"], moduleKey: "putaway" },
+  { label: "Inventory", to: "/inventory-search", roles: ["developer", "admin", "warehouse_manager", "warehouse_supervisor", "inventory_clerk", "warehouse_operator"], moduleKey: "inventory" },
+  { label: "Pick Lists", to: "/pick-lists", roles: ["developer", "admin", "warehouse_manager", "warehouse_supervisor", "warehouse_operator"], moduleKey: "pick-lists" },
+  { label: "Location Moves", to: "/location-moves", roles: ["developer", "admin", "warehouse_manager", "warehouse_supervisor", "inventory_clerk", "warehouse_operator"], moduleKey: "location-moves" },
+  { label: "Transfers", to: "/transfers", roles: ["developer", "admin", "warehouse_manager", "warehouse_supervisor", "inventory_clerk", "dispatch_driver"], moduleKey: "transfers" },
+  { label: "Warehouses", to: "/warehouses", roles: ["developer", "admin", "warehouse_manager"], moduleKey: "warehouses" },
+  { label: "Zones", to: "/zones", roles: ["developer", "admin", "warehouse_manager"], moduleKey: "zones" },
+  { label: "Locations", to: "/locations", roles: ["developer", "admin", "warehouse_manager"], moduleKey: "locations" },
+  { label: "Products", to: "/products", roles: ["developer", "admin", "warehouse_manager", "warehouse_supervisor", "inventory_clerk"], moduleKey: "products" },
+  { label: "Clients", to: "/clients", roles: ["developer", "admin", "warehouse_manager"], moduleKey: "clients" },
+  { label: "Settings", to: "/settings", roles: ["developer", "admin", "warehouse_manager", "warehouse_supervisor"], moduleKey: "settings" },
+  { label: "Help", to: "/help", roles: ["developer", "admin", "warehouse_manager", "warehouse_supervisor", "inventory_clerk", "warehouse_operator", "dispatch_driver"] },
+  { label: "Packaging", to: "/packaging-profiles", roles: ["developer", "admin", "warehouse_manager", "inventory_clerk"], moduleKey: "packaging" },
+  { label: "Cycle Counts", to: "/cycle-counts", roles: ["developer", "admin", "warehouse_manager", "warehouse_supervisor", "inventory_clerk", "warehouse_operator"], moduleKey: "cycle-counts" },
+  { label: "Statuses", to: "/status", roles: ["developer", "admin", "warehouse_manager", "warehouse_supervisor", "inventory_clerk"], moduleKey: "status" },
+  { label: "Reports", to: "/reports", roles: ["developer", "admin", "warehouse_manager", "warehouse_supervisor", "inventory_clerk"], moduleKey: "reports" },
+  { label: "System Log", to: "/system-log", roles: ["developer", "admin", "warehouse_manager"], moduleKey: "system-log" },
+  { label: "Email Log", to: "/email-log", roles: ["developer", "admin"], moduleKey: "email-log" },
 ];
 
 const tempOptions: FieldDefinition["options"] = [

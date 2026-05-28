@@ -33,6 +33,7 @@ import { assertOnline, useNetworkStatus } from "@/hooks/use-network-status";
 import {
   NAVIGATION,
   ROLE_LABELS,
+  ROLE_DESCRIPTIONS,
   type AdminInviteUserInput,
   type AppRoute,
   type FieldDefinition,
@@ -5065,6 +5066,7 @@ function AddUserDialog({
 export function UsersRolesPage() {
   const queryClient = useQueryClient();
   const { roles } = useAuth();
+  const canOperateRoles = roles.includes("developer");
   const [includeHidden, setIncludeHidden] = useState(false);
   const { data: options } = useQuery({ queryKey: ["options", includeHidden], queryFn: () => fetchOptions(includeHidden) });
   const { data: activities = [] } = useQuery({ queryKey: ["user-activities"], queryFn: () => listUserActivities() });
@@ -5204,77 +5206,83 @@ export function UsersRolesPage() {
 
         <TabsContent value="roles" className="mt-4">
           <div className="grid gap-6 xl:grid-cols-[1fr_1.5fr]">
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Assign Role</CardTitle>
-                <CardDescription>Add a role to an existing user account.</CardDescription>
-              </CardHeader>
-              <CardContent className="grid gap-3">
-                <Select value={selectedProfile} onValueChange={setSelectedProfile}>
-                  <SelectTrigger><SelectValue placeholder="Select user" /></SelectTrigger>
-                  <SelectContent>
-                    {profiles.map((profile) => (
-                      <SelectItem key={profile.id} value={profile.id}>
-                        {profile.full_name ?? profile.email ?? profile.id}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select value={selectedRole} onValueChange={setSelectedRole}>
-                  <SelectTrigger><SelectValue placeholder="Select role" /></SelectTrigger>
-                  <SelectContent>
-                    {(options?.roles ?? []).map((role: any) => (
-                      <SelectItem key={role.id} value={role.id}>{role.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Button
-                  disabled={!selectedProfile || !selectedRole || assignMutation.isPending}
-                  onClick={() => assignMutation.mutate()}
-                  className="w-full"
-                >
-                  {assignMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                  Assign role
-                </Button>
-              </CardContent>
-            </Card>
+            {canOperateRoles && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Assign Role</CardTitle>
+                  <CardDescription>Add a role to an existing user account.</CardDescription>
+                </CardHeader>
+                <CardContent className="grid gap-3">
+                  <Select value={selectedProfile} onValueChange={setSelectedProfile}>
+                    <SelectTrigger><SelectValue placeholder="Select user" /></SelectTrigger>
+                    <SelectContent>
+                      {profiles.map((profile) => (
+                        <SelectItem key={profile.id} value={profile.id}>
+                          {profile.full_name ?? profile.email ?? profile.id}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Select value={selectedRole} onValueChange={setSelectedRole}>
+                    <SelectTrigger><SelectValue placeholder="Select role" /></SelectTrigger>
+                    <SelectContent>
+                      {(options?.roles ?? []).map((role: any) => (
+                        <SelectItem key={role.id} value={role.id}>{role.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    disabled={!selectedProfile || !selectedRole || assignMutation.isPending}
+                    onClick={() => assignMutation.mutate()}
+                    className="w-full"
+                  >
+                    {assignMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                    Assign role
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
 
-            <Card>
+            <Card className={canOperateRoles ? "" : "xl:col-span-full"}>
               <CardHeader>
                 <CardTitle className="text-base">Current Access</CardTitle>
               </CardHeader>
               <CardContent className="grid gap-2">
-                {(options?.userRoles ?? []).map((userRole: any) => {
-                  const profile = profiles.find((p) => p.id === userRole.user_id);
-                  return (
-                    <div key={userRole.id} className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2.5">
-                      <div className="flex min-w-0 items-center gap-2.5">
-                        <Avatar className="h-7 w-7 shrink-0">
-                          <AvatarFallback className="bg-muted text-xs">
-                            {(profile?.full_name ?? "?").slice(0, 2).toUpperCase()}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-medium">{profile?.full_name ?? userRole.user_id}</p>
-                          <p className="truncate text-xs text-muted-foreground">{profile?.email ?? ""}</p>
+                {(options?.userRoles ?? [])
+                  .filter((userRole: any) => canOperateRoles || (userRole.roles as { code?: string } | null)?.code !== "developer")
+                  .map((userRole: any) => {
+                    const profile = profiles.find((p) => p.id === userRole.user_id);
+                    return (
+                      <div key={userRole.id} className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2.5">
+                        <div className="flex min-w-0 items-center gap-2.5">
+                          <Avatar className="h-7 w-7 shrink-0">
+                            <AvatarFallback className="bg-muted text-xs">
+                              {(profile?.full_name ?? "?").slice(0, 2).toUpperCase()}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-medium">{profile?.full_name ?? userRole.user_id}</p>
+                            <p className="truncate text-xs text-muted-foreground">{profile?.email ?? ""}</p>
+                          </div>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-2">
+                          <Badge variant={userRole.is_hidden ? "secondary" : "default"} className="text-xs">
+                            {(userRole.roles as { name?: string } | null)?.name ?? "Role"}
+                          </Badge>
+                          {canOperateRoles && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 text-xs"
+                              onClick={() => visibilityMutation.mutate({ userRoleId: userRole.id, hidden: !userRole.is_hidden })}
+                            >
+                              {userRole.is_hidden ? "Restore" : "Revoke"}
+                            </Button>
+                          )}
                         </div>
                       </div>
-                      <div className="flex shrink-0 items-center gap-2">
-                        <Badge variant={userRole.is_hidden ? "secondary" : "default"} className="text-xs">
-                          {(userRole.roles as { name?: string } | null)?.name ?? "Role"}
-                        </Badge>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-7 text-xs"
-                          onClick={() => visibilityMutation.mutate({ userRoleId: userRole.id, hidden: !userRole.is_hidden })}
-                        >
-                          {userRole.is_hidden ? "Restore" : "Revoke"}
-                        </Button>
-                      </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
               </CardContent>
             </Card>
           </div>
@@ -5287,22 +5295,16 @@ export function UsersRolesPage() {
               <CardDescription>Your current role assignments and their access scope.</CardDescription>
             </CardHeader>
             <CardContent className="grid gap-2">
-              {roles.map((role) => (
-                <div key={role} className="rounded-lg border border-border px-3 py-2">
-                  <p className="font-medium">{ROLE_LABELS[role]}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {role === "admin"
-                      ? "Full system access including reset, user management, and all configuration"
-                      : role === "warehouse_manager"
-                        ? "Operational control across all warehouse functions and reporting"
-                        : role === "inventory_clerk"
-                          ? "Receiving, cycle counts, inventory search, and routine stock moves"
-                          : role === "dispatch_driver"
-                            ? "Transfer sign-off and inter-warehouse handoff visibility"
-                            : "Assigned task execution and limited inventory search"}
-                  </p>
-                </div>
-              ))}
+              {roles
+                .filter((role) => canOperateRoles || role !== "developer")
+                .map((role) => (
+                  <div key={role} className="rounded-lg border border-border px-3 py-2">
+                    <p className="font-medium">{ROLE_LABELS[role as keyof typeof ROLE_LABELS] ?? role}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {ROLE_DESCRIPTIONS[role as keyof typeof ROLE_DESCRIPTIONS] ?? "Warehouse system access"}
+                    </p>
+                  </div>
+                ))}
             </CardContent>
           </Card>
         </TabsContent>
@@ -5789,7 +5791,10 @@ function ModulesSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
 
 export function SettingsPage() {
   const { roles } = useAuth();
+  const { isEnabled } = useFeatureFlags();
   const navigate = useNavigate();
+  const canViewUsersRoles = roles.some((r) => ["developer", "admin", "warehouse_manager", "warehouse_supervisor"].includes(r));
+  const isDeveloperOrAdmin = roles.some((r) => ["developer", "admin"].includes(r));
   const queryClient = useQueryClient();
 
   const resetMutation = useMutation({
@@ -5808,19 +5813,21 @@ export function SettingsPage() {
         <h2 className="text-2xl font-semibold">Settings</h2>
         <p className="text-sm text-muted-foreground">Warehouse environment, client configuration, and system management.</p>
       </div>
-      <Tabs defaultValue={roles.includes("admin") ? "users-roles" : "modules"}>
+      <Tabs defaultValue={canViewUsersRoles ? "users-roles" : "modules"}>
         <TabsList className="flex h-auto w-full flex-wrap items-stretch justify-start gap-1 sm:w-fit">
-          {roles.includes("admin") && (
+          {canViewUsersRoles && (
             <TabsTrigger value="users-roles" className="min-h-9 flex-1 gap-1.5 sm:flex-none"><Users className="h-3.5 w-3.5" />Users & Roles</TabsTrigger>
           )}
           <TabsTrigger value="modules" className="min-h-9 flex-1 sm:flex-none">Modules</TabsTrigger>
           <TabsTrigger value="environment" className="min-h-9 flex-1 sm:flex-none">Environment</TabsTrigger>
-          <TabsTrigger value="client-vars" className="min-h-9 flex-1 sm:flex-none">Client Variables</TabsTrigger>
+          {isEnabled("clients") && (
+            <TabsTrigger value="client-vars" className="min-h-9 flex-1 sm:flex-none">Client Variables</TabsTrigger>
+          )}
           <TabsTrigger value="about" className="min-h-9 flex-1 gap-1.5 sm:flex-none"><Info className="h-3.5 w-3.5" />About</TabsTrigger>
         </TabsList>
 
         <TabsContent value="modules" className="mt-4">
-          <ModulesSettingsPanel isAdmin={roles.includes("admin")} />
+          <ModulesSettingsPanel isAdmin={isDeveloperOrAdmin} />
         </TabsContent>
 
         <TabsContent value="environment" className="mt-4 grid gap-6 xl:grid-cols-2">
@@ -5840,21 +5847,23 @@ export function SettingsPage() {
                 <Button variant="outline" asChild>
                   <Link to="/system-log">View system log</Link>
                 </Button>
-                <Button variant="destructive" onClick={() => resetMutation.mutate()} disabled={resetMutation.isPending || !roles.includes("admin")}>
+                <Button variant="destructive" onClick={() => resetMutation.mutate()} disabled={resetMutation.isPending || !isDeveloperOrAdmin}>
                   {resetMutation.isPending ? <Loader2 className="animate-spin" /> : <RotateCcw data-icon="inline-start" />}
                   Reset all
                 </Button>
               </div>
-              {!roles.includes("admin") ? <p>Only admins can run Reset All.</p> : null}
+              {!isDeveloperOrAdmin ? <p>Only admins and developers can run Reset All.</p> : null}
             </CardContent>
           </Card>
         </TabsContent>
 
-        <TabsContent value="client-vars" className="mt-4">
-          <ClientVariablesPanel />
-        </TabsContent>
+        {isEnabled("clients") && (
+          <TabsContent value="client-vars" className="mt-4">
+            <ClientVariablesPanel />
+          </TabsContent>
+        )}
 
-        {roles.includes("admin") && (
+        {canViewUsersRoles && (
           <TabsContent value="users-roles" className="mt-4">
             <UsersRolesPage />
           </TabsContent>
