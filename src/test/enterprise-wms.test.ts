@@ -37,6 +37,7 @@ function dashboardMetrics(overrides: Partial<DashboardMetrics> = {}): DashboardM
     dockLoadRows: [],
     replenishmentRows: [],
     blockedBalanceRows: [],
+    receiptRows: [],
     ...overrides,
   };
 }

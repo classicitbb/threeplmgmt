@@ -6,7 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm, type UseFormReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { supabase } from "@/integrations/supabase/client";
-import { Activity, AlertTriangle, ArrowLeftRight, BarChart3, Bot, Boxes, Building2, CheckCircle2, ClipboardCheck, ClipboardList, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, HelpCircle, Home, Info, LayoutDashboard, Loader2, LogOut, Mail, Maximize2, MapPinned, Menu, Minimize2, Package, PackageX, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, QrCode, RadioTower, RotateCcw, Search, Settings, ShieldCheck, Star, Tags, Truck, Upload, UserPlus, Users, Warehouse } from "lucide-react";
+import { Activity, AlertTriangle, ArrowLeftRight, BarChart3, Bot, Boxes, Building2, CheckCircle2, ClipboardCheck, ClipboardList, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, HelpCircle, Home, Info, KeyRound, LayoutDashboard, Loader2, LogOut, Mail, Maximize2, MapPinned, Menu, Minimize2, Package, PackageX, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, QrCode, RadioTower, RotateCcw, Search, Settings, ShieldCheck, Star, Tags, Truck, Upload, UserPlus, Users, Warehouse } from "lucide-react";
 import {
   DndContext,
   KeyboardSensor,
@@ -33,6 +33,7 @@ import { assertOnline, useNetworkStatus } from "@/hooks/use-network-status";
 import {
   NAVIGATION,
   ROLE_LABELS,
+  ROLE_DESCRIPTIONS,
   type AdminInviteUserInput,
   type AppRoute,
   type FieldDefinition,
@@ -40,10 +41,12 @@ import {
   type DraftReceipt,
   adminInviteUser,
   adminUpdateUserPassword,
+  updateOwnPassword,
   changePalletStatus,
   confirmPutaway,
   createCycleCountFlow,
   createPickListFlow,
+  getPickableProductIds,
   createReceiptFlow,
   createTransferFlow,
   cancelPickList,
@@ -59,7 +62,6 @@ import {
   getDashboardMetrics,
   getInventoryDetail,
   getPickExecution,
-  getWarehouseForLocationBarcode,
   getBinOccupancy,
   getPutawayTasks,
   getReportData,
@@ -127,7 +129,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 // removed unused dropdown-menu and drawer imports
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -201,24 +203,6 @@ const DASHBOARD_METRIC_ROUTES: Record<DashboardMetricKey, AppRoute> = {
   holdStock: "/status",
   quarantineStock: "/status",
 };
-const DASHBOARD_METRIC_LABELS: Record<DashboardMetricKey, string> = {
-  totalPallets: "Total Pallets",
-  warehousePallets: "This Warehouse",
-  availablePallets: "Available Pallets",
-  coolZoneOccupancy: "Located Pallets",
-  openReceipts: "Open Receipts",
-  openPutawayTasks: "Open Putaway",
-  openPickLists: "Open Pick Lists",
-  openMoveTasks: "Open Moves",
-  openTransfers: "Open Transfers",
-  openCycleCounts: "Open Counts",
-  openDockLoads: "Dock Loads",
-  openReplenishmentTasks: "Replenishment",
-  recentAuditEvents: "Recent Events",
-  holdStock: "Hold Stock",
-  quarantineStock: "Quarantine",
-};
-
 type DashboardTileConfig = {
   id: string;
   size: DashboardCardSize;
@@ -793,6 +777,80 @@ const locationWizardSchema = z
 
 export type LocationWizardValues = z.infer<typeof locationWizardSchema>;
 
+function ChangeOwnPasswordDialog({ onClose }: { onClose?: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+
+  const mutation = useMutation({
+    mutationFn: () => updateOwnPassword(password),
+    onSuccess: () => {
+      toast.success("Password updated");
+      setPassword("");
+      setConfirm("");
+      setOpen(false);
+      onClose?.();
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Password update failed"),
+  });
+
+  const handleSubmit = () => {
+    if (password.length < 8) {
+      toast.error("Password must be at least 8 characters.");
+      return;
+    }
+    if (password !== confirm) {
+      toast.error("Passwords do not match.");
+      return;
+    }
+    mutation.mutate();
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="ghost" size="sm" className="h-7 shrink-0 text-xs">
+          <KeyRound className="mr-1 h-3 w-3" />
+          Change password
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Change password</DialogTitle>
+          <DialogDescription>Enter a new password for your account. Minimum 8 characters.</DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-3 py-2">
+          <div className="grid gap-1.5">
+            <label className="text-sm font-medium">New password</label>
+            <Input
+              type="password"
+              value={password}
+              placeholder="At least 8 characters"
+              onChange={(e) => setPassword(e.target.value)}
+            />
+          </div>
+          <div className="grid gap-1.5">
+            <label className="text-sm font-medium">Confirm password</label>
+            <Input
+              type="password"
+              value={confirm}
+              placeholder="Repeat new password"
+              onChange={(e) => setConfirm(e.target.value)}
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setOpen(false)} disabled={mutation.isPending}>Cancel</Button>
+          <Button onClick={handleSubmit} disabled={mutation.isPending}>
+            {mutation.isPending ? <Loader2 className="animate-spin" /> : null}
+            Update password
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { pathname } = useLocation();
   const { profile, roles, signOut, user, refreshProfile } = useAuth();
@@ -873,9 +931,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       return;
     }
     if (route === "/putaway-tasks") {
+      const canSeeAll = roles.some((r) => ["developer", "admin", "warehouse_manager", "warehouse_supervisor"].includes(r));
+      const prefetchUserId = canSeeAll ? undefined : user?.id;
       void queryClient.prefetchQuery({
-        queryKey: ["putaway-tasks", user?.id],
-        queryFn: () => getPutawayTasks(user?.id),
+        queryKey: ["putaway-tasks", prefetchUserId],
+        queryFn: () => getPutawayTasks(prefetchUserId),
       });
       return;
     }
@@ -1011,10 +1071,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       <p className="truncate text-[11px] text-muted-foreground">v{__APP_VERSION__}</p>
                     </div>
                   </div>
-                  <Button className="h-8 w-full text-xs justify-start" variant="outline" size="sm" onClick={() => { setMobileMenuOpen(false); void signOut(); }}>
-                    <LogOut className="mr-2 h-3 w-3" />
-                    Sign out
-                  </Button>
+                  <div className="flex gap-2">
+                    <ChangeOwnPasswordDialog onClose={() => setMobileMenuOpen(false)} />
+                    <Button className="h-8 flex-1 text-xs justify-start" variant="outline" size="sm" onClick={() => { setMobileMenuOpen(false); void signOut(); }}>
+                      <LogOut className="mr-2 h-3 w-3" />
+                      Sign out
+                    </Button>
+                  </div>
                 </div>
                 <div className="flex-1 overflow-y-auto">{navigation}</div>
               </SheetContent>
@@ -1058,6 +1121,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   <AvatarFallback className="bg-primary/10 text-xs font-semibold text-primary">{initials}</AvatarFallback>
                 </Avatar>
                 <span className="hidden truncate text-xs font-medium sm:block">{displayName}</span>
+                <ChangeOwnPasswordDialog />
                 <Button className="h-7 shrink-0 text-xs" variant="ghost" size="sm" onClick={() => void signOut()}>
                   <LogOut className="mr-1 h-3 w-3" />
                   Sign out
@@ -1855,6 +1919,7 @@ export function DashboardPage() {
   const { data: metrics, isLoading } = useQuery({
     queryKey: ["dashboard-metrics", profile?.default_warehouse_id],
     queryFn: () => getDashboardMetrics(profile?.default_warehouse_id),
+    refetchInterval: 15_000,
   });
   const { data: reports } = useQuery({ queryKey: ["reports", "enterprise-dashboard"], queryFn: getReportData });
   const snapshot = useMemo(() => buildEnterpriseDashboard(metrics, reports), [metrics, reports]);
@@ -1893,9 +1958,12 @@ export function DashboardPage() {
     });
   }, []);
 
+  const canAccessMetric = useCallback((_key: DashboardMetricKey): boolean => true, []);
+
   const renderSummaryTile = useCallback((tile: DashboardTileConfig, onResize: (id: string) => void) => {
     const card = summaryCardsById.get(tile.id);
     if (!card) return null;
+    if (!canAccessMetric(card.metricKey)) return null;
     return (
       <SortableSummaryCard
         key={tile.id}
@@ -2962,10 +3030,13 @@ function BinCapacityBar({ locationCode }: { locationCode: string; taskId?: strin
 export function PutawayTasksPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, roles } = useAuth();
+  // Managers and above see all open tasks; operators/clerks only see their own + unassigned
+  const canSeeAllTasks = roles.some((r) => ["developer", "admin", "warehouse_manager", "warehouse_supervisor"].includes(r));
+  const putawayUserId = canSeeAllTasks ? undefined : user?.id;
   const { data = [], isLoading } = useQuery({
-    queryKey: ["putaway-tasks", user?.id],
-    queryFn: () => getPutawayTasks(user?.id),
+    queryKey: ["putaway-tasks", putawayUserId],
+    queryFn: () => getPutawayTasks(putawayUserId),
   });
   const [scanState, setScanState] = useState<Record<string, { pallet: string; location: string; override: boolean; reason: string }>>({});
   const [violations, setViolations] = useState<Record<string, string>>({});
@@ -3327,75 +3398,18 @@ export function InventorySearchPage() {
     queryFn: () => fetchOptions(false, { restrictToWarehouse: restrictedToDefaultWarehouse, warehouseId: profile?.default_warehouse_id }),
   });
   const [warehouseId, setWarehouseId] = useState(restrictedToDefaultWarehouse ? profile?.default_warehouse_id ?? "" : "");
-  const [locationScan, setLocationScan] = useState("");
   const selectedWarehouseValue = warehouseId || "all";
-  const hasInventoryFilters = Boolean(searchTerm || warehouseId || locationScan || status !== "all");
-  const scopeRows = useMemo(() => {
-    const warehouses = options?.warehouses ?? [];
-    const zones = options?.zones ?? [];
-    const locations = options?.locations ?? [];
-    return { warehouses, zones, locations };
-  }, [options]);
-
-  const scanMutation = useMutation({
-    mutationFn: getWarehouseForLocationBarcode,
-    onSuccess: (location) => {
-      setWarehouseId(location.warehouse_id);
-      toast.success(`Warehouse visibility switched to ${location.warehouses?.name ?? location.warehouses?.code ?? "scanned warehouse"}`);
-    },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Location scan failed"),
-  });
+  const hasInventoryFilters = Boolean(searchTerm || warehouseId || status !== "all");
 
   const { data = [], isLoading } = useQuery({
     queryKey: ["inventory-search", searchTerm, status, warehouseId],
     queryFn: () => searchInventory({ search: searchTerm, status, warehouseId: warehouseId || undefined }),
   });
 
-  function resolveWarehouseScope(value: string, options?: { exact?: boolean; notify?: boolean }) {
-    const query = value.trim().toLowerCase();
-    if (!query) {
-      setWarehouseId("");
-      return false;
-    }
-    const matches = (...values: unknown[]) =>
-      values.some((item) => {
-        const text = String(item ?? "").trim().toLowerCase();
-        if (!text) return false;
-        return options?.exact ? text === query : text.includes(query);
-      });
-    const warehouse = scopeRows.warehouses.find((row: any) => matches(row.code, row.name));
-    const zone = scopeRows.zones.find((row: any) => matches(row.code, row.name));
-    const location = scopeRows.locations.find((row: any) => matches(row.code, row.aisle, row.bay, row.level, row.location_type));
-    const matchedWarehouseId = warehouse?.id ?? zone?.warehouse_id ?? location?.warehouse_id ?? "";
-    if (!matchedWarehouseId) {
-      setWarehouseId("");
-      return false;
-    }
-    setWarehouseId(matchedWarehouseId);
-    if (options?.notify) {
-      const label = warehouse?.name ?? zone?.code ?? location?.code ?? "matched warehouse";
-      toast.success(`Warehouse visibility switched from ${label}`);
-    }
-    return true;
-  }
-
-  function handleLocationScopeChange(value: string) {
-    setLocationScan(value);
-    resolveWarehouseScope(value);
-  }
-
-  function handleLocationScopeScan(value: string) {
-    setLocationScan(value);
-    if (!resolveWarehouseScope(value, { exact: true, notify: true })) {
-      scanMutation.mutate(value);
-    }
-  }
-
   function clearInventoryFilters() {
     setSearchTerm("");
     setStatus("all");
     setWarehouseId("");
-    setLocationScan("");
   }
 
   function openInventoryDetail(balanceId: string) {
@@ -3448,15 +3462,6 @@ export function InventorySearchPage() {
               ))}
             </SelectContent>
           </Select>
-          <div className="flex min-w-[17rem] flex-1 gap-2">
-            <Input
-              className="min-w-0"
-              value={locationScan}
-              onChange={(event) => handleLocationScopeChange(event.target.value)}
-              placeholder="Search or scan warehouse, zone, aisle, or location"
-            />
-            <BarcodeScanButton title="Scan warehouse, zone, aisle, or location barcode" onScan={handleLocationScopeScan} />
-          </div>
           <Select onValueChange={(value) => setStatus(value as typeof status)} value={status}>
             <SelectTrigger className="min-w-[11rem] flex-1 sm:flex-none">
               <SelectValue placeholder="Status" />
@@ -3608,6 +3613,13 @@ export function PickListsPage() {
     onError: (error) => toast.error(error instanceof Error ? error.message : "Pick list failed"),
   });
 
+  const selectedWarehouseId = form.watch("warehouse_id");
+  const { data: pickableIds } = useQuery({
+    queryKey: ["pickable-product-ids", selectedWarehouseId],
+    queryFn: () => getPickableProductIds(selectedWarehouseId || undefined),
+    staleTime: 30_000,
+  });
+
   const lines = form.watch("lines");
   const pickSearchTerm = pickSearch.trim().toLowerCase();
   const matchesPickSearch = (pickList: any) => {
@@ -3632,12 +3644,16 @@ export function PickListsPage() {
   const allActive = (pickLists as any[]).filter((pl) => !["completed", "cancelled"].includes(pl.status));
   const active = allActive.filter(matchesPickSearch);
   const done = (pickLists as any[]).filter((pl) => ["completed", "cancelled"].includes(pl.status)).filter(matchesPickSearch);
-  const productOptions = (options?.products ?? []).map((product: any) => ({
-    id: product.id,
-    sku: product.sku,
-    name: product.name,
-    barcode: product.barcode,
-  }));
+  // Only show products that have available qty in a known location for the selected warehouse.
+  // While pickableIds is still loading (undefined) all products are shown as a fallback.
+  const productOptions = (options?.products ?? [])
+    .filter((product: any) => !pickableIds || pickableIds.has(product.id))
+    .map((product: any) => ({
+      id: product.id,
+      sku: product.sku,
+      name: product.name,
+      barcode: product.barcode,
+    }));
 
   function prefetchPickExecution(pickListId: string) {
     void queryClient.prefetchQuery({
@@ -5050,6 +5066,7 @@ function AddUserDialog({
 export function UsersRolesPage() {
   const queryClient = useQueryClient();
   const { roles } = useAuth();
+  const canOperateRoles = roles.includes("developer");
   const [includeHidden, setIncludeHidden] = useState(false);
   const { data: options } = useQuery({ queryKey: ["options", includeHidden], queryFn: () => fetchOptions(includeHidden) });
   const { data: activities = [] } = useQuery({ queryKey: ["user-activities"], queryFn: () => listUserActivities() });
@@ -5189,77 +5206,83 @@ export function UsersRolesPage() {
 
         <TabsContent value="roles" className="mt-4">
           <div className="grid gap-6 xl:grid-cols-[1fr_1.5fr]">
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Assign Role</CardTitle>
-                <CardDescription>Add a role to an existing user account.</CardDescription>
-              </CardHeader>
-              <CardContent className="grid gap-3">
-                <Select value={selectedProfile} onValueChange={setSelectedProfile}>
-                  <SelectTrigger><SelectValue placeholder="Select user" /></SelectTrigger>
-                  <SelectContent>
-                    {profiles.map((profile) => (
-                      <SelectItem key={profile.id} value={profile.id}>
-                        {profile.full_name ?? profile.email ?? profile.id}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select value={selectedRole} onValueChange={setSelectedRole}>
-                  <SelectTrigger><SelectValue placeholder="Select role" /></SelectTrigger>
-                  <SelectContent>
-                    {(options?.roles ?? []).map((role: any) => (
-                      <SelectItem key={role.id} value={role.id}>{role.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Button
-                  disabled={!selectedProfile || !selectedRole || assignMutation.isPending}
-                  onClick={() => assignMutation.mutate()}
-                  className="w-full"
-                >
-                  {assignMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                  Assign role
-                </Button>
-              </CardContent>
-            </Card>
+            {canOperateRoles && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Assign Role</CardTitle>
+                  <CardDescription>Add a role to an existing user account.</CardDescription>
+                </CardHeader>
+                <CardContent className="grid gap-3">
+                  <Select value={selectedProfile} onValueChange={setSelectedProfile}>
+                    <SelectTrigger><SelectValue placeholder="Select user" /></SelectTrigger>
+                    <SelectContent>
+                      {profiles.map((profile) => (
+                        <SelectItem key={profile.id} value={profile.id}>
+                          {profile.full_name ?? profile.email ?? profile.id}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Select value={selectedRole} onValueChange={setSelectedRole}>
+                    <SelectTrigger><SelectValue placeholder="Select role" /></SelectTrigger>
+                    <SelectContent>
+                      {(options?.roles ?? []).map((role: any) => (
+                        <SelectItem key={role.id} value={role.id}>{role.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    disabled={!selectedProfile || !selectedRole || assignMutation.isPending}
+                    onClick={() => assignMutation.mutate()}
+                    className="w-full"
+                  >
+                    {assignMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                    Assign role
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
 
-            <Card>
+            <Card className={canOperateRoles ? "" : "xl:col-span-full"}>
               <CardHeader>
                 <CardTitle className="text-base">Current Access</CardTitle>
               </CardHeader>
               <CardContent className="grid gap-2">
-                {(options?.userRoles ?? []).map((userRole: any) => {
-                  const profile = profiles.find((p) => p.id === userRole.user_id);
-                  return (
-                    <div key={userRole.id} className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2.5">
-                      <div className="flex min-w-0 items-center gap-2.5">
-                        <Avatar className="h-7 w-7 shrink-0">
-                          <AvatarFallback className="bg-muted text-xs">
-                            {(profile?.full_name ?? "?").slice(0, 2).toUpperCase()}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-medium">{profile?.full_name ?? userRole.user_id}</p>
-                          <p className="truncate text-xs text-muted-foreground">{profile?.email ?? ""}</p>
+                {(options?.userRoles ?? [])
+                  .filter((userRole: any) => canOperateRoles || (userRole.roles as { code?: string } | null)?.code !== "developer")
+                  .map((userRole: any) => {
+                    const profile = profiles.find((p) => p.id === userRole.user_id);
+                    return (
+                      <div key={userRole.id} className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2.5">
+                        <div className="flex min-w-0 items-center gap-2.5">
+                          <Avatar className="h-7 w-7 shrink-0">
+                            <AvatarFallback className="bg-muted text-xs">
+                              {(profile?.full_name ?? "?").slice(0, 2).toUpperCase()}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-medium">{profile?.full_name ?? userRole.user_id}</p>
+                            <p className="truncate text-xs text-muted-foreground">{profile?.email ?? ""}</p>
+                          </div>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-2">
+                          <Badge variant={userRole.is_hidden ? "secondary" : "default"} className="text-xs">
+                            {(userRole.roles as { name?: string } | null)?.name ?? "Role"}
+                          </Badge>
+                          {canOperateRoles && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 text-xs"
+                              onClick={() => visibilityMutation.mutate({ userRoleId: userRole.id, hidden: !userRole.is_hidden })}
+                            >
+                              {userRole.is_hidden ? "Restore" : "Revoke"}
+                            </Button>
+                          )}
                         </div>
                       </div>
-                      <div className="flex shrink-0 items-center gap-2">
-                        <Badge variant={userRole.is_hidden ? "secondary" : "default"} className="text-xs">
-                          {(userRole.roles as { name?: string } | null)?.name ?? "Role"}
-                        </Badge>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-7 text-xs"
-                          onClick={() => visibilityMutation.mutate({ userRoleId: userRole.id, hidden: !userRole.is_hidden })}
-                        >
-                          {userRole.is_hidden ? "Restore" : "Revoke"}
-                        </Button>
-                      </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
               </CardContent>
             </Card>
           </div>
@@ -5272,22 +5295,16 @@ export function UsersRolesPage() {
               <CardDescription>Your current role assignments and their access scope.</CardDescription>
             </CardHeader>
             <CardContent className="grid gap-2">
-              {roles.map((role) => (
-                <div key={role} className="rounded-lg border border-border px-3 py-2">
-                  <p className="font-medium">{ROLE_LABELS[role]}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {role === "admin"
-                      ? "Full system access including reset, user management, and all configuration"
-                      : role === "warehouse_manager"
-                        ? "Operational control across all warehouse functions and reporting"
-                        : role === "inventory_clerk"
-                          ? "Receiving, cycle counts, inventory search, and routine stock moves"
-                          : role === "dispatch_driver"
-                            ? "Transfer sign-off and inter-warehouse handoff visibility"
-                            : "Assigned task execution and limited inventory search"}
-                  </p>
-                </div>
-              ))}
+              {roles
+                .filter((role) => canOperateRoles || role !== "developer")
+                .map((role) => (
+                  <div key={role} className="rounded-lg border border-border px-3 py-2">
+                    <p className="font-medium">{ROLE_LABELS[role as keyof typeof ROLE_LABELS] ?? role}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {ROLE_DESCRIPTIONS[role as keyof typeof ROLE_DESCRIPTIONS] ?? "Warehouse system access"}
+                    </p>
+                  </div>
+                ))}
             </CardContent>
           </Card>
         </TabsContent>
@@ -5465,6 +5482,10 @@ function UserProfileRow({
   ) => void;
   onToggleActive: () => void;
 }) {
+  const { roles: viewerRoles } = useAuth();
+  const targetIsDeveloper = userRoles.some((ur: any) => (ur.roles as { code?: string } | null)?.code === "developer");
+  const canChangePassword = viewerRoles.includes("developer") || !targetIsDeveloper;
+
   const [open, setOpen] = useState(false);
   const fallbackWarehouseId = !profile.default_warehouse_id && warehouses.length === 1 ? warehouses[0]?.id ?? "" : "";
   const [values, setValues] = useState({
@@ -5604,17 +5625,19 @@ function UserProfileRow({
                       <label className="text-sm font-medium">Badge code</label>
                       <Input value={values.badge_code} placeholder="e.g. BADGE-OPR02" onChange={(e) => setValues((v) => ({ ...v, badge_code: e.target.value }))} />
                     </div>
-                    <div className="grid gap-1.5 sm:col-span-2">
-                      <label className="text-sm font-medium">Badge sign-in PIN</label>
-                      <Input
-                        value={badgePin}
-                        inputMode="numeric"
-                        maxLength={7}
-                        placeholder="Leave blank to keep current PIN"
-                        onChange={(e) => setBadgePin(e.target.value.replace(/\D/g, "").slice(0, 7))}
-                      />
-                      <p className="text-xs text-muted-foreground">Use 4-7 digits. Repeated or sequential codes are blocked.</p>
-                    </div>
+                    {canChangePassword && (
+                      <div className="grid gap-1.5 sm:col-span-2">
+                        <label className="text-sm font-medium">Badge sign-in PIN</label>
+                        <Input
+                          value={badgePin}
+                          inputMode="numeric"
+                          maxLength={7}
+                          placeholder="Leave blank to keep current PIN"
+                          onChange={(e) => setBadgePin(e.target.value.replace(/\D/g, "").slice(0, 7))}
+                        />
+                        <p className="text-xs text-muted-foreground">Use 4-7 digits. Repeated or sequential codes are blocked.</p>
+                      </div>
+                    )}
                     <div className="grid gap-1.5 sm:col-span-2">
                       <label className="text-sm font-medium">Default warehouse</label>
                       <Select
@@ -5652,15 +5675,19 @@ function UserProfileRow({
                     </label>
                   </div>
                   <div className="grid gap-2 sm:grid-cols-2">
-                    <div className="grid gap-1.5">
-                      <label className="text-sm font-medium">New password</label>
-                      <Input
-                        type="password"
-                        value={newPassword}
-                        placeholder="Leave blank to keep current"
-                        onChange={(e) => setNewPassword(e.target.value)}
-                      />
-                    </div>
+                    {canChangePassword ? (
+                      <div className="grid gap-1.5">
+                        <label className="text-sm font-medium">New password</label>
+                        <Input
+                          type="password"
+                          value={newPassword}
+                          placeholder="Leave blank to keep current"
+                          onChange={(e) => setNewPassword(e.target.value)}
+                        />
+                      </div>
+                    ) : (
+                      <p className="self-center text-xs text-muted-foreground">Password changes for developer accounts are restricted.</p>
+                    )}
                     <Button
                       type="button"
                       variant="outline"
@@ -5774,7 +5801,10 @@ function ModulesSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
 
 export function SettingsPage() {
   const { roles } = useAuth();
+  const { isEnabled } = useFeatureFlags();
   const navigate = useNavigate();
+  const canViewUsersRoles = roles.some((r) => ["developer", "admin", "warehouse_manager", "warehouse_supervisor"].includes(r));
+  const isDeveloperOrAdmin = roles.some((r) => ["developer", "admin"].includes(r));
   const queryClient = useQueryClient();
 
   const resetMutation = useMutation({
@@ -5793,19 +5823,21 @@ export function SettingsPage() {
         <h2 className="text-2xl font-semibold">Settings</h2>
         <p className="text-sm text-muted-foreground">Warehouse environment, client configuration, and system management.</p>
       </div>
-      <Tabs defaultValue={roles.includes("admin") ? "users-roles" : "modules"}>
+      <Tabs defaultValue={canViewUsersRoles ? "users-roles" : "modules"}>
         <TabsList className="flex h-auto w-full flex-wrap items-stretch justify-start gap-1 sm:w-fit">
-          {roles.includes("admin") && (
+          {canViewUsersRoles && (
             <TabsTrigger value="users-roles" className="min-h-9 flex-1 gap-1.5 sm:flex-none"><Users className="h-3.5 w-3.5" />Users & Roles</TabsTrigger>
           )}
           <TabsTrigger value="modules" className="min-h-9 flex-1 sm:flex-none">Modules</TabsTrigger>
           <TabsTrigger value="environment" className="min-h-9 flex-1 sm:flex-none">Environment</TabsTrigger>
-          <TabsTrigger value="client-vars" className="min-h-9 flex-1 sm:flex-none">Client Variables</TabsTrigger>
+          {isEnabled("clients") && (
+            <TabsTrigger value="client-vars" className="min-h-9 flex-1 sm:flex-none">Client Variables</TabsTrigger>
+          )}
           <TabsTrigger value="about" className="min-h-9 flex-1 gap-1.5 sm:flex-none"><Info className="h-3.5 w-3.5" />About</TabsTrigger>
         </TabsList>
 
         <TabsContent value="modules" className="mt-4">
-          <ModulesSettingsPanel isAdmin={roles.includes("admin")} />
+          <ModulesSettingsPanel isAdmin={isDeveloperOrAdmin} />
         </TabsContent>
 
         <TabsContent value="environment" className="mt-4 grid gap-6 xl:grid-cols-2">
@@ -5825,21 +5857,23 @@ export function SettingsPage() {
                 <Button variant="outline" asChild>
                   <Link to="/system-log">View system log</Link>
                 </Button>
-                <Button variant="destructive" onClick={() => resetMutation.mutate()} disabled={resetMutation.isPending || !roles.includes("admin")}>
+                <Button variant="destructive" onClick={() => resetMutation.mutate()} disabled={resetMutation.isPending || !isDeveloperOrAdmin}>
                   {resetMutation.isPending ? <Loader2 className="animate-spin" /> : <RotateCcw data-icon="inline-start" />}
                   Reset all
                 </Button>
               </div>
-              {!roles.includes("admin") ? <p>Only admins can run Reset All.</p> : null}
+              {!isDeveloperOrAdmin ? <p>Only admins and developers can run Reset All.</p> : null}
             </CardContent>
           </Card>
         </TabsContent>
 
-        <TabsContent value="client-vars" className="mt-4">
-          <ClientVariablesPanel />
-        </TabsContent>
+        {isEnabled("clients") && (
+          <TabsContent value="client-vars" className="mt-4">
+            <ClientVariablesPanel />
+          </TabsContent>
+        )}
 
-        {roles.includes("admin") && (
+        {canViewUsersRoles && (
           <TabsContent value="users-roles" className="mt-4">
             <UsersRolesPage />
           </TabsContent>
@@ -5860,6 +5894,18 @@ export function SettingsPage() {
                 <span className="font-mono text-xs font-semibold text-primary">v{__APP_VERSION__}</span>
               </div>
               {[
+                {
+                  version: "1.1.6",
+                  date: "May 2026",
+                  changes: [
+                    "Pick Lists: product selector now only shows items with available quantity assigned to a location — zero-qty and unlocated stock are hidden",
+                    "Inventory Search: removed the secondary location/zone scan filter bar (warehouse filter remains)",
+                    "Dashboard: putaway count now matches what managers see on the Putaway page; all roles see tasks correctly",
+                    "Seeded task data (putaway, move tasks, cycle counts) cleaned up via migration",
+                    "Password: all users can change their own password from the nav header; admin cannot change developer passwords",
+                    "Developer and Warehouse Supervisor roles added; password RPCs extended to allow developer role",
+                  ],
+                },
                 {
                   version: "1.1.3",
                   date: "May 2026",

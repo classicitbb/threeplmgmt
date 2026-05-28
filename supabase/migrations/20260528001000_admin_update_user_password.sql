@@ -17,7 +17,7 @@ begin
   end if;
 
   update auth.users
-  set encrypted_password = crypt(in_password, gen_salt('bf')),
+  set encrypted_password = extensions.crypt(in_password, extensions.gen_salt('bf'::text)),
       updated_at = timezone('utc', now()),
       recovery_token = '',
       recovery_sent_at = null

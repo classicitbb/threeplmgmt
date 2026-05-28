@@ -9,6 +9,7 @@ import {
   Head,
   Heading,
   Html,
+  Img,
   Preview,
   Text,
 } from 'npm:@react-email/components@0.0.22'
@@ -27,6 +28,13 @@ export const MagicLinkEmail = ({
     <Preview>Your login link for {siteName}</Preview>
     <Body style={main}>
       <Container style={container}>
+        <Img
+          src="https://gxfvxmxplngvxdkpmxgw.supabase.co/storage/v1/object/public/email-assets/logo.png"
+          alt={siteName}
+          width="96"
+          height="96"
+          style={logo}
+        />
         <Heading style={h1}>Your login link</Heading>
         <Text style={text}>
           Click the button below to log in to {siteName}. This link will expire
@@ -68,3 +76,4 @@ const button = {
   textDecoration: 'none',
 }
 const footer = { fontSize: '12px', color: '#999999', margin: '30px 0 0' }
+const logo = { display: 'block', margin: '0 auto 24px', width: '96px', height: '96px' }

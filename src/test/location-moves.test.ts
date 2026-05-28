@@ -11,19 +11,22 @@ vi.mock("@/integrations/supabase/client", () => {
   function from(table: string) {
     const filters: Array<[string, unknown]> = [];
     return {
-      select: () => ({
-        eq: (column: string, value: unknown) => {
+      select: () => {
+        const chain: any = {
+          eq: (column: string, value: unknown) => {
           filters.push([column, value]);
           return {
             eq: (nextColumn: string, nextValue: unknown) => {
               filters.push([nextColumn, nextValue]);
-              return this;
+              return chain;
             },
             single: () => mockDb.selects[table]?.shift() ?? { data: null, error: new Error(`No ${table} mock`) },
           };
         },
         single: () => mockDb.selects[table]?.shift() ?? { data: null, error: new Error(`No ${table} mock`) },
-      }),
+        };
+        return chain;
+      },
       update: (payload: Record<string, unknown>) => ({
         eq: (column: string, value: unknown) => {
           filters.push([column, value]);

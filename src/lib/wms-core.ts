@@ -10,8 +10,10 @@ const db = supabase.from.bind(supabase) as (table: string) => any;
 // These types will come from the DB once all WMS tables are created.
 // For now we define them locally so the code compiles.
 export type RoleCode =
+  | "developer"
   | "admin"
   | "warehouse_manager"
+  | "warehouse_supervisor"
   | "inventory_clerk"
   | "warehouse_operator"
   | "dispatch_driver";
@@ -169,6 +171,7 @@ export type DashboardMetrics = {
   recentAuditEvents: number;
   holdStock: number;
   quarantineStock: number;
+  receiptRows: DashboardTaskRow[];
   putawayTaskRows: DashboardTaskRow[];
   pickListRows: DashboardTaskRow[];
   moveTaskRows: DashboardTaskRow[];
@@ -180,11 +183,23 @@ export type DashboardMetrics = {
 };
 
 export const ROLE_LABELS: Record<RoleCode, string> = {
+  developer: "Developer",
   admin: "Admin",
   warehouse_manager: "Warehouse Manager",
+  warehouse_supervisor: "Warehouse Supervisor",
   inventory_clerk: "Inventory Clerk",
   warehouse_operator: "Warehouse Operator",
   dispatch_driver: "Dispatch Driver",
+};
+
+export const ROLE_DESCRIPTIONS: Record<RoleCode, string> = {
+  developer: "Full system capabilities including developer tooling, role management, and all configuration",
+  admin: "Full system access including reset, user management, and all configuration",
+  warehouse_manager: "Operational control across all warehouse functions and reporting",
+  warehouse_supervisor: "Operational oversight with team scheduling, task assignment, and escalation handling",
+  inventory_clerk: "Receiving, cycle counts, inventory search, and routine stock moves",
+  warehouse_operator: "Assigned task execution and limited inventory search",
+  dispatch_driver: "Transfer sign-off and inter-warehouse handoff visibility",
 };
 
 export type ModuleKey =
@@ -194,26 +209,26 @@ export type ModuleKey =
   | "system-log" | "email-log";
 
 export const NAVIGATION: Array<{ label: string; to: AppRoute; roles: RoleCode[]; moduleKey?: ModuleKey }> = [
-  { label: "Dashboard", to: "/dashboard", roles: ["admin", "warehouse_manager", "inventory_clerk", "warehouse_operator", "dispatch_driver"] },
-  { label: "Receiving", to: "/receiving", roles: ["admin", "warehouse_manager", "inventory_clerk"], moduleKey: "receiving" },
-  { label: "Putaway", to: "/putaway-tasks", roles: ["admin", "warehouse_manager", "inventory_clerk", "warehouse_operator"], moduleKey: "putaway" },
-  { label: "Inventory", to: "/inventory-search", roles: ["admin", "warehouse_manager", "inventory_clerk", "warehouse_operator"], moduleKey: "inventory" },
-  { label: "Pick Lists", to: "/pick-lists", roles: ["admin", "warehouse_manager", "warehouse_operator"], moduleKey: "pick-lists" },
-  { label: "Location Moves", to: "/location-moves", roles: ["admin", "warehouse_manager", "inventory_clerk", "warehouse_operator"], moduleKey: "location-moves" },
-  { label: "Transfers", to: "/transfers", roles: ["admin", "warehouse_manager", "inventory_clerk", "dispatch_driver"], moduleKey: "transfers" },
-  { label: "Warehouses", to: "/warehouses", roles: ["admin", "warehouse_manager"], moduleKey: "warehouses" },
-  { label: "Zones", to: "/zones", roles: ["admin", "warehouse_manager"], moduleKey: "zones" },
-  { label: "Locations", to: "/locations", roles: ["admin", "warehouse_manager"], moduleKey: "locations" },
-  { label: "Products", to: "/products", roles: ["admin", "warehouse_manager", "inventory_clerk"], moduleKey: "products" },
-  { label: "Clients", to: "/clients", roles: ["admin", "warehouse_manager"], moduleKey: "clients" },
-  { label: "Settings", to: "/settings", roles: ["admin", "warehouse_manager"], moduleKey: "settings" },
-  { label: "Help", to: "/help", roles: ["admin", "warehouse_manager", "inventory_clerk", "warehouse_operator", "dispatch_driver"] },
-  { label: "Packaging", to: "/packaging-profiles", roles: ["admin", "warehouse_manager", "inventory_clerk"], moduleKey: "packaging" },
-  { label: "Cycle Counts", to: "/cycle-counts", roles: ["admin", "warehouse_manager", "inventory_clerk", "warehouse_operator"], moduleKey: "cycle-counts" },
-  { label: "Statuses", to: "/status", roles: ["admin", "warehouse_manager", "inventory_clerk"], moduleKey: "status" },
-  { label: "Reports", to: "/reports", roles: ["admin", "warehouse_manager", "inventory_clerk"], moduleKey: "reports" },
-  { label: "System Log", to: "/system-log", roles: ["admin", "warehouse_manager"], moduleKey: "system-log" },
-  { label: "Email Log", to: "/email-log", roles: ["admin"], moduleKey: "email-log" },
+  { label: "Dashboard", to: "/dashboard", roles: ["developer", "admin", "warehouse_manager", "warehouse_supervisor", "inventory_clerk", "warehouse_operator", "dispatch_driver"] },
+  { label: "Receiving", to: "/receiving", roles: ["developer", "admin", "warehouse_manager", "warehouse_supervisor", "inventory_clerk"], moduleKey: "receiving" },
+  { label: "Putaway", to: "/putaway-tasks", roles: ["developer", "admin", "warehouse_manager", "warehouse_supervisor", "inventory_clerk", "warehouse_operator"], moduleKey: "putaway" },
+  { label: "Inventory", to: "/inventory-search", roles: ["developer", "admin", "warehouse_manager", "warehouse_supervisor", "inventory_clerk", "warehouse_operator"], moduleKey: "inventory" },
+  { label: "Pick Lists", to: "/pick-lists", roles: ["developer", "admin", "warehouse_manager", "warehouse_supervisor", "warehouse_operator"], moduleKey: "pick-lists" },
+  { label: "Location Moves", to: "/location-moves", roles: ["developer", "admin", "warehouse_manager", "warehouse_supervisor", "inventory_clerk", "warehouse_operator"], moduleKey: "location-moves" },
+  { label: "Transfers", to: "/transfers", roles: ["developer", "admin", "warehouse_manager", "warehouse_supervisor", "inventory_clerk", "dispatch_driver"], moduleKey: "transfers" },
+  { label: "Warehouses", to: "/warehouses", roles: ["developer", "admin", "warehouse_manager"], moduleKey: "warehouses" },
+  { label: "Zones", to: "/zones", roles: ["developer", "admin", "warehouse_manager"], moduleKey: "zones" },
+  { label: "Locations", to: "/locations", roles: ["developer", "admin", "warehouse_manager"], moduleKey: "locations" },
+  { label: "Products", to: "/products", roles: ["developer", "admin", "warehouse_manager", "warehouse_supervisor", "inventory_clerk"], moduleKey: "products" },
+  { label: "Clients", to: "/clients", roles: ["developer", "admin", "warehouse_manager"], moduleKey: "clients" },
+  { label: "Settings", to: "/settings", roles: ["developer", "admin", "warehouse_manager", "warehouse_supervisor"], moduleKey: "settings" },
+  { label: "Help", to: "/help", roles: ["developer", "admin", "warehouse_manager", "warehouse_supervisor", "inventory_clerk", "warehouse_operator", "dispatch_driver"] },
+  { label: "Packaging", to: "/packaging-profiles", roles: ["developer", "admin", "warehouse_manager", "inventory_clerk"], moduleKey: "packaging" },
+  { label: "Cycle Counts", to: "/cycle-counts", roles: ["developer", "admin", "warehouse_manager", "warehouse_supervisor", "inventory_clerk", "warehouse_operator"], moduleKey: "cycle-counts" },
+  { label: "Statuses", to: "/status", roles: ["developer", "admin", "warehouse_manager", "warehouse_supervisor", "inventory_clerk"], moduleKey: "status" },
+  { label: "Reports", to: "/reports", roles: ["developer", "admin", "warehouse_manager", "warehouse_supervisor", "inventory_clerk"], moduleKey: "reports" },
+  { label: "System Log", to: "/system-log", roles: ["developer", "admin", "warehouse_manager"], moduleKey: "system-log" },
+  { label: "Email Log", to: "/email-log", roles: ["developer", "admin"], moduleKey: "email-log" },
 ];
 
 const tempOptions: FieldDefinition["options"] = [
@@ -753,6 +768,11 @@ export async function adminInviteUser(input: AdminInviteUserInput): Promise<stri
   return data as string;
 }
 
+export async function updateOwnPassword(password: string) {
+  const { error } = await supabase.auth.updateUser({ password });
+  if (error) throw new Error(error.message ?? "Password update failed");
+}
+
 export async function adminUpdateUserPassword(profileId: string, password: string) {
   const client = supabase as unknown as {
     rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: unknown }>;
@@ -761,7 +781,7 @@ export async function adminUpdateUserPassword(profileId: string, password: strin
     in_user_id: profileId,
     in_password: password,
   });
-  if (error) throw error;
+  if (error) throw new Error((error as any).message ?? "Password update failed");
   await logUserActivity("user_access_change", "profiles", profileId, {
     fields: ["password"],
   });
@@ -822,6 +842,21 @@ export async function getWarehouseForLocationBarcode(locationCode: string) {
     .single();
   if (error) throw error;
   return data as any;
+}
+
+/** Returns the set of product IDs that have at least 1 available unit in a
+ *  known location (location_id IS NOT NULL). Used to gate pick list creation
+ *  so operators can't add products that have no pickable stock. */
+export async function getPickableProductIds(warehouseId?: string): Promise<Set<string>> {
+  let query = db("inventory_balances")
+    .select("product_id")
+    .eq("status", "available")
+    .gt("available_quantity", 0)
+    .not("location_id", "is", null);
+  if (warehouseId) query = query.eq("warehouse_id", warehouseId);
+  const { data, error } = await query;
+  if (error) throw error;
+  return new Set((data ?? []).map((row: any) => row.product_id as string));
 }
 
 export async function listUserActivities(limit = 25) {
@@ -1957,6 +1992,17 @@ export async function getDashboardMetrics(warehouseId?: string | null) {
   const scopedReplenishments = warehouseId ? (replenishments.data ?? []).filter((row: any) => row.warehouse_id === warehouseId) : (replenishments.data ?? []);
   const scopedAudits = warehouseId ? (audits.data ?? []).filter((row: any) => row.warehouse_id === warehouseId) : (audits.data ?? []);
 
+  const receiptRows: DashboardTaskRow[] = scopedReceipts
+    .filter((row: any) => row.status === "draft")
+    .sort((a: any, b: any) => a.created_at < b.created_at ? -1 : 1)
+    .map((row: any) => ({
+      id: row.id,
+      label: row.receipt_number,
+      sublabel: row.reference_number ?? row.receipt_number,
+      route: "/receiving",
+      createdAt: row.created_at,
+    }));
+
   const putawayRows: DashboardTaskRow[] = scopedPutaway
     .sort((a: any, b: any) => a.created_at < b.created_at ? -1 : 1)
     .map((row: any) => ({
@@ -2045,7 +2091,7 @@ export async function getDashboardMetrics(warehouseId?: string | null) {
     warehousePalletCapacity,
     availablePallets: balanceRows.filter((row: any) => row.status === "available").length,
     coolZoneOccupancy: coolRows.length,
-    openReceipts: scopedReceipts.length,
+    openReceipts: scopedReceipts.filter((row: any) => row.status === "draft").length,
     openPutawayTasks: scopedPutaway.length,
     openPickLists: scopedPickLists.length,
     openMoveTasks: scopedMoveTasks.length,
@@ -2056,6 +2102,7 @@ export async function getDashboardMetrics(warehouseId?: string | null) {
     recentAuditEvents: scopedAudits.length,
     holdStock: balanceRows.filter((row: any) => row.status === "hold").length,
     quarantineStock: balanceRows.filter((row: any) => row.status === "quarantine").length,
+    receiptRows,
     putawayTaskRows: putawayRows,
     pickListRows: pickRows,
     moveTaskRows: moveRows,

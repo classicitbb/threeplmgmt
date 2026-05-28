@@ -2955,6 +2955,10 @@ export type Database = {
       }
     }
     Functions: {
+      admin_update_user_password: {
+        Args: { in_password: string; in_user_id: string }
+        Returns: undefined
+      }
       delete_email: {
         Args: { message_id: number; queue_name: string }
         Returns: boolean
@@ -3016,6 +3020,7 @@ export type Database = {
         | "inventory_clerk"
         | "warehouse_operator"
         | "dispatch_driver"
+        | "dev"
       count_scope: "location" | "zone" | "sku" | "spot"
       integration_job_status:
         | "queued"
@@ -3203,6 +3208,7 @@ export const Constants = {
         "inventory_clerk",
         "warehouse_operator",
         "dispatch_driver",
+        "dev",
       ],
       count_scope: ["location", "zone", "sku", "spot"],
       integration_job_status: [
