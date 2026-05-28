@@ -12,7 +12,11 @@ on conflict (code) do update
       description = excluded.description,
       updated_at  = timezone('utc', now());
 
--- Extend password-update RPC to allow developer role
+-- Extend password-update RPC:
+--   - developer: may update any user's password
+--   - admin: may update any user's password EXCEPT a developer's
+--   - others: denied
+-- Also fixes gen_salt(unknown) by using the extensions schema qualifier.
 create or replace function public.admin_update_user_password(
   in_user_id uuid,
   in_password text
@@ -27,12 +31,17 @@ begin
     raise exception 'Only admins and developers can update user passwords';
   end if;
 
+  -- Admins cannot change a developer's password
+  if public.has_role(in_user_id, 'developer') and not public.has_role(auth.uid(), 'developer') then
+    raise exception 'Admin accounts cannot change a developer''s password';
+  end if;
+
   if in_password is null or length(in_password) < 4 then
     raise exception 'Password or PIN is too short';
   end if;
 
   update auth.users
-  set encrypted_password = crypt(in_password, gen_salt('bf')),
+  set encrypted_password = extensions.crypt(in_password, extensions.gen_salt('bf'::text)),
       updated_at = timezone('utc', now()),
       recovery_token = '',
       recovery_sent_at = null
@@ -46,7 +55,7 @@ $$;
 
 grant execute on function public.admin_update_user_password(uuid, text) to authenticated;
 
--- Extend invite-user RPC to allow developer role
+-- Extend invite-user RPC to allow developer role (gen_salt fix included)
 create or replace function public.admin_invite_user(
   in_email        text,
   in_full_name    text,
@@ -88,7 +97,7 @@ begin
     '00000000-0000-0000-0000-000000000000',
     new_user_id, 'authenticated', 'authenticated',
     lower(trim(in_email)),
-    crypt(in_password, gen_salt('bf')),
+    extensions.crypt(in_password, extensions.gen_salt('bf'::text)),
     timezone('utc', now()),
     '{"provider":"email","providers":["email"]}',
     jsonb_build_object('full_name', in_full_name),
