@@ -3319,6 +3319,15 @@ export function PickListsPage() {
   const pickProductRefs = useRef<Record<number, ProductSearchHandle | null>>({});
   const { data: options } = useQuery({ queryKey: ["options"], queryFn: () => fetchOptions() });
   const { data: pickLists = [] } = useQuery({ queryKey: ["pick-lists"], queryFn: listPickLists });
+  const cancelMutation = useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason?: string }) => cancelPickList(id, reason),
+    onSuccess: () => {
+      toast.success("Pick list cancelled");
+      queryClient.invalidateQueries({ queryKey: ["pick-lists"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard-metrics"] });
+    },
+    onError: (error: unknown) => toast.error(error instanceof Error ? error.message : "Failed to cancel pick list"),
+  });
   const form = useForm<z.infer<typeof pickListSchema>>({
     resolver: zodResolver(pickListSchema),
     defaultValues: {
