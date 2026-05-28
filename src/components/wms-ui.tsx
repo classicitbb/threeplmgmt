@@ -5476,16 +5476,16 @@ export function SettingsPage() {
         <h2 className="text-2xl font-semibold">Settings</h2>
         <p className="text-sm text-muted-foreground">Warehouse environment, client configuration, and system management.</p>
       </div>
-      <Tabs defaultValue="modules">
-        <TabsList className={cn("grid h-auto w-full sm:w-fit", roles.includes("admin") ? "grid-cols-6" : "grid-cols-5")}>
-          <TabsTrigger value="modules">Modules</TabsTrigger>
-          <TabsTrigger value="environment">Environment</TabsTrigger>
-          <TabsTrigger value="client-vars">Client Variables</TabsTrigger>
-          <TabsTrigger value="roles">Role Matrix</TabsTrigger>
+      <Tabs defaultValue={roles.includes("admin") ? "users-roles" : "modules"}>
+        <TabsList className="flex h-auto w-full flex-wrap items-stretch justify-start gap-1 sm:w-fit">
           {roles.includes("admin") && (
-            <TabsTrigger value="users-roles" className="gap-1.5"><Users className="h-3.5 w-3.5" />Users & Roles</TabsTrigger>
+            <TabsTrigger value="users-roles" className="min-h-9 flex-1 gap-1.5 sm:flex-none"><Users className="h-3.5 w-3.5" />Users & Roles</TabsTrigger>
           )}
-          <TabsTrigger value="about" className="gap-1.5"><Info className="h-3.5 w-3.5" />About</TabsTrigger>
+          <TabsTrigger value="modules" className="min-h-9 flex-1 sm:flex-none">Modules</TabsTrigger>
+          <TabsTrigger value="environment" className="min-h-9 flex-1 sm:flex-none">Environment</TabsTrigger>
+          <TabsTrigger value="client-vars" className="min-h-9 flex-1 sm:flex-none">Client Variables</TabsTrigger>
+          <TabsTrigger value="roles" className="min-h-9 flex-1 sm:flex-none">Role Matrix</TabsTrigger>
+          <TabsTrigger value="about" className="min-h-9 flex-1 gap-1.5 sm:flex-none"><Info className="h-3.5 w-3.5" />About</TabsTrigger>
         </TabsList>
 
         <TabsContent value="modules" className="mt-4">

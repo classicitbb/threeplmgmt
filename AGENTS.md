@@ -115,5 +115,8 @@ If the user asks for a UI change:
 - `2026-05-28` — User-approved update to make all Command Center tiles draggable and resizable across Floor, Dock, and Office views.
 - `2026-05-28` — User-approved update to merge Command Center summary and mode tiles into one persisted user layout surface per view.
 - `2026-05-28` — User-approved update to publish version 1.1.3 release notes and What's New copy.
+- `2026-05-28` — User-approved update to Login self-serve access with badge scan, PIN challenge, user code sign-in, and password reset.
+- `2026-05-28` — User-approved update to pending user access so requested accounts enter a limited shell with Help Center and authorization refresh.
+- `2026-05-28` — User-approved update to Settings tabs so Users & Roles is first for admins and the tab row wraps responsively.
 
 Append new entries here only when the user explicitly approves a UI change.

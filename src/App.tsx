@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { BrowserRouter, Navigate, Outlet, Route, Routes, useNavigate, useParams } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { BrowserRouter, Navigate, NavLink, Outlet, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 import { QueryClientProvider, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { ArrowLeft, Eye, EyeOff, Loader2, Sparkles } from "lucide-react";
+import { ArrowLeft, Camera, Eye, EyeOff, HelpCircle, Keyboard, Loader2, LogOut, Mail, RefreshCw, ScanLine, Sparkles, Warehouse } from "lucide-react";
 import { toast } from "sonner";
 import { z } from "zod";
 import { Analytics } from "@vercel/analytics/react";
@@ -48,6 +48,7 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { BarcodeScanButton } from "@/components/barcode-scan-button";
+import { HelpSidebar } from "@/components/help-sidebar";
 import { PalletLabelPage } from "@/components/pallet-label-page";
 import NotFound from "./pages/NotFound";
 import HelpCenterPage from "./pages/HelpCenter";
@@ -211,6 +212,121 @@ function friendlyAuthError(error: unknown, context: "login" | "signup" | "code" 
   return raw;
 }
 
+const LOGIN_BARCODE_FORMATS = [
+  "qr_code", "code_128", "code_39", "code_93",
+  "ean_13", "ean_8", "upc_a", "upc_e",
+  "data_matrix", "pdf417", "aztec",
+];
+
+function LoginBadgeScanner({ onScan }: { onScan: (value: string) => void }) {
+  const [error, setError] = useState<string | null>(null);
+  const [scanning, setScanning] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const rafRef = useRef<number | null>(null);
+  const detectorRef = useRef<any>(null);
+
+  const stopStream = useCallback(() => {
+    if (rafRef.current != null) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+    detectorRef.current = null;
+    setScanning(false);
+  }, []);
+
+  const startScanner = useCallback(async () => {
+    stopStream();
+    setError(null);
+
+    if (!("BarcodeDetector" in window)) {
+      setError("Live scanning requires Chrome on Android or Safari 17+. Enter the badge code below.");
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } },
+      });
+      streamRef.current = stream;
+      setScanning(true);
+
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
+
+      let formats = LOGIN_BARCODE_FORMATS;
+      try {
+        const supported: string[] = await (window as any).BarcodeDetector.getSupportedFormats();
+        formats = LOGIN_BARCODE_FORMATS.filter((format) => supported.includes(format));
+      } catch {
+        // Older implementations do not expose getSupportedFormats.
+      }
+
+      detectorRef.current = new (window as any).BarcodeDetector({ formats: formats.length ? formats : LOGIN_BARCODE_FORMATS });
+
+      const scanFrame = async () => {
+        if (!videoRef.current || !detectorRef.current) return;
+        try {
+          const codes: Array<{ rawValue: string }> = await detectorRef.current.detect(videoRef.current);
+          const value = codes[0]?.rawValue?.trim();
+          if (value) {
+            playBarcodeBeep();
+            stopStream();
+            onScan(value);
+            return;
+          }
+        } catch {
+          // Keep scanning until a frame can be read.
+        }
+        rafRef.current = requestAnimationFrame(scanFrame);
+      };
+
+      rafRef.current = requestAnimationFrame(scanFrame);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setError(msg.toLowerCase().includes("permission")
+        ? "Camera permission denied. Allow camera access or enter the badge code below."
+        : `Camera error: ${msg}`);
+      stopStream();
+    }
+  }, [onScan, stopStream]);
+
+  useEffect(() => {
+    startScanner();
+    return stopStream;
+  }, [startScanner, stopStream]);
+
+  return (
+    <div className="space-y-2">
+      <div className="relative aspect-video w-full overflow-hidden rounded-lg border border-border bg-black">
+        <video ref={videoRef} className="h-full w-full object-cover" playsInline muted autoPlay />
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+          <div className="relative h-28 w-52">
+            <div className="absolute inset-0 rounded shadow-[0_0_0_9999px_rgba(0,0,0,0.45)]" />
+            <div className="absolute left-0 top-0 h-6 w-6 rounded-tl border-l-2 border-t-2 border-white" />
+            <div className="absolute right-0 top-0 h-6 w-6 rounded-tr border-r-2 border-t-2 border-white" />
+            <div className="absolute bottom-0 left-0 h-6 w-6 rounded-bl border-b-2 border-l-2 border-white" />
+            <div className="absolute bottom-0 right-0 h-6 w-6 rounded-br border-b-2 border-r-2 border-white" />
+          </div>
+        </div>
+        <div className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-md bg-background/85 px-2 py-1 text-xs font-medium text-foreground">
+          {scanning ? <ScanLine className="h-3.5 w-3.5" /> : <Camera className="h-3.5 w-3.5" />}
+          {scanning ? "Scanning" : error ? "Scanner unavailable" : "Camera ready"}
+        </div>
+      </div>
+      {error ? <p className="rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</p> : null}
+      <Button type="button" variant="outline" className="w-full" onClick={startScanner}>
+        <Camera className="mr-2 h-4 w-4" />
+        Restart scanner
+      </Button>
+    </div>
+  );
+}
+
 type InventoryDetailData = {
   balance: {
     status: string;
@@ -280,24 +396,8 @@ function RequireAuth({
     return <Navigate to="/login" replace />;
   }
 
-  if (auth.profile && !auth.profile.approved) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-background p-4">
-        <Card className="w-full max-w-md text-center">
-          <CardHeader>
-            <CardTitle>Pending Approval</CardTitle>
-            <CardDescription>
-              Your account is awaiting admin approval. You will be notified when access is granted.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Button variant="outline" onClick={() => auth.signOut()}>
-              Sign out
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
+  if (!auth.profile || !auth.profile.approved) {
+    return <PendingAccessShell />;
   }
 
   if (allowedRoles && !auth.hasRole(allowedRoles)) {
@@ -316,15 +416,159 @@ function RequireAuth({
   return <Outlet />;
 }
 
+function PendingAccessShell() {
+  const auth = useAuth();
+  const { pathname } = useLocation();
+  const [checking, setChecking] = useState(false);
+  const displayName = auth.profile?.full_name?.trim() || auth.user?.email || "Warehouse User";
+  const initials = displayName
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("") || "WU";
+
+  const checkAuthorization = async () => {
+    setChecking(true);
+    try {
+      await auth.refreshProfile();
+      toast.success("Authorization refreshed. If approved, the workspace will open automatically.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Authorization refresh failed");
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  return (
+    <div className="h-screen overflow-hidden bg-background">
+      <div className="grid h-full w-full grid-cols-1 grid-rows-[auto_minmax(0,1fr)] overflow-hidden lg:grid-cols-[240px_minmax(0,1fr)] lg:grid-rows-1">
+        <header className="col-span-full flex items-center justify-between border-b border-border bg-background/95 px-4 py-3 backdrop-blur lg:hidden">
+          <div className="flex items-center gap-2">
+            <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground">
+              <Warehouse className="h-4 w-4" />
+            </div>
+            <span className="text-sm font-semibold">Warehouse Wizard</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <HelpSidebar pathname={pathname} />
+            <Button className="h-9 w-9" size="icon" variant="outline" onClick={() => void auth.signOut()} aria-label="Sign out">
+              <LogOut className="h-4 w-4" />
+            </Button>
+          </div>
+        </header>
+
+        <aside className="hidden h-full overflow-hidden border-r border-border bg-sidebar px-3 py-3 lg:flex lg:flex-col">
+          <div className="mb-4 flex items-center gap-3 px-2">
+            <img src="/logo.png" alt="Warehouse Wizard" className="h-8 w-8 shrink-0 rounded-lg object-fill" />
+            <span className="truncate text-sm font-semibold text-foreground">Warehouse Wizard</span>
+          </div>
+          <nav className="flex-1">
+            <NavLink
+              className={({ isActive }) =>
+                `group flex min-h-9 items-center gap-2.5 rounded-md px-2.5 text-sm font-medium transition-all duration-100 ${
+                  isActive
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                }`
+              }
+              to="/help"
+            >
+              <HelpCircle className="h-4 w-4 shrink-0" />
+              <span className="truncate">Help Center</span>
+            </NavLink>
+          </nav>
+          <Button className="justify-start" variant="ghost" onClick={() => void auth.signOut()}>
+            <LogOut className="mr-2 h-4 w-4" />
+            Sign out
+          </Button>
+        </aside>
+
+        <main className="flex min-h-0 min-w-0 flex-col overflow-hidden">
+          <div className="hidden items-center justify-between gap-3 border-b border-border bg-background/95 px-5 py-2.5 backdrop-blur lg:flex">
+            <div className="min-w-0">
+              <p className="flex items-center gap-2 truncate text-xs text-muted-foreground">
+                <span className="truncate">{pathname === "/help" ? "Help Center" : "Pending Authorization"}</span>
+                <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium">v{__APP_VERSION__}</span>
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <HelpSidebar pathname={pathname} />
+              <Button className="h-9 text-xs" variant="outline" onClick={checkAuthorization} disabled={checking}>
+                {checking ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="mr-2 h-3.5 w-3.5" />}
+                Refresh authorization
+              </Button>
+              <div className="flex items-center gap-2 rounded-lg border border-border bg-card/80 px-2.5 py-1.5 text-sm">
+                <div className="grid h-6 w-6 place-items-center rounded-full bg-primary/10 text-xs font-semibold text-primary">{initials}</div>
+                <span className="hidden truncate text-xs font-medium sm:block">{displayName}</span>
+                <Button className="h-7 shrink-0 text-xs" variant="ghost" size="sm" onClick={() => void auth.signOut()}>
+                  <LogOut className="mr-1 h-3 w-3" />
+                  Sign out
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex-1 min-h-0 min-w-0 overflow-y-auto px-4 py-5 sm:px-5 lg:px-6">
+            <div className="mb-5 rounded-lg border border-primary/30 bg-primary/10 px-4 py-3 text-sm">
+              <p className="font-medium text-foreground">Access request received</p>
+              <p className="mt-1 text-muted-foreground">
+                Your account is waiting for authorization. Refresh to check whether an admin has approved your access.
+              </p>
+              <Button className="mt-3" size="sm" onClick={checkAuthorization} disabled={checking}>
+                {checking ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                Refresh authorization
+              </Button>
+            </div>
+
+            {pathname === "/help" ? (
+              <HelpCenterPage />
+            ) : (
+              <Card className="mx-auto max-w-2xl text-center">
+                <CardHeader>
+                  <CardTitle>Pending Authorization</CardTitle>
+                  <CardDescription>
+                    The workspace is ready, but operational modules stay locked until an admin approves your account.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="grid gap-3 text-sm text-muted-foreground">
+                  <p>You can open Help Center from the sidebar while you wait.</p>
+                  <p>After approval, refresh authorization here or reload the page to enter the full app.</p>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        </main>
+      </div>
+    </div>
+  );
+}
+
 function LoginPage() {
   const auth = useAuth();
-  const [mode, setMode] = useState<"login" | "signup">("login");
+  const [mode, setMode] = useState<"login" | "signup" | "reset" | "update">(() =>
+    typeof window !== "undefined" && new URLSearchParams(window.location.search).get("reset") === "1" ? "update" : "login",
+  );
+  const [loginMethod, setLoginMethod] = useState<"badge" | "code">("badge");
+  const [scannedBadge, setScannedBadge] = useState("");
+  const [manualBadge, setManualBadge] = useState("");
+  const [badgePin, setBadgePin] = useState("");
   const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [showSignUpPassword, setShowSignUpPassword] = useState(false);
 
   const loginForm = useForm({
     resolver: zodResolver(loginSchema.extend({ email: loginSchema.shape.email.or(z.string().min(3, "Enter an email, user code, or badge")) })),
     defaultValues: { email: "", password: "" },
+  });
+
+  const resetForm = useForm({
+    resolver: zodResolver(z.object({ email: z.string().email("Enter your account email") })),
+    defaultValues: { email: "" },
+  });
+
+  const updatePasswordForm = useForm({
+    resolver: zodResolver(z.object({ password: loginSchema.shape.password })),
+    defaultValues: { password: "" },
   });
 
   const signUpForm = useForm({
@@ -339,7 +583,36 @@ function LoginPage() {
       await auth.signIn(identifier, values.password);
       await recordUserSignIn(method);
     },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Sign in failed"),
+    onError: (error) => toast.error(friendlyAuthError(error, "login")),
+  });
+
+  const resetMutation = useMutation({
+    mutationFn: async (values: { email: string }) => {
+      const { error } = await supabase.auth.resetPasswordForEmail(values.email.trim(), {
+        redirectTo: `${window.location.origin}/login?reset=1`,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Password reset email sent. Check your inbox for the recovery link.");
+      resetForm.reset();
+      setMode("login");
+    },
+    onError: (error) => toast.error(friendlyAuthError(error, "login")),
+  });
+
+  const updatePasswordMutation = useMutation({
+    mutationFn: async (values: { password: string }) => {
+      const { error } = await supabase.auth.updateUser({ password: values.password });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Password updated. Loading your workspace.");
+      updatePasswordForm.reset();
+      window.history.replaceState({}, "", "/login");
+      setMode("login");
+    },
+    onError: (error) => toast.error(friendlyAuthError(error, "login")),
   });
 
   const signUpMutation = useMutation({
@@ -361,7 +634,27 @@ function LoginPage() {
     onError: (error) => toast.error(friendlyAuthError(error, "signup")),
   });
 
-  if (auth.session) {
+  const selectedBadge = scannedBadge || manualBadge.trim();
+  const submitBadgePin = () => {
+    if (!selectedBadge) {
+      toast.error("Scan or enter a badge code first.");
+      return;
+    }
+    if (badgePin.length < 4) {
+      toast.error("Enter your PIN to continue.");
+      return;
+    }
+    loginMutation.mutate({ email: selectedBadge, password: badgePin });
+  };
+
+  const handleBadgeScan = useCallback((value: string) => {
+    setScannedBadge(value);
+    setManualBadge("");
+    setBadgePin("");
+    toast.success("Badge scanned. Enter your PIN.");
+  }, []);
+
+  if (auth.session && mode !== "update") {
     return <Navigate to="/dashboard" replace />;
   }
 
@@ -406,51 +699,203 @@ function LoginPage() {
 
           <div>
             <h2 className="text-2xl font-bold tracking-tight text-center">
-              {mode === "login" ? "Welcome back" : "Create account"}
+              {mode === "signup" ? "Create account" : mode === "reset" ? "Reset password" : mode === "update" ? "Set new password" : "Welcome back"}
             </h2>
             <p className="mt-1 text-sm text-muted-foreground text-center">
-              {mode === "login"
-                ? "Sign in with your email, user code, or badge."
-                : "Request access. An admin will approve your account."}
+              {mode === "signup"
+                ? "Request access. An admin will approve your account."
+                : mode === "reset"
+                  ? "Send yourself a secure recovery link."
+                  : mode === "update"
+                    ? "Choose a new password for your account."
+                  : "Scan your badge or sign in with a user code."}
             </p>
           </div>
 
           {mode === "login" ? (
-            <Form {...loginForm}>
-              <form className="flex flex-col gap-3" onSubmit={loginForm.handleSubmit((v) => loginMutation.mutate(v))}>
-                <div className="rounded-lg border border-border bg-secondary/30 p-2.5">
-                  <p className="text-sm font-medium text-center">Email, user code, or badge</p>
-                  <p className="text-xs text-muted-foreground text-center">Use an approved email, short code such as ADMIN01, or a scanned badge code.</p>
-                </div>
-                <FormField control={loginForm.control} name="email" render={({ field }) => (
-                  <FormItem><FormLabel>Login</FormLabel><FormControl><Input {...field} autoComplete="username" className="bg-secondary bg-slate-500" /></FormControl><FormMessage /></FormItem>
-                )} />
-                <FormField control={loginForm.control} name="password" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Password</FormLabel>
-                    <FormControl>
-                      <div className="relative">
-                        <Input {...field} className="pr-12 bg-secondary bg-slate-500" type={showLoginPassword ? "text" : "password"} autoComplete="current-password" />
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="absolute right-1 top-1/2 h-8 w-8 -translate-y-1/2 text-muted-foreground"
-                          onClick={() => setShowLoginPassword((current) => !current)}
-                          aria-label={showLoginPassword ? "Hide password" : "Show password"}
-                          title={showLoginPassword ? "Hide password" : "Show password"}
-                        >
-                          {showLoginPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                        </Button>
-                      </div>
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )} />
-                <Button type="submit" disabled={loginMutation.isPending}>
-                  {loginMutation.isPending ? <Loader2 className="animate-spin mr-2 h-4 w-4" /> : null}
-                  Sign in
+            <div className="flex flex-col gap-3">
+              <div className="grid grid-cols-2 gap-2 rounded-lg border border-border bg-secondary/30 p-1">
+                <Button
+                  type="button"
+                  variant={loginMethod === "badge" ? "default" : "ghost"}
+                  className="h-9"
+                  onClick={() => setLoginMethod("badge")}
+                >
+                  <ScanLine className="mr-2 h-4 w-4" />
+                  Badge scan
                 </Button>
+                <Button
+                  type="button"
+                  variant={loginMethod === "code" ? "default" : "ghost"}
+                  className="h-9"
+                  onClick={() => setLoginMethod("code")}
+                >
+                  <Keyboard className="mr-2 h-4 w-4" />
+                  User code
+                </Button>
+              </div>
+
+              {loginMethod === "badge" ? (
+                <div className="flex flex-col gap-3">
+                  <LoginBadgeScanner onScan={handleBadgeScan} />
+                  <div className="rounded-lg border border-border bg-secondary/30 p-2.5">
+                    <p className="text-sm font-medium text-center">Badge login</p>
+                    <p className="text-xs text-muted-foreground text-center">Scan your badge, then enter your PIN to load the app.</p>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium" htmlFor="badge-code">Badge code</label>
+                    <Input
+                      id="badge-code"
+                      value={selectedBadge}
+                      placeholder="Scan badge or enter code"
+                      autoComplete="username"
+                      className="bg-secondary bg-slate-500"
+                      onChange={(event) => {
+                        setScannedBadge("");
+                        setManualBadge(event.target.value);
+                      }}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium" htmlFor="badge-pin">PIN</label>
+                    <div className="relative">
+                      <Input
+                        id="badge-pin"
+                        value={badgePin}
+                        className="pr-12 bg-secondary bg-slate-500"
+                        type={showLoginPassword ? "text" : "password"}
+                        autoComplete="current-password"
+                        inputMode="numeric"
+                        onChange={(event) => setBadgePin(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            event.preventDefault();
+                            submitBadgePin();
+                          }
+                        }}
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="absolute right-1 top-1/2 h-8 w-8 -translate-y-1/2 text-muted-foreground"
+                        onClick={() => setShowLoginPassword((current) => !current)}
+                        aria-label={showLoginPassword ? "Hide challenge value" : "Show challenge value"}
+                        title={showLoginPassword ? "Hide challenge value" : "Show challenge value"}
+                      >
+                        {showLoginPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </Button>
+                    </div>
+                  </div>
+                  <Button type="button" disabled={loginMutation.isPending} onClick={submitBadgePin}>
+                    {loginMutation.isPending ? <Loader2 className="animate-spin mr-2 h-4 w-4" /> : null}
+                    Unlock app
+                  </Button>
+                </div>
+              ) : (
+                <Form {...loginForm}>
+                  <form className="flex flex-col gap-3" onSubmit={loginForm.handleSubmit((v) => loginMutation.mutate(v))}>
+                    <div className="rounded-lg border border-border bg-secondary/30 p-2.5">
+                      <p className="text-sm font-medium text-center">User code or email</p>
+                      <p className="text-xs text-muted-foreground text-center">Use an approved email or short code such as ADMIN01.</p>
+                    </div>
+                    <FormField control={loginForm.control} name="email" render={({ field }) => (
+                      <FormItem><FormLabel>Login</FormLabel><FormControl><Input {...field} autoComplete="username" className="bg-secondary bg-slate-500" /></FormControl><FormMessage /></FormItem>
+                    )} />
+                    <FormField control={loginForm.control} name="password" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Password or PIN</FormLabel>
+                        <FormControl>
+                          <div className="relative">
+                            <Input {...field} className="pr-12 bg-secondary bg-slate-500" type={showLoginPassword ? "text" : "password"} autoComplete="current-password" />
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="absolute right-1 top-1/2 h-8 w-8 -translate-y-1/2 text-muted-foreground"
+                              onClick={() => setShowLoginPassword((current) => !current)}
+                              aria-label={showLoginPassword ? "Hide password" : "Show password"}
+                              title={showLoginPassword ? "Hide password" : "Show password"}
+                            >
+                              {showLoginPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                            </Button>
+                          </div>
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                    <Button type="submit" disabled={loginMutation.isPending}>
+                      {loginMutation.isPending ? <Loader2 className="animate-spin mr-2 h-4 w-4" /> : null}
+                      Sign in
+                    </Button>
+                  </form>
+                </Form>
+              )}
+            </div>
+          ) : mode === "reset" ? (
+            <Form {...resetForm}>
+              <form className="space-y-3" onSubmit={resetForm.handleSubmit((v) => resetMutation.mutate(v))}>
+                <div className="rounded-lg border border-border bg-secondary/30 p-2.5">
+                  <p className="text-sm font-medium text-center">Self-serve recovery</p>
+                  <p className="text-xs text-muted-foreground text-center">Use the email tied to your approved warehouse account.</p>
+                </div>
+                <FormField
+                  control={resetForm.control}
+                  name="email"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Email</FormLabel>
+                      <FormControl><Input {...field} type="email" autoComplete="email" placeholder="jane@example.com" className="bg-secondary bg-slate-500" /></FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <Button type="submit" className="w-full" disabled={resetMutation.isPending}>
+                  {resetMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Mail className="mr-2 h-4 w-4" />}
+                  Send reset link
+                </Button>
+              </form>
+            </Form>
+          ) : mode === "update" ? (
+            <Form {...updatePasswordForm}>
+              <form className="space-y-3" onSubmit={updatePasswordForm.handleSubmit((v) => updatePasswordMutation.mutate(v))}>
+                <div className="rounded-lg border border-border bg-secondary/30 p-2.5">
+                  <p className="text-sm font-medium text-center">Recovery link accepted</p>
+                  <p className="text-xs text-muted-foreground text-center">Enter your replacement password to finish account recovery.</p>
+                </div>
+                <FormField
+                  control={updatePasswordForm.control}
+                  name="password"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>New password</FormLabel>
+                      <FormControl>
+                        <div className="relative">
+                          <Input {...field} className="pr-12 bg-secondary bg-slate-500" type={showSignUpPassword ? "text" : "password"} autoComplete="new-password" placeholder="Min 8 characters" />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="absolute right-1 top-1/2 h-8 w-8 -translate-y-1/2 text-muted-foreground"
+                            onClick={() => setShowSignUpPassword((current) => !current)}
+                            aria-label={showSignUpPassword ? "Hide new password" : "Show new password"}
+                            title={showSignUpPassword ? "Hide new password" : "Show new password"}
+                          >
+                            {showSignUpPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                          </Button>
+                        </div>
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <Button type="submit" className="w-full" disabled={updatePasswordMutation.isPending || !auth.session}>
+                  {updatePasswordMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                  Update password
+                </Button>
+                {!auth.session ? (
+                  <p className="text-center text-xs text-muted-foreground">Open this page from the recovery email link to unlock password update.</p>
+                ) : null}
               </form>
             </Form>
           ) : (
@@ -525,10 +970,21 @@ function LoginPage() {
 
           <p className="text-center text-sm text-muted-foreground">
             {mode === "login" ? (
-              <>
-                New user?{" "}
+              <span className="inline-flex flex-wrap items-center justify-center gap-x-3 gap-y-1">
+                <button className="font-medium text-primary underline-offset-4 hover:underline" onClick={() => setMode("reset")}>
+                  Reset password
+                </button>
+                <span className="text-muted-foreground/60">|</span>
+                <span>New user?</span>
                 <button className="font-medium text-primary underline-offset-4 hover:underline" onClick={() => setMode("signup")}>
                   Request access
+                </button>
+              </span>
+            ) : mode === "reset" ? (
+              <>
+                Remembered it?{" "}
+                <button className="font-medium text-primary underline-offset-4 hover:underline" onClick={() => setMode("login")}>
+                  Sign in
                 </button>
               </>
             ) : (
