@@ -46,6 +46,7 @@ import {
   confirmPutaway,
   createCycleCountFlow,
   createPickListFlow,
+  getPickableProductIds,
   createReceiptFlow,
   createTransferFlow,
   cancelPickList,
@@ -61,7 +62,6 @@ import {
   getDashboardMetrics,
   getInventoryDetail,
   getPickExecution,
-  getWarehouseForLocationBarcode,
   getBinOccupancy,
   getPutawayTasks,
   getReportData,
@@ -3398,75 +3398,18 @@ export function InventorySearchPage() {
     queryFn: () => fetchOptions(false, { restrictToWarehouse: restrictedToDefaultWarehouse, warehouseId: profile?.default_warehouse_id }),
   });
   const [warehouseId, setWarehouseId] = useState(restrictedToDefaultWarehouse ? profile?.default_warehouse_id ?? "" : "");
-  const [locationScan, setLocationScan] = useState("");
   const selectedWarehouseValue = warehouseId || "all";
-  const hasInventoryFilters = Boolean(searchTerm || warehouseId || locationScan || status !== "all");
-  const scopeRows = useMemo(() => {
-    const warehouses = options?.warehouses ?? [];
-    const zones = options?.zones ?? [];
-    const locations = options?.locations ?? [];
-    return { warehouses, zones, locations };
-  }, [options]);
-
-  const scanMutation = useMutation({
-    mutationFn: getWarehouseForLocationBarcode,
-    onSuccess: (location) => {
-      setWarehouseId(location.warehouse_id);
-      toast.success(`Warehouse visibility switched to ${location.warehouses?.name ?? location.warehouses?.code ?? "scanned warehouse"}`);
-    },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Location scan failed"),
-  });
+  const hasInventoryFilters = Boolean(searchTerm || warehouseId || status !== "all");
 
   const { data = [], isLoading } = useQuery({
     queryKey: ["inventory-search", searchTerm, status, warehouseId],
     queryFn: () => searchInventory({ search: searchTerm, status, warehouseId: warehouseId || undefined }),
   });
 
-  function resolveWarehouseScope(value: string, options?: { exact?: boolean; notify?: boolean }) {
-    const query = value.trim().toLowerCase();
-    if (!query) {
-      setWarehouseId("");
-      return false;
-    }
-    const matches = (...values: unknown[]) =>
-      values.some((item) => {
-        const text = String(item ?? "").trim().toLowerCase();
-        if (!text) return false;
-        return options?.exact ? text === query : text.includes(query);
-      });
-    const warehouse = scopeRows.warehouses.find((row: any) => matches(row.code, row.name));
-    const zone = scopeRows.zones.find((row: any) => matches(row.code, row.name));
-    const location = scopeRows.locations.find((row: any) => matches(row.code, row.aisle, row.bay, row.level, row.location_type));
-    const matchedWarehouseId = warehouse?.id ?? zone?.warehouse_id ?? location?.warehouse_id ?? "";
-    if (!matchedWarehouseId) {
-      setWarehouseId("");
-      return false;
-    }
-    setWarehouseId(matchedWarehouseId);
-    if (options?.notify) {
-      const label = warehouse?.name ?? zone?.code ?? location?.code ?? "matched warehouse";
-      toast.success(`Warehouse visibility switched from ${label}`);
-    }
-    return true;
-  }
-
-  function handleLocationScopeChange(value: string) {
-    setLocationScan(value);
-    resolveWarehouseScope(value);
-  }
-
-  function handleLocationScopeScan(value: string) {
-    setLocationScan(value);
-    if (!resolveWarehouseScope(value, { exact: true, notify: true })) {
-      scanMutation.mutate(value);
-    }
-  }
-
   function clearInventoryFilters() {
     setSearchTerm("");
     setStatus("all");
     setWarehouseId("");
-    setLocationScan("");
   }
 
   function openInventoryDetail(balanceId: string) {
@@ -3519,15 +3462,6 @@ export function InventorySearchPage() {
               ))}
             </SelectContent>
           </Select>
-          <div className="flex min-w-[17rem] flex-1 gap-2">
-            <Input
-              className="min-w-0"
-              value={locationScan}
-              onChange={(event) => handleLocationScopeChange(event.target.value)}
-              placeholder="Search or scan warehouse, zone, aisle, or location"
-            />
-            <BarcodeScanButton title="Scan warehouse, zone, aisle, or location barcode" onScan={handleLocationScopeScan} />
-          </div>
           <Select onValueChange={(value) => setStatus(value as typeof status)} value={status}>
             <SelectTrigger className="min-w-[11rem] flex-1 sm:flex-none">
               <SelectValue placeholder="Status" />
@@ -3679,6 +3613,13 @@ export function PickListsPage() {
     onError: (error) => toast.error(error instanceof Error ? error.message : "Pick list failed"),
   });
 
+  const selectedWarehouseId = form.watch("warehouse_id");
+  const { data: pickableIds } = useQuery({
+    queryKey: ["pickable-product-ids", selectedWarehouseId],
+    queryFn: () => getPickableProductIds(selectedWarehouseId || undefined),
+    staleTime: 30_000,
+  });
+
   const lines = form.watch("lines");
   const pickSearchTerm = pickSearch.trim().toLowerCase();
   const matchesPickSearch = (pickList: any) => {
@@ -3703,12 +3644,16 @@ export function PickListsPage() {
   const allActive = (pickLists as any[]).filter((pl) => !["completed", "cancelled"].includes(pl.status));
   const active = allActive.filter(matchesPickSearch);
   const done = (pickLists as any[]).filter((pl) => ["completed", "cancelled"].includes(pl.status)).filter(matchesPickSearch);
-  const productOptions = (options?.products ?? []).map((product: any) => ({
-    id: product.id,
-    sku: product.sku,
-    name: product.name,
-    barcode: product.barcode,
-  }));
+  // Only show products that have available qty in a known location for the selected warehouse.
+  // While pickableIds is still loading (undefined) all products are shown as a fallback.
+  const productOptions = (options?.products ?? [])
+    .filter((product: any) => !pickableIds || pickableIds.has(product.id))
+    .map((product: any) => ({
+      id: product.id,
+      sku: product.sku,
+      name: product.name,
+      barcode: product.barcode,
+    }));
 
   function prefetchPickExecution(pickListId: string) {
     void queryClient.prefetchQuery({
@@ -5949,6 +5894,18 @@ export function SettingsPage() {
                 <span className="font-mono text-xs font-semibold text-primary">v{__APP_VERSION__}</span>
               </div>
               {[
+                {
+                  version: "1.1.6",
+                  date: "May 2026",
+                  changes: [
+                    "Pick Lists: product selector now only shows items with available quantity assigned to a location — zero-qty and unlocated stock are hidden",
+                    "Inventory Search: removed the secondary location/zone scan filter bar (warehouse filter remains)",
+                    "Dashboard: putaway count now matches what managers see on the Putaway page; all roles see tasks correctly",
+                    "Seeded task data (putaway, move tasks, cycle counts) cleaned up via migration",
+                    "Password: all users can change their own password from the nav header; admin cannot change developer passwords",
+                    "Developer and Warehouse Supervisor roles added; password RPCs extended to allow developer role",
+                  ],
+                },
                 {
                   version: "1.1.3",
                   date: "May 2026",
