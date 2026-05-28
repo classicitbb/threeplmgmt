@@ -9,6 +9,7 @@ import {
   Head,
   Heading,
   Html,
+  Img,
   Link,
   Preview,
   Text,
@@ -32,6 +33,13 @@ export const SignupEmail = ({
     <Preview>Confirm your email for {siteName}</Preview>
     <Body style={main}>
       <Container style={container}>
+        <Img
+          src="https://gxfvxmxplngvxdkpmxgw.supabase.co/storage/v1/object/public/email-assets/logo.png"
+          alt={siteName}
+          width="96"
+          height="96"
+          style={logo}
+        />
         <Heading style={h1}>Confirm your email</Heading>
         <Text style={text}>
           Thanks for signing up for{' '}
@@ -84,3 +92,4 @@ const button = {
   textDecoration: 'none',
 }
 const footer = { fontSize: '12px', color: '#999999', margin: '30px 0 0' }
+const logo = { display: 'block', margin: '0 auto 24px', width: '96px', height: '96px' }
