@@ -201,7 +201,7 @@ const DASHBOARD_METRIC_ROUTES: Record<DashboardMetricKey, AppRoute> = {
   holdStock: "/status",
   quarantineStock: "/status",
 };
-const DASHBOARD_METRIC_LABELS: Record<DashboardMetricKey, string> = {
+const _DASHBOARD_METRIC_LABELS: Record<DashboardMetricKey, string> = {
   totalPallets: "Total Pallets",
   warehousePallets: "This Warehouse",
   availablePallets: "Available Pallets",
