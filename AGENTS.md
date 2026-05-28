@@ -111,5 +111,8 @@ If the user asks for a UI change:
 - `2026-05-25` — User-approved fix to keep completed/cancelled Putaway tasks out of the active Putaway queue.
 - `2026-05-25` — User-approved update to Pallet Label preview and print background plus larger barcode value placement.
 - `2026-05-25` — User-approved update to Command Center live, non-duplicated dashboard metrics, click-through metric sources, responsive scrolling, and data-backed Warehouse Intelligence.
+- `2026-05-28` — User-approved removal of the Users shortcut from the sidebar navigation.
+- `2026-05-28` — User-approved update to make all Command Center tiles draggable and resizable across Floor, Dock, and Office views.
+- `2026-05-28` — User-approved update to merge Command Center summary and mode tiles into one persisted user layout surface per view.
 
 Append new entries here only when the user explicitly approves a UI change.
