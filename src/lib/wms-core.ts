@@ -199,7 +199,6 @@ export const NAVIGATION: Array<{ label: string; to: AppRoute; roles: RoleCode[];
   { label: "Cycle Counts", to: "/cycle-counts", roles: ["admin", "warehouse_manager", "inventory_clerk", "warehouse_operator"], moduleKey: "cycle-counts" },
   { label: "Statuses", to: "/status", roles: ["admin", "warehouse_manager", "inventory_clerk"], moduleKey: "status" },
   { label: "Reports", to: "/reports", roles: ["admin", "warehouse_manager", "inventory_clerk"], moduleKey: "reports" },
-  { label: "Users", to: "/users", roles: ["admin"], moduleKey: "users" },
   { label: "System Log", to: "/system-log", roles: ["admin", "warehouse_manager"], moduleKey: "system-log" },
   { label: "Email Log", to: "/email-log", roles: ["admin"], moduleKey: "email-log" },
 ];

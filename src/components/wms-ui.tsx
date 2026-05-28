@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -169,6 +169,8 @@ type DashboardCardConfig = {
 };
 
 const DEFAULT_DASHBOARD_CARDS: DashboardCardConfig[] = [
+  { id: "totalPallets", label: "Total Pallets", metricKey: "totalPallets", size: "lg" },
+  { id: "warehousePallets", label: "This Warehouse", metricKey: "warehousePallets", size: "lg" },
   { id: "openReceipts", label: "Open Receipts", metricKey: "openReceipts", size: "sm" },
   { id: "openPutawayTasks", label: "Open Putaway", metricKey: "openPutawayTasks", size: "sm" },
   { id: "openPickLists", label: "Open Pick Lists", metricKey: "openPickLists", size: "sm" },
@@ -176,6 +178,9 @@ const DEFAULT_DASHBOARD_CARDS: DashboardCardConfig[] = [
 ];
 
 const DASHBOARD_LAYOUT_KEY = "wms.dashboard.layout.v1";
+const DASHBOARD_FLOOR_LAYOUT_KEY = "wms.dashboard.floor.layout.v1";
+const DASHBOARD_DOCK_LAYOUT_KEY = "wms.dashboard.dock.layout.v1";
+const DASHBOARD_OFFICE_LAYOUT_KEY = "wms.dashboard.office.layout.v1";
 const DASHBOARD_DIAL_METRICS = new Set<DashboardMetricKey>(["totalPallets", "warehousePallets"]);
 const DASHBOARD_METRIC_ROUTES: Record<DashboardMetricKey, AppRoute> = {
   totalPallets: "/inventory-search",
@@ -211,6 +216,38 @@ const DASHBOARD_METRIC_LABELS: Record<DashboardMetricKey, string> = {
   holdStock: "Hold Stock",
   quarantineStock: "Quarantine",
 };
+
+type DashboardTileConfig = {
+  id: string;
+  size: DashboardCardSize;
+};
+
+const DEFAULT_FLOOR_TILES: DashboardTileConfig[] = [
+  { id: "Inbound", size: "lg" },
+  { id: "Putaway", size: "lg" },
+  { id: "Warehouse Intelligence", size: "lg" },
+  { id: "Outbound", size: "lg" },
+  { id: "Moves & Counts", size: "lg" },
+  { id: "Blocked Exceptions", size: "lg" },
+];
+
+const DEFAULT_DOCK_TILES: DashboardTileConfig[] = [
+  { id: "ready", size: "sm" },
+  { id: "called", size: "sm" },
+  { id: "loading", size: "sm" },
+  { id: "blocked", size: "sm" },
+  { id: "loaded", size: "sm" },
+  { id: "warehouse-brain", size: "lg" },
+];
+
+const DEFAULT_OFFICE_TILES: DashboardTileConfig[] = [
+  { id: "Fill level", size: "lg" },
+  { id: "Inventory turn watch", size: "lg" },
+  { id: "Expiration risk", size: "lg" },
+  { id: "DPMO", size: "lg" },
+  { id: "setup-checklist", size: "lg" },
+  { id: "warehouse-brain", size: "lg" },
+];
 
 // ---------------------------------------------------------------------------
 // Barcode scanner helpers
@@ -259,7 +296,7 @@ function loadLayout(): DashboardCardConfig[] {
     if (!Array.isArray(parsed) || parsed.length === 0) return DEFAULT_DASHBOARD_CARDS;
     const seen = new Set<DashboardMetricKey>();
     const sanitized = parsed
-      .filter((card) => card && card.metricKey in DASHBOARD_METRIC_ROUTES && !DASHBOARD_DIAL_METRICS.has(card.metricKey))
+      .filter((card) => card && card.metricKey in DASHBOARD_METRIC_ROUTES)
       .filter((card) => {
         if (seen.has(card.metricKey)) return false;
         seen.add(card.metricKey);
@@ -271,7 +308,11 @@ function loadLayout(): DashboardCardConfig[] {
         metricKey: card.metricKey,
         size: (card.size === "lg" ? "lg" : "sm") as DashboardCardSize,
       }));
-    return sanitized.length > 0 ? sanitized : DEFAULT_DASHBOARD_CARDS;
+    const missing = DEFAULT_DASHBOARD_CARDS.filter((card) => !seen.has(card.metricKey));
+    const missingDials = missing.filter((card) => DASHBOARD_DIAL_METRICS.has(card.metricKey));
+    const missingMetrics = missing.filter((card) => !DASHBOARD_DIAL_METRICS.has(card.metricKey));
+    const merged = [...missingDials, ...sanitized, ...missingMetrics];
+    return merged.length > 0 ? merged : DEFAULT_DASHBOARD_CARDS;
   } catch {
     return DEFAULT_DASHBOARD_CARDS;
   }
@@ -286,6 +327,85 @@ function saveLayout(cards: DashboardCardConfig[]) {
   }
 }
 
+function loadTileLayout(key: string, defaults: DashboardTileConfig[]) {
+  if (typeof window === "undefined") return defaults;
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return defaults;
+    const parsed = JSON.parse(raw) as DashboardTileConfig[];
+    if (!Array.isArray(parsed) || parsed.length === 0) return defaults;
+    const allowed = new Set(defaults.map((tile) => tile.id));
+    const seen = new Set<string>();
+    const sanitized = parsed
+      .filter((tile) => tile && allowed.has(tile.id))
+      .filter((tile) => {
+        if (seen.has(tile.id)) return false;
+        seen.add(tile.id);
+        return true;
+      })
+      .map((tile) => ({ id: tile.id, size: (tile.size === "lg" ? "lg" : "sm") as DashboardCardSize }));
+    const missing = defaults.filter((tile) => !seen.has(tile.id));
+    return [...sanitized, ...missing];
+  } catch {
+    return defaults;
+  }
+}
+
+function saveTileLayout(key: string, tiles: DashboardTileConfig[]) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(key, JSON.stringify(tiles));
+  } catch {
+    /* ignore */
+  }
+}
+
+function SortableDashboardTile({
+  tile,
+  onResize,
+  children,
+  className,
+}: {
+  tile: DashboardTileConfig;
+  onResize: (id: string) => void;
+  children: ReactNode;
+  className?: string;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: tile.id });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.6 : 1,
+  };
+
+  return (
+    <div ref={setNodeRef} style={style} className={cn(tile.size === "lg" ? "sm:col-span-2" : undefined, className)}>
+      <div className="group relative h-full">
+        {children}
+        <div className="absolute right-3 top-3 z-10 flex items-center gap-1 rounded-md bg-background/80 p-0.5 shadow-sm backdrop-blur">
+          <button
+            type="button"
+            onClick={() => onResize(tile.id)}
+            className="grid h-6 w-6 place-items-center rounded-sm text-muted-foreground transition hover:bg-secondary hover:text-foreground"
+            aria-label="Resize tile"
+          >
+            {tile.size === "sm" ? <Maximize2 className="h-3.5 w-3.5" /> : <Minimize2 className="h-3.5 w-3.5" />}
+          </button>
+          <button
+            type="button"
+            className="grid h-6 w-6 cursor-grab place-items-center rounded-sm text-muted-foreground transition hover:bg-secondary hover:text-foreground active:cursor-grabbing"
+            aria-label="Drag tile"
+            {...attributes}
+            {...listeners}
+          >
+            <GripVertical className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SortableMetricCard({
   card,
   value,
@@ -297,47 +417,55 @@ function SortableMetricCard({
   isLoading: boolean;
   onResize: (id: string) => void;
 }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: card.id });
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.6 : 1,
-  };
   return (
-    <div ref={setNodeRef} style={style} className={cn(card.size === "lg" ? "sm:col-span-2" : undefined)}>
-      <Card className="relative">
-        <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
+    <SortableDashboardTile tile={card} onResize={onResize}>
+      <Card className="relative h-full">
+        <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2 pr-20">
           <CardTitle className="text-sm font-medium text-muted-foreground">{card.label}</CardTitle>
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              onClick={() => onResize(card.id)}
-              className="text-muted-foreground transition hover:text-foreground"
-              aria-label="Resize card"
-            >
-              {card.size === "sm" ? <Maximize2 className="h-3.5 w-3.5" /> : <Minimize2 className="h-3.5 w-3.5" />}
-            </button>
-            <button
-              type="button"
-              className="cursor-grab text-muted-foreground transition hover:text-foreground active:cursor-grabbing"
-              aria-label="Drag card"
-              {...attributes}
-              {...listeners}
-            >
-              <GripVertical className="h-3.5 w-3.5" />
-            </button>
-          </div>
         </CardHeader>
         <CardContent>
           <Link to={DASHBOARD_METRIC_ROUTES[card.metricKey]} className="block rounded-sm transition hover:text-primary focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
             <div className="text-3xl font-bold">
-            {isLoading ? <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /> : formatNumber(value)}
+              {isLoading ? <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /> : formatNumber(value)}
             </div>
           </Link>
         </CardContent>
       </Card>
-    </div>
+    </SortableDashboardTile>
   );
+}
+
+function SortableSummaryCard({
+  card,
+  metrics,
+  isLoading,
+  warehouseCaption,
+  onResize,
+}: {
+  card: DashboardCardConfig;
+  metrics: Awaited<ReturnType<typeof getDashboardMetrics>> | undefined;
+  isLoading: boolean;
+  warehouseCaption: string;
+  onResize: (id: string) => void;
+}) {
+  if (DASHBOARD_DIAL_METRICS.has(card.metricKey)) {
+    const capacity = card.metricKey === "totalPallets" ? metrics?.totalPalletCapacity ?? 0 : metrics?.warehousePalletCapacity ?? 0;
+    const caption = card.metricKey === "totalPallets" ? `${formatNumber(metrics?.totalPalletCapacity ?? 0)} location capacity` : warehouseCaption;
+    return (
+      <SortableDashboardTile tile={card} onResize={onResize}>
+        <PalletDialCard
+          label={card.label}
+          value={metrics?.[card.metricKey] ?? 0}
+          capacity={capacity}
+          caption={caption}
+          isLoading={isLoading}
+          route={DASHBOARD_METRIC_ROUTES[card.metricKey]}
+        />
+      </SortableDashboardTile>
+    );
+  }
+
+  return <SortableMetricCard card={card} value={metrics?.[card.metricKey] ?? 0} isLoading={isLoading} onResize={onResize} />;
 }
 
 function PalletDialCard({
@@ -358,8 +486,8 @@ function PalletDialCard({
   const percentage = capacity > 0 ? Math.min(100, Math.round((value / capacity) * 100)) : 0;
 
   return (
-    <Card className="min-h-0">
-      <CardContent className="flex items-center gap-4 p-4">
+    <Card className="h-full min-h-0">
+      <CardContent className="flex h-full items-center gap-4 p-4 pr-20">
         <Link
           to={route}
           className="grid h-24 w-24 shrink-0 place-items-center rounded-full transition focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
@@ -1727,6 +1855,9 @@ export function DashboardPage() {
   const { profile } = useAuth();
   const [mode, setMode] = useState<DashboardMode>("floor");
   const [cards, setCards] = useState<DashboardCardConfig[]>(loadLayout);
+  const [floorTiles, setFloorTiles] = useState<DashboardTileConfig[]>(() => loadTileLayout(DASHBOARD_FLOOR_LAYOUT_KEY, DEFAULT_FLOOR_TILES));
+  const [dockTiles, setDockTiles] = useState<DashboardTileConfig[]>(() => loadTileLayout(DASHBOARD_DOCK_LAYOUT_KEY, DEFAULT_DOCK_TILES));
+  const [officeTiles, setOfficeTiles] = useState<DashboardTileConfig[]>(() => loadTileLayout(DASHBOARD_OFFICE_LAYOUT_KEY, DEFAULT_OFFICE_TILES));
   const dashboardRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [fitToScreen, setFitToScreen] = useState(false);
@@ -1786,6 +1917,28 @@ export function DashboardPage() {
     });
   }, []);
 
+  const handleTileDragEnd = useCallback((event: DragEndEvent, key: string, setTiles: Dispatch<SetStateAction<DashboardTileConfig[]>>) => {
+    const { active, over } = event;
+    if (over && active.id !== over.id) {
+      setTiles((prev) => {
+        const oldIdx = prev.findIndex((tile) => tile.id === active.id);
+        const newIdx = prev.findIndex((tile) => tile.id === over.id);
+        if (oldIdx < 0 || newIdx < 0) return prev;
+        const next = arrayMove(prev, oldIdx, newIdx);
+        saveTileLayout(key, next);
+        return next;
+      });
+    }
+  }, []);
+
+  const handleTileResize = useCallback((id: string, key: string, setTiles: Dispatch<SetStateAction<DashboardTileConfig[]>>) => {
+    setTiles((prev) => {
+      const next = prev.map((tile) => tile.id === id ? { ...tile, size: (tile.size === "sm" ? "lg" : "sm") as DashboardCardSize } : tile);
+      saveTileLayout(key, next);
+      return next;
+    });
+  }, []);
+
   return (
     <div
       ref={dashboardRef}
@@ -1816,34 +1969,16 @@ export function DashboardPage() {
         </div>
       </div>
 
-      <div className="grid shrink-0 gap-3 md:grid-cols-2">
-        <PalletDialCard
-          label="Total Pallets"
-          value={metrics?.totalPallets ?? 0}
-          capacity={metrics?.totalPalletCapacity ?? 0}
-          caption={`${formatNumber(metrics?.totalPalletCapacity ?? 0)} location capacity`}
-          isLoading={isLoading}
-          route="/inventory-search"
-        />
-        <PalletDialCard
-          label="This Warehouse"
-          value={metrics?.warehousePallets ?? 0}
-          capacity={metrics?.warehousePalletCapacity ?? 0}
-          caption={profile?.default_warehouse_id ? `${formatNumber(metrics?.warehousePalletCapacity ?? 0)} location capacity` : "No warehouse selected"}
-          isLoading={isLoading}
-          route="/inventory-search"
-        />
-      </div>
-
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
         <SortableContext items={cards.map((c) => c.id)} strategy={rectSortingStrategy}>
           <div className="grid shrink-0 gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {cards.map((card) => (
-              <SortableMetricCard
+              <SortableSummaryCard
                 key={card.id}
                 card={card}
-                value={metrics?.[card.metricKey] ?? 0}
+                metrics={metrics}
                 isLoading={isLoading}
+                warehouseCaption={profile?.default_warehouse_id ? `${formatNumber(metrics?.warehousePalletCapacity ?? 0)} location capacity` : "No warehouse selected"}
                 onResize={handleResize}
               />
             ))}
@@ -1852,166 +1987,286 @@ export function DashboardPage() {
       </DndContext>
 
       <div className="min-h-0 flex-1 overflow-auto">
-        {mode === "floor" ? <WarehouseFloorMode snapshot={snapshot} /> : null}
-        {mode === "dock" ? <DockHandoffBoard loads={snapshot.dockLoads} recommendations={snapshot.recommendations} /> : null}
-        {mode === "office" ? <OfficeMonitoringMode snapshot={snapshot} /> : null}
+        {mode === "floor" ? (
+          <WarehouseFloorMode
+            snapshot={snapshot}
+            sensors={sensors}
+            tiles={floorTiles}
+            onDragEnd={(event) => handleTileDragEnd(event, DASHBOARD_FLOOR_LAYOUT_KEY, setFloorTiles)}
+            onResize={(id) => handleTileResize(id, DASHBOARD_FLOOR_LAYOUT_KEY, setFloorTiles)}
+          />
+        ) : null}
+        {mode === "dock" ? (
+          <DockHandoffBoard
+            loads={snapshot.dockLoads}
+            recommendations={snapshot.recommendations}
+            sensors={sensors}
+            tiles={dockTiles}
+            onDragEnd={(event) => handleTileDragEnd(event, DASHBOARD_DOCK_LAYOUT_KEY, setDockTiles)}
+            onResize={(id) => handleTileResize(id, DASHBOARD_DOCK_LAYOUT_KEY, setDockTiles)}
+          />
+        ) : null}
+        {mode === "office" ? (
+          <OfficeMonitoringMode
+            snapshot={snapshot}
+            sensors={sensors}
+            tiles={officeTiles}
+            onDragEnd={(event) => handleTileDragEnd(event, DASHBOARD_OFFICE_LAYOUT_KEY, setOfficeTiles)}
+            onResize={(id) => handleTileResize(id, DASHBOARD_OFFICE_LAYOUT_KEY, setOfficeTiles)}
+          />
+        ) : null}
       </div>
     </div>
   );
 }
 
-function WarehouseFloorMode({ snapshot }: { snapshot: EnterpriseDashboardSnapshot }) {
+function WarehouseFloorMode({
+  snapshot,
+  sensors,
+  tiles,
+  onDragEnd,
+  onResize,
+}: {
+  snapshot: EnterpriseDashboardSnapshot;
+  sensors: ReturnType<typeof useSensors>;
+  tiles: DashboardTileConfig[];
+  onDragEnd: (event: DragEndEvent) => void;
+  onResize: (id: string) => void;
+}) {
+  const queuesByLabel = new Map(snapshot.floorQueues.map((queue) => [queue.label, queue]));
+
   return (
-    <div className="grid min-h-0 gap-3 xl:grid-cols-[minmax(0,1.35fr)_minmax(20rem,0.65fr)]">
-      <div className="grid min-h-0 gap-3 md:grid-cols-2">
-        {snapshot.floorQueues.map((queue) => (
-          <Card key={queue.label} className={cn("min-w-0 border-l-4 flex flex-col", toneBorder(queue.tone))}>
-            <CardHeader className="p-4 pb-2">
-              <CardTitle className="flex items-center justify-between gap-4">
-                <span>{queue.label}</span>
-                <Link to={queue.route} className="shrink-0 rounded-sm text-3xl transition hover:text-primary focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
-                  {formatNumber(queue.count)}
-                </Link>
-              </CardTitle>
-              <CardDescription>{queue.action}</CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-1 flex-col gap-2 p-4 pt-0">
-              {queue.tasks.length > 0 ? (
-                <ul className="mb-2 grid gap-1">
-                  {queue.tasks.map((task) => (
-                    <li key={task.id}>
-                      <Link
-                        to={task.route}
-                        className="flex items-center justify-between rounded-md border border-border bg-secondary/30 px-3 py-1.5 text-sm hover:bg-secondary/60 transition-colors"
-                      >
-                        <span className="font-medium truncate">{task.label}</span>
-                        <Badge variant="outline" className="ml-2 shrink-0 capitalize text-xs">{task.sublabel}</Badge>
+    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+      <SortableContext items={tiles.map((tile) => tile.id)} strategy={rectSortingStrategy}>
+        <div className="grid min-h-0 gap-3 md:grid-cols-2 xl:grid-cols-4">
+          {tiles.map((tile) => {
+            if (tile.id === "Warehouse Intelligence") {
+              return (
+                <SortableDashboardTile key={tile.id} tile={tile} onResize={onResize}>
+                  <WarehouseIntelligenceCard snapshot={snapshot} />
+                </SortableDashboardTile>
+              );
+            }
+
+            const queue = queuesByLabel.get(tile.id);
+            if (!queue) return null;
+
+            return (
+              <SortableDashboardTile key={tile.id} tile={tile} onResize={onResize}>
+                <Card className={cn("flex h-full min-w-0 flex-col border-l-4", toneBorder(queue.tone))}>
+                  <CardHeader className="p-4 pb-2 pr-20">
+                    <CardTitle className="flex items-center justify-between gap-4">
+                      <span>{queue.label}</span>
+                      <Link to={queue.route} className="shrink-0 rounded-sm text-3xl transition hover:text-primary focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
+                        {formatNumber(queue.count)}
                       </Link>
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-              <Button className="mt-auto h-10 w-full" asChild>
-                <Link to={queue.route}>Open workflow</Link>
-              </Button>
-            </CardContent>
-          </Card>
+                    </CardTitle>
+                    <CardDescription>{queue.action}</CardDescription>
+                  </CardHeader>
+                  <CardContent className="flex flex-1 flex-col gap-2 p-4 pt-0">
+                    {queue.tasks.length > 0 ? (
+                      <ul className="mb-2 grid gap-1">
+                        {queue.tasks.map((task) => (
+                          <li key={task.id}>
+                            <Link
+                              to={task.route}
+                              className="flex items-center justify-between rounded-md border border-border bg-secondary/30 px-3 py-1.5 text-sm hover:bg-secondary/60 transition-colors"
+                            >
+                              <span className="font-medium truncate">{task.label}</span>
+                              <Badge variant="outline" className="ml-2 shrink-0 capitalize text-xs">{task.sublabel}</Badge>
+                            </Link>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                    <Button className="mt-auto h-10 w-full" asChild>
+                      <Link to={queue.route}>Open workflow</Link>
+                    </Button>
+                  </CardContent>
+                </Card>
+              </SortableDashboardTile>
+            );
+          })}
+        </div>
+      </SortableContext>
+    </DndContext>
+  );
+}
+
+function WarehouseIntelligenceCard({ snapshot }: { snapshot: EnterpriseDashboardSnapshot }) {
+  return (
+    <Card className="h-full min-w-0">
+      <CardHeader className="pb-2 pr-20">
+        <CardTitle className="flex items-center gap-2 text-base"><RadioTower className="h-4 w-4" /> Warehouse Intelligence</CardTitle>
+        <CardDescription className="text-xs">Live shift signals — DPMO, 5S, Kanban, exceptions.</CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-2">
+        {snapshot.leanMetrics.map((metric) => (
+          <Link key={metric.label} to={metric.route} className="flex items-center justify-between gap-2 rounded-md border border-border px-3 py-2 transition hover:bg-secondary/40 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
+            <div className="min-w-0">
+              <p className="truncate text-xs font-medium">{metric.label}</p>
+              <p className="text-xs text-muted-foreground">Target: {metric.target}</p>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <span className="text-lg font-semibold tabular-nums">{metric.value}</span>
+              <Badge className="text-[10px] px-1.5 py-0" variant={metric.status === "off_target" ? "destructive" : metric.status === "watch" ? "secondary" : "default"}>
+                {metric.status.replace("_", " ")}
+              </Badge>
+            </div>
+          </Link>
         ))}
-      </div>
-      <Card className="min-w-0">
-        <CardHeader className="pb-2">
-          <CardTitle className="flex items-center gap-2 text-base"><RadioTower className="h-4 w-4" /> Warehouse Intelligence</CardTitle>
-          <CardDescription className="text-xs">Live shift signals — DPMO, 5S, Kanban, exceptions.</CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-2">
-          {snapshot.leanMetrics.map((metric) => (
-            <Link key={metric.label} to={metric.route} className="flex items-center justify-between gap-2 rounded-md border border-border px-3 py-2 transition hover:bg-secondary/40 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
-              <div className="min-w-0">
-                <p className="truncate text-xs font-medium">{metric.label}</p>
-                <p className="text-xs text-muted-foreground">Target: {metric.target}</p>
-              </div>
-              <div className="flex shrink-0 items-center gap-2">
-                <span className="text-lg font-semibold tabular-nums">{metric.value}</span>
-                <Badge className="text-[10px] px-1.5 py-0" variant={metric.status === "off_target" ? "destructive" : metric.status === "watch" ? "secondary" : "default"}>
-                  {metric.status.replace("_", " ")}
-                </Badge>
-              </div>
-            </Link>
-          ))}
-        </CardContent>
-      </Card>
-    </div>
+      </CardContent>
+    </Card>
   );
 }
 
 function DockHandoffBoard({
   loads,
   recommendations,
+  sensors,
+  tiles,
+  onDragEnd,
+  onResize,
 }: {
   loads: DockHandoffLoad[];
   recommendations: WarehouseBrainRecommendation[];
+  sensors: ReturnType<typeof useSensors>;
+  tiles: DashboardTileConfig[];
+  onDragEnd: (event: DragEndEvent) => void;
+  onResize: (id: string) => void;
 }) {
   return (
-    <div className="grid gap-6">
-      <div className="grid min-w-0 gap-4 sm:grid-cols-2 xl:grid-cols-5">
-        {["ready", "called", "loading", "blocked", "loaded"].map((status) => (
-          <Card key={status} className={cn("min-h-72 min-w-0", status === "blocked" ? "border-destructive/50" : "")}>
-            <CardHeader>
-              <CardTitle className="flex items-center justify-between gap-2 capitalize">
-                <span>{status}</span>
-                <Link to="/pick-lists" className="rounded-sm text-2xl transition hover:text-primary focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
-                  {formatNumber(loads.filter((load) => load.status === status).length)}
-                </Link>
-              </CardTitle>
-              <CardDescription>Dock handoff lane</CardDescription>
-            </CardHeader>
-            <CardContent className="grid gap-3">
-              {loads.filter((load) => load.status === status).map((load) => (
-                <div key={load.id} className="rounded-lg border border-border bg-secondary/30 p-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-semibold">{load.route}</span>
-                    <Badge>{load.door}</Badge>
-                  </div>
-                  <p className="mt-1 truncate text-sm">{load.customer}</p>
-                  <p className="text-xs text-muted-foreground">{load.driver} · {load.pallets} pallet{load.pallets === 1 ? "" : "s"} · {load.temperatureClass}</p>
-                  {load.blocker ? <p className="mt-2 text-xs text-destructive">{load.blocker}</p> : null}
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-      <WarehouseBrainPanel recommendations={recommendations} />
-    </div>
+    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+      <SortableContext items={tiles.map((tile) => tile.id)} strategy={rectSortingStrategy}>
+        <div className="grid min-w-0 gap-4 sm:grid-cols-2 xl:grid-cols-5">
+          {tiles.map((tile) => {
+            if (tile.id === "warehouse-brain") {
+              return (
+                <SortableDashboardTile key={tile.id} tile={tile} onResize={onResize}>
+                  <WarehouseBrainPanel recommendations={recommendations} />
+                </SortableDashboardTile>
+              );
+            }
+
+            const status = tile.id as DockHandoffLoad["status"];
+            const laneLoads = loads.filter((load) => load.status === status);
+
+            return (
+              <SortableDashboardTile key={tile.id} tile={tile} onResize={onResize}>
+                <Card className={cn("h-full min-h-72 min-w-0", status === "blocked" ? "border-destructive/50" : "")}>
+                  <CardHeader className="pr-20">
+                    <CardTitle className="flex items-center justify-between gap-2 capitalize">
+                      <span>{status}</span>
+                      <Link to="/pick-lists" className="rounded-sm text-2xl transition hover:text-primary focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
+                        {formatNumber(laneLoads.length)}
+                      </Link>
+                    </CardTitle>
+                    <CardDescription>Dock handoff lane</CardDescription>
+                  </CardHeader>
+                  <CardContent className="grid gap-3">
+                    {laneLoads.map((load) => (
+                      <div key={load.id} className="rounded-lg border border-border bg-secondary/30 p-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-semibold">{load.route}</span>
+                          <Badge>{load.door}</Badge>
+                        </div>
+                        <p className="mt-1 truncate text-sm">{load.customer}</p>
+                        <p className="text-xs text-muted-foreground">{load.driver} · {load.pallets} pallet{load.pallets === 1 ? "" : "s"} · {load.temperatureClass}</p>
+                        {load.blocker ? <p className="mt-2 text-xs text-destructive">{load.blocker}</p> : null}
+                      </div>
+                    ))}
+                  </CardContent>
+                </Card>
+              </SortableDashboardTile>
+            );
+          })}
+        </div>
+      </SortableContext>
+    </DndContext>
   );
 }
 
-function OfficeMonitoringMode({ snapshot }: { snapshot: EnterpriseDashboardSnapshot }) {
+function OfficeMonitoringMode({
+  snapshot,
+  sensors,
+  tiles,
+  onDragEnd,
+  onResize,
+}: {
+  snapshot: EnterpriseDashboardSnapshot;
+  sensors: ReturnType<typeof useSensors>;
+  tiles: DashboardTileConfig[];
+  onDragEnd: (event: DragEndEvent) => void;
+  onResize: (id: string) => void;
+}) {
+  const widgetsByLabel = new Map(snapshot.officeWidgets.map((widget) => [widget.label, widget]));
+
   return (
-    <div className="grid min-w-0 gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(22rem,0.7fr)]">
-      <div className="grid gap-4 md:grid-cols-2">
-        {snapshot.officeWidgets.map((widget) => (
-          <Card key={widget.label} className={cn("min-w-0 border-l-4", toneBorder(widget.tone))}>
-            <CardHeader>
-              <CardDescription>{widget.label}</CardDescription>
-              <CardTitle className="text-4xl">
-                <Link to={widget.route} className="rounded-sm transition hover:text-primary focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
-                  {widget.value}
-                </Link>
-              </CardTitle>
-              <CardDescription>{widget.detail}</CardDescription>
-            </CardHeader>
-          </Card>
-        ))}
-      </div>
-      <div className="grid gap-4">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2"><ClipboardCheck /> Setup Checklist</CardTitle>
-            <CardDescription>Go-live prompts for admin and management setup activities.</CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-3">
-            {snapshot.setupChecklist.map((item) => (
-              <div key={item.label} className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2">
-                <div>
-                  <p className="text-sm font-medium">{item.label}</p>
-                  <p className="text-xs text-muted-foreground">{item.owner}</p>
-                </div>
-                <Badge variant={item.complete ? "default" : "secondary"}>{item.complete ? "Ready" : "Open"}</Badge>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-        <WarehouseBrainPanel recommendations={snapshot.recommendations} />
-      </div>
-    </div>
+    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+      <SortableContext items={tiles.map((tile) => tile.id)} strategy={rectSortingStrategy}>
+        <div className="grid min-w-0 gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {tiles.map((tile) => {
+            if (tile.id === "setup-checklist") {
+              return (
+                <SortableDashboardTile key={tile.id} tile={tile} onResize={onResize}>
+                  <Card className="h-full">
+                    <CardHeader className="pr-20">
+                      <CardTitle className="flex items-center gap-2"><ClipboardCheck /> Setup Checklist</CardTitle>
+                      <CardDescription>Go-live prompts for admin and management setup activities.</CardDescription>
+                    </CardHeader>
+                    <CardContent className="grid gap-3">
+                      {snapshot.setupChecklist.map((item) => (
+                        <div key={item.label} className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2">
+                          <div>
+                            <p className="text-sm font-medium">{item.label}</p>
+                            <p className="text-xs text-muted-foreground">{item.owner}</p>
+                          </div>
+                          <Badge variant={item.complete ? "default" : "secondary"}>{item.complete ? "Ready" : "Open"}</Badge>
+                        </div>
+                      ))}
+                    </CardContent>
+                  </Card>
+                </SortableDashboardTile>
+              );
+            }
+
+            if (tile.id === "warehouse-brain") {
+              return (
+                <SortableDashboardTile key={tile.id} tile={tile} onResize={onResize}>
+                  <WarehouseBrainPanel recommendations={snapshot.recommendations} />
+                </SortableDashboardTile>
+              );
+            }
+
+            const widget = widgetsByLabel.get(tile.id);
+            if (!widget) return null;
+
+            return (
+              <SortableDashboardTile key={tile.id} tile={tile} onResize={onResize}>
+                <Card className={cn("h-full min-w-0 border-l-4", toneBorder(widget.tone))}>
+                  <CardHeader className="pr-20">
+                    <CardDescription>{widget.label}</CardDescription>
+                    <CardTitle className="text-4xl">
+                      <Link to={widget.route} className="rounded-sm transition hover:text-primary focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
+                        {widget.value}
+                      </Link>
+                    </CardTitle>
+                    <CardDescription>{widget.detail}</CardDescription>
+                  </CardHeader>
+                </Card>
+              </SortableDashboardTile>
+            );
+          })}
+        </div>
+      </SortableContext>
+    </DndContext>
   );
 }
 
 function WarehouseBrainPanel({ recommendations }: { recommendations: WarehouseBrainRecommendation[] }) {
   return (
-    <Card>
-      <CardHeader>
+    <Card className="h-full">
+      <CardHeader className="pr-20">
         <CardTitle className="flex items-center gap-2"><Bot /> Warehouse Brain</CardTitle>
         <CardDescription>Explainable recommendations using live WMS context and role-aware next actions.</CardDescription>
       </CardHeader>
