@@ -3530,6 +3530,29 @@ export function PickListsPage() {
                       Resolve shortage
                     </Button>
                   )}
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button variant="outline" size="sm" className="text-destructive hover:text-destructive">
+                        Cancel pick
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Cancel pick list {pickList.pick_list_number}?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          This closes the pick list and cancels any open pick tasks. Completed picks remain recorded. This action cannot be undone.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Keep pick list</AlertDialogCancel>
+                        <AlertDialogAction
+                          onClick={() => cancelMutation.mutate({ id: pickList.id })}
+                        >
+                          Cancel pick
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
                 </div>
               </CardContent>
             </Card>
