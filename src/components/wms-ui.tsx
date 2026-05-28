@@ -1878,11 +1878,7 @@ export function DashboardPage() {
     });
   }, []);
 
-  const canAccessMetric = useCallback((key: DashboardMetricKey): boolean => {
-    const nav = DASHBOARD_METRIC_NAV[key];
-    if (!nav) return true;
-    return nav.roles.some((r) => roles.includes(r)) && (!nav.moduleKey || isEnabled(nav.moduleKey as ModuleKey));
-  }, [isEnabled, roles]);
+  const canAccessMetric = useCallback((_key: DashboardMetricKey): boolean => true, []);
 
   const renderSummaryTile = useCallback((tile: DashboardTileConfig, onResize: (id: string) => void) => {
     const card = summaryCardsById.get(tile.id);
