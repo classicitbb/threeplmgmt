@@ -269,7 +269,7 @@ function loadLayout(): DashboardCardConfig[] {
         id: card.id || card.metricKey,
         label: DASHBOARD_METRIC_LABELS[card.metricKey] ?? card.label,
         metricKey: card.metricKey,
-        size: card.size === "lg" ? "lg" : "sm",
+        size: (card.size === "lg" ? "lg" : "sm") as DashboardCardSize,
       }));
     return sanitized.length > 0 ? sanitized : DEFAULT_DASHBOARD_CARDS;
   } catch {
