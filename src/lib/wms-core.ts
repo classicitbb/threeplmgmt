@@ -754,11 +754,10 @@ export async function adminInviteUser(input: AdminInviteUserInput): Promise<stri
 }
 
 export async function adminUpdateUserPassword(profileId: string, password: string) {
-  const rpc = supabase.rpc as unknown as (
-    fn: string,
-    args: Record<string, unknown>,
-  ) => Promise<{ data: unknown; error: unknown }>;
-  const { error } = await rpc("admin_update_user_password", {
+  const client = supabase as unknown as {
+    rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: unknown }>;
+  };
+  const { error } = await client.rpc("admin_update_user_password", {
     in_user_id: profileId,
     in_password: password,
   });
