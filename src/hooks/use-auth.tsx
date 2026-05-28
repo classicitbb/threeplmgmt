@@ -13,8 +13,10 @@ import { supabase } from "@/integrations/supabase/client";
 import type { Tables } from "@/integrations/supabase/types";
 
 type RoleCode =
+  | "developer"
   | "admin"
   | "warehouse_manager"
+  | "warehouse_supervisor"
   | "inventory_clerk"
   | "warehouse_operator"
   | "dispatch_driver";
