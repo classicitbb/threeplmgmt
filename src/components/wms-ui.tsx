@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { QRCodeSVG } from "qrcode.react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -38,6 +39,7 @@ import {
   type ResourceDefinition,
   type DraftReceipt,
   adminInviteUser,
+  adminUpdateUserPassword,
   changePalletStatus,
   confirmPutaway,
   createCycleCountFlow,
@@ -5030,7 +5032,23 @@ export function UsersRolesPage() {
   });
 
   const profileEditMutation = useMutation({
-    mutationFn: updateProfileDetails,
+    mutationFn: async ({
+      values,
+      newPassword,
+      badgePin,
+    }: {
+      values: Parameters<typeof updateProfileDetails>[0];
+      newPassword?: string;
+      badgePin?: string;
+    }) => {
+      await updateProfileDetails(values);
+      if (newPassword) {
+        await adminUpdateUserPassword(values.profileId, newPassword);
+      }
+      if (badgePin) {
+        await adminUpdateUserPassword(values.profileId, badgePin);
+      }
+    },
     onSuccess: async () => {
       toast.success("User updated");
       await invalidateOptions();
@@ -5094,7 +5112,7 @@ export function UsersRolesPage() {
                 profile={profile}
                 warehouses={(options?.warehouses ?? []) as WarehouseOption[]}
                 userRoles={(options?.userRoles ?? []).filter((ur: any) => ur.user_id === profile.id)}
-                onSave={(values) => profileEditMutation.mutate(values)}
+                onSave={(values, credentials) => profileEditMutation.mutate({ values, ...credentials })}
                 onToggleActive={() =>
                   profileMutation.mutate({ profileId: profile.id, active: !(profile.active ?? true) })
                 }
@@ -5242,6 +5260,134 @@ export function UsersRolesPage() {
   );
 }
 
+function escapeHtml(value: unknown) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function isWeakBadgePin(pin: string) {
+  const easyPins = new Set([
+    "0000", "1111", "2222", "3333", "4444", "5555", "6666", "7777", "8888", "9999",
+    "1234", "12345", "123456", "1234567", "4321", "54321", "654321", "7654321",
+    "2580", "0852", "1212", "1122", "6969", "1010", "2020", "1230", "7890",
+  ]);
+  if (!/^\d{4,7}$/.test(pin)) return true;
+  if (/^(\d)\1+$/.test(pin)) return true;
+  if (easyPins.has(pin)) return true;
+  if ("0123456789".includes(pin) || "9876543210".includes(pin)) return true;
+  return false;
+}
+
+function printUserBadge({
+  badgeCode,
+  fullName,
+  phone,
+  roles,
+}: {
+  badgeCode: string;
+  fullName: string;
+  phone: string;
+  roles: string[];
+}) {
+  const qrSvg = renderToStaticMarkup(
+    <QRCodeSVG value={badgeCode} size={210} bgColor="#ffffff" fgColor="#000000" level="M" />,
+  );
+  const roleText = roles.length > 0 ? roles.join(", ") : "No assigned role";
+  const printWindow = window.open("", "_blank", "width=420,height=360");
+  if (!printWindow) {
+    toast.error("Popup blocked. Allow popups to print the badge.");
+    return;
+  }
+
+  printWindow.document.write(`
+    <!doctype html>
+    <html>
+      <head>
+        <title>${escapeHtml(fullName || "User badge")}</title>
+        <style>
+          @page { size: 3in 2.5in; margin: 0; }
+          * { box-sizing: border-box; }
+          body {
+            margin: 0;
+            width: 3in;
+            height: 2.5in;
+            font-family: Arial, sans-serif;
+            color: #102033;
+            background: #ffffff;
+          }
+          .badge {
+            width: 3in;
+            height: 2.5in;
+            display: grid;
+            grid-template-columns: 1fr 0.95in;
+            gap: 0.12in;
+            padding: 0.18in;
+            border: 1px solid #102033;
+          }
+          .brand {
+            font-size: 8pt;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            color: #0f766e;
+          }
+          .name {
+            margin-top: 0.18in;
+            font-size: 17pt;
+            line-height: 1.05;
+            font-weight: 800;
+          }
+          .meta {
+            margin-top: 0.08in;
+            font-size: 8.5pt;
+            line-height: 1.25;
+          }
+          .qr {
+            align-self: center;
+            justify-self: center;
+            width: 0.95in;
+            height: 0.95in;
+          }
+          .code {
+            grid-column: 1 / -1;
+            align-self: end;
+            font-family: "Courier New", monospace;
+            font-size: 8pt;
+            letter-spacing: 0.08em;
+            color: #334155;
+          }
+          svg { width: 100%; height: 100%; display: block; }
+        </style>
+      </head>
+      <body>
+        <main class="badge">
+          <section>
+            <div class="brand">Warehouse Wizard</div>
+            <div class="name">${escapeHtml(fullName || "Warehouse User")}</div>
+            <div class="meta">
+              <strong>Phone</strong><br>${escapeHtml(phone || "Not set")}<br><br>
+              <strong>Role</strong><br>${escapeHtml(roleText)}
+            </div>
+          </section>
+          <section class="qr">${qrSvg}</section>
+          <div class="code">${escapeHtml(badgeCode)}</div>
+        </main>
+        <script>
+          window.onload = function () {
+            window.focus();
+            window.print();
+          };
+        </script>
+      </body>
+    </html>
+  `);
+  printWindow.document.close();
+}
+
 function UserProfileRow({
   profile,
   warehouses,
@@ -5252,19 +5398,31 @@ function UserProfileRow({
   profile: ProfileRow;
   warehouses: WarehouseOption[];
   userRoles: any[];
-  onSave: (values: Parameters<typeof updateProfileDetails>[0]) => void;
+  onSave: (
+    values: Parameters<typeof updateProfileDetails>[0],
+    credentials?: { newPassword?: string; badgePin?: string },
+  ) => void;
   onToggleActive: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const fallbackWarehouseId = !profile.default_warehouse_id && warehouses.length === 1 ? warehouses[0]?.id ?? "" : "";
   const [values, setValues] = useState({
     full_name: profile.full_name ?? "",
     phone: profile.phone ?? "",
-    default_warehouse_id: profile.default_warehouse_id ?? "",
+    default_warehouse_id: profile.default_warehouse_id ?? fallbackWarehouseId,
     active: profile.active ?? true,
     approved: profile.approved ?? false,
     user_code: profile.user_code ?? "",
     badge_code: profile.badge_code ?? "",
   });
+  const [newPassword, setNewPassword] = useState("");
+  const [badgePin, setBadgePin] = useState("");
+
+  useEffect(() => {
+    if (!profile.default_warehouse_id && warehouses.length === 1 && !values.default_warehouse_id) {
+      setValues((current) => ({ ...current, default_warehouse_id: warehouses[0]?.id ?? "" }));
+    }
+  }, [profile.default_warehouse_id, values.default_warehouse_id, warehouses]);
 
   const initials = (profile.full_name ?? profile.email ?? "?")
     .split(/\s+/).slice(0, 2).map((p) => p[0]?.toUpperCase() ?? "").join("") || "?";
@@ -5275,14 +5433,39 @@ function UserProfileRow({
     .filter(Boolean);
   const hasBadgeCode = values.badge_code.trim().length > 0;
 
-  const handleResetPasswordPlaceholder = () => {
-    // TODO: Wire this placeholder to the admin password reset flow.
-    toast.info("Password reset action is planned.");
+  const handlePrintBadge = () => {
+    if (!hasBadgeCode) return;
+    printUserBadge({
+      badgeCode: values.badge_code.trim(),
+      fullName: values.full_name.trim(),
+      phone: values.phone.trim(),
+      roles: roleNames,
+    });
   };
 
-  const handlePrintBadgePlaceholder = () => {
-    // TODO: Build badge printing from the saved profile and badge code.
-    toast.info("Badge printing is planned.");
+  const handleSave = () => {
+    const trimmedPassword = newPassword.trim();
+    const trimmedBadgePin = badgePin.trim();
+    if (trimmedPassword && trimmedBadgePin) {
+      toast.error("Set either a new password or a badge PIN, not both.");
+      return;
+    }
+    if (trimmedPassword && trimmedPassword.length < 8) {
+      toast.error("Password must be at least 8 characters.");
+      return;
+    }
+    if (trimmedBadgePin && isWeakBadgePin(trimmedBadgePin)) {
+      toast.error("Badge PIN must be 4-7 digits and not an easy sequence or repeated code.");
+      return;
+    }
+    onSave(
+      { profileId: profile.id, ...values },
+      {
+        newPassword: trimmedPassword || undefined,
+        badgePin: trimmedBadgePin || undefined,
+      },
+    );
+    setOpen(false);
   };
 
   return (
@@ -5361,6 +5544,17 @@ function UserProfileRow({
                       <Input value={values.badge_code} placeholder="e.g. BADGE-OPR02" onChange={(e) => setValues((v) => ({ ...v, badge_code: e.target.value }))} />
                     </div>
                     <div className="grid gap-1.5 sm:col-span-2">
+                      <label className="text-sm font-medium">Badge sign-in PIN</label>
+                      <Input
+                        value={badgePin}
+                        inputMode="numeric"
+                        maxLength={7}
+                        placeholder="Leave blank to keep current PIN"
+                        onChange={(e) => setBadgePin(e.target.value.replace(/\D/g, "").slice(0, 7))}
+                      />
+                      <p className="text-xs text-muted-foreground">Use 4-7 digits. Repeated or sequential codes are blocked.</p>
+                    </div>
+                    <div className="grid gap-1.5 sm:col-span-2">
                       <label className="text-sm font-medium">Default warehouse</label>
                       <Select
                         value={values.default_warehouse_id || "none"}
@@ -5397,16 +5591,22 @@ function UserProfileRow({
                     </label>
                   </div>
                   <div className="grid gap-2 sm:grid-cols-2">
-                    <Button type="button" variant="outline" onClick={handleResetPasswordPlaceholder}>
-                      <Mail className="mr-2 h-4 w-4" />
-                      Reset password
-                    </Button>
+                    <div className="grid gap-1.5">
+                      <label className="text-sm font-medium">New password</label>
+                      <Input
+                        type="password"
+                        value={newPassword}
+                        placeholder="Leave blank to keep current"
+                        onChange={(e) => setNewPassword(e.target.value)}
+                      />
+                    </div>
                     <Button
                       type="button"
                       variant="outline"
+                      className="self-end"
                       disabled={!hasBadgeCode}
                       title={hasBadgeCode ? "Print badge" : "Enter a badge code before printing"}
-                      onClick={handlePrintBadgePlaceholder}
+                      onClick={handlePrintBadge}
                     >
                       <Printer className="mr-2 h-4 w-4" />
                       Print badge
@@ -5414,10 +5614,7 @@ function UserProfileRow({
                   </div>
                   <Button
                     className="w-full"
-                    onClick={() => {
-                      onSave({ profileId: profile.id, ...values });
-                      setOpen(false);
-                    }}
+                    onClick={handleSave}
                   >
                     Save changes
                   </Button>

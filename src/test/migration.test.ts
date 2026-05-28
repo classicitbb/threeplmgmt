@@ -30,6 +30,10 @@ const profileLoginCodesMigration = readFileSync(
   path.resolve(process.cwd(), "supabase/migrations/20260528000000_restore_profile_login_codes.sql"),
   "utf8",
 );
+const adminUpdatePasswordMigration = readFileSync(
+  path.resolve(process.cwd(), "supabase/migrations/20260528001000_admin_update_user_password.sql"),
+  "utf8",
+);
 
 describe("init_wms migration", () => {
   it("creates the core warehouse tables", () => {
@@ -112,5 +116,14 @@ describe("profile login codes migration", () => {
     expect(profileLoginCodesMigration).toContain("add column if not exists badge_code text");
     expect(profileLoginCodesMigration).toContain("idx_profiles_badge_code_unique");
     expect(profileLoginCodesMigration).toContain("public.resolve_login_code");
+  });
+});
+
+describe("admin password update migration", () => {
+  it("adds an admin-only RPC for direct credential updates", () => {
+    expect(adminUpdatePasswordMigration).toContain("create or replace function public.admin_update_user_password");
+    expect(adminUpdatePasswordMigration).toContain("public.has_role(auth.uid(), 'admin')");
+    expect(adminUpdatePasswordMigration).toContain("encrypted_password = crypt(in_password, gen_salt('bf'))");
+    expect(adminUpdatePasswordMigration).toContain("grant execute on function public.admin_update_user_password(uuid, text) to authenticated");
   });
 });

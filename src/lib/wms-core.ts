@@ -753,6 +753,21 @@ export async function adminInviteUser(input: AdminInviteUserInput): Promise<stri
   return data as string;
 }
 
+export async function adminUpdateUserPassword(profileId: string, password: string) {
+  const rpc = supabase.rpc as unknown as (
+    fn: string,
+    args: Record<string, unknown>,
+  ) => Promise<{ data: unknown; error: unknown }>;
+  const { error } = await rpc("admin_update_user_password", {
+    in_user_id: profileId,
+    in_password: password,
+  });
+  if (error) throw error;
+  await logUserActivity("user_access_change", "profiles", profileId, {
+    fields: ["password"],
+  });
+}
+
 export async function setUserRoleVisibility(userRoleId: string, hidden: boolean, reason?: string) {
   const { error } = await (supabase.from as any)("user_roles")
     .update({
