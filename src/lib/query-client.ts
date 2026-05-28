@@ -1,4 +1,4 @@
-import { MutationCache, QueryClient } from "@tanstack/react-query";
+import { MutationCache, QueryClient, type QueryClientConfig } from "@tanstack/react-query";
 
 import { assertOnline } from "@/hooks/use-network-status";
 
@@ -13,7 +13,7 @@ export const queryClientDefaultOptions = {
   mutations: {
     retry: 0,
   },
-} satisfies ConstructorParameters<typeof QueryClient>[0]["defaultOptions"];
+} satisfies NonNullable<QueryClientConfig["defaultOptions"]>;
 
 export function createAppQueryClient() {
   const client = new QueryClient({
