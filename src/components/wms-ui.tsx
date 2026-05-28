@@ -931,9 +931,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       return;
     }
     if (route === "/putaway-tasks") {
+      const canSeeAll = roles.some((r) => ["developer", "admin", "warehouse_manager", "warehouse_supervisor"].includes(r));
+      const prefetchUserId = canSeeAll ? undefined : user?.id;
       void queryClient.prefetchQuery({
-        queryKey: ["putaway-tasks", user?.id],
-        queryFn: () => getPutawayTasks(user?.id),
+        queryKey: ["putaway-tasks", prefetchUserId],
+        queryFn: () => getPutawayTasks(prefetchUserId),
       });
       return;
     }
@@ -3028,10 +3030,13 @@ function BinCapacityBar({ locationCode }: { locationCode: string; taskId?: strin
 export function PutawayTasksPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, roles } = useAuth();
+  // Managers and above see all open tasks; operators/clerks only see their own + unassigned
+  const canSeeAllTasks = roles.some((r) => ["developer", "admin", "warehouse_manager", "warehouse_supervisor"].includes(r));
+  const putawayUserId = canSeeAllTasks ? undefined : user?.id;
   const { data = [], isLoading } = useQuery({
-    queryKey: ["putaway-tasks", user?.id],
-    queryFn: () => getPutawayTasks(user?.id),
+    queryKey: ["putaway-tasks", putawayUserId],
+    queryFn: () => getPutawayTasks(putawayUserId),
   });
   const [scanState, setScanState] = useState<Record<string, { pallet: string; location: string; override: boolean; reason: string }>>({});
   const [violations, setViolations] = useState<Record<string, string>>({});
