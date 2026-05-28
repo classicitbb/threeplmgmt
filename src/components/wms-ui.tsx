@@ -98,8 +98,9 @@ import {
   flagCountLineException,
   revertPutawayToDraft,
   listMoveTasks,
-  createMoveTask,
+  completeDirectMove,
   completeMoveTask,
+  cancelMoveTask,
 } from "@/lib/wms-core";
 import { ProductSearch } from "@/components/product-search";
 import { PalletLabelPage } from "@/components/pallet-label-page";
@@ -4454,20 +4455,30 @@ export function LocationMovesPage() {
   const [newReason, setNewReason] = useState("");
   const [scanState, setScanState] = useState<Record<string, { pallet: string; location: string }>>({});
   const [completedIds, setCompletedIds] = useState<Set<string>>(new Set());
+  const [cancelledIds, setCancelledIds] = useState<Set<string>>(new Set());
+
+  const invalidateMoveData = useCallback(async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["move-tasks"] }),
+      queryClient.invalidateQueries({ queryKey: ["inventory-search"] }),
+      queryClient.invalidateQueries({ queryKey: ["dashboard-metrics"] }),
+    ]);
+  }, [queryClient]);
 
   const { data: tasks = [], isLoading } = useQuery({
     queryKey: ["move-tasks"],
     queryFn: listMoveTasks,
   });
 
-  const createMutation = useMutation({
-    mutationFn: () => createMoveTask(newPallet.trim(), newLocation.trim(), newReason.trim() || undefined),
+  const directMoveMutation = useMutation({
+    mutationFn: ({ pallet, location, reason }: { pallet: string; location: string; reason?: string }) =>
+      completeDirectMove(pallet, location, reason),
     onSuccess: async () => {
-      toast.success("Move task created");
+      toast.success("Move confirmed — pallet relocated");
       setNewPallet(""); setNewLocation(""); setNewReason("");
-      await queryClient.invalidateQueries({ queryKey: ["move-tasks"] });
+      await invalidateMoveData();
     },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to create move task"),
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Move failed"),
   });
 
   const completeMutation = useMutation({
@@ -4476,16 +4487,34 @@ export function LocationMovesPage() {
     onSuccess: async (_, vars) => {
       toast.success("Move confirmed — pallet relocated");
       setCompletedIds((prev) => new Set([...prev, vars.taskId]));
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["move-tasks"] }),
-        queryClient.invalidateQueries({ queryKey: ["inventory-search"] }),
-      ]);
+      await invalidateMoveData();
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Move failed"),
   });
 
-  const pending = (tasks as any[]).filter((t) => !completedIds.has(t.id) && t.status !== "completed");
-  const done    = (tasks as any[]).filter((t) =>  completedIds.has(t.id) || t.status === "completed");
+  const cancelMutation = useMutation({
+    mutationFn: (taskId: string) => cancelMoveTask(taskId),
+    onSuccess: async (_, taskId) => {
+      toast.warning("Move task cancelled");
+      setCancelledIds((prev) => new Set([...prev, taskId]));
+      await invalidateMoveData();
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Cancel failed"),
+  });
+
+  function completeNewMove(pallet = newPallet, location = newLocation) {
+    const trimmedPallet = pallet.trim();
+    const trimmedLocation = location.trim().toUpperCase();
+    if (!trimmedPallet || !trimmedLocation || directMoveMutation.isPending) return;
+    directMoveMutation.mutate({
+      pallet: trimmedPallet,
+      location: trimmedLocation,
+      reason: newReason.trim() || undefined,
+    });
+  }
+
+  const pending = (tasks as any[]).filter((t) => !completedIds.has(t.id) && !cancelledIds.has(t.id) && !["completed", "cancelled"].includes(t.status));
+  const done    = (tasks as any[]).filter((t) =>  completedIds.has(t.id) || cancelledIds.has(t.id) || ["completed", "cancelled"].includes(t.status));
 
   return (
     <div className="flex flex-col gap-6">
@@ -4498,7 +4527,7 @@ export function LocationMovesPage() {
       <Card>
         <CardHeader>
           <CardTitle className="text-base">New Move Task</CardTitle>
-          <CardDescription>Enter the pallet barcode and target location to queue a move.</CardDescription>
+          <CardDescription>Scan the pallet barcode and target location to complete a move.</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
           <div className="grid gap-3 sm:grid-cols-2">
@@ -4508,7 +4537,7 @@ export function LocationMovesPage() {
                 placeholder="Pallet barcode"
                 value={newPallet}
                 onChange={(e) => setNewPallet(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && createMutation.mutate()}
+                onKeyDown={(e) => e.key === "Enter" && completeNewMove()}
               />
               <BarcodeScanButton title="Scan pallet" onScan={(v) => setNewPallet(v)} />
             </div>
@@ -4518,9 +4547,16 @@ export function LocationMovesPage() {
                 placeholder="Target location (e.g. A-01-01)"
                 value={newLocation}
                 onChange={(e) => setNewLocation(e.target.value.toUpperCase())}
-                onKeyDown={(e) => e.key === "Enter" && createMutation.mutate()}
+                onKeyDown={(e) => e.key === "Enter" && completeNewMove()}
               />
-              <BarcodeScanButton title="Scan target location" onScan={(v) => setNewLocation(v.toUpperCase())} />
+              <BarcodeScanButton
+                title="Scan target location"
+                onScan={(v) => {
+                  const nextLocation = v.toUpperCase();
+                  setNewLocation(nextLocation);
+                  if (newPallet.trim()) completeNewMove(newPallet, nextLocation);
+                }}
+              />
             </div>
           </div>
           <Input
@@ -4530,11 +4566,11 @@ export function LocationMovesPage() {
           />
           <Button
             className="w-full"
-            disabled={createMutation.isPending || !newPallet || !newLocation}
-            onClick={() => createMutation.mutate()}
+            disabled={directMoveMutation.isPending || !newPallet || !newLocation}
+            onClick={() => completeNewMove()}
           >
-            {createMutation.isPending ? <Loader2 className="animate-spin mr-2 h-4 w-4" /> : <Plus className="mr-2 h-4 w-4" />}
-            Queue Move Task
+            {directMoveMutation.isPending ? <Loader2 className="animate-spin mr-2 h-4 w-4" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
+            Complete Move
           </Button>
         </CardContent>
       </Card>
@@ -4612,6 +4648,30 @@ export function LocationMovesPage() {
                     {completeMutation.isPending ? <Loader2 className="animate-spin" /> : <ArrowLeftRight data-icon="inline-start" />}
                     Confirm Move
                   </Button>
+                  {task.status === "queued" && (
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button variant="outline" className="w-full text-destructive hover:text-destructive">
+                          <PackageX className="mr-2 h-4 w-4" />
+                          Cancel move
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Cancel move {task.task_number}?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            This clears the queued move from active work and dashboard counts. The pallet will stay in its current location.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Keep move</AlertDialogCancel>
+                          <AlertDialogAction onClick={() => cancelMutation.mutate(task.id)}>
+                            Cancel move
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  )}
                 </CardContent>
               </Card>
             );
@@ -4627,6 +4687,7 @@ export function LocationMovesPage() {
                   const fromLoc = (task.from_location as any)?.code ?? "—";
                   const toLoc   = (task.to_location   as any)?.code ?? "—";
                   const pBarcode = (task.pallets as any)?.pallet_barcode ?? "";
+                  const isCancelled = cancelledIds.has(task.id) || task.status === "cancelled";
                   return (
                     <Card key={task.id} className="opacity-60">
                       <CardContent className="flex items-center justify-between gap-4 py-3 px-4">
@@ -4639,7 +4700,7 @@ export function LocationMovesPage() {
                           <ArrowLeftRight className="inline mx-1 h-3 w-3" />
                           <span className="font-mono text-xs">{toLoc}</span>
                         </div>
-                        <Badge variant="default">completed</Badge>
+                        <Badge variant={isCancelled ? "destructive" : "default"}>{isCancelled ? "cancelled" : "completed"}</Badge>
                       </CardContent>
                     </Card>
                   );

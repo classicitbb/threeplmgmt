@@ -2674,15 +2674,60 @@ export async function createMoveTask(palletBarcode: string, toLocationCode: stri
   });
 }
 
+export async function completeDirectMove(palletBarcode: string, locationCode: string, reason?: string): Promise<void> {
+  const { data: pallet, error: palletErr } = await db("pallets")
+    .select("id, current_location_id, warehouse_id")
+    .eq("pallet_barcode", palletBarcode)
+    .single();
+  if (palletErr) throw new Error(`Pallet not found: ${palletBarcode}`);
+
+  const { data: toLocation, error: locErr } = await db("locations")
+    .select("id")
+    .eq("code", locationCode)
+    .single();
+  if (locErr) throw new Error(`Location not found: ${locationCode}`);
+
+  const completedAt = new Date().toISOString();
+  const task = await upsertRecord("move_tasks", {
+    task_number: buildPalletCode("MOV"),
+    pallet_id: pallet.id,
+    warehouse_id: pallet.warehouse_id,
+    from_location_id: pallet.current_location_id,
+    to_location_id: toLocation.id,
+    status: "completed",
+    reason: reason ?? null,
+    completed_at: completedAt,
+  });
+
+  const { error: palletUpdErr } = await db("pallets")
+    .update({ current_location_id: toLocation.id } as any)
+    .eq("id", pallet.id);
+  if (palletUpdErr) throw palletUpdErr;
+
+  await (supabase.rpc as any)("log_audit_event", {
+    in_event_type: "move_task_completed",
+    in_entity_table: "move_tasks",
+    in_entity_id: task.id,
+    in_warehouse_id: pallet.warehouse_id,
+    in_metadata: { pallet_barcode: palletBarcode, to_location: locationCode, direct_move: true },
+  });
+}
+
 export async function completeMoveTask(taskId: string, scannedPalletBarcode: string, scannedLocationCode: string): Promise<void> {
   const { data: task, error: taskErr } = await db("move_tasks").select("*").eq("id", taskId).single();
   if (taskErr) throw taskErr;
+  if (["completed", "cancelled"].includes(task.status)) {
+    throw new Error("Move task is already closed.");
+  }
 
   const { data: pallet, error: palletErr } = await db("pallets")
     .select("id, pallet_barcode, current_location_id, warehouse_id")
     .eq("pallet_barcode", scannedPalletBarcode)
     .single();
   if (palletErr) throw new Error(`Pallet not found: ${scannedPalletBarcode}`);
+  if (task.pallet_id !== pallet.id) {
+    throw new Error("Scanned pallet does not match this move task.");
+  }
 
   const { data: toLocation, error: locErr } = await db("locations")
     .select("id")
@@ -2706,6 +2751,27 @@ export async function completeMoveTask(taskId: string, scannedPalletBarcode: str
     in_entity_id: taskId,
     in_warehouse_id: task.warehouse_id,
     in_metadata: { pallet_barcode: scannedPalletBarcode, to_location: scannedLocationCode },
+  });
+}
+
+export async function cancelMoveTask(taskId: string): Promise<void> {
+  const { data: task, error: taskErr } = await db("move_tasks").select("*").eq("id", taskId).single();
+  if (taskErr) throw taskErr;
+  if (task.status !== "queued") {
+    throw new Error("Only queued move tasks can be cancelled.");
+  }
+
+  const { error: taskUpdErr } = await db("move_tasks")
+    .update({ status: "cancelled" } as any)
+    .eq("id", taskId);
+  if (taskUpdErr) throw taskUpdErr;
+
+  await (supabase.rpc as any)("log_audit_event", {
+    in_event_type: "move_task_cancelled",
+    in_entity_table: "move_tasks",
+    in_entity_id: taskId,
+    in_warehouse_id: task.warehouse_id,
+    in_metadata: { pallet_id: task.pallet_id, from_location_id: task.from_location_id, to_location_id: task.to_location_id },
   });
 }
 
