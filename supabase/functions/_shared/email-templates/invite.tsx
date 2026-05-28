@@ -9,6 +9,7 @@ import {
   Head,
   Heading,
   Html,
+  Img,
   Link,
   Preview,
   Text,
@@ -30,6 +31,13 @@ export const InviteEmail = ({
     <Preview>You've been invited to join {siteName}</Preview>
     <Body style={main}>
       <Container style={container}>
+        <Img
+          src="https://gxfvxmxplngvxdkpmxgw.supabase.co/storage/v1/object/public/email-assets/logo.png"
+          alt={siteName}
+          width="96"
+          height="96"
+          style={logo}
+        />
         <Heading style={h1}>You've been invited</Heading>
         <Text style={text}>
           You've been invited to join{' '}
@@ -77,3 +85,4 @@ const button = {
   textDecoration: 'none',
 }
 const footer = { fontSize: '12px', color: '#999999', margin: '30px 0 0' }
+const logo = { display: 'block', margin: '0 auto 24px', width: '96px', height: '96px' }
