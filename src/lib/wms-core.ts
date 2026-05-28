@@ -768,6 +768,11 @@ export async function adminInviteUser(input: AdminInviteUserInput): Promise<stri
   return data as string;
 }
 
+export async function updateOwnPassword(password: string) {
+  const { error } = await supabase.auth.updateUser({ password });
+  if (error) throw new Error(error.message ?? "Password update failed");
+}
+
 export async function adminUpdateUserPassword(profileId: string, password: string) {
   const client = supabase as unknown as {
     rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: unknown }>;
@@ -776,7 +781,7 @@ export async function adminUpdateUserPassword(profileId: string, password: strin
     in_user_id: profileId,
     in_password: password,
   });
-  if (error) throw error;
+  if (error) throw new Error((error as any).message ?? "Password update failed");
   await logUserActivity("user_access_change", "profiles", profileId, {
     fields: ["password"],
   });

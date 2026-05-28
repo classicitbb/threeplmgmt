@@ -6,7 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm, type UseFormReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { supabase } from "@/integrations/supabase/client";
-import { Activity, AlertTriangle, ArrowLeftRight, BarChart3, Bot, Boxes, Building2, CheckCircle2, ClipboardCheck, ClipboardList, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, HelpCircle, Home, Info, LayoutDashboard, Loader2, LogOut, Mail, Maximize2, MapPinned, Menu, Minimize2, Package, PackageX, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, QrCode, RadioTower, RotateCcw, Search, Settings, ShieldCheck, Star, Tags, Truck, Upload, UserPlus, Users, Warehouse } from "lucide-react";
+import { Activity, AlertTriangle, ArrowLeftRight, BarChart3, Bot, Boxes, Building2, CheckCircle2, ClipboardCheck, ClipboardList, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, HelpCircle, Home, Info, KeyRound, LayoutDashboard, Loader2, LogOut, Mail, Maximize2, MapPinned, Menu, Minimize2, Package, PackageX, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, QrCode, RadioTower, RotateCcw, Search, Settings, ShieldCheck, Star, Tags, Truck, Upload, UserPlus, Users, Warehouse } from "lucide-react";
 import {
   DndContext,
   KeyboardSensor,
@@ -41,6 +41,7 @@ import {
   type DraftReceipt,
   adminInviteUser,
   adminUpdateUserPassword,
+  updateOwnPassword,
   changePalletStatus,
   confirmPutaway,
   createCycleCountFlow,
@@ -128,7 +129,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 // removed unused dropdown-menu and drawer imports
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -776,6 +777,80 @@ const locationWizardSchema = z
 
 export type LocationWizardValues = z.infer<typeof locationWizardSchema>;
 
+function ChangeOwnPasswordDialog({ onClose }: { onClose?: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+
+  const mutation = useMutation({
+    mutationFn: () => updateOwnPassword(password),
+    onSuccess: () => {
+      toast.success("Password updated");
+      setPassword("");
+      setConfirm("");
+      setOpen(false);
+      onClose?.();
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Password update failed"),
+  });
+
+  const handleSubmit = () => {
+    if (password.length < 8) {
+      toast.error("Password must be at least 8 characters.");
+      return;
+    }
+    if (password !== confirm) {
+      toast.error("Passwords do not match.");
+      return;
+    }
+    mutation.mutate();
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="ghost" size="sm" className="h-7 shrink-0 text-xs">
+          <KeyRound className="mr-1 h-3 w-3" />
+          Change password
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Change password</DialogTitle>
+          <DialogDescription>Enter a new password for your account. Minimum 8 characters.</DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-3 py-2">
+          <div className="grid gap-1.5">
+            <label className="text-sm font-medium">New password</label>
+            <Input
+              type="password"
+              value={password}
+              placeholder="At least 8 characters"
+              onChange={(e) => setPassword(e.target.value)}
+            />
+          </div>
+          <div className="grid gap-1.5">
+            <label className="text-sm font-medium">Confirm password</label>
+            <Input
+              type="password"
+              value={confirm}
+              placeholder="Repeat new password"
+              onChange={(e) => setConfirm(e.target.value)}
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setOpen(false)} disabled={mutation.isPending}>Cancel</Button>
+          <Button onClick={handleSubmit} disabled={mutation.isPending}>
+            {mutation.isPending ? <Loader2 className="animate-spin" /> : null}
+            Update password
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { pathname } = useLocation();
   const { profile, roles, signOut, user, refreshProfile } = useAuth();
@@ -994,10 +1069,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       <p className="truncate text-[11px] text-muted-foreground">v{__APP_VERSION__}</p>
                     </div>
                   </div>
-                  <Button className="h-8 w-full text-xs justify-start" variant="outline" size="sm" onClick={() => { setMobileMenuOpen(false); void signOut(); }}>
-                    <LogOut className="mr-2 h-3 w-3" />
-                    Sign out
-                  </Button>
+                  <div className="flex gap-2">
+                    <ChangeOwnPasswordDialog onClose={() => setMobileMenuOpen(false)} />
+                    <Button className="h-8 flex-1 text-xs justify-start" variant="outline" size="sm" onClick={() => { setMobileMenuOpen(false); void signOut(); }}>
+                      <LogOut className="mr-2 h-3 w-3" />
+                      Sign out
+                    </Button>
+                  </div>
                 </div>
                 <div className="flex-1 overflow-y-auto">{navigation}</div>
               </SheetContent>
@@ -1041,6 +1119,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   <AvatarFallback className="bg-primary/10 text-xs font-semibold text-primary">{initials}</AvatarFallback>
                 </Avatar>
                 <span className="hidden truncate text-xs font-medium sm:block">{displayName}</span>
+                <ChangeOwnPasswordDialog />
                 <Button className="h-7 shrink-0 text-xs" variant="ghost" size="sm" onClick={() => void signOut()}>
                   <LogOut className="mr-1 h-3 w-3" />
                   Sign out
@@ -5453,6 +5532,10 @@ function UserProfileRow({
   ) => void;
   onToggleActive: () => void;
 }) {
+  const { roles: viewerRoles } = useAuth();
+  const targetIsDeveloper = userRoles.some((ur: any) => (ur.roles as { code?: string } | null)?.code === "developer");
+  const canChangePassword = viewerRoles.includes("developer") || !targetIsDeveloper;
+
   const [open, setOpen] = useState(false);
   const fallbackWarehouseId = !profile.default_warehouse_id && warehouses.length === 1 ? warehouses[0]?.id ?? "" : "";
   const [values, setValues] = useState({
@@ -5592,17 +5675,19 @@ function UserProfileRow({
                       <label className="text-sm font-medium">Badge code</label>
                       <Input value={values.badge_code} placeholder="e.g. BADGE-OPR02" onChange={(e) => setValues((v) => ({ ...v, badge_code: e.target.value }))} />
                     </div>
-                    <div className="grid gap-1.5 sm:col-span-2">
-                      <label className="text-sm font-medium">Badge sign-in PIN</label>
-                      <Input
-                        value={badgePin}
-                        inputMode="numeric"
-                        maxLength={7}
-                        placeholder="Leave blank to keep current PIN"
-                        onChange={(e) => setBadgePin(e.target.value.replace(/\D/g, "").slice(0, 7))}
-                      />
-                      <p className="text-xs text-muted-foreground">Use 4-7 digits. Repeated or sequential codes are blocked.</p>
-                    </div>
+                    {canChangePassword && (
+                      <div className="grid gap-1.5 sm:col-span-2">
+                        <label className="text-sm font-medium">Badge sign-in PIN</label>
+                        <Input
+                          value={badgePin}
+                          inputMode="numeric"
+                          maxLength={7}
+                          placeholder="Leave blank to keep current PIN"
+                          onChange={(e) => setBadgePin(e.target.value.replace(/\D/g, "").slice(0, 7))}
+                        />
+                        <p className="text-xs text-muted-foreground">Use 4-7 digits. Repeated or sequential codes are blocked.</p>
+                      </div>
+                    )}
                     <div className="grid gap-1.5 sm:col-span-2">
                       <label className="text-sm font-medium">Default warehouse</label>
                       <Select
@@ -5640,15 +5725,19 @@ function UserProfileRow({
                     </label>
                   </div>
                   <div className="grid gap-2 sm:grid-cols-2">
-                    <div className="grid gap-1.5">
-                      <label className="text-sm font-medium">New password</label>
-                      <Input
-                        type="password"
-                        value={newPassword}
-                        placeholder="Leave blank to keep current"
-                        onChange={(e) => setNewPassword(e.target.value)}
-                      />
-                    </div>
+                    {canChangePassword ? (
+                      <div className="grid gap-1.5">
+                        <label className="text-sm font-medium">New password</label>
+                        <Input
+                          type="password"
+                          value={newPassword}
+                          placeholder="Leave blank to keep current"
+                          onChange={(e) => setNewPassword(e.target.value)}
+                        />
+                      </div>
+                    ) : (
+                      <p className="self-center text-xs text-muted-foreground">Password changes for developer accounts are restricted.</p>
+                    )}
                     <Button
                       type="button"
                       variant="outline"
