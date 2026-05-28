@@ -1498,6 +1498,50 @@ export async function confirmPickTask(taskId: string, scannedLocation: string, s
 
 export async function createTransferFlow(input: z.infer<typeof transferSchema>) {
   const payload = transferSchema.parse(input);
+
+export async function cancelPickList(pickListId: string, reason?: string) {
+  const { data: pickList, error: pickListError } = await db("pick_lists")
+    .select("*, pick_tasks(id, status)")
+    .eq("id", pickListId)
+    .single();
+  if (pickListError) throw pickListError;
+  if (["completed", "cancelled"].includes(pickList.status)) {
+    throw new Error("Pick list is already closed.");
+  }
+
+  const trimmedReason = reason?.trim() || null;
+  const noteSuffix = trimmedReason ? `Cancelled: ${trimmedReason}` : "Cancelled";
+  const nextNotes = pickList.notes ? `${pickList.notes} · ${noteSuffix}` : noteSuffix;
+
+  const openTaskIds = (pickList.pick_tasks ?? [])
+    .filter((t: any) => !["completed", "cancelled"].includes(t.status))
+    .map((t: any) => t.id);
+
+  await db("pick_lists")
+    .update({ status: "cancelled", notes: nextNotes })
+    .eq("id", pickListId);
+
+  if (openTaskIds.length > 0) {
+    await db("pick_tasks")
+      .update({ status: "cancelled", short_reason: trimmedReason })
+      .in("id", openTaskIds);
+  }
+
+  if (pickList.order_id) {
+    await db("orders").update({ status: "cancelled" }).eq("id", pickList.order_id);
+  }
+
+  const cancelAudit = await (supabase.rpc as any)("log_audit_event", {
+    in_event_type: "pick_list_cancelled",
+    in_entity_table: "pick_lists",
+    in_entity_id: pickListId,
+    in_warehouse_id: pickList.warehouse_id,
+    in_metadata: { reason: trimmedReason } as any,
+  });
+  if (cancelAudit.error) console.error("[cancelPickList] log_audit_event failed:", cancelAudit.error);
+}
+
+async function _createTransferFlowPlaceholder() {}
   const transfer = await upsertRecord("transfers", {
     transfer_number: buildPalletCode("TRF"),
     transfer_type: payload.transfer_type,
