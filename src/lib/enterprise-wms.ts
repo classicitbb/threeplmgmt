@@ -236,7 +236,7 @@ export function buildEnterpriseDashboard(
         action: "Receive or resume open receipts",
         route: "/receiving",
         tone: "info",
-        tasks: [],
+        tasks: (metrics?.receiptRows ?? []).slice(0, 5),
       },
       {
         label: "Putaway",

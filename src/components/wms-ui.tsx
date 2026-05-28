@@ -1855,6 +1855,7 @@ export function DashboardPage() {
   const { data: metrics, isLoading } = useQuery({
     queryKey: ["dashboard-metrics", profile?.default_warehouse_id],
     queryFn: () => getDashboardMetrics(profile?.default_warehouse_id),
+    refetchInterval: 15_000,
   });
   const { data: reports } = useQuery({ queryKey: ["reports", "enterprise-dashboard"], queryFn: getReportData });
   const snapshot = useMemo(() => buildEnterpriseDashboard(metrics, reports), [metrics, reports]);

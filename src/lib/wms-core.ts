@@ -169,6 +169,7 @@ export type DashboardMetrics = {
   recentAuditEvents: number;
   holdStock: number;
   quarantineStock: number;
+  receiptRows: DashboardTaskRow[];
   putawayTaskRows: DashboardTaskRow[];
   pickListRows: DashboardTaskRow[];
   moveTaskRows: DashboardTaskRow[];
@@ -1957,6 +1958,17 @@ export async function getDashboardMetrics(warehouseId?: string | null) {
   const scopedReplenishments = warehouseId ? (replenishments.data ?? []).filter((row: any) => row.warehouse_id === warehouseId) : (replenishments.data ?? []);
   const scopedAudits = warehouseId ? (audits.data ?? []).filter((row: any) => row.warehouse_id === warehouseId) : (audits.data ?? []);
 
+  const receiptRows: DashboardTaskRow[] = scopedReceipts
+    .filter((row: any) => row.status === "draft")
+    .sort((a: any, b: any) => a.created_at < b.created_at ? -1 : 1)
+    .map((row: any) => ({
+      id: row.id,
+      label: row.receipt_number,
+      sublabel: row.reference_number ?? row.receipt_number,
+      route: "/receiving",
+      createdAt: row.created_at,
+    }));
+
   const putawayRows: DashboardTaskRow[] = scopedPutaway
     .sort((a: any, b: any) => a.created_at < b.created_at ? -1 : 1)
     .map((row: any) => ({
@@ -2045,7 +2057,7 @@ export async function getDashboardMetrics(warehouseId?: string | null) {
     warehousePalletCapacity,
     availablePallets: balanceRows.filter((row: any) => row.status === "available").length,
     coolZoneOccupancy: coolRows.length,
-    openReceipts: scopedReceipts.length,
+    openReceipts: scopedReceipts.filter((row: any) => row.status === "draft").length,
     openPutawayTasks: scopedPutaway.length,
     openPickLists: scopedPickLists.length,
     openMoveTasks: scopedMoveTasks.length,
@@ -2056,6 +2068,7 @@ export async function getDashboardMetrics(warehouseId?: string | null) {
     recentAuditEvents: scopedAudits.length,
     holdStock: balanceRows.filter((row: any) => row.status === "hold").length,
     quarantineStock: balanceRows.filter((row: any) => row.status === "quarantine").length,
+    receiptRows,
     putawayTaskRows: putawayRows,
     pickListRows: pickRows,
     moveTaskRows: moveRows,
