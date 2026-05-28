@@ -177,10 +177,9 @@ const DEFAULT_DASHBOARD_CARDS: DashboardCardConfig[] = [
   { id: "openMoveTasks", label: "Open Moves", metricKey: "openMoveTasks", size: "sm" },
 ];
 
-const DASHBOARD_LAYOUT_KEY = "wms.dashboard.layout.v1";
-const DASHBOARD_FLOOR_LAYOUT_KEY = "wms.dashboard.floor.layout.v1";
-const DASHBOARD_DOCK_LAYOUT_KEY = "wms.dashboard.dock.layout.v1";
-const DASHBOARD_OFFICE_LAYOUT_KEY = "wms.dashboard.office.layout.v1";
+const DASHBOARD_FLOOR_LAYOUT_KEY = "wms.dashboard.floor.surface.layout.v1";
+const DASHBOARD_DOCK_LAYOUT_KEY = "wms.dashboard.dock.surface.layout.v1";
+const DASHBOARD_OFFICE_LAYOUT_KEY = "wms.dashboard.office.surface.layout.v1";
 const DASHBOARD_DIAL_METRICS = new Set<DashboardMetricKey>(["totalPallets", "warehousePallets"]);
 const DASHBOARD_METRIC_ROUTES: Record<DashboardMetricKey, AppRoute> = {
   totalPallets: "/inventory-search",
@@ -249,6 +248,10 @@ const DEFAULT_OFFICE_TILES: DashboardTileConfig[] = [
   { id: "warehouse-brain", size: "lg" },
 ];
 
+const DEFAULT_FLOOR_LAYOUT: DashboardTileConfig[] = [...DEFAULT_DASHBOARD_CARDS, ...DEFAULT_FLOOR_TILES];
+const DEFAULT_DOCK_LAYOUT: DashboardTileConfig[] = [...DEFAULT_DASHBOARD_CARDS, ...DEFAULT_DOCK_TILES];
+const DEFAULT_OFFICE_LAYOUT: DashboardTileConfig[] = [...DEFAULT_DASHBOARD_CARDS, ...DEFAULT_OFFICE_TILES];
+
 // ---------------------------------------------------------------------------
 // Barcode scanner helpers
 // ---------------------------------------------------------------------------
@@ -287,46 +290,6 @@ function flashInput(el: HTMLElement | null, colour: "orange" | "blue") {
   setTimeout(() => el.classList.remove(...cls), 700);
 }
 
-function loadLayout(): DashboardCardConfig[] {
-  if (typeof window === "undefined") return DEFAULT_DASHBOARD_CARDS;
-  try {
-    const raw = window.localStorage.getItem(DASHBOARD_LAYOUT_KEY);
-    if (!raw) return DEFAULT_DASHBOARD_CARDS;
-    const parsed = JSON.parse(raw) as DashboardCardConfig[];
-    if (!Array.isArray(parsed) || parsed.length === 0) return DEFAULT_DASHBOARD_CARDS;
-    const seen = new Set<DashboardMetricKey>();
-    const sanitized = parsed
-      .filter((card) => card && card.metricKey in DASHBOARD_METRIC_ROUTES)
-      .filter((card) => {
-        if (seen.has(card.metricKey)) return false;
-        seen.add(card.metricKey);
-        return true;
-      })
-      .map((card) => ({
-        id: card.id || card.metricKey,
-        label: DASHBOARD_METRIC_LABELS[card.metricKey] ?? card.label,
-        metricKey: card.metricKey,
-        size: (card.size === "lg" ? "lg" : "sm") as DashboardCardSize,
-      }));
-    const missing = DEFAULT_DASHBOARD_CARDS.filter((card) => !seen.has(card.metricKey));
-    const missingDials = missing.filter((card) => DASHBOARD_DIAL_METRICS.has(card.metricKey));
-    const missingMetrics = missing.filter((card) => !DASHBOARD_DIAL_METRICS.has(card.metricKey));
-    const merged = [...missingDials, ...sanitized, ...missingMetrics];
-    return merged.length > 0 ? merged : DEFAULT_DASHBOARD_CARDS;
-  } catch {
-    return DEFAULT_DASHBOARD_CARDS;
-  }
-}
-
-function saveLayout(cards: DashboardCardConfig[]) {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(DASHBOARD_LAYOUT_KEY, JSON.stringify(cards));
-  } catch {
-    /* ignore */
-  }
-}
-
 function loadTileLayout(key: string, defaults: DashboardTileConfig[]) {
   if (typeof window === "undefined") return defaults;
   try {
@@ -349,6 +312,10 @@ function loadTileLayout(key: string, defaults: DashboardTileConfig[]) {
   } catch {
     return defaults;
   }
+}
+
+function profileLayoutKey(key: string, profileId?: string | null) {
+  return profileId ? `${key}.${profileId}` : key;
 }
 
 function saveTileLayout(key: string, tiles: DashboardTileConfig[]) {
@@ -1854,10 +1821,12 @@ function shouldRestrictToDefaultWarehouse(roles: string[]) {
 export function DashboardPage() {
   const { profile } = useAuth();
   const [mode, setMode] = useState<DashboardMode>("floor");
-  const [cards, setCards] = useState<DashboardCardConfig[]>(loadLayout);
-  const [floorTiles, setFloorTiles] = useState<DashboardTileConfig[]>(() => loadTileLayout(DASHBOARD_FLOOR_LAYOUT_KEY, DEFAULT_FLOOR_TILES));
-  const [dockTiles, setDockTiles] = useState<DashboardTileConfig[]>(() => loadTileLayout(DASHBOARD_DOCK_LAYOUT_KEY, DEFAULT_DOCK_TILES));
-  const [officeTiles, setOfficeTiles] = useState<DashboardTileConfig[]>(() => loadTileLayout(DASHBOARD_OFFICE_LAYOUT_KEY, DEFAULT_OFFICE_TILES));
+  const floorLayoutKey = profileLayoutKey(DASHBOARD_FLOOR_LAYOUT_KEY, profile?.id);
+  const dockLayoutKey = profileLayoutKey(DASHBOARD_DOCK_LAYOUT_KEY, profile?.id);
+  const officeLayoutKey = profileLayoutKey(DASHBOARD_OFFICE_LAYOUT_KEY, profile?.id);
+  const [floorTiles, setFloorTiles] = useState<DashboardTileConfig[]>(() => loadTileLayout(DASHBOARD_FLOOR_LAYOUT_KEY, DEFAULT_FLOOR_LAYOUT));
+  const [dockTiles, setDockTiles] = useState<DashboardTileConfig[]>(() => loadTileLayout(DASHBOARD_DOCK_LAYOUT_KEY, DEFAULT_DOCK_LAYOUT));
+  const [officeTiles, setOfficeTiles] = useState<DashboardTileConfig[]>(() => loadTileLayout(DASHBOARD_OFFICE_LAYOUT_KEY, DEFAULT_OFFICE_LAYOUT));
   const dashboardRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [fitToScreen, setFitToScreen] = useState(false);
@@ -1886,36 +1855,18 @@ export function DashboardPage() {
   });
   const { data: reports } = useQuery({ queryKey: ["reports", "enterprise-dashboard"], queryFn: getReportData });
   const snapshot = useMemo(() => buildEnterpriseDashboard(metrics, reports), [metrics, reports]);
+  const summaryCardsById = useMemo(() => new Map(DEFAULT_DASHBOARD_CARDS.map((card) => [card.id, card])), []);
+
+  useEffect(() => {
+    setFloorTiles(loadTileLayout(floorLayoutKey, DEFAULT_FLOOR_LAYOUT));
+    setDockTiles(loadTileLayout(dockLayoutKey, DEFAULT_DOCK_LAYOUT));
+    setOfficeTiles(loadTileLayout(officeLayoutKey, DEFAULT_OFFICE_LAYOUT));
+  }, [dockLayoutKey, floorLayoutKey, officeLayoutKey]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
-
-  const handleDragEnd = useCallback((event: DragEndEvent) => {
-    const { active, over } = event;
-    if (over && active.id !== over.id) {
-      setCards((prev) => {
-        const oldIdx = prev.findIndex((c) => c.id === active.id);
-        const newIdx = prev.findIndex((c) => c.id === over.id);
-        const next = arrayMove(prev, oldIdx, newIdx);
-        saveLayout(next);
-        return next;
-      });
-    }
-  }, []);
-
-  const handleResize = useCallback((id: string) => {
-    setCards((prev) => {
-      const next = prev.map((c) => {
-        if (c.id !== id) return c;
-        const nextSize: DashboardCardSize = c.size === "sm" ? "lg" : "sm";
-        return { ...c, size: nextSize };
-      });
-      saveLayout(next);
-      return next;
-    });
-  }, []);
 
   const handleTileDragEnd = useCallback((event: DragEndEvent, key: string, setTiles: Dispatch<SetStateAction<DashboardTileConfig[]>>) => {
     const { active, over } = event;
@@ -1938,6 +1889,21 @@ export function DashboardPage() {
       return next;
     });
   }, []);
+
+  const renderSummaryTile = useCallback((tile: DashboardTileConfig, onResize: (id: string) => void) => {
+    const card = summaryCardsById.get(tile.id);
+    if (!card) return null;
+    return (
+      <SortableSummaryCard
+        key={tile.id}
+        card={{ ...card, size: tile.size }}
+        metrics={metrics}
+        isLoading={isLoading}
+        warehouseCaption={profile?.default_warehouse_id ? `${formatNumber(metrics?.warehousePalletCapacity ?? 0)} location capacity` : "No warehouse selected"}
+        onResize={onResize}
+      />
+    );
+  }, [isLoading, metrics, profile?.default_warehouse_id, summaryCardsById]);
 
   return (
     <div
@@ -1969,31 +1935,15 @@ export function DashboardPage() {
         </div>
       </div>
 
-      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-        <SortableContext items={cards.map((c) => c.id)} strategy={rectSortingStrategy}>
-          <div className="grid shrink-0 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            {cards.map((card) => (
-              <SortableSummaryCard
-                key={card.id}
-                card={card}
-                metrics={metrics}
-                isLoading={isLoading}
-                warehouseCaption={profile?.default_warehouse_id ? `${formatNumber(metrics?.warehousePalletCapacity ?? 0)} location capacity` : "No warehouse selected"}
-                onResize={handleResize}
-              />
-            ))}
-          </div>
-        </SortableContext>
-      </DndContext>
-
       <div className="min-h-0 flex-1 overflow-auto">
         {mode === "floor" ? (
           <WarehouseFloorMode
             snapshot={snapshot}
             sensors={sensors}
             tiles={floorTiles}
-            onDragEnd={(event) => handleTileDragEnd(event, DASHBOARD_FLOOR_LAYOUT_KEY, setFloorTiles)}
-            onResize={(id) => handleTileResize(id, DASHBOARD_FLOOR_LAYOUT_KEY, setFloorTiles)}
+            renderSummaryTile={renderSummaryTile}
+            onDragEnd={(event) => handleTileDragEnd(event, floorLayoutKey, setFloorTiles)}
+            onResize={(id) => handleTileResize(id, floorLayoutKey, setFloorTiles)}
           />
         ) : null}
         {mode === "dock" ? (
@@ -2002,8 +1952,9 @@ export function DashboardPage() {
             recommendations={snapshot.recommendations}
             sensors={sensors}
             tiles={dockTiles}
-            onDragEnd={(event) => handleTileDragEnd(event, DASHBOARD_DOCK_LAYOUT_KEY, setDockTiles)}
-            onResize={(id) => handleTileResize(id, DASHBOARD_DOCK_LAYOUT_KEY, setDockTiles)}
+            renderSummaryTile={renderSummaryTile}
+            onDragEnd={(event) => handleTileDragEnd(event, dockLayoutKey, setDockTiles)}
+            onResize={(id) => handleTileResize(id, dockLayoutKey, setDockTiles)}
           />
         ) : null}
         {mode === "office" ? (
@@ -2011,8 +1962,9 @@ export function DashboardPage() {
             snapshot={snapshot}
             sensors={sensors}
             tiles={officeTiles}
-            onDragEnd={(event) => handleTileDragEnd(event, DASHBOARD_OFFICE_LAYOUT_KEY, setOfficeTiles)}
-            onResize={(id) => handleTileResize(id, DASHBOARD_OFFICE_LAYOUT_KEY, setOfficeTiles)}
+            renderSummaryTile={renderSummaryTile}
+            onDragEnd={(event) => handleTileDragEnd(event, officeLayoutKey, setOfficeTiles)}
+            onResize={(id) => handleTileResize(id, officeLayoutKey, setOfficeTiles)}
           />
         ) : null}
       </div>
@@ -2024,12 +1976,14 @@ function WarehouseFloorMode({
   snapshot,
   sensors,
   tiles,
+  renderSummaryTile,
   onDragEnd,
   onResize,
 }: {
   snapshot: EnterpriseDashboardSnapshot;
   sensors: ReturnType<typeof useSensors>;
   tiles: DashboardTileConfig[];
+  renderSummaryTile: (tile: DashboardTileConfig, onResize: (id: string) => void) => ReactNode;
   onDragEnd: (event: DragEndEvent) => void;
   onResize: (id: string) => void;
 }) {
@@ -2040,6 +1994,9 @@ function WarehouseFloorMode({
       <SortableContext items={tiles.map((tile) => tile.id)} strategy={rectSortingStrategy}>
         <div className="grid min-h-0 gap-3 md:grid-cols-2 xl:grid-cols-4">
           {tiles.map((tile) => {
+            const summaryTile = renderSummaryTile(tile, onResize);
+            if (summaryTile) return summaryTile;
+
             if (tile.id === "Warehouse Intelligence") {
               return (
                 <SortableDashboardTile key={tile.id} tile={tile} onResize={onResize}>
@@ -2125,6 +2082,7 @@ function DockHandoffBoard({
   recommendations,
   sensors,
   tiles,
+  renderSummaryTile,
   onDragEnd,
   onResize,
 }: {
@@ -2132,6 +2090,7 @@ function DockHandoffBoard({
   recommendations: WarehouseBrainRecommendation[];
   sensors: ReturnType<typeof useSensors>;
   tiles: DashboardTileConfig[];
+  renderSummaryTile: (tile: DashboardTileConfig, onResize: (id: string) => void) => ReactNode;
   onDragEnd: (event: DragEndEvent) => void;
   onResize: (id: string) => void;
 }) {
@@ -2140,6 +2099,9 @@ function DockHandoffBoard({
       <SortableContext items={tiles.map((tile) => tile.id)} strategy={rectSortingStrategy}>
         <div className="grid min-w-0 gap-4 sm:grid-cols-2 xl:grid-cols-5">
           {tiles.map((tile) => {
+            const summaryTile = renderSummaryTile(tile, onResize);
+            if (summaryTile) return summaryTile;
+
             if (tile.id === "warehouse-brain") {
               return (
                 <SortableDashboardTile key={tile.id} tile={tile} onResize={onResize}>
@@ -2190,12 +2152,14 @@ function OfficeMonitoringMode({
   snapshot,
   sensors,
   tiles,
+  renderSummaryTile,
   onDragEnd,
   onResize,
 }: {
   snapshot: EnterpriseDashboardSnapshot;
   sensors: ReturnType<typeof useSensors>;
   tiles: DashboardTileConfig[];
+  renderSummaryTile: (tile: DashboardTileConfig, onResize: (id: string) => void) => ReactNode;
   onDragEnd: (event: DragEndEvent) => void;
   onResize: (id: string) => void;
 }) {
@@ -2206,6 +2170,9 @@ function OfficeMonitoringMode({
       <SortableContext items={tiles.map((tile) => tile.id)} strategy={rectSortingStrategy}>
         <div className="grid min-w-0 gap-4 md:grid-cols-2 xl:grid-cols-4">
           {tiles.map((tile) => {
+            const summaryTile = renderSummaryTile(tile, onResize);
+            if (summaryTile) return summaryTile;
+
             if (tile.id === "setup-checklist") {
               return (
                 <SortableDashboardTile key={tile.id} tile={tile} onResize={onResize}>
