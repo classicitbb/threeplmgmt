@@ -31,6 +31,13 @@ import { useAuth } from "@/hooks/use-auth";
 import { useFeatureFlags, MODULE_LABELS, STARTER_MODULES, type ModuleKey } from "@/hooks/use-feature-flags";
 import { assertOnline, useNetworkStatus } from "@/hooks/use-network-status";
 import {
+  enqueueOfflineWork,
+  flushOfflineQueue,
+  installOfflineAutoReplay,
+  isLikelyNetworkError,
+  useOfflineQueue,
+} from "@/lib/offline-queue";
+import {
   NAVIGATION,
   ROLE_LABELS,
   ROLE_DESCRIPTIONS,
