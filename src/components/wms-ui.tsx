@@ -3682,9 +3682,9 @@ export function InventorySearchPage() {
           </div>
         </CardContent>
       </Card>
-      <Card className="flex min-h-0 flex-1 flex-col">
-        <CardContent className="flex min-h-0 flex-1 p-0">
-          <TableFrame className="h-full">
+      <Card className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        <CardContent className="flex min-h-0 min-w-0 flex-1 p-0">
+          <TableFrame className="h-full min-w-0 flex-1">
             <Table className="min-w-[58rem] [&_th]:whitespace-nowrap [&_td]:whitespace-nowrap">
               <TableHeader className="sticky top-0 z-20 bg-card shadow-sm">
                 <TableRow>
