@@ -1,19 +1,8 @@
-# AGENTS.md — UI Freeze Contract
-
-**Status:** UI FROZEN as of commit `015b6f43` (2026-05-09).
-**Audience:** Claude, Codex, Lovable, and any other AI agent or human contributor working on this repo.
-
-The visual design, page layout, navigation, component structure, and user-facing
-copy of this app are **frozen**. Backend, data, business logic, bug fixes, and
-performance work continue normally. Do not redesign, restyle, restructure, or
-rename UI surfaces unless the user explicitly asks for a UI change in that
-specific area.
-
----
+# AGENTS.md — UI Contract
 
 ## 1. Frozen surfaces (do not modify without explicit user request)
 
-These files define the current UI 
+These files define the current UI
 
 ### What "frozen" means
 
