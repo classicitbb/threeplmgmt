@@ -1810,6 +1810,65 @@ export function ResourcePage({
       {editRecord ? (
         <ResourceEditDialog resource={resource} editRecord={editRecord} onClose={() => setEditRecord(null)} />
       ) : null}
+      <Dialog
+        open={!!deleteRecord}
+        onOpenChange={(o) => { if (!o && !cascadeMutation.isPending) { setDeleteRecord(null); setDeleteBlockers(null); setDeleteChallenge(""); } }}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="text-destructive">Delete {resource.singular} permanently</DialogTitle>
+            <DialogDescription>
+              {(() => {
+                const r = (deleteRecord as Record<string, unknown> | null) ?? {};
+                const label = String((r as { name?: string }).name ?? (r as { code?: string }).code ?? (r as { sku?: string }).sku ?? "this record");
+                return <>This will permanently remove <span className="font-medium">{label}</span>. This action cannot be undone.</>;
+              })()}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3 text-sm">
+            <p className="text-muted-foreground">
+              Permanent delete is only allowed when no other records reference this {resource.singular.toLowerCase()}.
+              If child records exist they must be removed or reassigned first.
+            </p>
+            {deleteBlockers && deleteBlockers.length > 0 ? (
+              <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3">
+                <p className="font-medium text-destructive">Cannot delete — still referenced by:</p>
+                <ul className="mt-1 list-disc pl-5 text-destructive/90">
+                  {deleteBlockers.map((b) => (
+                    <li key={b.table}>{b.count} × {b.table.replace(/_/g, " ")}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            <div className="grid gap-1.5 pt-1">
+              <label htmlFor="delete-challenge" className="text-sm font-medium">
+                Type <span className="font-mono font-semibold">DELETE</span> to confirm
+              </label>
+              <Input
+                id="delete-challenge"
+                value={deleteChallenge}
+                onChange={(e) => setDeleteChallenge(e.target.value)}
+                autoComplete="off"
+                autoFocus
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setDeleteRecord(null); setDeleteBlockers(null); setDeleteChallenge(""); }} disabled={cascadeMutation.isPending}>Cancel</Button>
+            <Button
+              variant="destructive"
+              disabled={cascadeMutation.isPending || deleteChallenge.trim() !== "DELETE" || !deleteRecord}
+              onClick={() => {
+                const id = (deleteRecord as { id?: string } | null)?.id;
+                if (id) cascadeMutation.mutate(id);
+              }}
+            >
+              {cascadeMutation.isPending ? <Loader2 className="animate-spin" /> : <Trash2 data-icon="inline-start" />}
+              Delete permanently
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
