@@ -1332,6 +1332,8 @@ function InventoryDetailPage() {
   );
 }
 
+const PICK_OPEN_STATUSES = new Set(["queued", "assigned", "in_progress"]);
+
 function PickExecutionPage() {
   const { pickListId = "" } = useParams();
   const navigate = useNavigate();
@@ -1341,6 +1343,21 @@ function PickExecutionPage() {
     queryFn: async () => (await getPickExecution(pickListId)) as unknown as PickExecutionData,
     enabled: Boolean(pickListId),
   });
+
+  const tasks = data?.pickTasks ?? [];
+  const taskLocationRefs = useRef<Record<string, HTMLInputElement | null>>({});
+
+  const focusNextOpen = useCallback((justConfirmedId: string) => {
+    const list = tasks;
+    const idx = list.findIndex((t) => t.id === justConfirmedId);
+    const next = list.slice(idx + 1).find((t) => PICK_OPEN_STATUSES.has(t.status));
+    if (!next) return;
+    const el = taskLocationRefs.current[next.id];
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      setTimeout(() => el.focus(), 250);
+    }
+  }, [tasks]);
 
   const mutation = useMutation({
     mutationFn: async ({
@@ -1356,12 +1373,36 @@ function PickExecutionPage() {
       quantity: number;
       shortReason?: string;
     }) => guardMutation(confirmPickTask)(taskId, locationCode, palletBarcode, quantity, shortReason),
-    onSuccess: async () => {
+    onSuccess: async (_res, variables) => {
       toast.success("Pick task confirmed");
+      try { navigator.vibrate?.([60, 40, 120]); } catch { /* noop */ }
+      playPickSuccessTone();
       await queryClient.invalidateQueries({ queryKey: ["pick-execution", pickListId] });
+      setTimeout(() => focusNextOpen(variables.taskId), 300);
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Pick confirmation failed"),
   });
+
+  const completeMutation = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase
+        .from("pick_lists")
+        .update({ status: "completed" })
+        .eq("id", pickListId);
+      if (error) throw error;
+    },
+    onSuccess: async () => {
+      toast.success("Pick list complete — handed to dispatch");
+      await queryClient.invalidateQueries({ queryKey: ["pick-execution", pickListId] });
+      await queryClient.invalidateQueries({ queryKey: ["pick-lists"] });
+      navigate("/pick-lists");
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Could not mark complete"),
+  });
+
+  const allTasksClosed = tasks.length > 0 && tasks.every((t) => !PICK_OPEN_STATUSES.has(t.status));
+  const listStatus = (data as any)?.pickList?.status ?? (tasks[0] as any)?.pick_lists?.status;
+  const listAlreadyClosed = listStatus === "completed" || listStatus === "cancelled";
 
   return (
     <AppShell>
@@ -1375,9 +1416,39 @@ function PickExecutionPage() {
             Open the assigned list, scan location and pallet, then confirm quantity.
           </p>
         </div>
-        {(data?.pickTasks ?? []).map((task) => (
-          <PickTaskCard key={task.id} task={task} onConfirm={(payload) => mutation.mutate(payload)} />
+        {tasks.map((task) => (
+          <PickTaskCard
+            key={task.id}
+            task={task}
+            onConfirm={(payload) => mutation.mutate(payload)}
+            isPending={mutation.isPending && mutation.variables?.taskId === task.id}
+            registerLocationRef={(el) => {
+              taskLocationRefs.current[task.id] = el;
+            }}
+          />
         ))}
+        {tasks.length > 0 && (
+          <Card>
+            <CardContent className="flex flex-col gap-3 pt-6">
+              <Button
+                className="w-full"
+                size="lg"
+                disabled={!allTasksClosed || listAlreadyClosed || completeMutation.isPending}
+                onClick={() => completeMutation.mutate()}
+              >
+                {completeMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="h-4 w-4" />
+                )}
+                {listAlreadyClosed ? "Pick list closed" : "Mark pick list complete"}
+              </Button>
+              <p className="text-xs text-muted-foreground text-center">
+                Marking complete means pallets have been delivered to the dispatch/staging area and are handed off to the ERP.
+              </p>
+            </CardContent>
+          </Card>
+        )}
       </div>
     </AppShell>
   );
@@ -1386,6 +1457,8 @@ function PickExecutionPage() {
 function PickTaskCard({
   task,
   onConfirm,
+  isPending,
+  registerLocationRef,
 }: {
   task: any;
   onConfirm: (payload: {
@@ -1395,6 +1468,8 @@ function PickTaskCard({
     quantity: number;
     shortReason?: string;
   }) => void;
+  isPending: boolean;
+  registerLocationRef: (el: HTMLInputElement | null) => void;
 }) {
   const form = useForm({
     defaultValues: {
@@ -1407,11 +1482,45 @@ function PickTaskCard({
   const locationRef = useRef<HTMLInputElement | null>(null);
   const palletRef = useRef<HTMLInputElement | null>(null);
   const confirmRef = useRef<HTMLButtonElement | null>(null);
+  const shortReasonRef = useRef<HTMLInputElement | null>(null);
+  const cardRef = useRef<HTMLDivElement | null>(null);
+  const [keypadOpen, setKeypadOpen] = useState(false);
   const pallet = task.pallets as any;
   const product = pallet?.products as any;
   const locationCode = task.locations?.code ?? task.pick_balance?.locations?.code ?? "";
   const palletBarcode = pallet?.pallet_barcode ?? "";
   const palletQuantity = task.pick_balance?.available_quantity ?? pallet?.available_quantity ?? pallet?.quantity ?? task.requested_quantity;
+  const isOpen = PICK_OPEN_STATUSES.has(task.status);
+
+  if (!isOpen) {
+    const tone =
+      task.status === "completed"
+        ? "border-l-4 border-l-green-500 bg-muted/40"
+        : task.status === "exception"
+          ? "border-l-4 border-l-amber-500 bg-muted/40"
+          : "border-l-4 border-l-muted-foreground/40 bg-muted/30";
+    return (
+      <Card className={tone}>
+        <CardHeader>
+          <CardTitle className="flex items-center justify-between gap-4">
+            <span className="min-w-0 break-all">{task.task_number}</span>
+            <Badge variant={task.status === "completed" ? "default" : "secondary"}>{task.status}</Badge>
+          </CardTitle>
+          <CardDescription>
+            {product?.sku ? `${product.sku} · ` : ""}{product?.name ?? "Product"} · {locationCode || "—"} · pallet {palletBarcode || "—"}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-2 text-sm sm:grid-cols-3">
+          <div><span className="text-muted-foreground">Requested:</span> {formatNumber(task.requested_quantity)}</div>
+          <div><span className="text-muted-foreground">Confirmed:</span> {formatNumber(task.confirmed_quantity ?? 0)}</div>
+          {task.short_reason ? (
+            <div className="text-amber-600 sm:col-span-1"><span className="text-muted-foreground">Short:</span> {task.short_reason}</div>
+          ) : <div />}
+        </CardContent>
+      </Card>
+    );
+  }
+
   const instruction = [
     `Go to: ${locationCode || "assigned location"}`,
     `Pallet: ${palletBarcode || "assigned pallet"}`,
@@ -1419,7 +1528,43 @@ function PickTaskCard({
     `Pallet qty: ${formatNumber(Number(palletQuantity ?? 0))}`,
   ].join("\n");
 
+  const handleSubmit = form.handleSubmit((values) => {
+    const qty = Number(values.quantity);
+    const requested = Number(task.requested_quantity);
+    if (!Number.isFinite(qty) || qty <= 0) {
+      toast.error("Enter a confirmed quantity.");
+      return;
+    }
+    if (qty > requested) {
+      toast.error("Confirmed qty cannot exceed requested qty.");
+      return;
+    }
+    if (qty < requested && !values.shortReason.trim()) {
+      flashInput(shortReasonRef.current, "red");
+      shortReasonRef.current?.focus();
+      toast.error("Enter a reason for short pick.");
+      return;
+    }
+    onConfirm({
+      taskId: task.id,
+      locationCode: values.locationCode,
+      palletBarcode: values.palletBarcode,
+      quantity: qty,
+      shortReason: qty < requested ? values.shortReason.trim() : undefined,
+    });
+    if (cardRef.current) {
+      flashInput(cardRef.current, "green");
+    }
+  });
+
+  const appendDigit = (d: string) => {
+    const current = String(form.getValues("quantity") ?? "");
+    const next = current === "0" ? d : `${current}${d}`;
+    form.setValue("quantity", Number(next));
+  };
+
   return (
+    <div ref={cardRef} className="rounded-lg transition-shadow duration-300">
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center justify-between gap-4">
@@ -1432,15 +1577,7 @@ function PickTaskCard({
         <Form {...form}>
           <form
             className="grid gap-4 lg:grid-cols-4"
-            onSubmit={form.handleSubmit((values) =>
-              onConfirm({
-                taskId: task.id,
-                locationCode: values.locationCode,
-                palletBarcode: values.palletBarcode,
-                quantity: Number(values.quantity),
-                shortReason: values.shortReason || undefined,
-              }),
-            )}
+            onSubmit={handleSubmit}
           >
             <div className="lg:col-span-4">
               <Textarea value={instruction} readOnly className="min-h-24 resize-none font-mono text-sm" aria-label="Pick task instructions" />
@@ -1458,6 +1595,7 @@ function PickTaskCard({
                         ref={(el) => {
                           field.ref(el);
                           locationRef.current = el;
+                          registerLocationRef(el);
                         }}
                         className="min-h-10 min-w-0 flex-1 transition-shadow duration-300"
                         placeholder="Scan location barcode"
@@ -1538,7 +1676,34 @@ function PickTaskCard({
                 <FormItem>
                   <FormLabel>Confirmed qty</FormLabel>
                   <FormControl>
-                    <Input {...field} type="number" />
+                    <div className="flex gap-2">
+                      <Input {...field} type="number" inputMode="numeric" className="min-w-0 flex-1" />
+                      <Popover open={keypadOpen} onOpenChange={setKeypadOpen}>
+                        <PopoverTrigger asChild>
+                          <Button type="button" variant="outline" size="icon" title="Numeric keypad">
+                            <Calculator className="h-4 w-4" />
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-56 p-2">
+                          <div className="mb-2 rounded border bg-muted px-2 py-1 text-right font-mono text-base">
+                            {String(form.watch("quantity") ?? 0)}
+                          </div>
+                          <div className="grid grid-cols-3 gap-1">
+                            {["1","2","3","4","5","6","7","8","9"].map((d) => (
+                              <Button key={d} type="button" variant="outline" onClick={() => appendDigit(d)}>{d}</Button>
+                            ))}
+                            <Button type="button" variant="outline" onClick={() => form.setValue("quantity", 0)}>C</Button>
+                            <Button type="button" variant="outline" onClick={() => appendDigit("0")}>0</Button>
+                            <Button type="button" variant="outline" onClick={() => {
+                              const cur = String(form.getValues("quantity") ?? "");
+                              const next = cur.length > 1 ? cur.slice(0, -1) : "0";
+                              form.setValue("quantity", Number(next));
+                            }}>⌫</Button>
+                            <Button type="button" className="col-span-3" onClick={() => { setKeypadOpen(false); confirmRef.current?.focus(); }}>Done</Button>
+                          </div>
+                        </PopoverContent>
+                      </Popover>
+                    </div>
                   </FormControl>
                 </FormItem>
               )}
@@ -1550,18 +1715,28 @@ function PickTaskCard({
                 <FormItem>
                   <FormLabel>Short reason</FormLabel>
                   <FormControl>
-                    <Input {...field} />
+                    <Input
+                      {...field}
+                      ref={(el) => {
+                        field.ref(el);
+                        shortReasonRef.current = el;
+                      }}
+                      className="transition-shadow duration-300"
+                      placeholder="Required if confirmed qty is short"
+                    />
                   </FormControl>
                 </FormItem>
               )}
             />
-            <Button ref={confirmRef} className="w-full lg:col-span-4" type="submit">
+            <Button ref={confirmRef} className="w-full lg:col-span-4" type="submit" disabled={isPending}>
+              {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
               Confirm pick
             </Button>
           </form>
         </Form>
       </CardContent>
     </Card>
+    </div>
   );
 }
 
