@@ -5599,9 +5599,11 @@ export function UsersRolesPage() {
                   <Select value={selectedRole} onValueChange={setSelectedRole}>
                     <SelectTrigger><SelectValue placeholder="Select role" /></SelectTrigger>
                     <SelectContent>
-                      {(options?.roles ?? []).map((role: any) => (
-                        <SelectItem key={role.id} value={role.id}>{role.name}</SelectItem>
-                      ))}
+                      {(options?.roles ?? [])
+                        .filter((role: any) => canOperateDeveloperRole || role.code !== "developer")
+                        .map((role: any) => (
+                          <SelectItem key={role.id} value={role.id}>{role.name}</SelectItem>
+                        ))}
                     </SelectContent>
                   </Select>
                   <Button
