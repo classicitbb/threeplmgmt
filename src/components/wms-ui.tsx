@@ -3979,6 +3979,33 @@ export function PickListsPage() {
                         >
                           Remove
                         </Button>
+                        </div>
+                        {(() => {
+                          const productId = lines[index]?.product_id as string | undefined;
+                          const qty = Number(lines[index]?.quantity ?? 0);
+                          const summary = productId ? pickableStock?.get(productId) : undefined;
+                          if (!summary || !summary.topPallet) return null;
+                          const over = qty > summary.totalAvailable;
+                          return (
+                            <div
+                              className={`rounded-md border px-3 py-2 text-xs ${over ? "border-destructive/60 bg-destructive/5 text-destructive" : "border-border bg-muted/40 text-muted-foreground"}`}
+                            >
+                              <span className="font-mono">
+                                Picks: {summary.topPallet.pallet_code} · Qty {summary.topPallet.available_quantity}
+                                {summary.topPallet.location_code ? ` @ ${summary.topPallet.location_code}` : ""}
+                                {summary.topPallet.expiry_date ? ` · Exp ${summary.topPallet.expiry_date}` : ""}
+                              </span>
+                              <span className="ml-2">
+                                · {summary.palletCount} pallet{summary.palletCount === 1 ? "" : "s"} in stock (total {summary.totalAvailable})
+                              </span>
+                              {over && (
+                                <p className="mt-1 font-medium">
+                                  Only {summary.totalAvailable} in pickable locations — reduce qty or split the line.
+                                </p>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </div>
                     ))}
                     <Button type="button" variant="outline" onClick={() => form.setValue("lines", [...lines, { product_id: "", quantity: 1 }])}>
@@ -3986,7 +4013,18 @@ export function PickListsPage() {
                     </Button>
                   </CardContent>
                 </Card>
-                <Button className="w-full lg:col-span-2" type="submit" disabled={mutation.isPending}>
+                <Button
+                  className="w-full lg:col-span-2"
+                  type="submit"
+                  disabled={
+                    mutation.isPending ||
+                    lines.some((line) => {
+                      const summary = line.product_id ? pickableStock?.get(line.product_id) : undefined;
+                      if (!summary) return false;
+                      return Number(line.quantity ?? 0) > summary.totalAvailable;
+                    })
+                  }
+                >
                   {mutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                   Release pick list
                 </Button>
