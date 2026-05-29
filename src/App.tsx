@@ -25,6 +25,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -263,6 +264,7 @@ const LOGIN_BARCODE_FORMATS = [
   "data_matrix", "pdf417", "aztec",
 ];
 const LOGIN_METHOD_STORAGE_KEY = "warehouse-wizard.login.last-method";
+const REMEMBER_ME_STORAGE_KEY = "warehouse-wizard-remember-me";
 
 function LoginBadgeScanner({
   onScan,
@@ -688,6 +690,13 @@ function LoginPage() {
   const [pinDialogOpen, setPinDialogOpen] = useState(false);
   const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [showSignUpPassword, setShowSignUpPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState<boolean>(() => {
+    if (typeof window === "undefined") return true;
+    return window.localStorage.getItem(REMEMBER_ME_STORAGE_KEY) !== "0";
+  });
+  useEffect(() => {
+    window.localStorage.setItem(REMEMBER_ME_STORAGE_KEY, rememberMe ? "1" : "0");
+  }, [rememberMe]);
 
   const loginForm = useForm({
     resolver: zodResolver(loginSchema.extend({ email: loginSchema.shape.email.or(z.string().min(3, "Enter an email, user code, or badge")) })),
@@ -955,6 +964,13 @@ function LoginPage() {
                       {loginMutation.isPending ? <Loader2 className="animate-spin mr-2 h-4 w-4" /> : null}
                       Sign in
                     </Button>
+                    <label className="flex items-center gap-2 text-xs text-muted-foreground select-none">
+                      <Checkbox
+                        checked={rememberMe}
+                        onCheckedChange={(value) => setRememberMe(value === true)}
+                      />
+                      Remember me on this device
+                    </label>
                   </form>
                 </Form>
               )}
