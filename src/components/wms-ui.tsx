@@ -1425,6 +1425,32 @@ export function ResourcePage({
                     }
                   />
                 ) : null}
+                {["locations", "zones"].includes(resource.table) ? (
+                  <LabelSheetPrintDialog
+                    resourceLabel={resource.singular}
+                    items={(filteredData as Array<Record<string, unknown>>).map((row): LabelSheetItem => {
+                      const code = String((row as any).code ?? (row as any).id ?? "");
+                      const title = (row as any).name ? String((row as any).name) : null;
+                      const subtitleParts: string[] = [];
+                      if (resource.table === "locations") {
+                        const w = warehouseMap.get(String((row as any).warehouse_id ?? ""));
+                        const z = zoneMap.get(String((row as any).zone_id ?? ""));
+                        if (z) subtitleParts.push(`Zone: ${z}`);
+                        if (w) subtitleParts.push(w);
+                      } else if (resource.table === "zones") {
+                        const w = warehouseMap.get(String((row as any).warehouse_id ?? ""));
+                        if (w) subtitleParts.push(w);
+                      }
+                      return { code, title, subtitle: subtitleParts.join(" · ") || null };
+                    })}
+                    trigger={
+                      <DropdownMenuItem onSelect={(event) => event.preventDefault()}>
+                        <Printer className="mr-2 h-4 w-4" />
+                        Print labels sheet
+                      </DropdownMenuItem>
+                    }
+                  />
+                ) : null}
                 <ResourceFormDialog
                   resource={resource}
                   trigger={
