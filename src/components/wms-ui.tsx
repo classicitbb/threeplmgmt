@@ -1145,17 +1145,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 </Select>
               ) : null}
               <HelpSidebar pathname={pathname} />
-              <div className="flex items-center gap-2 rounded-lg border border-border bg-card/80 px-2.5 py-1.5 text-sm">
-                <Avatar className="h-6 w-6">
-                  <AvatarFallback className="bg-primary/10 text-xs font-semibold text-primary">{initials}</AvatarFallback>
-                </Avatar>
-                <span className="hidden truncate text-xs font-medium sm:block">{displayName}</span>
-                <ChangeOwnPasswordDialog />
-                <Button className="h-7 shrink-0 text-xs" variant="ghost" size="sm" onClick={() => void signOut()}>
-                  <LogOut className="mr-1 h-3 w-3" />
-                  Sign out
-                </Button>
-              </div>
+              <ProfileMenu initials={initials} displayName={displayName} onSignOut={() => void signOut()} />
             </div>
           </div>
           <div
