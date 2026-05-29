@@ -1382,8 +1382,8 @@ export async function confirmPutaway(
 async function selectPickCandidates(productId: string, warehouseId: string, quantity: number) {
   const { data: product } = await db("products").select("*").eq("id", productId).single();
 
-  const { data, error } = await db("inventory_search_view")
-    .select("*")
+  const { data, error } = await db("inventory_balances")
+    .select("pallet_id, location_id, available_quantity, expiry_date, received_at")
     .eq("product_id", productId)
     .eq("warehouse_id", warehouseId)
     .eq("status", "available")
@@ -1394,7 +1394,7 @@ async function selectPickCandidates(productId: string, warehouseId: string, quan
     if (product?.rotation_method === "fefo") {
       return (left.expiry_date ?? "9999-12-31").localeCompare(right.expiry_date ?? "9999-12-31");
     }
-    return left.received_at.localeCompare(right.received_at);
+    return String(left.received_at ?? "").localeCompare(String(right.received_at ?? ""));
   });
 
   const chosen: any[] = [];
