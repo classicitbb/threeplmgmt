@@ -1854,7 +1854,7 @@ function BarcodePrintDialog({ labelType, code, title }: { labelType: "warehouse"
     if (!printRef.current) return;
     const printWindow = window.open("", "_blank", "width=420,height=480");
     if (!printWindow) return;
-    printWindow.document.write(`<!DOCTYPE html><html><head><title>Label — ${title}</title><style>
+    printWindow.document.write(`<!DOCTYPE html><html><head><title>Label — ${escapeHtml(title)}</title><style>
       @page { margin: 12mm; }
       body { font-family: system-ui, sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; background: #fff; }
       .label { text-align: center; border: 1px solid #ccc; padding: 16px; border-radius: 8px; display: inline-block; }
@@ -1862,9 +1862,9 @@ function BarcodePrintDialog({ labelType, code, title }: { labelType: "warehouse"
       .label-code { font-size: 18px; font-weight: 700; margin-top: 4px; letter-spacing: 0.04em; }
       .label-sub { font-size: 11px; color: #666; margin-top: 2px; }
     </style></head><body><div class="label">${printRef.current.innerHTML}
-      <p class="label-type">${labelType}</p>
-      <p class="label-code">${title}</p>
-      <p class="label-sub">${code}</p>
+      <p class="label-type">${escapeHtml(labelType)}</p>
+      <p class="label-code">${escapeHtml(title)}</p>
+      <p class="label-sub">${escapeHtml(code)}</p>
     </div><script>window.onload=()=>{window.print();window.close();}<\/script></body></html>`);
     printWindow.document.close();
   }
