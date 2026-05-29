@@ -1059,7 +1059,34 @@ export function createDefaultWarehouseSetupPayload(): WarehouseSetupPayload {
 export async function resetWmsData() {
   const { data, error } = await (supabase.rpc as any)("reset_wms_data");
   if (error) throw error;
-  return data;
+  return data as { status?: string; deleted_users?: number; kept_users?: number; message?: string };
+}
+
+export type CascadeDeleteResult =
+  | { ok: true }
+  | { ok: false; blocked_by: Array<{ table: string; count: number }> };
+
+async function callCascadeDelete(rpc: string, id: string): Promise<CascadeDeleteResult> {
+  const { data, error } = await (supabase.rpc as any)(rpc, { in_id: id });
+  if (error) throw error;
+  return data as CascadeDeleteResult;
+}
+
+export const deleteWarehouseCascade = (id: string) => callCascadeDelete("delete_warehouse_cascade", id);
+export const deleteZoneCascade = (id: string) => callCascadeDelete("delete_zone_cascade", id);
+export const deleteLocationCascade = (id: string) => callCascadeDelete("delete_location_cascade", id);
+export const deleteProductCascade = (id: string) => callCascadeDelete("delete_product_cascade", id);
+export const deleteClientCascade = (id: string) => callCascadeDelete("delete_client_cascade", id);
+
+export async function deleteResourceCascade(table: string, id: string): Promise<CascadeDeleteResult> {
+  switch (table) {
+    case "warehouses": return deleteWarehouseCascade(id);
+    case "zones": return deleteZoneCascade(id);
+    case "locations": return deleteLocationCascade(id);
+    case "products": return deleteProductCascade(id);
+    case "clients": return deleteClientCascade(id);
+    default: throw new Error(`No cascade delete available for ${table}`);
+  }
 }
 
 export async function runWarehouseSetup(setupPayload: WarehouseSetupPayload, seedMode = "starter_ops") {
