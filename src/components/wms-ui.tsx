@@ -5438,7 +5438,8 @@ function AddUserDialog({
 export function UsersRolesPage() {
   const queryClient = useQueryClient();
   const { roles } = useAuth();
-  const canOperateRoles = roles.includes("developer");
+  const canOperateRoles = roles.some((r) => ["developer", "admin"].includes(r));
+  const canOperateDeveloperRole = roles.includes("developer");
   const [includeHidden, setIncludeHidden] = useState(false);
   const { data: options } = useQuery({ queryKey: ["options", includeHidden], queryFn: () => fetchOptions(includeHidden) });
   const { data: activities = [] } = useQuery({ queryKey: ["user-activities"], queryFn: () => listUserActivities() });
@@ -5598,9 +5599,11 @@ export function UsersRolesPage() {
                   <Select value={selectedRole} onValueChange={setSelectedRole}>
                     <SelectTrigger><SelectValue placeholder="Select role" /></SelectTrigger>
                     <SelectContent>
-                      {(options?.roles ?? []).map((role: any) => (
-                        <SelectItem key={role.id} value={role.id}>{role.name}</SelectItem>
-                      ))}
+                      {(options?.roles ?? [])
+                        .filter((role: any) => canOperateDeveloperRole || role.code !== "developer")
+                        .map((role: any) => (
+                          <SelectItem key={role.id} value={role.id}>{role.name}</SelectItem>
+                        ))}
                     </SelectContent>
                   </Select>
                   <Button
@@ -5621,7 +5624,7 @@ export function UsersRolesPage() {
               </CardHeader>
               <CardContent className="grid gap-2">
                 {(options?.userRoles ?? [])
-                  .filter((userRole: any) => canOperateRoles || (userRole.roles as { code?: string } | null)?.code !== "developer")
+                  .filter((userRole: any) => canOperateDeveloperRole || (userRole.roles as { code?: string } | null)?.code !== "developer")
                   .map((userRole: any) => {
                     const profile = profiles.find((p) => p.id === userRole.user_id);
                     return (
