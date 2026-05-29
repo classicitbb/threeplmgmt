@@ -540,7 +540,7 @@ function TableFrame({
   className?: string;
 }) {
   return (
-    <div className={cn("h-[calc(100svh-14rem)] min-h-48 w-full touch-pan-x overflow-auto overscroll-x-contain [&_table]:min-w-max", className)}>
+    <div className={cn("h-[calc(100svh-14rem)] min-h-48 w-full min-w-0 touch-pan-x overflow-auto overscroll-x-contain overscroll-y-contain [&_table]:min-w-max", className)}>
       {children}
     </div>
   );
