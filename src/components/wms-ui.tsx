@@ -3614,9 +3614,9 @@ export function PickListsPage() {
   });
 
   const selectedWarehouseId = form.watch("warehouse_id");
-  const { data: pickableIds } = useQuery({
-    queryKey: ["pickable-product-ids", selectedWarehouseId],
-    queryFn: () => getPickableProductIds(selectedWarehouseId || undefined),
+  const { data: pickableStock } = useQuery({
+    queryKey: ["pickable-stock-summary", selectedWarehouseId],
+    queryFn: () => getPickableStockSummary(selectedWarehouseId || undefined),
     staleTime: 30_000,
   });
 
@@ -3644,16 +3644,29 @@ export function PickListsPage() {
   const allActive = (pickLists as any[]).filter((pl) => !["completed", "cancelled"].includes(pl.status));
   const active = allActive.filter(matchesPickSearch);
   const done = (pickLists as any[]).filter((pl) => ["completed", "cancelled"].includes(pl.status)).filter(matchesPickSearch);
-  // Only show products that have available qty in a known location for the selected warehouse.
-  // While pickableIds is still loading (undefined) all products are shown as a fallback.
+  // Only show products that have available qty in a known location for the
+  // selected warehouse. While pickableStock is still loading (undefined) all
+  // products are shown as a fallback so the form is never blank on first paint.
   const productOptions = (options?.products ?? [])
-    .filter((product: any) => !pickableIds || pickableIds.has(product.id))
-    .map((product: any) => ({
-      id: product.id,
-      sku: product.sku,
-      name: product.name,
-      barcode: product.barcode,
-    }));
+    .filter((product: any) => !pickableStock || pickableStock.has(product.id))
+    .map((product: any) => {
+      const summary = pickableStock?.get(product.id);
+      return {
+        id: product.id,
+        sku: product.sku,
+        name: product.name,
+        barcode: product.barcode,
+        meta: summary
+          ? {
+              totalQty: summary.totalAvailable,
+              palletCount: summary.palletCount,
+              palletCode: summary.topPallet?.pallet_code,
+              palletQty: summary.topPallet?.available_quantity,
+              locationCode: summary.topPallet?.location_code,
+            }
+          : undefined,
+      };
+    });
 
   function prefetchPickExecution(pickListId: string) {
     void queryClient.prefetchQuery({
