@@ -6261,7 +6261,7 @@ export function SettingsPage() {
                   <li><strong>All users except developer accounts</strong> will be removed and will need to request access again.</li>
                 </ul>
                 <div className="grid gap-1.5 pt-2">
-                  <Label htmlFor="reset-challenge">Type <span className="font-mono font-semibold">RESET ALL</span> to confirm</Label>
+                  <label htmlFor="reset-challenge" className="text-sm font-medium">Type <span className="font-mono font-semibold">RESET ALL</span> to confirm</label>
                   <Input id="reset-challenge" value={resetChallenge} onChange={(e) => setResetChallenge(e.target.value)} autoComplete="off" autoFocus />
                 </div>
               </div>
