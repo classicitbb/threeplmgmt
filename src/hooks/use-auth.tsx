@@ -35,6 +35,19 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 const demoSessionKey = "warehouse-wizard-demo-session";
+const rememberMeKey = "warehouse-wizard-remember-me";
+
+function clearSupabaseSession() {
+  try {
+    Object.keys(window.localStorage).forEach((key) => {
+      if (key.startsWith("sb-") && key.endsWith("-auth-token")) {
+        window.localStorage.removeItem(key);
+      }
+    });
+  } catch {
+    /* noop */
+  }
+}
 // Demo fallback is only enabled in dev/preview builds. In production, hardcoded
 // demo credentials must never grant a fake session, even if Supabase is unreachable.
 const demoEnabled =
