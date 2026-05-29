@@ -113,5 +113,6 @@ If the user asks for a UI change:
 - `2026-05-28` — User-approved update to Settings user edit for direct password/PIN updates, badge QR printing, and single-warehouse defaulting.
 - `2026-05-28` — User-approved update to Location Moves direct scan completion and queued/in-progress move cancellation.
 - `2026-05-29` — User-approved updates: auto-switch to Lists tab after releasing a pick list, sidebar width fits text with 50% taller nav items, mobile navigation slides in from the top, separator between Location Moves and Warehouses, and persistence of user/badge codes and badge PIN in Edit User.
+- `2026-05-29` — User-approved v1.7 batch: QR codes replace barcodes on all labels (pallet/location/zone/warehouse); Inventory Search re-enabled horizontal scrolling with nowrap columns; Products table shows read-only total Qty next to name; desktop sidebar mounts only in landscape with squishy press feedback; Help is pinned as the last sidebar item; Edit Location notes/max-height field-name mismatch fixed; version bumped to 1.7.0 with new release notes. Bulk label sheets for locations/zones planned for the next pass.
 
 Append new entries here only when the user explicitly approves a UI change.

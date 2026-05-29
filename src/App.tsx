@@ -7,6 +7,7 @@ import { ArrowLeft, Calculator, Camera, CheckCircle2, Eye, EyeOff, HelpCircle, K
 import { toast } from "sonner";
 import { z } from "zod";
 import { Analytics } from "@vercel/analytics/react";
+import { QRCodeSVG } from "qrcode.react";
 
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
 import { FeatureFlagContext, useFeatureFlagState } from "@/hooks/use-feature-flags";
@@ -68,6 +69,19 @@ const ProtectedShell = lazy(() =>
 );
 
 const RELEASE_HISTORY = [
+  {
+    version: "1.7.0",
+    date: "May 2026",
+    changes: [
+      "Labels: every printed code is now a QR (pallet, location, zone, warehouse) for faster, more reliable scans",
+      "Inventory Search: horizontal scrolling restored so all columns are reachable on narrow screens",
+      "Products: total on-hand quantity now shown beside each product name (read-only)",
+      "Navigation: desktop sidebar only mounts in landscape; portrait/tablets use the top slide-in nav. Help is always the last item",
+      "Sidebar: squishy press feedback on nav buttons and tighter responsive width before the scrollbar kicks in",
+      "Locations: Edit Location now saves notes and max-height correctly (field-name mismatch fixed)",
+      "Coming soon: bulk label sheets for locations and zones via multiselect or filter",
+    ],
+  },
   {
     version: "1.1.3",
     date: "May 2026",
@@ -181,38 +195,11 @@ function playPickSuccessTone() {
 }
 
 function PalletBarcodePreview({ code }: { code?: string | null }) {
-  const ref = useRef<SVGSVGElement>(null);
-
-  useEffect(() => {
-    if (!ref.current || !code) return;
-    let cancelled = false;
-    const target = ref.current;
-    import("jsbarcode").then(({ default: JsBarcode }) => {
-      if (cancelled) return;
-      try {
-        JsBarcode(target, code, {
-          format: "CODE128",
-          width: 2,
-          height: 64,
-          displayValue: true,
-          fontSize: 14,
-          margin: 0,
-          background: "#ffffff",
-          lineColor: "#000000",
-        });
-      } catch {
-        // Invalid barcode values are shown as plain text elsewhere on the page.
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [code]);
-
   if (!code) return null;
   return (
-    <div className="rounded-lg border border-border bg-white p-3">
-      <svg ref={ref} className="h-auto max-w-full" />
+    <div className="flex flex-col items-center gap-2 rounded-lg border border-border bg-white p-3">
+      <QRCodeSVG value={code} size={160} bgColor="#ffffff" fgColor="#000000" level="H" />
+      <p className="font-mono text-xs font-semibold tracking-wider text-black">{code}</p>
     </div>
   );
 }

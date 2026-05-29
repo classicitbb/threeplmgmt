@@ -1,5 +1,4 @@
-import { useEffect, useRef } from "react";
-import JsBarcode from "jsbarcode";
+import { QRCodeSVG } from "qrcode.react";
 import { Printer } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -61,30 +60,14 @@ function FieldBlock({ label, value }: { label: string; value: unknown }) {
   );
 }
 
-function BarcodePreview({ code }: { code: string }) {
-  const ref = useRef<SVGSVGElement>(null);
-
-  useEffect(() => {
-    if (!ref.current || !code) return;
-    try {
-      JsBarcode(ref.current, code, {
-        format: "CODE128",
-        width: 2,
-        height: 70,
-        displayValue: true,
-        fontSize: 28,
-        textMargin: 15,
-        margin: 0,
-        marginRight: 11,
-        background: "#ffffff",
-        lineColor: "#000000",
-      });
-    } catch {
-      // invalid barcode value
-    }
-  }, [code]);
-
-  return <svg ref={ref} />;
+function BarcodePreview({ code, size = 220 }: { code: string; size?: number }) {
+  if (!code) return null;
+  return (
+    <div className="flex flex-col items-center gap-2">
+      <QRCodeSVG value={code} size={size} bgColor="#ffffff" fgColor="#000000" level="H" />
+      <p className="font-mono text-sm font-semibold tracking-wider text-black">{code}</p>
+    </div>
+  );
 }
 
 export function PalletLabelPage(props: PalletLabelPageProps) {
@@ -157,8 +140,9 @@ export function PalletLabelPage(props: PalletLabelPageProps) {
     .field-value { margin-top: 0.05in; font-size: 14pt; line-height: 1.2; font-weight: 750; overflow-wrap: anywhere; }
     .barcode-section { margin-top: auto; border: 2px solid ${accentColor}; background: #fff; border-radius: 0.08in; padding: 0.2in; }
     .barcode-label { color: #475569; text-transform: uppercase; font-size: 9pt; font-weight: 800; letter-spacing: 0.05em; text-align: center; }
-    .barcode-wrap { display: flex; justify-content: center; align-items: center; min-height: 2.1in; padding-top: 0.12in; }
-    .barcode-wrap svg { width: 100%; max-height: 2in; }
+    .barcode-wrap { display: flex; flex-direction: column; justify-content: center; align-items: center; min-height: 2.6in; padding-top: 0.12in; gap: 0.08in; }
+    .barcode-wrap svg { width: 2.4in; height: 2.4in; }
+    .barcode-text { font-family: 'Courier New', monospace; font-size: 16pt; font-weight: 800; letter-spacing: 0.04em; }
     .footer { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #94a3b8; padding-top: 0.14in; }
     .footer-text { font-size: 9pt; color: #475569; font-weight: 650; }
     @media print {
@@ -181,8 +165,8 @@ export function PalletLabelPage(props: PalletLabelPageProps) {
       ${fields.map(([label, value]) => `<div class="field"><div class="field-label">${escapeHtml(label)}</div><div class="field-value">${escapeHtml(value)}</div></div>`).join("")}
     </div>
     <div class="barcode-section">
-      <div class="barcode-label">Scan barcode</div>
-      <div class="barcode-wrap">${barcodeSvg}</div>
+      <div class="barcode-label">Scan QR code</div>
+      <div class="barcode-wrap">${barcodeSvg}<div class="barcode-text">${escapeHtml(safeBarcode)}</div></div>
     </div>
     <div class="footer">
       <span class="footer-text">Warehouse Wizard</span>

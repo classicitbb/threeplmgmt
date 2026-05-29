@@ -1,84 +1,66 @@
-# Plan — Pick completion truly debits inventory
+## Plan — v1.7 update batch
 
-## Problem
+### 1. Replace all barcodes with QR codes
 
-After a pick is confirmed, the SKU/pallet still shows up:
+- `src/components/location-label-page.tsx`, `src/components/pallet-label-page.tsx`, `src/components/zone-label-page.tsx` (and `BarcodePrintDialog` in `src/components/wms-ui.tsx`, plus barcode rendering in `src/App.tsx`): swap `JsBarcode` / CODE128 rendering for `QRCodeSVG`. Remove the `QR_THRESHOLD` branching — always QR. Keep the printed human-readable code text below the QR. Adjust print CSS sizing so QR fills the same area.
+- Leave `JsBarcode` import only if still needed elsewhere; otherwise remove.
 
-- Inventory Search keeps the row visible (status switches to `picked`, available = 0, but the row remains).
-- Dashboard pallet counts don't decrement (`totalPallets` and `warehousePallets` count every `inventory_balances` row regardless of status).
-- The location still shows as occupied (`location_occupancy_view` and putaway counters count picked balances).
-- The pallet still has `current_location_id` set, so it appears parked in the slot.
-- The pick list itself never auto-closes to `completed` when all its tasks finish.
+### 2. Inventory Search — horizontal scroll
 
-Root cause is in `confirmPickTask` (`src/lib/wms-core.ts`): it only updates `available_quantity` + `status`, leaves `quantity`, `current_location_id`, `location_id`, `zone_id` untouched, and never rolls the pick list up.
+- In the results table wrapper inside `src/components/wms-ui.tsx` (inventory search route), allow the row-scroll container to scroll horizontally (`overflow-x-auto`) while keeping the sticky header aligned. Ensure min column widths so the table doesn't collapse on mobile and a horizontal scrollbar appears when needed.
 
-## Changes
+### 3. Products table — total qty column
 
-### 1. `confirmPickTask` — fully retire a depleted pallet (`src/lib/wms-core.ts`)
+- Add a read-only "Qty" display column rendered immediately to the right of the product name in the Products list table. Sum from `inventory_balances.qty_on_hand` grouped by `product_id` (single aggregate query alongside the products query, cached by react-query). Not part of the editable inline form.
 
-When `nextAvailable === 0` (pallet emptied by this pick):
+### 4. Desktop sidebar behavior
 
-- Pallet update: set `status = 'picked'`, `available_quantity = 0`, `quantity = 0`, `reserved_quantity = 0`, `current_location_id = null`, `is_stored = false`.
-- Inventory balance update: set `status = 'picked'`, `available_quantity = 0`, `quantity = 0`, `reserved_quantity = 0`, `location_id = null`, `zone_id = null`.
+- Sidebar shown on desktop only in landscape orientation (`@media (min-width: 1024px) and (orientation: landscape)`); portrait desktop/tablet falls back to the mobile top-slide nav already in place.
+- Make sidebar height responsive: shrink to fit nav label text down to a minimum, then enable an internal vertical scrollbar instead of pushing content. Add subtle "squishy" press animation on nav buttons (scale 0.96 on `active:`).
 
-When partial pick (`nextAvailable > 0`):
+### 5. Help button always last in sidebar
 
-- Decrement `quantity` by `confirmedQuantity` alongside `available_quantity` on both `pallets` and `inventory_balances`. Keep location and `is_stored` as-is. Status stays `available`.
+- In `NAVIGATION` (`src/lib/wms-core.ts`) keep Help as a separate pinned entry; in the sidebar renderer, sort/append so Help is always rendered last regardless of module flag order or future additions.
 
-This is the core fix — it makes the pallet vanish from inventory search (filtered by available view), free its slot in `location_occupancy_view`, and stop being counted as on-hand stock.
+### 6. Help content refresh
 
-### 2. Auto-complete the pick list (`src/lib/wms-core.ts`)
+- Update `src/lib/help-content.ts` to reflect current functionality: offline queue/replay, badge+PIN/user-code login, password reset, Command Center draggable tiles, Pick List release→Lists tab, Location Moves cancel, settings tab order, label printing (now QR), location hierarchy codes, inventory search filters/scroll, pending-user limited shell. Keep existing article IDs; extend sections and keywords. Update route help summaries where workflows changed.
 
-At the end of `confirmPickTask`, after the task row is marked completed/exception:
+### 7. Version bump to 1.7 + release notes
 
-- Re-query sibling `pick_tasks` for the same `pick_list_id`.
-- If every task is in (`completed`, `cancelled`, `exception`), update `pick_lists.status = 'completed'` and stamp a `completed_at`-style note. Also flip the linked `orders.status` to `'completed'` when present and all lines satisfied.
-- Log `pick_list_completed` audit event.
+- Bump `__APP_VERSION__` (defined in `vite.config.ts`) to `1.7.0`.
+- Prepend new `1.7.0` entry to the release notes arrays in `src/App.tsx` and `src/components/wms-ui.tsx` (About tab + What's New popup) summarizing items 1–8 of this plan.
+- Update What's New trigger to surface on first load of 1.7.
 
-This removes the list from the active queue and decrements `openPickLists` on the dashboard the moment the last task is confirmed. No new "Mark complete" button needed — completion is implicit, matching the receiving model.
+### 8. Label sheet printing (locations & zones) — design + scope
 
-### 3. Dashboard counters reflect live stock (`src/lib/wms-core.ts` → `getDashboardMetrics`)
+- New action on `/locations` and `/zones` list pages: "Print labels sheet".
+  - Triggered from either (a) a multiselect checkbox column with bulk action bar, or (b) current filter result set.
+  - Opens a dialog: paper size (Letter / A4), grid (e.g. 2×5 / 3×7 / 4×8 — Avery-style presets), label size auto-derived, margin presets, optional starting cell (to reuse partly-used sheets).
+  - Renders a single print window containing N label cells, each using the existing QR label layout (location-label-page / zone-label-page) scaled to cell size.
+- New shared component `src/components/label-sheet-print.tsx` that accepts an array of label items + sheet config and produces the printable HTML. Reuses the same `escapeHtml` helper and QR generation.
+- No DB schema changes required.
 
-Replace the unfiltered counts:
+### 9. Edit Location save fix
 
-```text
-totalPallets       → balances where status NOT IN ('picked','shipped','in_transit','missing')
-warehousePallets   → same filter, scoped to warehouseId
-```
+- Investigate `RESOURCE_DEFINITIONS.locations` update path in `src/lib/wms-core.ts` + the inline editor in `src/components/wms-ui.tsx`. Current symptom: some field edits don't persist. Likely causes to verify: (a) hierarchy-code normalization migration rewriting `code` on save and rejecting edits, (b) `updated_at` trigger missing, (c) optimistic cache not invalidating. Fix to ensure: any editable field on a location row (capacity, temperature_class, allowed_product_family, status, max_*, mixed_sku_allowed, putaway_sequence, aisle/bay/level/depth, notes) saves and persists across reload.
 
-`availablePallets`, `holdStock`, `quarantineStock` already filter correctly and stay as-is.
+### Technical notes
 
-### 4. Inventory Search hides retired stock by default (`src/lib/wms-core.ts` → `searchInventory`)
+- Files touched (UI is frozen per AGENTS.md — these are all user-approved UI changes; will add change-log entries):
+  - `src/components/location-label-page.tsx`
+  - `src/components/pallet-label-page.tsx`
+  - `src/components/zone-label-page.tsx`
+  - `src/components/wms-ui.tsx` (sidebar, inventory search table, products table, BarcodePrintDialog, About/What's New, label-sheet entry points, edit location)
+  - `src/App.tsx` (release notes, any remaining barcode usage)
+  - `src/lib/wms-core.ts` (NAVIGATION order guarantee, resource definition tweaks)
+  - `src/lib/help-content.ts` (content refresh)
+  - `src/components/label-sheet-print.tsx` (new)
+  - `vite.config.ts` (`__APP_VERSION__` → 1.7.0)
+- Add AGENTS.md change-log entries dated 2026-05-29 for each approved UI shift.
+- No migrations required unless the edit-location investigation finds a DB-side blocker; if so I'll propose the migration before running it.
 
-When `filters.status` is `"all"` (the default), add `query.not('status', 'in', '(picked,shipped,in_transit,missing)')`. Selecting `Picked` explicitly still shows them for audit. No UI change.
+### Out of scope
 
-### 5. Location occupancy ignores retired balances (migration)
-
-New additive migration replacing `public.location_occupancy_view`:
-
-```text
-left join inventory_balances ib
-  on ib.location_id = l.id
- and ib.status not in ('picked','shipped','in_transit','missing')
-```
-
-So slot frees up the instant the last unit is picked. Keeps `security_invoker = true`.
-
-### 6. Tests
-
-Add a `wms-core.test.ts` case that:
-
-- Stubs a pick task with available 5, confirms 5 → asserts pallet/balance updates include `quantity: 0`, `current_location_id: null`, `status: 'picked'`.
-- Stubs partial pick (5 of 10) → asserts `quantity: 5`, location preserved.
-
-## Files touched
-
-- `src/lib/wms-core.ts` — `confirmPickTask`, `searchInventory`, `getDashboardMetrics` + new pick-list rollup helper.
-- `supabase/migrations/<new-timestamp>_location_occupancy_excludes_picked.sql` — recreate view.
-- `src/test/wms-core.test.ts` — new pick-completion assertions.
-
-## Out of scope
-
-- No UI changes to Inventory Search, Pick Lists, Execute Picks, or Dashboard. The fixes are behind existing components.
-- No schema changes to `pallets`/`inventory_balances`; only data rules.
-- No "Mark pick list complete" button — rollup is automatic, consistent with Receiving.
+- Reworking barcode scanning input (scanners still accept the underlying code text; QR contains the same payload).
+- Switching label stock formats beyond the standard Avery presets in the new sheet dialog.

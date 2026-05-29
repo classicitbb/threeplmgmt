@@ -714,7 +714,7 @@ function ResourceEditDialog({
 
   function handleSubmit(values: Record<string, unknown>) {
     // Locations: require a reason in Notes when disabling or marking maintenance
-    if (isLocations && isBeingDisabled && !values.location_notes) {
+    if (isLocations && isBeingDisabled && !values.notes) {
       toast.error("Add a reason in the Notes field before marking this location unavailable.");
       return;
     }
@@ -959,11 +959,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const networkStatusSeenRef = useRef(false);
-  const items = NAVIGATION.filter(
-    (item) =>
-      item.roles.some((role) => roles.includes(role)) &&
-      (!item.moduleKey || isEnabled(item.moduleKey as ModuleKey)),
-  );
+  const items = NAVIGATION
+    .filter(
+      (item) =>
+        item.roles.some((role) => roles.includes(role)) &&
+        (!item.moduleKey || isEnabled(item.moduleKey as ModuleKey)),
+    )
+    // Help is always pinned as the last sidebar entry, regardless of module order.
+    .sort((a, b) => (a.to === "/help" ? 1 : 0) - (b.to === "/help" ? 1 : 0));
   const canSwitchWarehouses = roles.some((role) => ["admin", "warehouse_manager"].includes(role));
   const { data: headerOptions } = useQuery({
     queryKey: ["header-warehouse-options", canSwitchWarehouses],
@@ -1082,7 +1085,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 key={item.to}
                 className={({ isActive: navActive }) =>
                   cn(
-                    "group flex min-h-[3.375rem] items-center gap-2.5 rounded-md px-2.5 text-sm font-medium transition-all duration-100",
+                    "group flex min-h-[3.375rem] items-center gap-2.5 rounded-md px-2.5 text-sm font-medium transition-all duration-100 active:scale-[0.96] active:transition-transform",
                     sidebarCollapsed && "h-[3.375rem] w-11 justify-center p-0",
                     navActive || isActive
                       ? "bg-primary text-primary-foreground shadow-sm"
@@ -1120,8 +1123,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       </nav>
 
-      {/* Collapse/expand toggle at bottom */}
-      <div className={cn("mt-2 hidden border-t border-sidebar-border pt-2 lg:flex", sidebarCollapsed ? "justify-center" : "justify-end")}>
+      {/* Collapse/expand toggle at bottom — landscape desktop only */}
+      <div className={cn("mt-2 hidden border-t border-sidebar-border pt-2 lg:landscape:flex", sidebarCollapsed ? "justify-center" : "justify-end")}>
         <Button
           className="h-8 w-8 shrink-0"
           size="icon"
@@ -1139,13 +1142,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <div className="h-screen overflow-hidden bg-background">
       <div
         className={cn(
-          "grid h-full w-full grid-cols-1 grid-rows-[auto_minmax(0,1fr)] overflow-hidden lg:grid-rows-1",
-          "lg:grid-cols-[max-content_minmax(0,1fr)]",
-          sidebarCollapsed && "lg:grid-cols-[64px_minmax(0,1fr)]",
+          // Mobile + portrait-desktop: top header + content. Landscape-desktop: sidebar + content.
+          "grid h-full w-full grid-cols-1 grid-rows-[auto_minmax(0,1fr)] overflow-hidden",
+          "lg:landscape:grid-rows-1 lg:landscape:grid-cols-[minmax(11rem,max-content)_minmax(0,1fr)]",
+          sidebarCollapsed && "lg:landscape:grid-cols-[64px_minmax(0,1fr)]",
         )}
       >
         {/* Mobile header */}
-        <header className="col-span-full flex items-center justify-between border-b border-border bg-background/95 px-4 py-3 backdrop-blur lg:hidden">
+        <header className="col-span-full flex items-center justify-between border-b border-border bg-background/95 px-4 py-3 backdrop-blur lg:landscape:hidden">
           <div className="flex items-center gap-2">
             <img src="/logo.png" alt="Warehouse Wizard" className="h-7 w-7 shrink-0 rounded-md object-fill" />
             <span className="text-sm font-semibold">{appTitle}</span>
@@ -1194,11 +1198,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </header>
 
-        <aside className="hidden h-full overflow-hidden border-r border-border lg:block">{navigation}</aside>
+        <aside className="hidden h-full overflow-hidden border-r border-border lg:landscape:block">{navigation}</aside>
 
         <main className="flex min-h-0 min-w-0 flex-col overflow-hidden">
-          {/* Desktop top bar */}
-          <div className="hidden items-center justify-between gap-3 border-b border-border bg-background/95 px-5 py-2.5 backdrop-blur lg:flex">
+          {/* Desktop top bar — landscape only */}
+          <div className="hidden items-center justify-between gap-3 border-b border-border bg-background/95 px-5 py-2.5 backdrop-blur lg:landscape:flex">
             <div className="min-w-0">
               <p className="flex items-center gap-2 truncate text-xs text-muted-foreground">
                 <span className="truncate">{items.find((item) => item.to === pathname)?.label ?? "Warehouse Wizard Enterprise WMS"}</span>
@@ -1261,7 +1265,28 @@ export function ResourcePage({
     }),
   });
   const queryClient = useQueryClient();
-  const extraColumnCount = (resource.supportsHide ? 1 : 0) + (["warehouses", "zones"].includes(resource.table) ? 1 : 0) + 1;
+  const extraColumnCount = (resource.supportsHide ? 1 : 0) + (["warehouses", "zones"].includes(resource.table) ? 1 : 0) + 1 + (resource.table === "products" ? 1 : 0);
+  const isProducts = resource.table === "products";
+  const { data: productQtyRows = [] } = useQuery({
+    queryKey: ["product-qty-totals"],
+    enabled: isProducts,
+    queryFn: async () => {
+      const { data, error } = await (supabase.from as any)("inventory_balances")
+        .select("product_id, available_quantity, quantity")
+        .limit(10000);
+      if (error) throw error;
+      return data as Array<{ product_id: string; available_quantity: number | null; quantity: number | null }>;
+    },
+  });
+  const productQtyMap = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const r of productQtyRows) {
+      const qty = Number(r.available_quantity ?? r.quantity ?? 0);
+      if (!r.product_id) continue;
+      m.set(r.product_id, (m.get(r.product_id) ?? 0) + qty);
+    }
+    return m;
+  }, [productQtyRows]);
 
   const hasProductRef = resource.fields.some((f) => f.name === "product_id");
   const { data: productOptions = [] } = useQuery({
@@ -1459,7 +1484,12 @@ export function ResourcePage({
               <TableHeader className="sticky top-0 z-10 bg-card">
                 <TableRow>
                   {resource.fields.map((field) => (
-                    <TableHead key={field.name}>{field.label}</TableHead>
+                    <Fragment key={field.name}>
+                      <TableHead>{field.label}</TableHead>
+                      {isProducts && field.name === "name" ? (
+                        <TableHead className="w-20 text-right">Qty</TableHead>
+                      ) : null}
+                    </Fragment>
                   ))}
                   {["warehouses", "zones"].includes(resource.table) ? <TableHead className="w-28">Barcode</TableHead> : null}
                   {resource.supportsHide ? <TableHead className="w-32">Visibility</TableHead> : null}
@@ -1526,7 +1556,19 @@ export function ResourcePage({
                         } else {
                           displayValue = String(rawValue);
                         }
-                        return <TableCell key={field.name}>{displayValue}</TableCell>;
+                        const cell = <TableCell key={field.name}>{displayValue}</TableCell>;
+                        if (isProducts && field.name === "name") {
+                          const qty = productQtyMap.get(String((row as Record<string, unknown>).id ?? "")) ?? 0;
+                          return (
+                            <Fragment key={field.name}>
+                              {cell}
+                              <TableCell className="w-20 whitespace-nowrap text-right font-mono text-xs font-semibold">
+                                {formatNumber(qty)}
+                              </TableCell>
+                            </Fragment>
+                          );
+                        }
+                        return cell;
                       })}
                       {["warehouses", "zones", "locations"].includes(resource.table) ? (
                         <TableCell>
@@ -3643,7 +3685,7 @@ export function InventorySearchPage() {
       <Card className="flex min-h-0 flex-1 flex-col">
         <CardContent className="flex min-h-0 flex-1 p-0">
           <TableFrame className="h-full">
-            <Table className="min-w-[58rem]">
+            <Table className="min-w-[58rem] [&_th]:whitespace-nowrap [&_td]:whitespace-nowrap">
               <TableHeader className="sticky top-0 z-20 bg-card shadow-sm">
                 <TableRow>
                   <TableHead>SKU</TableHead>
@@ -6107,6 +6149,19 @@ export function SettingsPage() {
                 <span className="font-mono text-xs font-semibold text-primary">v{__APP_VERSION__}</span>
               </div>
               {[
+                {
+                  version: "1.7.0",
+                  date: "May 2026",
+                  changes: [
+                    "Labels: every printed code is now a QR (pallet, location, zone, warehouse) for faster, more reliable scans",
+                    "Inventory Search: horizontal scrolling restored so all columns are reachable on narrow screens",
+                    "Products: total on-hand quantity shown beside each product name (read-only)",
+                    "Navigation: desktop sidebar only mounts in landscape; portrait and tablets use the top slide-in nav. Help is always the last item",
+                    "Sidebar: squishy press feedback on nav buttons and tighter responsive width before the scrollbar kicks in",
+                    "Locations: Edit Location now saves Notes and Max height correctly (field-name mismatch fixed)",
+                    "Coming soon: bulk label sheets for locations and zones via multiselect or filter",
+                  ],
+                },
                 {
                   version: "1.1.6",
                   date: "May 2026",
