@@ -1249,6 +1249,95 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   );
 }
 
+function AccessRequestsBanner() {
+  const { roles } = useAuth();
+  const navigate = useNavigate();
+  const canSee = roles.some((r) => ["admin", "warehouse_manager", "warehouse_supervisor", "developer"].includes(r));
+  const [dismissed, setDismissed] = useState<string[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      return JSON.parse(window.sessionStorage.getItem("dismissed-pending-requests") ?? "[]");
+    } catch {
+      return [];
+    }
+  });
+
+  const { data: pending = [] } = useQuery({
+    queryKey: ["pending-access-requests"],
+    enabled: canSee,
+    refetchInterval: 60_000,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("id, full_name, email, created_at")
+        .eq("approved", false)
+        .order("created_at", { ascending: false })
+        .limit(50);
+      if (error) throw error;
+      return (data ?? []) as Array<{ id: string; full_name: string | null; email: string | null; created_at: string | null }>;
+    },
+  });
+
+  const undismissed = useMemo(
+    () => pending.filter((p) => !dismissed.includes(p.id)),
+    [pending, dismissed],
+  );
+  const open = canSee && undismissed.length > 0;
+
+  function dismissAll() {
+    const next = Array.from(new Set([...dismissed, ...undismissed.map((p) => p.id)]));
+    setDismissed(next);
+    try {
+      window.sessionStorage.setItem("dismissed-pending-requests", JSON.stringify(next));
+    } catch {
+      /* noop */
+    }
+  }
+
+  function goToUsers() {
+    dismissAll();
+    navigate("/settings");
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) dismissAll(); }}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-destructive">
+            <UserPlus className="h-5 w-5" />
+            {undismissed.length} access request{undismissed.length === 1 ? "" : "s"} awaiting approval
+          </DialogTitle>
+          <DialogDescription>
+            New users have requested access to the warehouse. Review and approve them in Users &amp; Roles.
+          </DialogDescription>
+        </DialogHeader>
+        <ul className="max-h-60 divide-y divide-border overflow-y-auto rounded border border-border">
+          {undismissed.map((p) => (
+            <li key={p.id} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
+              <div className="min-w-0">
+                <div className="truncate font-medium">{p.full_name?.trim() || p.email || "Unnamed user"}</div>
+                {p.email && p.full_name ? (
+                  <div className="truncate text-xs text-muted-foreground">{p.email}</div>
+                ) : null}
+              </div>
+              <div className="shrink-0 text-xs text-muted-foreground">
+                {p.created_at ? new Date(p.created_at).toLocaleDateString() : ""}
+              </div>
+            </li>
+          ))}
+        </ul>
+        <DialogFooter className="gap-2">
+          <Button variant="outline" onClick={dismissAll}>Remind me later</Button>
+          <Button onClick={goToUsers}>
+            <Users className="mr-2 h-4 w-4" />
+            Go to Users
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function ResourcePage({
   resource,
 }: {
