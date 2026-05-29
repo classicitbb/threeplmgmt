@@ -1244,6 +1244,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </main>
       </div>
+      <AccessRequestsBanner />
     </div>
   );
 }
