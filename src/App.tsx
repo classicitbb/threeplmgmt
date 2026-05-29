@@ -3,7 +3,7 @@ import { BrowserRouter, Navigate, NavLink, Outlet, Route, Routes, useLocation, u
 import { QueryClientProvider, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { ArrowLeft, Camera, Eye, EyeOff, HelpCircle, Keyboard, Loader2, LogOut, Mail, RefreshCw, ScanLine, Sparkles, Warehouse } from "lucide-react";
+import { ArrowLeft, Calculator, Camera, CheckCircle2, Eye, EyeOff, HelpCircle, Keyboard, Loader2, LogOut, Mail, RefreshCw, ScanLine, Sparkles, Warehouse } from "lucide-react";
 import { toast } from "sonner";
 import { z } from "zod";
 import { Analytics } from "@vercel/analytics/react";
@@ -47,6 +47,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { BarcodeScanButton } from "@/components/barcode-scan-button";
 import { HelpSidebar } from "@/components/help-sidebar";
 import { PalletLabelPage } from "@/components/pallet-label-page";
@@ -132,13 +133,41 @@ function playBarcodeBeep() {
   }
 }
 
-function flashInput(el: HTMLElement | null, colour: "orange" | "blue") {
+function flashInput(el: HTMLElement | null, colour: "orange" | "blue" | "red" | "green") {
   if (!el) return;
-  const cls = colour === "orange"
-    ? ["ring-2", "ring-orange-400", "ring-offset-1"]
-    : ["ring-2", "ring-blue-400", "ring-offset-1"];
+  const palette: Record<string, string[]> = {
+    orange: ["ring-2", "ring-orange-400", "ring-offset-1"],
+    blue: ["ring-2", "ring-blue-400", "ring-offset-1"],
+    red: ["ring-2", "ring-red-500", "ring-offset-1", "animate-pulse"],
+    green: ["ring-2", "ring-green-500", "ring-offset-1"],
+  };
+  const cls = palette[colour];
   el.classList.add(...cls);
-  setTimeout(() => el.classList.remove(...cls), 700);
+  setTimeout(() => el.classList.remove(...cls), colour === "red" ? 1400 : 700);
+}
+
+function playPickSuccessTone() {
+  try {
+    const ctx = new (window.AudioContext ?? (window as any).webkitAudioContext)();
+    const now = ctx.currentTime;
+    const make = (freq: number, start: number) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(freq, now + start);
+      gain.gain.setValueAtTime(0.18, now + start);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + start + 0.18);
+      osc.start(now + start);
+      osc.stop(now + start + 0.2);
+    };
+    make(1320, 0);
+    make(1980, 0.12);
+    setTimeout(() => ctx.close(), 500);
+  } catch {
+    // ignore
+  }
 }
 
 function PalletBarcodePreview({ code }: { code?: string | null }) {
