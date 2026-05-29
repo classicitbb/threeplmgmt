@@ -1142,13 +1142,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <div className="h-screen overflow-hidden bg-background">
       <div
         className={cn(
-          "grid h-full w-full grid-cols-1 grid-rows-[auto_minmax(0,1fr)] overflow-hidden lg:grid-rows-1",
-          "lg:grid-cols-[max-content_minmax(0,1fr)]",
-          sidebarCollapsed && "lg:grid-cols-[64px_minmax(0,1fr)]",
+          // Mobile + portrait-desktop: top header + content. Landscape-desktop: sidebar + content.
+          "grid h-full w-full grid-cols-1 grid-rows-[auto_minmax(0,1fr)] overflow-hidden",
+          "lg:landscape:grid-rows-1 lg:landscape:grid-cols-[minmax(11rem,max-content)_minmax(0,1fr)]",
+          sidebarCollapsed && "lg:landscape:grid-cols-[64px_minmax(0,1fr)]",
         )}
       >
         {/* Mobile header */}
-        <header className="col-span-full flex items-center justify-between border-b border-border bg-background/95 px-4 py-3 backdrop-blur lg:hidden">
+        <header className="col-span-full flex items-center justify-between border-b border-border bg-background/95 px-4 py-3 backdrop-blur lg:landscape:hidden">
           <div className="flex items-center gap-2">
             <img src="/logo.png" alt="Warehouse Wizard" className="h-7 w-7 shrink-0 rounded-md object-fill" />
             <span className="text-sm font-semibold">{appTitle}</span>
@@ -1197,7 +1198,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </header>
 
-        <aside className="hidden h-full overflow-hidden border-r border-border lg:block">{navigation}</aside>
+        <aside className="hidden h-full overflow-hidden border-r border-border lg:landscape:block">{navigation}</aside>
 
         <main className="flex min-h-0 min-w-0 flex-col overflow-hidden">
           {/* Desktop top bar */}
