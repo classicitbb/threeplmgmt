@@ -1845,6 +1845,7 @@ export type Database = {
         Row: {
           active: boolean
           approved: boolean
+          badge_code: string | null
           created_at: string
           default_warehouse_id: string | null
           email: string | null
@@ -1852,10 +1853,12 @@ export type Database = {
           id: string
           phone: string | null
           updated_at: string
+          user_code: string | null
         }
         Insert: {
           active?: boolean
           approved?: boolean
+          badge_code?: string | null
           created_at?: string
           default_warehouse_id?: string | null
           email?: string | null
@@ -1863,10 +1866,12 @@ export type Database = {
           id: string
           phone?: string | null
           updated_at?: string
+          user_code?: string | null
         }
         Update: {
           active?: boolean
           approved?: boolean
+          badge_code?: string | null
           created_at?: string
           default_warehouse_id?: string | null
           email?: string | null
@@ -1874,6 +1879,7 @@ export type Database = {
           id?: string
           phone?: string | null
           updated_at?: string
+          user_code?: string | null
         }
         Relationships: [
           {
