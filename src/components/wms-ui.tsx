@@ -5624,7 +5624,7 @@ export function UsersRolesPage() {
               </CardHeader>
               <CardContent className="grid gap-2">
                 {(options?.userRoles ?? [])
-                  .filter((userRole: any) => canOperateRoles || (userRole.roles as { code?: string } | null)?.code !== "developer")
+                  .filter((userRole: any) => canOperateDeveloperRole || (userRole.roles as { code?: string } | null)?.code !== "developer")
                   .map((userRole: any) => {
                     const profile = profiles.find((p) => p.id === userRole.user_id);
                     return (
