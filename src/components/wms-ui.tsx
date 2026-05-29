@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { QRCodeSVG } from "qrcode.react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
@@ -977,13 +977,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {items.map((item) => {
             const Icon = navIcons[item.to] ?? LayoutDashboard;
             const isActive = pathname === item.to;
+            const showSeparator = !sidebarCollapsed && item.to === "/warehouses";
             const link = (
               <NavLink
                 key={item.to}
                 className={({ isActive: navActive }) =>
                   cn(
-                    "group flex min-h-9 items-center gap-2.5 rounded-md px-2.5 text-sm font-medium transition-all duration-100",
-                    sidebarCollapsed && "h-11 w-11 justify-center p-0",
+                    "group flex min-h-[3.375rem] items-center gap-2.5 rounded-md px-2.5 text-sm font-medium transition-all duration-100",
+                    sidebarCollapsed && "h-[3.375rem] w-11 justify-center p-0",
                     navActive || isActive
                       ? "bg-primary text-primary-foreground shadow-sm"
                       : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
@@ -1000,12 +1001,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </NavLink>
             );
 
-            return sidebarCollapsed ? (
+            const node = sidebarCollapsed ? (
               <Tooltip key={item.to}>
                 <TooltipTrigger asChild>{link}</TooltipTrigger>
                 <TooltipContent side="right">{item.label}</TooltipContent>
               </Tooltip>
             ) : link;
+
+            if (showSeparator) {
+              return (
+                <Fragment key={item.to}>
+                  <div className="my-1 border-t border-sidebar-border" />
+                  {node}
+                </Fragment>
+              );
+            }
+            return node;
           })}
         </div>
       </nav>
@@ -1030,7 +1041,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <div
         className={cn(
           "grid h-full w-full grid-cols-1 grid-rows-[auto_minmax(0,1fr)] overflow-hidden lg:grid-rows-1",
-          "lg:grid-cols-[240px_minmax(0,1fr)]",
+          "lg:grid-cols-[max-content_minmax(0,1fr)]",
           sidebarCollapsed && "lg:grid-cols-[64px_minmax(0,1fr)]",
         )}
       >
@@ -1057,7 +1068,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   <Menu className="h-4 w-4" />
                 </Button>
               </SheetTrigger>
-              <SheetContent side="left" className="flex h-svh w-screen max-w-full flex-col p-0">
+              <SheetContent side="top" className="flex max-h-svh w-screen max-w-full flex-col p-0">
                 <SheetHeader className="sr-only">
                   <SheetTitle>Navigation</SheetTitle>
                 </SheetHeader>
@@ -3593,10 +3604,7 @@ export function PickListsPage() {
   const mutation = useMutation({
     mutationFn: async (values: z.infer<typeof pickListSchema>) => createPickListFlow(values),
     onSuccess: async () => {
-      toast.success("Pick list released", {
-        action: { label: "View lists", onClick: () => navigate("/pick-lists") },
-        duration: 6000,
-      });
+      toast.success("Pick list released");
       form.reset({
         warehouse_id: profile?.default_warehouse_id || undefined,
         client_id: undefined,
@@ -3609,6 +3617,7 @@ export function PickListsPage() {
         queryClient.invalidateQueries({ queryKey: ["pick-lists"] }),
         queryClient.invalidateQueries({ queryKey: ["dashboard-metrics"] }),
       ]);
+      setActiveTab("lists");
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Pick list failed"),
   });
