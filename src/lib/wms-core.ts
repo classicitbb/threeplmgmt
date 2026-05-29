@@ -2804,8 +2804,8 @@ export async function completeMoveTask(taskId: string, scannedPalletBarcode: str
 export async function cancelMoveTask(taskId: string): Promise<void> {
   const { data: task, error: taskErr } = await db("move_tasks").select("*").eq("id", taskId).single();
   if (taskErr) throw taskErr;
-  if (task.status !== "queued") {
-    throw new Error("Only queued move tasks can be cancelled.");
+  if (!["queued", "in_progress"].includes(task.status)) {
+    throw new Error("Only queued or in-progress move tasks can be cancelled.");
   }
 
   const { error: taskUpdErr } = await db("move_tasks")
