@@ -46,7 +46,7 @@ import {
   confirmPutaway,
   createCycleCountFlow,
   createPickListFlow,
-  getPickableProductIds,
+  getPickableStockSummary,
   createReceiptFlow,
   createTransferFlow,
   cancelPickList,
