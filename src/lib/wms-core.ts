@@ -717,14 +717,7 @@ export async function updateProfileDetails(input: ProfileUpdateInput) {
 
   const { error } = await (supabase.from as any)("profiles").update(payload).eq("id", input.profileId);
   if (error) {
-    const formattedError = formatSupabaseError(error, "Update failed");
-    if (formattedError.includes("badge_code") || formattedError.includes("user_code")) {
-      const { user_code: _userCode, badge_code: _badgeCode, ...legacyPayload } = payload;
-      const { error: legacyError } = await (supabase.from as any)("profiles").update(legacyPayload).eq("id", input.profileId);
-      if (legacyError) throw new Error(formatSupabaseError(legacyError, "Update failed"));
-    } else {
-      throw new Error(formattedError);
-    }
+    throw new Error(formatSupabaseError(error, "Update failed"));
   }
   await logUserActivity("user_access_change", "profiles", input.profileId, {
     fields: Object.keys(payload),
