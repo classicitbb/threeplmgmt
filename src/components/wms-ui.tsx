@@ -6185,13 +6185,17 @@ export function SettingsPage() {
 
   const resetMutation = useMutation({
     mutationFn: resetWmsData,
-    onSuccess: async () => {
-      toast.success("Environment reset complete. Launching the warehouse setup wizard.");
+    onSuccess: async (result) => {
+      const removed = (result as { deleted_users?: number } | null)?.deleted_users ?? 0;
+      toast.success(`Reset complete. Removed ${removed} user account${removed === 1 ? "" : "s"}.`);
       await invalidateWarehouseData(queryClient);
       navigate("/setup-wizard");
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Reset failed"),
   });
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetChallenge, setResetChallenge] = useState("");
+  const resetReady = resetChallenge.trim() === "RESET ALL";
 
   return (
     <div className="flex flex-col gap-6">
@@ -6233,7 +6237,7 @@ export function SettingsPage() {
                 <Button variant="outline" asChild>
                   <Link to="/system-log">View system log</Link>
                 </Button>
-                <Button variant="destructive" onClick={() => resetMutation.mutate()} disabled={resetMutation.isPending || !isDeveloperOrAdmin}>
+                <Button variant="destructive" onClick={() => { setResetChallenge(""); setResetOpen(true); }} disabled={resetMutation.isPending || !isDeveloperOrAdmin}>
                   {resetMutation.isPending ? <Loader2 className="animate-spin" /> : <RotateCcw data-icon="inline-start" />}
                   Reset all
                 </Button>
@@ -6241,6 +6245,39 @@ export function SettingsPage() {
               {!isDeveloperOrAdmin ? <p>Only admins and developers can run Reset All.</p> : null}
             </CardContent>
           </Card>
+          <Dialog open={resetOpen} onOpenChange={(o) => { if (!resetMutation.isPending) setResetOpen(o); }}>
+            <DialogContent className="max-w-lg">
+              <DialogHeader>
+                <DialogTitle className="text-destructive">Reset all warehouse data</DialogTitle>
+                <DialogDescription>This action is permanent and cannot be undone.</DialogDescription>
+              </DialogHeader>
+              <div className="grid gap-3 text-sm">
+                <p className="font-medium">What will happen:</p>
+                <ul className="list-disc space-y-1 pl-5 text-muted-foreground">
+                  <li>All warehouses, zones, locations, and products will be deleted.</li>
+                  <li>All clients, pallets, inventory, orders, picks, transfers, and counts will be deleted.</li>
+                  <li>All printed labels, templates, integrations, AI recommendations, and reports will be cleared.</li>
+                  <li>All audit history and system logs will be cleared.</li>
+                  <li><strong>All users except developer accounts</strong> will be removed and will need to request access again.</li>
+                </ul>
+                <div className="grid gap-1.5 pt-2">
+                  <Label htmlFor="reset-challenge">Type <span className="font-mono font-semibold">RESET ALL</span> to confirm</Label>
+                  <Input id="reset-challenge" value={resetChallenge} onChange={(e) => setResetChallenge(e.target.value)} autoComplete="off" autoFocus />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setResetOpen(false)} disabled={resetMutation.isPending}>Cancel</Button>
+                <Button
+                  variant="destructive"
+                  disabled={!resetReady || resetMutation.isPending}
+                  onClick={() => { resetMutation.mutate(undefined, { onSettled: () => setResetOpen(false) }); }}
+                >
+                  {resetMutation.isPending ? <Loader2 className="animate-spin" /> : null}
+                  Reset everything
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </TabsContent>
 
         {isEnabled("clients") && (
