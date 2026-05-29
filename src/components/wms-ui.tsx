@@ -5438,7 +5438,8 @@ function AddUserDialog({
 export function UsersRolesPage() {
   const queryClient = useQueryClient();
   const { roles } = useAuth();
-  const canOperateRoles = roles.includes("developer");
+  const canOperateRoles = roles.some((r) => ["developer", "admin"].includes(r));
+  const canOperateDeveloperRole = roles.includes("developer");
   const [includeHidden, setIncludeHidden] = useState(false);
   const { data: options } = useQuery({ queryKey: ["options", includeHidden], queryFn: () => fetchOptions(includeHidden) });
   const { data: activities = [] } = useQuery({ queryKey: ["user-activities"], queryFn: () => listUserActivities() });
