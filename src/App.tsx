@@ -73,13 +73,14 @@ const RELEASE_HISTORY = [
     version: "1.1.7",
     date: "May 2026",
     changes: [
-      "Labels: every printed code is now a QR (pallet, location, zone, warehouse) for faster, more reliable scans",
-      "Inventory Search: horizontal scrolling restored so all columns are reachable on narrow screens",
-      "Products: total on-hand quantity now shown beside each product name (read-only)",
+      "Labels: pallet/location/zone/warehouse codes print as QR for faster, more reliable scans",
+      "Inventory Search: horizontal and vertical scrolling restored so every column is reachable",
+      "Products: total on-hand quantity shown beside each product name (read-only)",
       "Navigation: desktop sidebar only mounts in landscape; portrait/tablets use the top slide-in nav. Help is always the last item",
       "Sidebar: squishy press feedback on nav buttons and tighter responsive width before the scrollbar kicks in",
       "Locations: Edit Location now saves notes and max-height correctly (field-name mismatch fixed)",
-      "Coming soon: bulk label sheets for locations and zones via multiselect or filter",
+      "Locations & Zones: bulk label sheets — filter the table, then Print labels sheet (paper size, grid presets, start cell)",
+      "Access requests: admins, supervisors, and managers see a full-screen prompt when pending users are awaiting approval, with a one-click jump to Users & Roles",
     ],
   },
   {
