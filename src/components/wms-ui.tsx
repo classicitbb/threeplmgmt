@@ -959,11 +959,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const networkStatusSeenRef = useRef(false);
-  const items = NAVIGATION.filter(
-    (item) =>
-      item.roles.some((role) => roles.includes(role)) &&
-      (!item.moduleKey || isEnabled(item.moduleKey as ModuleKey)),
-  );
+  const items = NAVIGATION
+    .filter(
+      (item) =>
+        item.roles.some((role) => roles.includes(role)) &&
+        (!item.moduleKey || isEnabled(item.moduleKey as ModuleKey)),
+    )
+    // Help is always pinned as the last sidebar entry, regardless of module order.
+    .sort((a, b) => (a.to === "/help" ? 1 : 0) - (b.to === "/help" ? 1 : 0));
   const canSwitchWarehouses = roles.some((role) => ["admin", "warehouse_manager"].includes(role));
   const { data: headerOptions } = useQuery({
     queryKey: ["header-warehouse-options", canSwitchWarehouses],
