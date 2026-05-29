@@ -1123,8 +1123,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       </nav>
 
-      {/* Collapse/expand toggle at bottom */}
-      <div className={cn("mt-2 hidden border-t border-sidebar-border pt-2 lg:flex", sidebarCollapsed ? "justify-center" : "justify-end")}>
+      {/* Collapse/expand toggle at bottom — landscape desktop only */}
+      <div className={cn("mt-2 hidden border-t border-sidebar-border pt-2 lg:landscape:flex", sidebarCollapsed ? "justify-center" : "justify-end")}>
         <Button
           className="h-8 w-8 shrink-0"
           size="icon"
@@ -1201,8 +1201,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <aside className="hidden h-full overflow-hidden border-r border-border lg:landscape:block">{navigation}</aside>
 
         <main className="flex min-h-0 min-w-0 flex-col overflow-hidden">
-          {/* Desktop top bar */}
-          <div className="hidden items-center justify-between gap-3 border-b border-border bg-background/95 px-5 py-2.5 backdrop-blur lg:flex">
+          {/* Desktop top bar — landscape only */}
+          <div className="hidden items-center justify-between gap-3 border-b border-border bg-background/95 px-5 py-2.5 backdrop-blur lg:landscape:flex">
             <div className="min-w-0">
               <p className="flex items-center gap-2 truncate text-xs text-muted-foreground">
                 <span className="truncate">{items.find((item) => item.to === pathname)?.label ?? "Warehouse Wizard Enterprise WMS"}</span>
