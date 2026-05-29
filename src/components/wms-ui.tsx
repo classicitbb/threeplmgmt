@@ -1266,6 +1266,27 @@ export function ResourcePage({
   });
   const queryClient = useQueryClient();
   const extraColumnCount = (resource.supportsHide ? 1 : 0) + (["warehouses", "zones"].includes(resource.table) ? 1 : 0) + 1;
+  const isProducts = resource.table === "products";
+  const { data: productQtyRows = [] } = useQuery({
+    queryKey: ["product-qty-totals"],
+    enabled: isProducts,
+    queryFn: async () => {
+      const { data, error } = await (supabase.from as any)("inventory_balances")
+        .select("product_id, available_quantity, quantity")
+        .limit(10000);
+      if (error) throw error;
+      return data as Array<{ product_id: string; available_quantity: number | null; quantity: number | null }>;
+    },
+  });
+  const productQtyMap = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const r of productQtyRows) {
+      const qty = Number(r.available_quantity ?? r.quantity ?? 0);
+      if (!r.product_id) continue;
+      m.set(r.product_id, (m.get(r.product_id) ?? 0) + qty);
+    }
+    return m;
+  }, [productQtyRows]);
 
   const hasProductRef = resource.fields.some((f) => f.name === "product_id");
   const { data: productOptions = [] } = useQuery({
