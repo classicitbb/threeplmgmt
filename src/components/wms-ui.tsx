@@ -1123,6 +1123,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </Avatar>
               <span className="hidden max-w-[120px] truncate text-xs font-medium sm:inline">{displayName}</span>
             </div>
+            <OfflineQueueBadge compact />
             <HelpSidebar pathname={pathname} />
             <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
               <SheetTrigger asChild>
