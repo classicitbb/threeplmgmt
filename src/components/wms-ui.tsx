@@ -6,7 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm, type UseFormReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { supabase } from "@/integrations/supabase/client";
-import { Activity, AlertTriangle, ArrowLeftRight, BarChart3, Bot, Boxes, Building2, CheckCircle2, ChevronDown, ClipboardCheck, ClipboardList, CloudOff, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, HelpCircle, Home, Info, KeyRound, LayoutDashboard, Loader2, LogOut, Mail, Maximize2, MapPinned, Menu, Minimize2, Package, PackageX, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, QrCode, RadioTower, RefreshCw, RotateCcw, Search, Settings, ShieldCheck, Star, Tags, Truck, Upload, UserPlus, Users } from "lucide-react";
+import { Activity, AlertTriangle, ArrowLeftRight, BarChart3, Bot, Boxes, Building2, CheckCircle2, ChevronDown, ClipboardCheck, ClipboardList, CloudOff, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, HelpCircle, Home, Info, KeyRound, LayoutDashboard, Loader2, LogOut, Mail, Maximize2, MapPinned, Menu, Minimize2, Package, PackageX, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, QrCode, RadioTower, RefreshCw, RotateCcw, Search, Settings, ShieldCheck, Star, Tags, Trash2, Truck, Upload, UserPlus, Users } from "lucide-react";
 import {
   DndContext,
   KeyboardSensor,
@@ -58,6 +58,7 @@ import {
   createTransferFlow,
   cancelPickList,
   deleteClientVariable,
+  deleteResourceCascade,
   dispatchTransfer,
   cycleCountSchema,
   resetWmsData,
@@ -1343,10 +1344,33 @@ export function ResourcePage({
 }: {
   resource: ResourceDefinition;
 }) {
+  const { roles: viewerRoles } = useAuth();
+  const canHardDelete = viewerRoles.some((r) => ["admin", "developer"].includes(r));
+  const cascadeSupported = ["warehouses", "zones", "locations", "products", "clients"].includes(resource.table);
   const [includeHidden, setIncludeHidden] = useState(false);
   const [editRecord, setEditRecord] = useState<Record<string, unknown> | null>(null);
   const [filterQuery, setFilterQuery] = useState("");
   const lastTapRef = useRef<{ id: string; time: number } | null>(null);
+  const [deleteRecord, setDeleteRecord] = useState<Record<string, unknown> | null>(null);
+  const [deleteChallenge, setDeleteChallenge] = useState("");
+  const [deleteBlockers, setDeleteBlockers] = useState<Array<{ table: string; count: number }> | null>(null);
+  const cascadeMutation = useMutation({
+    mutationFn: async (id: string) => deleteResourceCascade(resource.table, id),
+    onSuccess: (result) => {
+      if (result.ok) {
+        toast.success(`${resource.singular} permanently deleted`);
+        setDeleteRecord(null);
+        setDeleteBlockers(null);
+        setDeleteChallenge("");
+        queryClient.invalidateQueries({ queryKey: [resource.table] });
+        void invalidateWarehouseData(queryClient);
+      } else {
+        setDeleteBlockers(result.blocked_by);
+        toast.error("Cannot delete — child records still reference this item.");
+      }
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Delete failed"),
+  });
   const useGearActions = ["warehouses", "zones", "locations", "products"].includes(resource.table);
   const { data = [], isLoading } = useQuery({
     queryKey: [resource.table, includeHidden],
@@ -1762,6 +1786,17 @@ export function ResourcePage({
                         >
                           <Pencil className="h-3.5 w-3.5" />
                         </Button>
+                        {cascadeSupported && canHardDelete ? (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="ml-1 h-7 w-7 p-0 text-destructive hover:text-destructive"
+                            onClick={(e) => { e.stopPropagation(); setDeleteBlockers(null); setDeleteChallenge(""); setDeleteRecord(row as Record<string, unknown>); }}
+                            title={`Delete ${resource.singular} permanently`}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        ) : null}
                       </TableCell>
                     </TableRow>
                   ))
@@ -1775,6 +1810,65 @@ export function ResourcePage({
       {editRecord ? (
         <ResourceEditDialog resource={resource} editRecord={editRecord} onClose={() => setEditRecord(null)} />
       ) : null}
+      <Dialog
+        open={!!deleteRecord}
+        onOpenChange={(o) => { if (!o && !cascadeMutation.isPending) { setDeleteRecord(null); setDeleteBlockers(null); setDeleteChallenge(""); } }}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="text-destructive">Delete {resource.singular} permanently</DialogTitle>
+            <DialogDescription>
+              {(() => {
+                const r = (deleteRecord as Record<string, unknown> | null) ?? {};
+                const label = String((r as { name?: string }).name ?? (r as { code?: string }).code ?? (r as { sku?: string }).sku ?? "this record");
+                return <>This will permanently remove <span className="font-medium">{label}</span>. This action cannot be undone.</>;
+              })()}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3 text-sm">
+            <p className="text-muted-foreground">
+              Permanent delete is only allowed when no other records reference this {resource.singular.toLowerCase()}.
+              If child records exist they must be removed or reassigned first.
+            </p>
+            {deleteBlockers && deleteBlockers.length > 0 ? (
+              <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3">
+                <p className="font-medium text-destructive">Cannot delete — still referenced by:</p>
+                <ul className="mt-1 list-disc pl-5 text-destructive/90">
+                  {deleteBlockers.map((b) => (
+                    <li key={b.table}>{b.count} × {b.table.replace(/_/g, " ")}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            <div className="grid gap-1.5 pt-1">
+              <label htmlFor="delete-challenge" className="text-sm font-medium">
+                Type <span className="font-mono font-semibold">DELETE</span> to confirm
+              </label>
+              <Input
+                id="delete-challenge"
+                value={deleteChallenge}
+                onChange={(e) => setDeleteChallenge(e.target.value)}
+                autoComplete="off"
+                autoFocus
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setDeleteRecord(null); setDeleteBlockers(null); setDeleteChallenge(""); }} disabled={cascadeMutation.isPending}>Cancel</Button>
+            <Button
+              variant="destructive"
+              disabled={cascadeMutation.isPending || deleteChallenge.trim() !== "DELETE" || !deleteRecord}
+              onClick={() => {
+                const id = (deleteRecord as { id?: string } | null)?.id;
+                if (id) cascadeMutation.mutate(id);
+              }}
+            >
+              {cascadeMutation.isPending ? <Loader2 className="animate-spin" /> : <Trash2 data-icon="inline-start" />}
+              Delete permanently
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -6184,13 +6278,17 @@ export function SettingsPage() {
 
   const resetMutation = useMutation({
     mutationFn: resetWmsData,
-    onSuccess: async () => {
-      toast.success("Environment reset complete. Launching the warehouse setup wizard.");
+    onSuccess: async (result) => {
+      const removed = (result as { deleted_users?: number } | null)?.deleted_users ?? 0;
+      toast.success(`Reset complete. Removed ${removed} user account${removed === 1 ? "" : "s"}.`);
       await invalidateWarehouseData(queryClient);
       navigate("/setup-wizard");
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Reset failed"),
   });
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetChallenge, setResetChallenge] = useState("");
+  const resetReady = resetChallenge.trim() === "RESET ALL";
 
   return (
     <div className="flex flex-col gap-6">
@@ -6232,7 +6330,7 @@ export function SettingsPage() {
                 <Button variant="outline" asChild>
                   <Link to="/system-log">View system log</Link>
                 </Button>
-                <Button variant="destructive" onClick={() => resetMutation.mutate()} disabled={resetMutation.isPending || !isDeveloperOrAdmin}>
+                <Button variant="destructive" onClick={() => { setResetChallenge(""); setResetOpen(true); }} disabled={resetMutation.isPending || !isDeveloperOrAdmin}>
                   {resetMutation.isPending ? <Loader2 className="animate-spin" /> : <RotateCcw data-icon="inline-start" />}
                   Reset all
                 </Button>
@@ -6240,6 +6338,39 @@ export function SettingsPage() {
               {!isDeveloperOrAdmin ? <p>Only admins and developers can run Reset All.</p> : null}
             </CardContent>
           </Card>
+          <Dialog open={resetOpen} onOpenChange={(o) => { if (!resetMutation.isPending) setResetOpen(o); }}>
+            <DialogContent className="max-w-lg">
+              <DialogHeader>
+                <DialogTitle className="text-destructive">Reset all warehouse data</DialogTitle>
+                <DialogDescription>This action is permanent and cannot be undone.</DialogDescription>
+              </DialogHeader>
+              <div className="grid gap-3 text-sm">
+                <p className="font-medium">What will happen:</p>
+                <ul className="list-disc space-y-1 pl-5 text-muted-foreground">
+                  <li>All warehouses, zones, locations, and products will be deleted.</li>
+                  <li>All clients, pallets, inventory, orders, picks, transfers, and counts will be deleted.</li>
+                  <li>All printed labels, templates, integrations, AI recommendations, and reports will be cleared.</li>
+                  <li>All audit history and system logs will be cleared.</li>
+                  <li><strong>All users except developer accounts</strong> will be removed and will need to request access again.</li>
+                </ul>
+                <div className="grid gap-1.5 pt-2">
+                  <label htmlFor="reset-challenge" className="text-sm font-medium">Type <span className="font-mono font-semibold">RESET ALL</span> to confirm</label>
+                  <Input id="reset-challenge" value={resetChallenge} onChange={(e) => setResetChallenge(e.target.value)} autoComplete="off" autoFocus />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setResetOpen(false)} disabled={resetMutation.isPending}>Cancel</Button>
+                <Button
+                  variant="destructive"
+                  disabled={!resetReady || resetMutation.isPending}
+                  onClick={() => { resetMutation.mutate(undefined, { onSettled: () => setResetOpen(false) }); }}
+                >
+                  {resetMutation.isPending ? <Loader2 className="animate-spin" /> : null}
+                  Reset everything
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </TabsContent>
 
         {isEnabled("clients") && (
