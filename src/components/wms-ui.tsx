@@ -1041,7 +1041,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <div
         className={cn(
           "grid h-full w-full grid-cols-1 grid-rows-[auto_minmax(0,1fr)] overflow-hidden lg:grid-rows-1",
-          "lg:grid-cols-[240px_minmax(0,1fr)]",
+          "lg:grid-cols-[max-content_minmax(0,1fr)]",
           sidebarCollapsed && "lg:grid-cols-[64px_minmax(0,1fr)]",
         )}
       >
@@ -1068,7 +1068,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   <Menu className="h-4 w-4" />
                 </Button>
               </SheetTrigger>
-              <SheetContent side="left" className="flex h-svh w-screen max-w-full flex-col p-0">
+              <SheetContent side="top" className="flex max-h-svh w-screen max-w-full flex-col p-0">
                 <SheetHeader className="sr-only">
                   <SheetTitle>Navigation</SheetTitle>
                 </SheetHeader>
