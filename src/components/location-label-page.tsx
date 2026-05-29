@@ -1,5 +1,3 @@
-import { useEffect, useRef } from "react";
-import JsBarcode from "jsbarcode";
 import { QRCodeSVG } from "qrcode.react";
 import { Printer } from "lucide-react";
 
@@ -48,8 +46,6 @@ const TYPE_LABELS: Record<string, string> = {
   returns: "Returns",
 };
 
-const QR_THRESHOLD = 24;
-
 function escapeHtml(value: unknown) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -57,29 +53,6 @@ function escapeHtml(value: unknown) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
-}
-
-function BarcodePreview({ code }: { code: string }) {
-  const ref = useRef<SVGSVGElement>(null);
-
-  useEffect(() => {
-    if (!ref.current) return;
-    try {
-      JsBarcode(ref.current, code, {
-        format: "CODE128",
-        width: 2,
-        height: 56,
-        displayValue: false,
-        margin: 0,
-        background: "#ffffff",
-        lineColor: "#000000",
-      });
-    } catch {
-      // invalid barcode value — leave svg empty
-    }
-  }, [code]);
-
-  return <svg ref={ref} />;
 }
 
 function MachineCodePreview({ code }: { code: string }) {
