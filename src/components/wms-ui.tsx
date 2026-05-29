@@ -911,7 +911,7 @@ function ProfileMenu({ initials, displayName, onSignOut }: { initials: string; d
 }
 
 function OfflineQueueBadge({ compact = false }: { compact?: boolean }) {
-  const { count, syncing, retry } = useOfflineQueue();
+  const { count, syncing } = useOfflineQueue();
   if (count === 0 && !syncing) return null;
   const label = syncing ? "Syncing…" : `${count} queued`;
   const handleClick = async () => {
