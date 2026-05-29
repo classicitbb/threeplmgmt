@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { createDefaultWarehouseSetupPayload, parseCsv, validatePutawayAssignment } from "@/lib/wms-core";
+import {
+  createBlankLocationTemplate,
+  createBlankWarehouse,
+  createBlankZone,
+  createDefaultWarehouseSetupPayload,
+  parseCsv,
+  validatePutawayAssignment,
+} from "@/lib/wms-core";
 
 describe("parseCsv", () => {
   it("maps header names to row values", () => {
@@ -47,13 +54,21 @@ describe("validatePutawayAssignment", () => {
 });
 
 describe("createDefaultWarehouseSetupPayload", () => {
-  it("provides a decision-complete starter payload for the wizard", () => {
+  it("returns a fully blank payload so the wizard starts from scratch", () => {
     const payload = createDefaultWarehouseSetupPayload();
+    expect(payload).toEqual({ warehouses: [], zones: [], locationTemplates: [] });
+  });
 
-    expect(payload.warehouses.length).toBeGreaterThanOrEqual(3);
-    expect(payload.warehouses.map((warehouse) => warehouse.code)).toEqual(["MAIN", "PORT", "WLD"]);
-    expect(payload.zones.length).toBeGreaterThan(0);
-    expect(payload.locationTemplates.length).toBeGreaterThan(0);
-    expect(payload.locationTemplates.every((template) => template.warehouseCode && template.zoneCode)).toBe(true);
+  it("blank helpers return empty strings and zero counts", () => {
+    expect(createBlankWarehouse()).toEqual({ code: "", name: "", city: "", country: "", hasCoolZone: false });
+    const zone = createBlankZone();
+    expect(zone.code).toBe("");
+    expect(zone.warehouseCode).toBe("");
+    expect(zone.temperatureClass).toBe("ambient");
+    const tpl = createBlankLocationTemplate();
+    expect(tpl.aisleCount).toBe(0);
+    expect(tpl.baysPerAisle).toBe(0);
+    expect(tpl.levels).toBe(0);
+    expect(tpl.locationType).toBe("");
   });
 });

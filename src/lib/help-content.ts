@@ -48,16 +48,16 @@ export const setupWizardSteps: SetupWizardStepDetail[] = [
     details: [
       "Verify warehouse, zone, location-template, and total-location counts in the review summary.",
       "Go back to any earlier step to fix mistakes \u2014 nothing is created until step 5 is run.",
-      "Confirm whether starter operational data (products, pallets, receipts, putaway tasks) should be seeded.",
+      "On a brand-new tenant the wizard starts blank \u2014 every field is yours to fill in. When an existing warehouse is detected, current data is preloaded for review or extension.",
     ],
   },
   {
     number: 5,
-    title: "Create the structure and starter data",
-    summary: "Run the setup so the warehouse is usable immediately.",
+    title: "Create the structure",
+    summary: "Run the setup to create exactly the warehouses, zones, and locations you defined.",
     details: [
       "The wizard creates warehouses, zones, and every location row in a single transaction.",
-      "If starter data was selected, demo products, pallets, receipts, and putaway tasks are seeded so workflows can be exercised on day one.",
+      "Demo operational data (products, pallets, receipts, etc.) is no longer seeded by default \u2014 developers can opt in from the final step.",
       "On success the app navigates to Warehouses; you can re-run the wizard after a Reset All if the environment ever needs to be rebuilt.",
     ],
   },
@@ -283,8 +283,8 @@ const routeHelpDefinitions: Record<string, RouteHelpDefinition> = {
   "setup-wizard": {
     id: "setup-wizard",
     title: "Warehouse Setup Wizard",
-    summary: "The wizard builds warehouse structure and can seed starter operational data for immediate workflow testing.",
-    keyActions: ["Define warehouses", "Define zones", "Generate locations", "Review and seed starter operations"],
+    summary: "The wizard builds warehouse structure from blank forms; demo operational data is opt-in for developers only.",
+    keyActions: ["Define warehouses", "Define zones", "Generate locations", "Review and create structure"],
     commonMistakes: ["Leaving warehouse codes inconsistent across steps", "Choosing location rules that do not match the actual zone purpose"],
     permissions: "Visible to admins and warehouse managers. Execution uses admin reset/setup controls.",
     wikiArticleIds: ["warehouse-setup", "settings-reset"],
@@ -310,8 +310,8 @@ export const helpArticles: HelpArticle[] = [
     audience: "Admins and warehouse managers",
     keywords: ["wizard", "setup", "warehouse", "zones", "locations", "seed"],
     sections: [
-      { title: "When to Use It", content: ["Use the wizard during a new implementation or after a full environment reset.", "The wizard creates warehouses, zones, location structures, and optional starter operational data."] },
-      { title: "Step Sequence", content: ["Step 1 defines facilities.", "Step 2 defines zones inside each facility.", "Step 3 defines how locations are generated for each zone.", "Step 4 reviews the final structure.", "Step 5 creates the structure and starter data."] },
+      { title: "When to Use It", content: ["Use the wizard during a new implementation or after a full environment reset.", "On a fresh tenant every form starts blank \u2014 the wizard never invents warehouses, zones, or locations.", "When an existing warehouse environment is detected, current structure is preloaded so new facilities or storage areas can be layered in for review."] },
+      { title: "Step Sequence", content: ["Step 1 defines facilities.", "Step 2 defines zones inside each facility.", "Step 3 defines how locations are generated for each zone.", "Step 4 reviews the final structure.", "Step 5 creates the structure (demo operational data is opt-in for developers)."] },
     ],
   },
   {

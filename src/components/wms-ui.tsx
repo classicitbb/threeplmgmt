@@ -6317,12 +6317,12 @@ export function SettingsPage() {
           <Card>
             <CardHeader>
               <CardTitle>Environment & Setup</CardTitle>
-              <CardDescription>Use the setup wizard to build the warehouse structure and seed operational starter data.</CardDescription>
+              <CardDescription>Use the setup wizard to build the warehouse structure. Forms start blank; nothing is seeded automatically.</CardDescription>
             </CardHeader>
             <CardContent className="grid gap-3 text-sm text-muted-foreground">
               <p>1. Keep users and role assignments in place.</p>
               <p>2. Launch the warehouse setup wizard to define warehouses, zones, and location rules.</p>
-              <p>3. Seed starter operational data so receiving, putaway, picking, transfers, and counts can be tested immediately.</p>
+              <p>3. Demo operational data (clients, products, pallets, receipts) is opt-in for developers only on the final step.</p>
               <div className="flex flex-wrap gap-2 pt-2">
                 <Button asChild>
                   <Link to="/setup-wizard">Open warehouse setup wizard</Link>
