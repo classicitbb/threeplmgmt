@@ -3593,10 +3593,7 @@ export function PickListsPage() {
   const mutation = useMutation({
     mutationFn: async (values: z.infer<typeof pickListSchema>) => createPickListFlow(values),
     onSuccess: async () => {
-      toast.success("Pick list released", {
-        action: { label: "View lists", onClick: () => navigate("/pick-lists") },
-        duration: 6000,
-      });
+      toast.success("Pick list released");
       form.reset({
         warehouse_id: profile?.default_warehouse_id || undefined,
         client_id: undefined,
@@ -3609,6 +3606,7 @@ export function PickListsPage() {
         queryClient.invalidateQueries({ queryKey: ["pick-lists"] }),
         queryClient.invalidateQueries({ queryKey: ["dashboard-metrics"] }),
       ]);
+      setActiveTab("lists");
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Pick list failed"),
   });
