@@ -1481,16 +1481,36 @@ async function selectPickCandidates(productId: string, warehouseId: string, quan
 
 export async function createPickListFlow(input: z.infer<typeof pickListSchema>) {
   const payload = pickListSchema.parse(input);
-  const orderNumber = payload.order_number;
-
-  const order = await upsertRecord("orders", {
-    order_number: orderNumber,
-    client_id: payload.client_id,
-    warehouse_id: payload.warehouse_id,
-    requested_ship_date: payload.requested_ship_date || null,
-    status: "queued",
-    notes: payload.notes || null,
-  });
+  // Ensure the order number is unique even if the operator re-uses one they
+  // already typed (the orders table has a unique constraint on order_number).
+  // We try the supplied number first, then fall back to suffixed retries.
+  const baseOrderNumber = payload.order_number;
+  let order: any;
+  let attempt = 0;
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const candidateNumber = attempt === 0
+      ? baseOrderNumber
+      : `${baseOrderNumber}-${Date.now().toString().slice(-6)}${attempt > 1 ? `-${attempt}` : ""}`;
+    const { data: existing } = await db("orders")
+      .select("id")
+      .eq("order_number", candidateNumber)
+      .maybeSingle();
+    if (existing) {
+      attempt += 1;
+      if (attempt > 5) throw new Error("Could not allocate a unique order number — try a different one.");
+      continue;
+    }
+    order = await upsertRecord("orders", {
+      order_number: candidateNumber,
+      client_id: payload.client_id,
+      warehouse_id: payload.warehouse_id,
+      requested_ship_date: payload.requested_ship_date || null,
+      status: "queued",
+      notes: payload.notes || null,
+    });
+    break;
+  }
 
   const pickList = await upsertRecord("pick_lists", {
     pick_list_number: buildPalletCode("PKL"),
