@@ -1344,10 +1344,33 @@ export function ResourcePage({
 }: {
   resource: ResourceDefinition;
 }) {
+  const { roles: viewerRoles } = useAuth();
+  const canHardDelete = viewerRoles.some((r) => ["admin", "developer"].includes(r));
+  const cascadeSupported = ["warehouses", "zones", "locations", "products", "clients"].includes(resource.table);
   const [includeHidden, setIncludeHidden] = useState(false);
   const [editRecord, setEditRecord] = useState<Record<string, unknown> | null>(null);
   const [filterQuery, setFilterQuery] = useState("");
   const lastTapRef = useRef<{ id: string; time: number } | null>(null);
+  const [deleteRecord, setDeleteRecord] = useState<Record<string, unknown> | null>(null);
+  const [deleteChallenge, setDeleteChallenge] = useState("");
+  const [deleteBlockers, setDeleteBlockers] = useState<Array<{ table: string; count: number }> | null>(null);
+  const cascadeMutation = useMutation({
+    mutationFn: async (id: string) => deleteResourceCascade(resource.table, id),
+    onSuccess: (result) => {
+      if (result.ok) {
+        toast.success(`${resource.singular} permanently deleted`);
+        setDeleteRecord(null);
+        setDeleteBlockers(null);
+        setDeleteChallenge("");
+        queryClient.invalidateQueries({ queryKey: [resource.table] });
+        void invalidateWarehouseData(queryClient);
+      } else {
+        setDeleteBlockers(result.blocked_by);
+        toast.error("Cannot delete — child records still reference this item.");
+      }
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Delete failed"),
+  });
   const useGearActions = ["warehouses", "zones", "locations", "products"].includes(resource.table);
   const { data = [], isLoading } = useQuery({
     queryKey: [resource.table, includeHidden],
