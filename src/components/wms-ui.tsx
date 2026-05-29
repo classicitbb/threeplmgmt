@@ -1786,6 +1786,17 @@ export function ResourcePage({
                         >
                           <Pencil className="h-3.5 w-3.5" />
                         </Button>
+                        {cascadeSupported && canHardDelete ? (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="ml-1 h-7 w-7 p-0 text-destructive hover:text-destructive"
+                            onClick={(e) => { e.stopPropagation(); setDeleteBlockers(null); setDeleteChallenge(""); setDeleteRecord(row as Record<string, unknown>); }}
+                            title={`Delete ${resource.singular} permanently`}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        ) : null}
                       </TableCell>
                     </TableRow>
                   ))
