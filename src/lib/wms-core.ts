@@ -2099,10 +2099,13 @@ export async function getDashboardMetrics(warehouseId?: string | null) {
 
   const allBalanceRows = balances.data ?? [];
   const balanceRows = warehouseId ? allBalanceRows.filter((row: any) => row.warehouse_id === warehouseId) : allBalanceRows;
-  const coolRows = balanceRows.filter((row: any) => row.zone_id);
+  const retiredStatuses = new Set(["picked", "shipped", "in_transit", "missing"]);
+  const liveAllBalanceRows = allBalanceRows.filter((row: any) => !retiredStatuses.has(row.status));
+  const liveBalanceRows = balanceRows.filter((row: any) => !retiredStatuses.has(row.status));
+  const coolRows = liveBalanceRows.filter((row: any) => row.zone_id);
   const locationRows = locations.data ?? [];
   const totalPalletCapacity = locationRows.reduce((sum: number, row: any) => sum + Number(row.max_pallets ?? 0), 0);
-  const warehouseRows = warehouseId ? balanceRows : [];
+  const warehouseRows = warehouseId ? liveBalanceRows : [];
   const warehousePalletCapacity = warehouseId
     ? locationRows
         .filter((row: any) => row.warehouse_id === warehouseId)
@@ -2215,7 +2218,7 @@ export async function getDashboardMetrics(warehouseId?: string | null) {
     }));
 
   return {
-    totalPallets: allBalanceRows.length,
+    totalPallets: liveAllBalanceRows.length,
     totalPalletCapacity,
     warehousePallets: warehouseRows.length,
     warehousePalletCapacity,
