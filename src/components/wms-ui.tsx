@@ -6112,6 +6112,19 @@ export function SettingsPage() {
               </div>
               {[
                 {
+                  version: "1.7.0",
+                  date: "May 2026",
+                  changes: [
+                    "Labels: every printed code is now a QR (pallet, location, zone, warehouse) for faster, more reliable scans",
+                    "Inventory Search: horizontal scrolling restored so all columns are reachable on narrow screens",
+                    "Products: total on-hand quantity shown beside each product name (read-only)",
+                    "Navigation: desktop sidebar only mounts in landscape; portrait and tablets use the top slide-in nav. Help is always the last item",
+                    "Sidebar: squishy press feedback on nav buttons and tighter responsive width before the scrollbar kicks in",
+                    "Locations: Edit Location now saves Notes and Max height correctly (field-name mismatch fixed)",
+                    "Coming soon: bulk label sheets for locations and zones via multiselect or filter",
+                  ],
+                },
+                {
                   version: "1.1.6",
                   date: "May 2026",
                   changes: [
