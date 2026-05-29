@@ -6,7 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm, type UseFormReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { supabase } from "@/integrations/supabase/client";
-import { Activity, AlertTriangle, ArrowLeftRight, BarChart3, Bot, Boxes, Building2, CheckCircle2, ClipboardCheck, ClipboardList, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, HelpCircle, Home, Info, KeyRound, LayoutDashboard, Loader2, LogOut, Mail, Maximize2, MapPinned, Menu, Minimize2, Package, PackageX, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, QrCode, RadioTower, RotateCcw, Search, Settings, ShieldCheck, Star, Tags, Truck, Upload, UserPlus, Users, Warehouse } from "lucide-react";
+import { Activity, AlertTriangle, ArrowLeftRight, BarChart3, Bot, Boxes, Building2, CheckCircle2, ChevronDown, ClipboardCheck, ClipboardList, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, HelpCircle, Home, Info, KeyRound, LayoutDashboard, Loader2, LogOut, Mail, Maximize2, MapPinned, Menu, Minimize2, Package, PackageX, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, QrCode, RadioTower, RotateCcw, Search, Settings, ShieldCheck, Star, Tags, Truck, Upload, UserPlus, Users, Warehouse } from "lucide-react";
 import {
   DndContext,
   KeyboardSensor,
@@ -777,8 +777,24 @@ const locationWizardSchema = z
 
 export type LocationWizardValues = z.infer<typeof locationWizardSchema>;
 
-function ChangeOwnPasswordDialog({ onClose }: { onClose?: () => void }) {
-  const [open, setOpen] = useState(false);
+function ChangeOwnPasswordDialog({
+  onClose,
+  open: openProp,
+  onOpenChange,
+  hideTrigger = false,
+}: {
+  onClose?: () => void;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  hideTrigger?: boolean;
+}) {
+  const [internalOpen, setInternalOpen] = useState(false);
+  const isControlled = openProp !== undefined;
+  const open = isControlled ? openProp : internalOpen;
+  const setOpen = (value: boolean) => {
+    if (!isControlled) setInternalOpen(value);
+    onOpenChange?.(value);
+  };
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
 
@@ -808,12 +824,14 @@ function ChangeOwnPasswordDialog({ onClose }: { onClose?: () => void }) {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button variant="ghost" size="sm" className="h-7 shrink-0 text-xs">
-          <KeyRound className="mr-1 h-3 w-3" />
-          Change password
-        </Button>
-      </DialogTrigger>
+      {!hideTrigger && (
+        <DialogTrigger asChild>
+          <Button variant="ghost" size="sm" className="h-7 shrink-0 text-xs">
+            <KeyRound className="mr-1 h-3 w-3" />
+            Change password
+          </Button>
+        </DialogTrigger>
+      )}
       <DialogContent className="max-w-sm">
         <DialogHeader>
           <DialogTitle>Change password</DialogTitle>
@@ -848,6 +866,40 @@ function ChangeOwnPasswordDialog({ onClose }: { onClose?: () => void }) {
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function ProfileMenu({ initials, displayName, onSignOut }: { initials: string; displayName: string; onSignOut: () => void }) {
+  const [pwOpen, setPwOpen] = useState(false);
+  return (
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            className="flex items-center gap-2 rounded-lg border border-border bg-card/80 px-2.5 py-1.5 text-sm transition-colors hover:bg-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <Avatar className="h-6 w-6">
+              <AvatarFallback className="bg-primary/10 text-xs font-semibold text-primary">{initials}</AvatarFallback>
+            </Avatar>
+            <span className="hidden truncate text-xs font-medium sm:block">{displayName}</span>
+            <ChevronDown className="h-3 w-3 text-muted-foreground" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-48">
+          <DropdownMenuItem onSelect={(event) => { event.preventDefault(); setPwOpen(true); }}>
+            <KeyRound className="mr-2 h-3.5 w-3.5" />
+            Change password
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={() => onSignOut()}>
+            <LogOut className="mr-2 h-3.5 w-3.5" />
+            Sign out
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <ChangeOwnPasswordDialog open={pwOpen} onOpenChange={setPwOpen} hideTrigger />
+    </>
   );
 }
 
@@ -1127,17 +1179,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 </Select>
               ) : null}
               <HelpSidebar pathname={pathname} />
-              <div className="flex items-center gap-2 rounded-lg border border-border bg-card/80 px-2.5 py-1.5 text-sm">
-                <Avatar className="h-6 w-6">
-                  <AvatarFallback className="bg-primary/10 text-xs font-semibold text-primary">{initials}</AvatarFallback>
-                </Avatar>
-                <span className="hidden truncate text-xs font-medium sm:block">{displayName}</span>
-                <ChangeOwnPasswordDialog />
-                <Button className="h-7 shrink-0 text-xs" variant="ghost" size="sm" onClick={() => void signOut()}>
-                  <LogOut className="mr-1 h-3 w-3" />
-                  Sign out
-                </Button>
-              </div>
+              <ProfileMenu initials={initials} displayName={displayName} onSignOut={() => void signOut()} />
             </div>
           </div>
           <div
@@ -3688,7 +3730,7 @@ export function PickListsPage() {
     <Tabs className="flex flex-col gap-6" value={activeTab} onValueChange={setActiveTab}>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h2 className="text-2xl font-semibold">Pick Lists</h2>
+          <h2 className="text-xl font-semibold sm:text-2xl">Pick Lists</h2>
           <p className="text-sm text-muted-foreground">Release outbound work and execute scan-confirmed picks.</p>
         </div>
         <div className="flex min-w-0 gap-2 sm:min-w-80">
@@ -3840,7 +3882,7 @@ export function PickListsPage() {
       </TabsContent>
       <TabsContent value="create">
         <Card>
-          <CardContent className="p-6">
+          <CardContent className="p-4 sm:p-6">
             <Form {...form}>
               <form className="grid gap-4 lg:grid-cols-2" onSubmit={form.handleSubmit((values) => mutation.mutate(values))}>
                 <SelectField form={form} name="warehouse_id" label="Warehouse" options={(options?.warehouses ?? []).map((warehouse) => ({ label: warehouse.name, value: warehouse.id }))} />
