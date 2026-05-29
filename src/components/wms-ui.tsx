@@ -869,6 +869,40 @@ function ChangeOwnPasswordDialog({
   );
 }
 
+function ProfileMenu({ initials, displayName, onSignOut }: { initials: string; displayName: string; onSignOut: () => void }) {
+  const [pwOpen, setPwOpen] = useState(false);
+  return (
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            className="flex items-center gap-2 rounded-lg border border-border bg-card/80 px-2.5 py-1.5 text-sm transition-colors hover:bg-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <Avatar className="h-6 w-6">
+              <AvatarFallback className="bg-primary/10 text-xs font-semibold text-primary">{initials}</AvatarFallback>
+            </Avatar>
+            <span className="hidden truncate text-xs font-medium sm:block">{displayName}</span>
+            <ChevronDown className="h-3 w-3 text-muted-foreground" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-48">
+          <DropdownMenuItem onSelect={(event) => { event.preventDefault(); setPwOpen(true); }}>
+            <KeyRound className="mr-2 h-3.5 w-3.5" />
+            Change password
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={() => onSignOut()}>
+            <LogOut className="mr-2 h-3.5 w-3.5" />
+            Sign out
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <ChangeOwnPasswordDialog open={pwOpen} onOpenChange={setPwOpen} hideTrigger />
+    </>
+  );
+}
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { pathname } = useLocation();
   const { profile, roles, signOut, user, refreshProfile } = useAuth();
