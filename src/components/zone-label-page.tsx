@@ -38,6 +38,15 @@ const TEMP_LABELS: Record<string, string> = {
   frozen: "Frozen (−20 °C)",
 };
 
+function escapeHtml(value: unknown) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 export function ZoneLabelPage(props: ZoneLabelPageProps) {
   const { code, name, warehouseName, temperatureClass = "ambient", trigger } = props;
   const accentColor = TEMP_COLOURS[temperatureClass] ?? TEMP_COLOURS.ambient;
@@ -89,12 +98,12 @@ export function ZoneLabelPage(props: ZoneLabelPageProps) {
 <body>
   <div class="accent-bar"></div>
   <div class="qr-wrap">${qrSvg}</div>
-  <p class="zone-name">${name}</p>
-  <p class="zone-code">${code}</p>
-  ${warehouseName ? `<p class="warehouse-name">${warehouseName}</p>` : ""}
+  <p class="zone-name">${escapeHtml(name)}</p>
+  <p class="zone-code">${escapeHtml(code)}</p>
+  ${warehouseName ? `<p class="warehouse-name">${escapeHtml(warehouseName)}</p>` : ""}
   <div class="badges">
-    <span class="temp-badge">${tempLabel}</span>
-    ${flags.map((f) => `<span class="badge">${f}</span>`).join("")}
+    <span class="temp-badge">${escapeHtml(tempLabel)}</span>
+    ${flags.map((f) => `<span class="badge">${escapeHtml(f)}</span>`).join("")}
   </div>
   <p class="footer">3PL Management · Printed ${new Date().toLocaleDateString()}</p>
   <script>window.onload=()=>{window.print();window.close();}<\/script>
