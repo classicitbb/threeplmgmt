@@ -3898,7 +3898,8 @@ export function PickListsPage() {
                   </CardHeader>
                   <CardContent className="grid gap-3">
                     {lines.map((_, index) => (
-                      <div key={index} className="grid gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(8rem,1fr)_auto]">
+                      <div key={index} className="grid gap-2">
+                        <div className="grid gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(8rem,1fr)_auto]">
                         <FormField
                           control={form.control}
                           name={`lines.${index}.product_id`}
