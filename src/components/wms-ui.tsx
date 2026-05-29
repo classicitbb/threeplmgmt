@@ -977,13 +977,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {items.map((item) => {
             const Icon = navIcons[item.to] ?? LayoutDashboard;
             const isActive = pathname === item.to;
+            const showSeparator = !sidebarCollapsed && item.to === "/warehouses";
             const link = (
               <NavLink
                 key={item.to}
                 className={({ isActive: navActive }) =>
                   cn(
-                    "group flex min-h-9 items-center gap-2.5 rounded-md px-2.5 text-sm font-medium transition-all duration-100",
-                    sidebarCollapsed && "h-11 w-11 justify-center p-0",
+                    "group flex min-h-[3.375rem] items-center gap-2.5 rounded-md px-2.5 text-sm font-medium transition-all duration-100",
+                    sidebarCollapsed && "h-[3.375rem] w-11 justify-center p-0",
                     navActive || isActive
                       ? "bg-primary text-primary-foreground shadow-sm"
                       : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
@@ -1000,12 +1001,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </NavLink>
             );
 
-            return sidebarCollapsed ? (
+            const node = sidebarCollapsed ? (
               <Tooltip key={item.to}>
                 <TooltipTrigger asChild>{link}</TooltipTrigger>
                 <TooltipContent side="right">{item.label}</TooltipContent>
               </Tooltip>
             ) : link;
+
+            if (showSeparator) {
+              return (
+                <React.Fragment key={item.to}>
+                  <div className="my-1 border-t border-sidebar-border" />
+                  {node}
+                </React.Fragment>
+              );
+            }
+            return node;
           })}
         </div>
       </nav>
