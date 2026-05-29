@@ -714,7 +714,7 @@ function ResourceEditDialog({
 
   function handleSubmit(values: Record<string, unknown>) {
     // Locations: require a reason in Notes when disabling or marking maintenance
-    if (isLocations && isBeingDisabled && !values.location_notes) {
+    if (isLocations && isBeingDisabled && !values.notes) {
       toast.error("Add a reason in the Notes field before marking this location unavailable.");
       return;
     }
