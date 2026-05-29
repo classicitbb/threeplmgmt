@@ -1010,10 +1010,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
             if (showSeparator) {
               return (
-                <React.Fragment key={item.to}>
+                <Fragment key={item.to}>
                   <div className="my-1 border-t border-sidebar-border" />
                   {node}
-                </React.Fragment>
+                </Fragment>
               );
             }
             return node;
