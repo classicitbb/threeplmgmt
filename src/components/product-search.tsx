@@ -21,6 +21,13 @@ export type ProductOption = {
   sku: string;
   name: string;
   barcode?: string;
+  meta?: {
+    totalQty: number;
+    palletCount: number;
+    palletCode?: string;
+    palletQty?: number;
+    locationCode?: string;
+  };
 };
 
 export type ProductSearchHandle = {
@@ -145,10 +152,36 @@ export const ProductSearch = forwardRef<ProductSearchHandle, Props>(function Pro
                   }}
                 >
                   <Check
-                    className={cn("mr-2 h-4 w-4", value === product.id ? "opacity-100" : "opacity-0")}
+                    className={cn("mr-2 h-4 w-4 shrink-0", value === product.id ? "opacity-100" : "opacity-0")}
                   />
-                  <span className="font-mono text-xs text-muted-foreground mr-2">{product.sku}</span>
-                  <span className="truncate">{product.name}</span>
+                  {product.meta ? (
+                    <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                      <div className="flex items-baseline justify-between gap-2">
+                        <span className="truncate">
+                          <span className="font-mono text-xs text-muted-foreground mr-2">{product.sku}</span>
+                          <span>{product.name}</span>
+                        </span>
+                        <span className="shrink-0 text-xs font-semibold tabular-nums">
+                          Total {product.meta.totalQty}
+                        </span>
+                      </div>
+                      <div className="flex items-baseline justify-between gap-2 text-xs text-muted-foreground">
+                        <span className="truncate font-mono">
+                          {product.meta.palletCode
+                            ? `Pallet ${product.meta.palletCode} · Qty ${product.meta.palletQty}${product.meta.locationCode ? ` @ ${product.meta.locationCode}` : ""}`
+                            : "No pickable pallets"}
+                        </span>
+                        <span className="shrink-0 tabular-nums">
+                          {product.meta.palletCount} pallet{product.meta.palletCount === 1 ? "" : "s"}
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <span className="font-mono text-xs text-muted-foreground mr-2">{product.sku}</span>
+                      <span className="truncate">{product.name}</span>
+                    </>
+                  )}
                 </CommandItem>
               ))}
             </CommandGroup>
