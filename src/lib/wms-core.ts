@@ -1596,6 +1596,9 @@ export async function confirmPickTask(taskId: string, scannedLocation: string, s
 
   const nextAvailable = Math.max(balance.available_quantity - confirmedQuantity, 0);
   const nextStatus: InventoryStatus = nextAvailable === 0 ? "picked" : "available";
+  const fullyDepleted = nextAvailable === 0;
+  const nextPalletQuantity = Math.max(Number(pallet.quantity ?? 0) - confirmedQuantity, 0);
+  const nextBalanceQuantity = Math.max(Number(balance.quantity ?? 0) - confirmedQuantity, 0);
 
   await Promise.all([
     db("pick_tasks")
@@ -1607,16 +1610,40 @@ export async function confirmPickTask(taskId: string, scannedLocation: string, s
       })
       .eq("id", taskId),
     db("pallets")
-      .update({
-        available_quantity: nextAvailable,
-        status: nextStatus,
-      })
+      .update(
+        fullyDepleted
+          ? {
+              available_quantity: 0,
+              quantity: 0,
+              reserved_quantity: 0,
+              status: nextStatus,
+              current_location_id: null,
+              is_stored: false,
+            }
+          : {
+              available_quantity: nextAvailable,
+              quantity: nextPalletQuantity,
+              status: nextStatus,
+            },
+      )
       .eq("id", pallet.id),
     db("inventory_balances")
-      .update({
-        available_quantity: nextAvailable,
-        status: nextStatus,
-      })
+      .update(
+        fullyDepleted
+          ? {
+              available_quantity: 0,
+              quantity: 0,
+              reserved_quantity: 0,
+              status: nextStatus,
+              location_id: null,
+              zone_id: null,
+            }
+          : {
+              available_quantity: nextAvailable,
+              quantity: nextBalanceQuantity,
+              status: nextStatus,
+            },
+      )
       .eq("id", balance.id),
   ]);
 
@@ -1633,6 +1660,38 @@ export async function confirmPickTask(taskId: string, scannedLocation: string, s
     } as any,
   });
   if (pickAudit.error) console.error("[submitPickTaskLine] log_audit_event failed:", pickAudit.error);
+
+  // Roll up the parent pick list if every sibling task is finished.
+  if (task.pick_list_id) {
+    const { data: siblings } = await db("pick_tasks")
+      .select("id, status")
+      .eq("pick_list_id", task.pick_list_id);
+    const allDone = (siblings ?? []).every((row: any) =>
+      ["completed", "cancelled", "exception"].includes(row.status),
+    );
+    if (allDone && (siblings ?? []).length > 0) {
+      const { data: parent } = await db("pick_lists")
+        .select("id, status, warehouse_id, order_id")
+        .eq("id", task.pick_list_id)
+        .single();
+      if (parent && !["completed", "cancelled"].includes(parent.status)) {
+        await db("pick_lists")
+          .update({ status: "completed" })
+          .eq("id", parent.id);
+        if (parent.order_id) {
+          await db("orders").update({ status: "completed" }).eq("id", parent.order_id);
+        }
+        const completeAudit = await (supabase.rpc as any)("log_audit_event", {
+          in_event_type: "pick_list_completed",
+          in_entity_table: "pick_lists",
+          in_entity_id: parent.id,
+          in_warehouse_id: parent.warehouse_id,
+          in_metadata: {} as any,
+        });
+        if (completeAudit.error) console.error("[confirmPickTask] pick_list rollup audit failed:", completeAudit.error);
+      }
+    }
+  }
 }
 
 export async function cancelPickList(pickListId: string, reason?: string) {
