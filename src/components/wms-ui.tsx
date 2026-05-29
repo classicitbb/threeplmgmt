@@ -6150,7 +6150,7 @@ export function SettingsPage() {
               </div>
               {[
                 {
-                  version: "1.7.0",
+                  version: "1.1.7",
                   date: "May 2026",
                   changes: [
                     "Labels: every printed code is now a QR (pallet, location, zone, warehouse) for faster, more reliable scans",
