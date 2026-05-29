@@ -130,6 +130,7 @@ import {
 import { HelpSidebar } from "@/components/help-sidebar";
 import { ZoneLabelPage } from "@/components/zone-label-page";
 import { LocationLabelPage } from "@/components/location-label-page";
+import { LabelSheetPrintDialog, type LabelSheetItem } from "@/components/label-sheet-print";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -540,7 +541,7 @@ function TableFrame({
   className?: string;
 }) {
   return (
-    <div className={cn("h-[calc(100svh-14rem)] min-h-48 w-full touch-pan-x overflow-auto overscroll-x-contain [&_table]:min-w-max", className)}>
+    <div className={cn("h-[calc(100svh-14rem)] min-h-48 w-full min-w-0 touch-pan-x overflow-auto overscroll-x-contain overscroll-y-contain [&_table]:min-w-max", className)}>
       {children}
     </div>
   );
@@ -1243,7 +1244,97 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </main>
       </div>
+      <AccessRequestsBanner />
     </div>
+  );
+}
+
+function AccessRequestsBanner() {
+  const { roles } = useAuth();
+  const navigate = useNavigate();
+  const canSee = roles.some((r) => ["admin", "warehouse_manager", "warehouse_supervisor", "developer"].includes(r));
+  const [dismissed, setDismissed] = useState<string[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      return JSON.parse(window.sessionStorage.getItem("dismissed-pending-requests") ?? "[]");
+    } catch {
+      return [];
+    }
+  });
+
+  const { data: pending = [] } = useQuery({
+    queryKey: ["pending-access-requests"],
+    enabled: canSee,
+    refetchInterval: 60_000,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("id, full_name, email, created_at")
+        .eq("approved", false)
+        .order("created_at", { ascending: false })
+        .limit(50);
+      if (error) throw error;
+      return (data ?? []) as Array<{ id: string; full_name: string | null; email: string | null; created_at: string | null }>;
+    },
+  });
+
+  const undismissed = useMemo(
+    () => pending.filter((p) => !dismissed.includes(p.id)),
+    [pending, dismissed],
+  );
+  const open = canSee && undismissed.length > 0;
+
+  function dismissAll() {
+    const next = Array.from(new Set([...dismissed, ...undismissed.map((p) => p.id)]));
+    setDismissed(next);
+    try {
+      window.sessionStorage.setItem("dismissed-pending-requests", JSON.stringify(next));
+    } catch {
+      /* noop */
+    }
+  }
+
+  function goToUsers() {
+    dismissAll();
+    navigate("/settings");
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) dismissAll(); }}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-destructive">
+            <UserPlus className="h-5 w-5" />
+            {undismissed.length} access request{undismissed.length === 1 ? "" : "s"} awaiting approval
+          </DialogTitle>
+          <DialogDescription>
+            New users have requested access to the warehouse. Review and approve them in Users &amp; Roles.
+          </DialogDescription>
+        </DialogHeader>
+        <ul className="max-h-60 divide-y divide-border overflow-y-auto rounded border border-border">
+          {undismissed.map((p) => (
+            <li key={p.id} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
+              <div className="min-w-0">
+                <div className="truncate font-medium">{p.full_name?.trim() || p.email || "Unnamed user"}</div>
+                {p.email && p.full_name ? (
+                  <div className="truncate text-xs text-muted-foreground">{p.email}</div>
+                ) : null}
+              </div>
+              <div className="shrink-0 text-xs text-muted-foreground">
+                {p.created_at ? new Date(p.created_at).toLocaleDateString() : ""}
+              </div>
+            </li>
+          ))}
+        </ul>
+        <DialogFooter className="gap-2">
+          <Button variant="outline" onClick={dismissAll}>Remind me later</Button>
+          <Button onClick={goToUsers}>
+            <Users className="mr-2 h-4 w-4" />
+            Go to Users
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -1420,6 +1511,32 @@ export function ResourcePage({
                       <DropdownMenuItem onSelect={(event) => event.preventDefault()}>
                         <MapPinned className="mr-2 h-4 w-4" />
                         Location wizard
+                      </DropdownMenuItem>
+                    }
+                  />
+                ) : null}
+                {["locations", "zones"].includes(resource.table) ? (
+                  <LabelSheetPrintDialog
+                    resourceLabel={resource.singular}
+                    items={(filteredData as Array<Record<string, unknown>>).map((row): LabelSheetItem => {
+                      const code = String((row as any).code ?? (row as any).id ?? "");
+                      const title = (row as any).name ? String((row as any).name) : null;
+                      const subtitleParts: string[] = [];
+                      if (resource.table === "locations") {
+                        const w = warehouseMap.get(String((row as any).warehouse_id ?? ""));
+                        const z = zoneMap.get(String((row as any).zone_id ?? ""));
+                        if (z) subtitleParts.push(`Zone: ${z}`);
+                        if (w) subtitleParts.push(w);
+                      } else if (resource.table === "zones") {
+                        const w = warehouseMap.get(String((row as any).warehouse_id ?? ""));
+                        if (w) subtitleParts.push(w);
+                      }
+                      return { code, title, subtitle: subtitleParts.join(" · ") || null };
+                    })}
+                    trigger={
+                      <DropdownMenuItem onSelect={(event) => event.preventDefault()}>
+                        <Printer className="mr-2 h-4 w-4" />
+                        Print labels sheet
                       </DropdownMenuItem>
                     }
                   />
@@ -3682,9 +3799,9 @@ export function InventorySearchPage() {
           </div>
         </CardContent>
       </Card>
-      <Card className="flex min-h-0 flex-1 flex-col">
-        <CardContent className="flex min-h-0 flex-1 p-0">
-          <TableFrame className="h-full">
+      <Card className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        <CardContent className="flex min-h-0 min-w-0 flex-1 p-0">
+          <TableFrame className="h-full min-w-0 flex-1">
             <Table className="min-w-[58rem] [&_th]:whitespace-nowrap [&_td]:whitespace-nowrap">
               <TableHeader className="sticky top-0 z-20 bg-card shadow-sm">
                 <TableRow>
@@ -6150,7 +6267,7 @@ export function SettingsPage() {
               </div>
               {[
                 {
-                  version: "1.7.0",
+                  version: "1.1.7",
                   date: "May 2026",
                   changes: [
                     "Labels: every printed code is now a QR (pallet, location, zone, warehouse) for faster, more reliable scans",
@@ -6159,7 +6276,8 @@ export function SettingsPage() {
                     "Navigation: desktop sidebar only mounts in landscape; portrait and tablets use the top slide-in nav. Help is always the last item",
                     "Sidebar: squishy press feedback on nav buttons and tighter responsive width before the scrollbar kicks in",
                     "Locations: Edit Location now saves Notes and Max height correctly (field-name mismatch fixed)",
-                    "Coming soon: bulk label sheets for locations and zones via multiselect or filter",
+                    "Locations & Zones: bulk label sheets — filter the table, then Print labels sheet (paper size, grid, start cell)",
+                    "Access requests: admins, supervisors, and managers see a full-screen prompt when pending users are awaiting approval, with a one-click jump to Users & Roles",
                   ],
                 },
                 {
