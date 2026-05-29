@@ -3123,9 +3123,46 @@ export function PutawayTasksPage() {
   });
 
   const mutation = useMutation({
+    meta: { offlineQueueable: true },
     mutationFn: async ({ taskId, pallet, location, override, reason }: { taskId: string; pallet: string; location: string; override?: boolean; reason?: string }) =>
-      confirmPutaway(taskId, pallet, location, { override, overrideReason: reason }),
-    onSuccess: async (_, vars) => {
+    {
+      // If we're offline at submit time, buffer immediately — no network call.
+      if (typeof navigator !== "undefined" && navigator.onLine === false) {
+        await enqueueOfflineWork("putaway", { taskId, pallet, location, override, reason });
+        return { queued: true as const };
+      }
+      try {
+        await confirmPutaway(taskId, pallet, location, { override, overrideReason: reason });
+        return { queued: false as const };
+      } catch (err) {
+        // Network drop mid-submit → buffer and surface as queued, not as a failure.
+        if (isLikelyNetworkError(err)) {
+          await enqueueOfflineWork("putaway", { taskId, pallet, location, override, reason });
+          return { queued: true as const };
+        }
+        throw err;
+      }
+    },
+    onSuccess: async (result, vars) => {
+      if (result?.queued) {
+        playBarcodeBeep();
+        toast.message("Saved offline — will sync when reconnected", {
+          description: `Pallet ${vars.pallet} → ${vars.location} buffered locally.`,
+          duration: 6000,
+        });
+        setCompletedIds((prev) => new Set([...prev, vars.taskId]));
+        setScanState((current) => {
+          const next = { ...current };
+          delete next[vars.taskId];
+          return next;
+        });
+        setViolations((current) => {
+          const next = { ...current };
+          delete next[vars.taskId];
+          return next;
+        });
+        return;
+      }
       playBarcodeBeep();
       toast.success(vars.override ? "Putaway locked in with override" : "Putaway locked in", {
         description: `Pallet ${vars.pallet} stored at ${vars.location}.`,
