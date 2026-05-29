@@ -963,95 +963,122 @@ async function logUserActivity(
 }
 
 export function createDefaultWarehouseSetupPayload(): WarehouseSetupPayload {
-  const warehouses: WarehouseSetupWarehouse[] = [
-    { code: "MAIN", name: "Main Warehouse", city: "Bridgetown", country: "Barbados", hasCoolZone: true },
-    { code: "PORT", name: "Port Receiving Warehouse", city: "Bridgetown", country: "Barbados", hasCoolZone: false },
-    { code: "WLD", name: "Wildey Distribution Warehouse", city: "Wildey", country: "Barbados", hasCoolZone: false },
-  ];
+  return { warehouses: [], zones: [], locationTemplates: [] };
+}
 
-  const ambientZones = (warehouseCode: string): WarehouseSetupZone[] => [
-    { warehouseCode, code: "STG", name: "Staging", temperatureClass: "ambient", isStaging: true, isDispatch: false, isQuarantine: false, sortOrder: 10 },
-    { warehouseCode, code: "DSP", name: "Dispatch", temperatureClass: "ambient", isStaging: false, isDispatch: true, isQuarantine: false, sortOrder: 20 },
-    { warehouseCode, code: "QTN", name: "Quarantine", temperatureClass: "ambient", isStaging: false, isDispatch: false, isQuarantine: true, sortOrder: 30 },
-    { warehouseCode, code: "AMB", name: "Ambient Rack", temperatureClass: "ambient", isStaging: false, isDispatch: false, isQuarantine: false, sortOrder: 40 },
-  ];
+export function createBlankWarehouse(): WarehouseSetupWarehouse {
+  return { code: "", name: "", city: "", country: "", hasCoolZone: false };
+}
 
-  const zones: WarehouseSetupZone[] = [
-    ...warehouses.flatMap((warehouse) => ambientZones(warehouse.code)),
-    { warehouseCode: "MAIN", code: "COOL", name: "Cool Storage", temperatureClass: "cool", isStaging: false, isDispatch: false, isQuarantine: false, sortOrder: 50 },
-  ];
+export function createBlankZone(warehouseCode = ""): WarehouseSetupZone {
+  return {
+    warehouseCode,
+    code: "",
+    name: "",
+    temperatureClass: "ambient",
+    isStaging: false,
+    isDispatch: false,
+    isQuarantine: false,
+    sortOrder: 0,
+  };
+}
 
-  const ambientLocationTemplates = (warehouseCode: string): WarehouseLocationTemplate[] => [
-    {
-      warehouseCode,
-      zoneCode: "STG",
-      aisleCount: 1,
-      baysPerAisle: 6,
-      levels: 1,
-      maxPallets: 4,
-      locationType: "staging",
-      temperatureClass: "ambient",
-      mixedSkuAllowed: true,
-      mixedLotAllowed: true,
-      status: "active",
-    },
-    {
-      warehouseCode,
-      zoneCode: "DSP",
-      aisleCount: 1,
-      baysPerAisle: 4,
-      levels: 1,
-      maxPallets: 3,
-      locationType: "dispatch",
-      temperatureClass: "ambient",
-      mixedSkuAllowed: true,
-      mixedLotAllowed: true,
-      status: "active",
-    },
-    {
-      warehouseCode,
-      zoneCode: "QTN",
-      aisleCount: 1,
-      baysPerAisle: 4,
-      levels: 1,
-      maxPallets: 1,
-      locationType: "quarantine",
-      temperatureClass: "ambient",
-      mixedSkuAllowed: false,
-      mixedLotAllowed: false,
-      status: "active",
-    },
-    {
-      warehouseCode,
-      zoneCode: "AMB",
-      aisleCount: 2,
-      baysPerAisle: 8,
-      levels: 3,
-      maxPallets: 1,
-      locationType: "rack",
-      temperatureClass: "ambient",
-      mixedSkuAllowed: false,
-      mixedLotAllowed: false,
-      status: "active",
-    },
-  ];
+export function createBlankLocationTemplate(
+  warehouseCode = "",
+  zoneCode = "",
+): WarehouseLocationTemplate {
+  return {
+    warehouseCode,
+    zoneCode,
+    aisleCount: 0,
+    baysPerAisle: 0,
+    levels: 0,
+    maxPallets: 0,
+    locationType: "",
+    temperatureClass: "ambient",
+    mixedSkuAllowed: false,
+    mixedLotAllowed: false,
+    status: "active",
+  };
+}
 
-  const locationTemplates: WarehouseLocationTemplate[] = [
-    ...warehouses.flatMap((warehouse) => ambientLocationTemplates(warehouse.code)),
-    {
-      warehouseCode: "MAIN",
-      zoneCode: "COOL",
-      aisleCount: 2,
-      baysPerAisle: 8,
-      levels: 3,
-      maxPallets: 1,
-      locationType: "rack",
-      temperatureClass: "cool",
-      mixedSkuAllowed: false,
-      mixedLotAllowed: false,
-      status: "active",
-    },
-  ];
+export async function loadExistingSetupPayload(): Promise<WarehouseSetupPayload> {
+  const [whR, zoneR, locR] = await Promise.all([
+    db("warehouses").select("code, name, city, country").order("code"),
+    db("zones").select("code, name, temperature_class, is_staging, is_dispatch, is_quarantine, sort_order, warehouses:warehouse_id(code)").order("sort_order"),
+    db("locations").select("location_type, temperature_class, max_pallets, mixed_sku_allowed, mixed_lot_allowed, status, aisle, bay, level, warehouses:warehouse_id(code), zones:zone_id(code, temperature_class)"),
+  ]);
+  if (whR.error) throw whR.error;
+  if (zoneR.error) throw zoneR.error;
+  if (locR.error) throw locR.error;
+
+  const warehouses: WarehouseSetupWarehouse[] = (whR.data ?? []).map((w: any) => ({
+    code: w.code,
+    name: w.name ?? "",
+    city: w.city ?? "",
+    country: w.country ?? "",
+    hasCoolZone: false,
+  }));
+
+  const zones: WarehouseSetupZone[] = (zoneR.data ?? []).map((z: any) => ({
+    warehouseCode: z.warehouses?.code ?? "",
+    code: z.code,
+    name: z.name ?? "",
+    temperatureClass: (z.temperature_class ?? "ambient") as TemperatureClass,
+    isStaging: !!z.is_staging,
+    isDispatch: !!z.is_dispatch,
+    isQuarantine: !!z.is_quarantine,
+    sortOrder: Number(z.sort_order ?? 0),
+  }));
+
+  // Mark warehouses that already have a cool zone
+  for (const z of zones) {
+    if (z.temperatureClass === "cool") {
+      const wh = warehouses.find((w) => w.code === z.warehouseCode);
+      if (wh) wh.hasCoolZone = true;
+    }
+  }
+
+  // Derive one template per (warehouse, zone, location_type) using aggregate counts.
+  const groups = new Map<string, WarehouseLocationTemplate & { _aisles: Set<string>; _bays: Set<string>; _levels: Set<string> }>();
+  for (const l of (locR.data ?? []) as any[]) {
+    const wCode = l.warehouses?.code ?? "";
+    const zCode = l.zones?.code ?? "";
+    if (!wCode || !zCode) continue;
+    const key = `${wCode}|${zCode}|${l.location_type ?? ""}`;
+    let g = groups.get(key);
+    if (!g) {
+      g = {
+        warehouseCode: wCode,
+        zoneCode: zCode,
+        aisleCount: 0,
+        baysPerAisle: 0,
+        levels: 0,
+        maxPallets: Number(l.max_pallets ?? 1),
+        locationType: l.location_type ?? "rack",
+        temperatureClass: (l.temperature_class ?? l.zones?.temperature_class ?? "ambient") as TemperatureClass,
+        mixedSkuAllowed: !!l.mixed_sku_allowed,
+        mixedLotAllowed: !!l.mixed_lot_allowed,
+        status: l.status ?? "active",
+        _aisles: new Set<string>(),
+        _bays: new Set<string>(),
+        _levels: new Set<string>(),
+      };
+      groups.set(key, g);
+    }
+    if (l.aisle != null) g._aisles.add(String(l.aisle));
+    if (l.bay != null) g._bays.add(String(l.bay));
+    if (l.level != null) g._levels.add(String(l.level));
+  }
+  const locationTemplates: WarehouseLocationTemplate[] = Array.from(groups.values()).map((g) => {
+    const { _aisles, _bays, _levels, ...rest } = g;
+    return {
+      ...rest,
+      aisleCount: _aisles.size || 1,
+      baysPerAisle: Math.max(1, Math.ceil((_bays.size || 1) / Math.max(1, _aisles.size || 1))),
+      levels: _levels.size || 1,
+    };
+  });
 
   return { warehouses, zones, locationTemplates };
 }
@@ -1089,7 +1116,7 @@ export async function deleteResourceCascade(table: string, id: string): Promise<
   }
 }
 
-export async function runWarehouseSetup(setupPayload: WarehouseSetupPayload, seedMode = "starter_ops") {
+export async function runWarehouseSetup(setupPayload: WarehouseSetupPayload, seedMode: "structure_only" | "starter_ops" = "structure_only") {
   const { data, error } = await (supabase.rpc as any)("run_warehouse_setup", {
     setup_payload: setupPayload,
     seed_mode: seedMode,
