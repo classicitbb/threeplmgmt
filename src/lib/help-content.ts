@@ -48,16 +48,16 @@ export const setupWizardSteps: SetupWizardStepDetail[] = [
     details: [
       "Verify warehouse, zone, location-template, and total-location counts in the review summary.",
       "Go back to any earlier step to fix mistakes \u2014 nothing is created until step 5 is run.",
-      "Confirm whether starter operational data (products, pallets, receipts, putaway tasks) should be seeded.",
+      "On a brand-new tenant the wizard starts blank \u2014 every field is yours to fill in. When an existing warehouse is detected, current data is preloaded for review or extension.",
     ],
   },
   {
     number: 5,
-    title: "Create the structure and starter data",
-    summary: "Run the setup so the warehouse is usable immediately.",
+    title: "Create the structure",
+    summary: "Run the setup to create exactly the warehouses, zones, and locations you defined.",
     details: [
       "The wizard creates warehouses, zones, and every location row in a single transaction.",
-      "If starter data was selected, demo products, pallets, receipts, and putaway tasks are seeded so workflows can be exercised on day one.",
+      "Demo operational data (products, pallets, receipts, etc.) is no longer seeded by default \u2014 developers can opt in from the final step.",
       "On success the app navigates to Warehouses; you can re-run the wizard after a Reset All if the environment ever needs to be rebuilt.",
     ],
   },
