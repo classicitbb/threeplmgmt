@@ -1265,7 +1265,7 @@ export function ResourcePage({
     }),
   });
   const queryClient = useQueryClient();
-  const extraColumnCount = (resource.supportsHide ? 1 : 0) + (["warehouses", "zones"].includes(resource.table) ? 1 : 0) + 1;
+  const extraColumnCount = (resource.supportsHide ? 1 : 0) + (["warehouses", "zones"].includes(resource.table) ? 1 : 0) + 1 + (resource.table === "products" ? 1 : 0);
   const isProducts = resource.table === "products";
   const { data: productQtyRows = [] } = useQuery({
     queryKey: ["product-qty-totals"],
@@ -1484,7 +1484,12 @@ export function ResourcePage({
               <TableHeader className="sticky top-0 z-10 bg-card">
                 <TableRow>
                   {resource.fields.map((field) => (
-                    <TableHead key={field.name}>{field.label}</TableHead>
+                    <Fragment key={field.name}>
+                      <TableHead>{field.label}</TableHead>
+                      {isProducts && field.name === "name" ? (
+                        <TableHead className="w-20 text-right">Qty</TableHead>
+                      ) : null}
+                    </Fragment>
                   ))}
                   {["warehouses", "zones"].includes(resource.table) ? <TableHead className="w-28">Barcode</TableHead> : null}
                   {resource.supportsHide ? <TableHead className="w-32">Visibility</TableHead> : null}
@@ -1551,7 +1556,19 @@ export function ResourcePage({
                         } else {
                           displayValue = String(rawValue);
                         }
-                        return <TableCell key={field.name}>{displayValue}</TableCell>;
+                        const cell = <TableCell key={field.name}>{displayValue}</TableCell>;
+                        if (isProducts && field.name === "name") {
+                          const qty = productQtyMap.get(String((row as Record<string, unknown>).id ?? "")) ?? 0;
+                          return (
+                            <Fragment key={field.name}>
+                              {cell}
+                              <TableCell className="w-20 whitespace-nowrap text-right font-mono text-xs font-semibold">
+                                {formatNumber(qty)}
+                              </TableCell>
+                            </Fragment>
+                          );
+                        }
+                        return cell;
                       })}
                       {["warehouses", "zones", "locations"].includes(resource.table) ? (
                         <TableCell>
