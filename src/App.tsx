@@ -674,6 +674,13 @@ function LoginPage() {
   const [pinDialogOpen, setPinDialogOpen] = useState(false);
   const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [showSignUpPassword, setShowSignUpPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState<boolean>(() => {
+    if (typeof window === "undefined") return true;
+    return window.localStorage.getItem(REMEMBER_ME_STORAGE_KEY) !== "0";
+  });
+  useEffect(() => {
+    window.localStorage.setItem(REMEMBER_ME_STORAGE_KEY, rememberMe ? "1" : "0");
+  }, [rememberMe]);
 
   const loginForm = useForm({
     resolver: zodResolver(loginSchema.extend({ email: loginSchema.shape.email.or(z.string().min(3, "Enter an email, user code, or badge")) })),
@@ -941,6 +948,13 @@ function LoginPage() {
                       {loginMutation.isPending ? <Loader2 className="animate-spin mr-2 h-4 w-4" /> : null}
                       Sign in
                     </Button>
+                    <label className="flex items-center gap-2 text-xs text-muted-foreground select-none">
+                      <Checkbox
+                        checked={rememberMe}
+                        onCheckedChange={(value) => setRememberMe(value === true)}
+                      />
+                      Remember me on this device
+                    </label>
                   </form>
                 </Form>
               )}
