@@ -777,8 +777,24 @@ const locationWizardSchema = z
 
 export type LocationWizardValues = z.infer<typeof locationWizardSchema>;
 
-function ChangeOwnPasswordDialog({ onClose }: { onClose?: () => void }) {
-  const [open, setOpen] = useState(false);
+function ChangeOwnPasswordDialog({
+  onClose,
+  open: openProp,
+  onOpenChange,
+  hideTrigger = false,
+}: {
+  onClose?: () => void;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  hideTrigger?: boolean;
+}) {
+  const [internalOpen, setInternalOpen] = useState(false);
+  const isControlled = openProp !== undefined;
+  const open = isControlled ? openProp : internalOpen;
+  const setOpen = (value: boolean) => {
+    if (!isControlled) setInternalOpen(value);
+    onOpenChange?.(value);
+  };
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
 
@@ -808,12 +824,14 @@ function ChangeOwnPasswordDialog({ onClose }: { onClose?: () => void }) {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button variant="ghost" size="sm" className="h-7 shrink-0 text-xs">
-          <KeyRound className="mr-1 h-3 w-3" />
-          Change password
-        </Button>
-      </DialogTrigger>
+      {!hideTrigger && (
+        <DialogTrigger asChild>
+          <Button variant="ghost" size="sm" className="h-7 shrink-0 text-xs">
+            <KeyRound className="mr-1 h-3 w-3" />
+            Change password
+          </Button>
+        </DialogTrigger>
+      )}
       <DialogContent className="max-w-sm">
         <DialogHeader>
           <DialogTitle>Change password</DialogTitle>
