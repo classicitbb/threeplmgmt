@@ -3730,7 +3730,7 @@ export function PickListsPage() {
     <Tabs className="flex flex-col gap-6" value={activeTab} onValueChange={setActiveTab}>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h2 className="text-2xl font-semibold">Pick Lists</h2>
+          <h2 className="text-xl font-semibold sm:text-2xl">Pick Lists</h2>
           <p className="text-sm text-muted-foreground">Release outbound work and execute scan-confirmed picks.</p>
         </div>
         <div className="flex min-w-0 gap-2 sm:min-w-80">
