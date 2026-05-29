@@ -83,10 +83,7 @@ function BarcodePreview({ code }: { code: string }) {
 }
 
 function MachineCodePreview({ code }: { code: string }) {
-  if (code.length > QR_THRESHOLD) {
-    return <QRCodeSVG value={code} size={132} level="M" />;
-  }
-  return <BarcodePreview code={code} />;
+  return <QRCodeSVG value={code} size={132} level="M" />;
 }
 
 export function LocationLabelPage(props: LocationLabelPageProps) {
@@ -113,7 +110,7 @@ export function LocationLabelPage(props: LocationLabelPageProps) {
   const fullCode = fullCodePrefix && !code.toUpperCase().startsWith(fullCodePrefix.toUpperCase())
     ? `${fullCodePrefix}${code}`
     : code;
-  const useQr = fullCode.length > QR_THRESHOLD;
+  const useQr = true;
 
   const locationParts = [
     aisle ? `Aisle ${aisle}` : null,
