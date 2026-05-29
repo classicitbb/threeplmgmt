@@ -1,4 +1,3 @@
-import { useEffect, useRef } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { Printer } from "lucide-react";
 
