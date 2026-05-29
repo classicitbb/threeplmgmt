@@ -283,8 +283,8 @@ const routeHelpDefinitions: Record<string, RouteHelpDefinition> = {
   "setup-wizard": {
     id: "setup-wizard",
     title: "Warehouse Setup Wizard",
-    summary: "The wizard builds warehouse structure and can seed starter operational data for immediate workflow testing.",
-    keyActions: ["Define warehouses", "Define zones", "Generate locations", "Review and seed starter operations"],
+    summary: "The wizard builds warehouse structure from blank forms; demo operational data is opt-in for developers only.",
+    keyActions: ["Define warehouses", "Define zones", "Generate locations", "Review and create structure"],
     commonMistakes: ["Leaving warehouse codes inconsistent across steps", "Choosing location rules that do not match the actual zone purpose"],
     permissions: "Visible to admins and warehouse managers. Execution uses admin reset/setup controls.",
     wikiArticleIds: ["warehouse-setup", "settings-reset"],
@@ -310,8 +310,8 @@ export const helpArticles: HelpArticle[] = [
     audience: "Admins and warehouse managers",
     keywords: ["wizard", "setup", "warehouse", "zones", "locations", "seed"],
     sections: [
-      { title: "When to Use It", content: ["Use the wizard during a new implementation or after a full environment reset.", "The wizard creates warehouses, zones, location structures, and optional starter operational data."] },
-      { title: "Step Sequence", content: ["Step 1 defines facilities.", "Step 2 defines zones inside each facility.", "Step 3 defines how locations are generated for each zone.", "Step 4 reviews the final structure.", "Step 5 creates the structure and starter data."] },
+      { title: "When to Use It", content: ["Use the wizard during a new implementation or after a full environment reset.", "On a fresh tenant every form starts blank \u2014 the wizard never invents warehouses, zones, or locations.", "When an existing warehouse environment is detected, current structure is preloaded so new facilities or storage areas can be layered in for review."] },
+      { title: "Step Sequence", content: ["Step 1 defines facilities.", "Step 2 defines zones inside each facility.", "Step 3 defines how locations are generated for each zone.", "Step 4 reviews the final structure.", "Step 5 creates the structure (demo operational data is opt-in for developers)."] },
     ],
   },
   {
