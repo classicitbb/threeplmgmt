@@ -1085,7 +1085,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 key={item.to}
                 className={({ isActive: navActive }) =>
                   cn(
-                    "group flex min-h-[3.375rem] items-center gap-2.5 rounded-md px-2.5 text-sm font-medium transition-all duration-100",
+                    "group flex min-h-[3.375rem] items-center gap-2.5 rounded-md px-2.5 text-sm font-medium transition-all duration-100 active:scale-[0.96] active:transition-transform",
                     sidebarCollapsed && "h-[3.375rem] w-11 justify-center p-0",
                     navActive || isActive
                       ? "bg-primary text-primary-foreground shadow-sm"
