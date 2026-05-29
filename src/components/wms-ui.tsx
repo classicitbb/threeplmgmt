@@ -6276,7 +6276,8 @@ export function SettingsPage() {
                     "Navigation: desktop sidebar only mounts in landscape; portrait and tablets use the top slide-in nav. Help is always the last item",
                     "Sidebar: squishy press feedback on nav buttons and tighter responsive width before the scrollbar kicks in",
                     "Locations: Edit Location now saves Notes and Max height correctly (field-name mismatch fixed)",
-                    "Coming soon: bulk label sheets for locations and zones via multiselect or filter",
+                    "Locations & Zones: bulk label sheets — filter the table, then Print labels sheet (paper size, grid, start cell)",
+                    "Access requests: admins, supervisors, and managers see a full-screen prompt when pending users are awaiting approval, with a one-click jump to Users & Roles",
                   ],
                 },
                 {
