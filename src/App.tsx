@@ -181,38 +181,11 @@ function playPickSuccessTone() {
 }
 
 function PalletBarcodePreview({ code }: { code?: string | null }) {
-  const ref = useRef<SVGSVGElement>(null);
-
-  useEffect(() => {
-    if (!ref.current || !code) return;
-    let cancelled = false;
-    const target = ref.current;
-    import("jsbarcode").then(({ default: JsBarcode }) => {
-      if (cancelled) return;
-      try {
-        JsBarcode(target, code, {
-          format: "CODE128",
-          width: 2,
-          height: 64,
-          displayValue: true,
-          fontSize: 14,
-          margin: 0,
-          background: "#ffffff",
-          lineColor: "#000000",
-        });
-      } catch {
-        // Invalid barcode values are shown as plain text elsewhere on the page.
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [code]);
-
   if (!code) return null;
   return (
-    <div className="rounded-lg border border-border bg-white p-3">
-      <svg ref={ref} className="h-auto max-w-full" />
+    <div className="flex flex-col items-center gap-2 rounded-lg border border-border bg-white p-3">
+      <QRCodeSVG value={code} size={160} bgColor="#ffffff" fgColor="#000000" level="H" />
+      <p className="font-mono text-xs font-semibold tracking-wider text-black">{code}</p>
     </div>
   );
 }
