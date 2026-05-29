@@ -916,6 +916,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const queryClient = useQueryClient();
   const { isEnabled } = useFeatureFlags();
   const { online } = useNetworkStatus();
+  useEffect(() => {
+    installOfflineAutoReplay();
+  }, []);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const networkStatusSeenRef = useRef(false);
@@ -1186,6 +1189,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 </Select>
               ) : null}
               <HelpSidebar pathname={pathname} />
+              <OfflineQueueBadge />
               <ProfileMenu initials={initials} displayName={displayName} onSignOut={() => void signOut()} />
             </div>
           </div>
