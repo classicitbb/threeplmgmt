@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { BrowserRouter, Navigate, NavLink, Outlet, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 import { QueryClientProvider, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
@@ -7,7 +7,6 @@ import { ArrowLeft, Calculator, Camera, CheckCircle2, Eye, EyeOff, HelpCircle, K
 import { toast } from "sonner";
 import { z } from "zod";
 import { Analytics } from "@vercel/analytics/react";
-import JsBarcode from "jsbarcode";
 
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
 import { FeatureFlagContext, useFeatureFlagState } from "@/hooks/use-feature-flags";
@@ -16,25 +15,6 @@ import { supabase } from "@/integrations/supabase/client";
 import { createAppQueryClient } from "@/lib/query-client";
 
 import { confirmPickTask, formatDate, formatNumber, getInventoryDetail, getPickExecution, loginSchema, recordUserSignIn, signUpSchema, RESOURCE_DEFINITIONS } from "@/lib/wms-core";
-import {
-  AppShell,
-  DashboardPage,
-  InventorySearchPage,
-  MobileActionBar,
-  PickListsPage,
-  PutawayTasksPage,
-  ReceivingPage,
-  ReportsPage,
-  ResourcePage,
-  SettingsPage,
-  StatusPage,
-  SystemLogPage,
-  EmailLogPage,
-  TransfersPage,
-  UsersRolesPage,
-  CycleCountsPage,
-  LocationMovesPage,
-} from "@/components/wms-ui";
 
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
@@ -50,12 +30,40 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { BarcodeScanButton } from "@/components/barcode-scan-button";
 import { HelpSidebar } from "@/components/help-sidebar";
-import { PalletLabelPage } from "@/components/pallet-label-page";
 import NotFound from "./pages/NotFound";
-import HelpCenterPage from "./pages/HelpCenter";
-import SetupWizardPage from "./pages/SetupWizardPage";
 
 const queryClient = createAppQueryClient();
+
+const DashboardPage = lazy(() => import("@/components/wms-ui").then((mod) => ({ default: mod.DashboardPage })));
+const InventorySearchPage = lazy(() => import("@/components/wms-ui").then((mod) => ({ default: mod.InventorySearchPage })));
+const PickListsPage = lazy(() => import("@/components/wms-ui").then((mod) => ({ default: mod.PickListsPage })));
+const PutawayTasksPage = lazy(() => import("@/components/wms-ui").then((mod) => ({ default: mod.PutawayTasksPage })));
+const ReceivingPage = lazy(() => import("@/components/wms-ui").then((mod) => ({ default: mod.ReceivingPage })));
+const ReportsPage = lazy(() => import("@/components/wms-ui").then((mod) => ({ default: mod.ReportsPage })));
+const ResourcePage = lazy(() => import("@/components/wms-ui").then((mod) => ({ default: mod.ResourcePage })));
+const SettingsPage = lazy(() => import("@/components/wms-ui").then((mod) => ({ default: mod.SettingsPage })));
+const StatusPage = lazy(() => import("@/components/wms-ui").then((mod) => ({ default: mod.StatusPage })));
+const SystemLogPage = lazy(() => import("@/components/wms-ui").then((mod) => ({ default: mod.SystemLogPage })));
+const EmailLogPage = lazy(() => import("@/components/wms-ui").then((mod) => ({ default: mod.EmailLogPage })));
+const TransfersPage = lazy(() => import("@/components/wms-ui").then((mod) => ({ default: mod.TransfersPage })));
+const UsersRolesPage = lazy(() => import("@/components/wms-ui").then((mod) => ({ default: mod.UsersRolesPage })));
+const CycleCountsPage = lazy(() => import("@/components/wms-ui").then((mod) => ({ default: mod.CycleCountsPage })));
+const LocationMovesPage = lazy(() => import("@/components/wms-ui").then((mod) => ({ default: mod.LocationMovesPage })));
+const PalletLabelPage = lazy(() => import("@/components/pallet-label-page").then((mod) => ({ default: mod.PalletLabelPage })));
+const HelpCenterPage = lazy(() => import("./pages/HelpCenter"));
+const SetupWizardPage = lazy(() => import("./pages/SetupWizardPage"));
+const ProtectedShell = lazy(() =>
+  import("@/components/wms-ui").then((mod) => ({
+    default: function ProtectedShellComponent({ children }: { children: ReactNode }) {
+      return (
+        <mod.AppShell>
+          {children}
+          <mod.MobileActionBar />
+        </mod.AppShell>
+      );
+    },
+  })),
+);
 
 const RELEASE_HISTORY = [
   {
@@ -175,20 +183,28 @@ function PalletBarcodePreview({ code }: { code?: string | null }) {
 
   useEffect(() => {
     if (!ref.current || !code) return;
-    try {
-      JsBarcode(ref.current, code, {
-        format: "CODE128",
-        width: 2,
-        height: 64,
-        displayValue: true,
-        fontSize: 14,
-        margin: 0,
-        background: "#ffffff",
-        lineColor: "#000000",
-      });
-    } catch {
-      // Invalid barcode values are shown as plain text elsewhere on the page.
-    }
+    let cancelled = false;
+    const target = ref.current;
+    import("jsbarcode").then(({ default: JsBarcode }) => {
+      if (cancelled) return;
+      try {
+        JsBarcode(target, code, {
+          format: "CODE128",
+          width: 2,
+          height: 64,
+          displayValue: true,
+          fontSize: 14,
+          margin: 0,
+          background: "#ffffff",
+          lineColor: "#000000",
+        });
+      } catch {
+        // Invalid barcode values are shown as plain text elsewhere on the page.
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [code]);
 
   if (!code) return null;
@@ -1747,10 +1763,9 @@ function HomeRedirect() {
 
 function ProtectedLayout() {
   return (
-    <AppShell>
+    <ProtectedShell>
       <Outlet />
-      <MobileActionBar />
-    </AppShell>
+    </ProtectedShell>
   );
 }
 
@@ -1817,7 +1832,9 @@ const App = () => (
           <Toaster />
           <Sonner />
           <BrowserRouter>
-            <ResourceRoutes />
+            <Suspense fallback={null}>
+              <ResourceRoutes />
+            </Suspense>
           </BrowserRouter>
           <Analytics />
         </AuthProvider>

@@ -2085,16 +2085,16 @@ async function resolvePalletId(palletInput: string) {
 
 export async function getDashboardMetrics(warehouseId?: string | null) {
   const [balances, locations, receipts, putawayTasks, pickLists, moveTasks, transfers, cycleCounts, stagingLoads, replenishments, audits] = await Promise.all([
-    db("inventory_balances").select("*"),
+    db("inventory_balances").select("id, warehouse_id, status, zone_id, pallet_id, created_at"),
     db("locations").select("warehouse_id, max_pallets"),
-    db("receipts").select("*").in("status", ["draft", "queued", "assigned", "in_progress"]),
-    db("putaway_tasks").select("*").in("status", ["queued", "assigned", "in_progress", "exception"]),
-    db("pick_lists").select("*").in("status", ["draft", "queued", "assigned", "in_progress", "exception"]),
-    db("move_tasks").select("*").in("status", ["queued", "assigned", "in_progress", "exception"]),
-    db("transfers").select("*").in("status", ["draft", "queued", "assigned", "in_progress", "exception"]),
-    db("cycle_counts").select("*").in("status", ["queued", "assigned", "in_progress", "exception"]),
-    db("staging_loads").select("*, pick_lists(warehouse_id)").in("status", ["ready", "called", "loading", "blocked"]),
-    db("replenishment_tasks").select("*").in("status", ["queued", "assigned", "in_progress", "exception"]),
+    db("receipts").select("id, receipt_number, reference_number, warehouse_id, status, created_at").in("status", ["draft", "queued", "assigned", "in_progress"]),
+    db("putaway_tasks").select("id, task_number, warehouse_id, status, created_at").in("status", ["queued", "assigned", "in_progress", "exception"]),
+    db("pick_lists").select("id, pick_list_number, warehouse_id, status, created_at").in("status", ["draft", "queued", "assigned", "in_progress", "exception"]),
+    db("move_tasks").select("id, task_number, warehouse_id, status, created_at").in("status", ["queued", "assigned", "in_progress", "exception"]),
+    db("transfers").select("id, transfer_number, source_warehouse_id, destination_warehouse_id, status, created_at").in("status", ["draft", "queued", "assigned", "in_progress", "exception"]),
+    db("cycle_counts").select("id, count_number, warehouse_id, status, created_at").in("status", ["queued", "assigned", "in_progress", "exception"]),
+    db("staging_loads").select("id, route_code, status, created_at, pick_lists(warehouse_id)").in("status", ["ready", "called", "loading", "blocked"]),
+    db("replenishment_tasks").select("id, task_number, warehouse_id, status, created_at").in("status", ["queued", "assigned", "in_progress", "exception"]),
     db("audit_events").select("id, warehouse_id").order("created_at", { ascending: false }).limit(50),
   ]);
 

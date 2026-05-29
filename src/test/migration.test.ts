@@ -123,7 +123,7 @@ describe("admin password update migration", () => {
   it("adds an admin-only RPC for direct credential updates", () => {
     expect(adminUpdatePasswordMigration).toContain("create or replace function public.admin_update_user_password");
     expect(adminUpdatePasswordMigration).toContain("public.has_role(auth.uid(), 'admin')");
-    expect(adminUpdatePasswordMigration).toContain("encrypted_password = crypt(in_password, gen_salt('bf'))");
+    expect(adminUpdatePasswordMigration).toContain("encrypted_password = extensions.crypt(in_password, extensions.gen_salt('bf'::text))");
     expect(adminUpdatePasswordMigration).toContain("grant execute on function public.admin_update_user_password(uuid, text) to authenticated");
   });
 });
