@@ -1,66 +1,46 @@
-## Plan — v1.7 update batch
+## Root cause
 
-### 1. Replace all barcodes with QR codes
+The DB role row uses code `dev`, but the entire frontend checks for `"developer"`. So `useAuth().roles` contains `"dev"` and:
 
-- `src/components/location-label-page.tsx`, `src/components/pallet-label-page.tsx`, `src/components/zone-label-page.tsx` (and `BarcodePrintDialog` in `src/components/wms-ui.tsx`, plus barcode rendering in `src/App.tsx`): swap `JsBarcode` / CODE128 rendering for `QRCodeSVG`. Remove the `QR_THRESHOLD` branching — always QR. Keep the printed human-readable code text below the QR. Adjust print CSS sizing so QR fills the same area.
-- Leave `JsBarcode` import only if still needed elsewhere; otherwise remove.
+```ts
+const canOperateRoles = roles.includes("developer"); // always false
+```
 
-### 2. Inventory Search — horizontal scroll
+→ dev users see the Access tab in read-only mode and can never assign roles. Same mismatch breaks ~30 other call sites (navigation visibility, `canSeeAllTasks`, password-change gate, etc.).
 
-- In the results table wrapper inside `src/components/wms-ui.tsx` (inventory search route), allow the row-scroll container to scroll horizontally (`overflow-x-auto`) while keeping the sticky header aligned. Ensure min column widths so the table doesn't collapse on mobile and a horizontal scrollbar appears when needed.
+## Fix — Part 1: repair role assignment (small, do first)
 
-### 3. Products table — total qty column
+1. **Data fix** — single `UPDATE` on `public.roles` to set `code = 'developer'` where it's currently `'dev'`. The `user_roles` table references `role_id`, not `code`, so existing assignments stay intact. The `app_role_code` enum keeps `dev` as a member; no enum rename needed because no SQL currently passes `'developer'` to it.
 
-- Add a read-only "Qty" display column rendered immediately to the right of the product name in the Products list table. Sum from `inventory_balances.qty_on_hand` grouped by `product_id` (single aggregate query alongside the products query, cached by react-query). Not part of the editable inline form.
+2. **Verify in UI** — no code change required; all existing `roles.includes("developer")` checks will start matching for dev users:
+   - "Assign Role" card becomes visible on `/settings → Users & Roles → Access`.
+   - Per-row Revoke/Restore buttons appear.
+   - The developer role itself stays visible only to other devs (existing filter).
 
-### 4. Desktop sidebar behavior
+3. **Add admin gate for assignment** — change `canOperateRoles` from `roles.includes("developer")` to `roles.some(r => ["developer","admin"].includes(r))` so admins can assign and revoke standard roles (still hiding the `developer` role from non-devs via a new `canOperateDeveloperRole = roles.includes("developer")` flag used to filter the role dropdown and the Revoke button on developer rows).
 
-- Sidebar shown on desktop only in landscape orientation (`@media (min-width: 1024px) and (orientation: landscape)`); portrait desktop/tablet falls back to the mobile top-slide nav already in place.
-- Make sidebar height responsive: shrink to fit nav label text down to a minimum, then enable an internal vertical scrollbar instead of pushing content. Add subtle "squishy" press animation on nav buttons (scale 0.96 on `active:`).
+4. **RLS check** — verify `public.user_roles` policies allow admins to INSERT/DELETE. If not, add a migration: `CREATE POLICY "Admins manage user_roles" ON public.user_roles FOR ALL TO authenticated USING (has_role(auth.uid(),'admin') OR has_role(auth.uid(),'developer')) WITH CHECK (same)`.
 
-### 5. Help button always last in sidebar
+## Fix — Part 2: Role Matrix becomes editable permissions matrix (dev only)
 
-- In `NAVIGATION` (`src/lib/wms-core.ts`) keep Help as a separate pinned entry; in the sidebar renderer, sort/append so Help is always rendered last regardless of module flag order or future additions.
+Today the Role Matrix tab is a static list of the current user's roles. The screenshot shows what's wanted: a Features × Roles grid with View/Edit checkmarks, editable by dev only.
 
-### 6. Help content refresh
+Currently "permissions" are hardcoded in `NAVIGATION` (`src/lib/wms-core.ts`) — each module has a `roles: [...]` array. To make this dev-editable:
 
-- Update `src/lib/help-content.ts` to reflect current functionality: offline queue/replay, badge+PIN/user-code login, password reset, Command Center draggable tiles, Pick List release→Lists tab, Location Moves cancel, settings tab order, label printing (now QR), location hierarchy codes, inventory search filters/scroll, pending-user limited shell. Keep existing article IDs; extend sections and keywords. Update route help summaries where workflows changed.
+1. **New table** `public.role_module_permissions` with columns: `role_id` (fk roles), `module_key` (text, matches existing `moduleKey` in NAVIGATION), `can_view` (bool), `can_edit` (bool), unique on (role_id, module_key). RLS: read for any approved user; write only via `has_role(auth.uid(),'developer')`. Standard GRANTs.
 
-### 7. Version bump to 1.7 + release notes
+2. **Seed migration** — populate the table from current `NAVIGATION` defaults (every module × every role currently listed gets view=true, edit=true for write-capable roles like admin/manager/operator; viewer roles get view=true, edit=false).
 
-- Bump `__APP_VERSION__` (defined in `vite.config.ts`) to `1.7.0`.
-- Prepend new `1.7.0` entry to the release notes arrays in `src/App.tsx` and `src/components/wms-ui.tsx` (About tab + What's New popup) summarizing items 1–8 of this plan.
-- Update What's New trigger to surface on first load of 1.7.
+3. **Hook** `useRolePermissions()` — loads the table once, caches via react-query. Exposes `can(roleCodes, moduleKey, "view"|"edit")`.
 
-### 8. Label sheet printing (locations & zones) — design + scope
+4. **Replace `NAVIGATION.roles` checks** in `AppShell` sidebar and route guards with `can(roles, moduleKey, "view")`. Hardcoded array stays as fallback for modules with no DB row yet.
 
-- New action on `/locations` and `/zones` list pages: "Print labels sheet".
-  - Triggered from either (a) a multiselect checkbox column with bulk action bar, or (b) current filter result set.
-  - Opens a dialog: paper size (Letter / A4), grid (e.g. 2×5 / 3×7 / 4×8 — Avery-style presets), label size auto-derived, margin presets, optional starting cell (to reuse partly-used sheets).
-  - Renders a single print window containing N label cells, each using the existing QR label layout (location-label-page / zone-label-page) scaled to cell size.
-- New shared component `src/components/label-sheet-print.tsx` that accepts an array of label items + sheet config and produces the printable HTML. Reuses the same `escapeHtml` helper and QR generation.
-- No DB schema changes required.
+5. **Role Matrix UI rewrite** — table with sticky first column (module label) and a column-pair (View / Edit) per role. Checkboxes are read-only unless `roles.includes("developer")`. Toggling fires an upsert on `role_module_permissions` and invalidates the cache. Match the visual style in the attached screenshot using existing Card + Table tokens — no new design tokens.
 
-### 9. Edit Location save fix
+6. **Page-level "edit" enforcement** is out of scope for this pass — we wire the grid + persistence + view gating; gating Edit buttons per module by `can_edit` is a follow-up that touches many pages and should be its own batch.
 
-- Investigate `RESOURCE_DEFINITIONS.locations` update path in `src/lib/wms-core.ts` + the inline editor in `src/components/wms-ui.tsx`. Current symptom: some field edits don't persist. Likely causes to verify: (a) hierarchy-code normalization migration rewriting `code` on save and rejecting edits, (b) `updated_at` trigger missing, (c) optimistic cache not invalidating. Fix to ensure: any editable field on a location row (capacity, temperature_class, allowed_product_family, status, max_*, mixed_sku_allowed, putaway_sequence, aisle/bay/level/depth, notes) saves and persists across reload.
+## Recommendation
 
-### Technical notes
+Part 1 is a 1-minute data fix + small UI gate change and unblocks the immediate complaint. Part 2 is a larger feature (new table, migration, seeding, UI rewrite, navigation rewiring).
 
-- Files touched (UI is frozen per AGENTS.md — these are all user-approved UI changes; will add change-log entries):
-  - `src/components/location-label-page.tsx`
-  - `src/components/pallet-label-page.tsx`
-  - `src/components/zone-label-page.tsx`
-  - `src/components/wms-ui.tsx` (sidebar, inventory search table, products table, BarcodePrintDialog, About/What's New, label-sheet entry points, edit location)
-  - `src/App.tsx` (release notes, any remaining barcode usage)
-  - `src/lib/wms-core.ts` (NAVIGATION order guarantee, resource definition tweaks)
-  - `src/lib/help-content.ts` (content refresh)
-  - `src/components/label-sheet-print.tsx` (new)
-  - `vite.config.ts` (`__APP_VERSION__` → 1.7.0)
-- Add AGENTS.md change-log entries dated 2026-05-29 for each approved UI shift.
-- No migrations required unless the edit-location investigation finds a DB-side blocker; if so I'll propose the migration before running it.
-
-### Out of scope
-
-- Reworking barcode scanning input (scanners still accept the underlying code text; QR contains the same payload).
-- Switching label stock formats beyond the standard Avery presets in the new sheet dialog.
+I'll do Part 1 first in this batch. Confirm whether to also do Part 2 now or split it into a follow-up.
