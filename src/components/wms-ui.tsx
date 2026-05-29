@@ -58,6 +58,7 @@ import {
   createTransferFlow,
   cancelPickList,
   deleteClientVariable,
+  deleteResourceCascade,
   dispatchTransfer,
   cycleCountSchema,
   resetWmsData,
