@@ -859,6 +859,75 @@ export async function getPickableProductIds(warehouseId?: string): Promise<Set<s
   return new Set((data ?? []).map((row: any) => row.product_id as string));
 }
 
+export type PickableStockSummary = {
+  totalAvailable: number;
+  palletCount: number;
+  topPallet: {
+    pallet_code: string;
+    pallet_barcode: string;
+    available_quantity: number;
+    location_code: string;
+    expiry_date: string | null;
+  } | null;
+};
+
+/** Per-product pickable stock — only counts pallets currently sitting in a
+ *  known location with available qty. The `topPallet` is what FEFO/FIFO
+ *  selection would pick first, so the UI preview matches what
+ *  `selectPickCandidates` will reserve on release. */
+export async function getPickableStockSummary(
+  warehouseId?: string,
+): Promise<Map<string, PickableStockSummary>> {
+  let query = db("pallets")
+    .select(
+      "id, pallet_code, pallet_barcode, product_id, available_quantity, created_at, current_location_id, locations:current_location_id(code), inventory_lots:inventory_lot_id(expiry_date)",
+    )
+    .eq("status", "available")
+    .gt("available_quantity", 0)
+    .not("current_location_id", "is", null);
+  if (warehouseId) query = query.eq("current_warehouse_id", warehouseId);
+  const { data, error } = await query;
+  if (error) throw error;
+
+  const rows = (data ?? []) as any[];
+  rows.sort((a, b) => {
+    const ax = a.inventory_lots?.expiry_date ?? null;
+    const bx = b.inventory_lots?.expiry_date ?? null;
+    if (ax && bx) {
+      if (ax < bx) return -1;
+      if (ax > bx) return 1;
+    } else if (ax && !bx) return -1;
+    else if (!ax && bx) return 1;
+    const ac = a.created_at ?? "";
+    const bc = b.created_at ?? "";
+    return ac < bc ? -1 : ac > bc ? 1 : 0;
+  });
+
+  const map = new Map<string, PickableStockSummary>();
+  for (const row of rows) {
+    const productId = row.product_id as string;
+    const qty = Number(row.available_quantity ?? 0);
+    const existing = map.get(productId);
+    if (existing) {
+      existing.totalAvailable += qty;
+      existing.palletCount += 1;
+    } else {
+      map.set(productId, {
+        totalAvailable: qty,
+        palletCount: 1,
+        topPallet: {
+          pallet_code: row.pallet_code,
+          pallet_barcode: row.pallet_barcode,
+          available_quantity: qty,
+          location_code: row.locations?.code ?? "",
+          expiry_date: row.inventory_lots?.expiry_date ?? null,
+        },
+      });
+    }
+  }
+  return map;
+}
+
 export async function listUserActivities(limit = 25) {
   const { data, error } = await db("audit_events")
     .select("*, profiles:actor_user_id(full_name, email)")

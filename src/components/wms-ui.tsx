@@ -46,7 +46,7 @@ import {
   confirmPutaway,
   createCycleCountFlow,
   createPickListFlow,
-  getPickableProductIds,
+  getPickableStockSummary,
   createReceiptFlow,
   createTransferFlow,
   cancelPickList,
@@ -3614,9 +3614,9 @@ export function PickListsPage() {
   });
 
   const selectedWarehouseId = form.watch("warehouse_id");
-  const { data: pickableIds } = useQuery({
-    queryKey: ["pickable-product-ids", selectedWarehouseId],
-    queryFn: () => getPickableProductIds(selectedWarehouseId || undefined),
+  const { data: pickableStock } = useQuery({
+    queryKey: ["pickable-stock-summary", selectedWarehouseId],
+    queryFn: () => getPickableStockSummary(selectedWarehouseId || undefined),
     staleTime: 30_000,
   });
 
@@ -3644,16 +3644,29 @@ export function PickListsPage() {
   const allActive = (pickLists as any[]).filter((pl) => !["completed", "cancelled"].includes(pl.status));
   const active = allActive.filter(matchesPickSearch);
   const done = (pickLists as any[]).filter((pl) => ["completed", "cancelled"].includes(pl.status)).filter(matchesPickSearch);
-  // Only show products that have available qty in a known location for the selected warehouse.
-  // While pickableIds is still loading (undefined) all products are shown as a fallback.
+  // Only show products that have available qty in a known location for the
+  // selected warehouse. While pickableStock is still loading (undefined) all
+  // products are shown as a fallback so the form is never blank on first paint.
   const productOptions = (options?.products ?? [])
-    .filter((product: any) => !pickableIds || pickableIds.has(product.id))
-    .map((product: any) => ({
-      id: product.id,
-      sku: product.sku,
-      name: product.name,
-      barcode: product.barcode,
-    }));
+    .filter((product: any) => !pickableStock || pickableStock.has(product.id))
+    .map((product: any) => {
+      const summary = pickableStock?.get(product.id);
+      return {
+        id: product.id,
+        sku: product.sku,
+        name: product.name,
+        barcode: product.barcode,
+        meta: summary
+          ? {
+              totalQty: summary.totalAvailable,
+              palletCount: summary.palletCount,
+              palletCode: summary.topPallet?.pallet_code,
+              palletQty: summary.topPallet?.available_quantity,
+              locationCode: summary.topPallet?.location_code,
+            }
+          : undefined,
+      };
+    });
 
   function prefetchPickExecution(pickListId: string) {
     void queryClient.prefetchQuery({
@@ -3885,7 +3898,8 @@ export function PickListsPage() {
                   </CardHeader>
                   <CardContent className="grid gap-3">
                     {lines.map((_, index) => (
-                      <div key={index} className="grid gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(8rem,1fr)_auto]">
+                      <div key={index} className="grid gap-2">
+                        <div className="grid gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(8rem,1fr)_auto]">
                         <FormField
                           control={form.control}
                           name={`lines.${index}.product_id`}
@@ -3965,6 +3979,33 @@ export function PickListsPage() {
                         >
                           Remove
                         </Button>
+                        </div>
+                        {(() => {
+                          const productId = lines[index]?.product_id as string | undefined;
+                          const qty = Number(lines[index]?.quantity ?? 0);
+                          const summary = productId ? pickableStock?.get(productId) : undefined;
+                          if (!summary || !summary.topPallet) return null;
+                          const over = qty > summary.totalAvailable;
+                          return (
+                            <div
+                              className={`rounded-md border px-3 py-2 text-xs ${over ? "border-destructive/60 bg-destructive/5 text-destructive" : "border-border bg-muted/40 text-muted-foreground"}`}
+                            >
+                              <span className="font-mono">
+                                Picks: {summary.topPallet.pallet_code} · Qty {summary.topPallet.available_quantity}
+                                {summary.topPallet.location_code ? ` @ ${summary.topPallet.location_code}` : ""}
+                                {summary.topPallet.expiry_date ? ` · Exp ${summary.topPallet.expiry_date}` : ""}
+                              </span>
+                              <span className="ml-2">
+                                · {summary.palletCount} pallet{summary.palletCount === 1 ? "" : "s"} in stock (total {summary.totalAvailable})
+                              </span>
+                              {over && (
+                                <p className="mt-1 font-medium">
+                                  Only {summary.totalAvailable} in pickable locations — reduce qty or split the line.
+                                </p>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </div>
                     ))}
                     <Button type="button" variant="outline" onClick={() => form.setValue("lines", [...lines, { product_id: "", quantity: 1 }])}>
@@ -3972,7 +4013,18 @@ export function PickListsPage() {
                     </Button>
                   </CardContent>
                 </Card>
-                <Button className="w-full lg:col-span-2" type="submit" disabled={mutation.isPending}>
+                <Button
+                  className="w-full lg:col-span-2"
+                  type="submit"
+                  disabled={
+                    mutation.isPending ||
+                    lines.some((line) => {
+                      const summary = line.product_id ? pickableStock?.get(line.product_id) : undefined;
+                      if (!summary) return false;
+                      return Number(line.quantity ?? 0) > summary.totalAvailable;
+                    })
+                  }
+                >
                   {mutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                   Release pick list
                 </Button>
