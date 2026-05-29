@@ -190,6 +190,13 @@ export function AuthProvider({ children }: PropsWithChildren) {
   useEffect(() => {
     let mounted = true;
 
+    const handlePageHide = () => {
+      if (window.localStorage.getItem(rememberMeKey) === "0") {
+        clearSupabaseSession();
+      }
+    };
+    window.addEventListener("pagehide", handlePageHide);
+
     supabase.auth.getSession().catch(() => ({ data: { session: null } })).then(async ({ data }) => {
       if (!mounted) {
         return;
@@ -256,6 +263,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
     return () => {
       mounted = false;
+      window.removeEventListener("pagehide", handlePageHide);
       authListener.subscription.unsubscribe();
     };
   }, []);
