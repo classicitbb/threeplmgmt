@@ -1278,7 +1278,7 @@ export async function searchInventory(filters: {
   if (filters.status && filters.status !== "all") {
     query = query.eq("status", filters.status);
   } else {
-    query = query.not("status", "in", "(picked,shipped,in_transit,missing)");
+    query = query.not("status", "in", "(shipped,in_transit,missing)");
   }
 
   const { data, error } = await query.order("received_at", { ascending: false });

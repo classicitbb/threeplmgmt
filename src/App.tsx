@@ -36,6 +36,7 @@ import NotFound from "./pages/NotFound";
 const queryClient = createAppQueryClient();
 
 const DashboardPage = lazy(() => import("@/components/wms-ui").then((mod) => ({ default: mod.DashboardPage })));
+const AppShell = lazy(() => import("@/components/wms-ui").then((mod) => ({ default: mod.AppShell })));
 const InventorySearchPage = lazy(() => import("@/components/wms-ui").then((mod) => ({ default: mod.InventorySearchPage })));
 const PickListsPage = lazy(() => import("@/components/wms-ui").then((mod) => ({ default: mod.PickListsPage })));
 const PutawayTasksPage = lazy(() => import("@/components/wms-ui").then((mod) => ({ default: mod.PutawayTasksPage })));

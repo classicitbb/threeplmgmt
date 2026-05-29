@@ -3451,7 +3451,6 @@ export function InventorySearchPage() {
     queryFn: () => fetchOptions(false, { restrictToWarehouse: restrictedToDefaultWarehouse, warehouseId: profile?.default_warehouse_id }),
   });
   const [warehouseId, setWarehouseId] = useState(restrictedToDefaultWarehouse ? profile?.default_warehouse_id ?? "" : "");
-  const selectedWarehouseValue = warehouseId || "all";
   const hasInventoryFilters = Boolean(searchTerm || warehouseId || status !== "all");
 
   const { data = [], isLoading } = useQuery({
@@ -3494,41 +3493,65 @@ export function InventorySearchPage() {
         <p className="text-sm text-muted-foreground">Search by SKU, pallet, barcode, lot, batch, expiry, owner, or location.</p>
       </div>
       <Card>
-        <CardContent className="flex flex-wrap items-stretch gap-3 p-4">
-          <div className="flex min-w-[17rem] flex-1 gap-2">
-            <div className="relative min-w-0 flex-1">
-              <Search className="absolute left-3 top-3 text-muted-foreground" />
-              <Input className="min-w-0 pl-10 bg-muted" value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Search SKU, pallet, or location" />
+        <CardContent className="flex flex-col gap-3 p-4">
+          <div className="flex flex-wrap items-stretch gap-3">
+            <div className="flex min-w-[17rem] flex-1 gap-2">
+              <div className="relative min-w-0 flex-1">
+                <Search className="absolute left-3 top-3 text-muted-foreground" />
+                <Input className="min-w-0 pl-10 bg-muted" value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Search SKU, pallet, or location" />
+              </div>
+              <BarcodeScanButton title="Scan SKU, pallet, or location barcode" onScan={setSearchTerm} />
             </div>
-            <BarcodeScanButton title="Scan SKU, pallet, or location barcode" onScan={setSearchTerm} />
+            <Button className="min-w-24" variant="outline" onClick={clearInventoryFilters} disabled={!hasInventoryFilters}>
+              Clear
+            </Button>
           </div>
-          <Select onValueChange={(value) => setWarehouseId(value === "all" ? "" : value)} value={selectedWarehouseValue}>
-            <SelectTrigger className="min-w-[12rem] flex-1 sm:flex-none">
-              <SelectValue placeholder="All warehouses" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All warehouses</SelectItem>
+          {(options?.warehouses?.length ?? 0) > 1 && !restrictedToDefaultWarehouse ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Warehouse</span>
+              <Button
+                type="button"
+                size="sm"
+                variant={warehouseId === "" ? "default" : "outline"}
+                onClick={() => setWarehouseId("")}
+              >
+                All
+              </Button>
               {(options?.warehouses ?? []).map((warehouse) => (
-                <SelectItem key={warehouse.id} value={warehouse.id}>
+                <Button
+                  key={warehouse.id}
+                  type="button"
+                  size="sm"
+                  variant={warehouseId === warehouse.id ? "default" : "outline"}
+                  onClick={() => setWarehouseId(warehouse.id)}
+                >
                   {warehouse.name}
-                </SelectItem>
+                </Button>
               ))}
-            </SelectContent>
-          </Select>
-          <Select onValueChange={(value) => setStatus(value as typeof status)} value={status}>
-            <SelectTrigger className="min-w-[11rem] flex-1 sm:flex-none">
-              <SelectValue placeholder="Status" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All statuses</SelectItem>
-              {["receiving", "available", "reserved", "picked", "staged", "in_transit", "hold", "quarantine", "damaged", "missing"].map((item) => (
-                <SelectItem key={item} value={item}>{item}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Button className="min-w-24 flex-1 sm:flex-none" variant="outline" onClick={clearInventoryFilters} disabled={!hasInventoryFilters}>
-            Clear
-          </Button>
+            </div>
+          ) : null}
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Status</span>
+            <Button
+              type="button"
+              size="sm"
+              variant={status === "all" ? "default" : "outline"}
+              onClick={() => setStatus("all")}
+            >
+              All
+            </Button>
+            {["available", "receiving", "reserved", "hold", "quarantine", "damaged"].map((item) => (
+              <Button
+                key={item}
+                type="button"
+                size="sm"
+                variant={status === item ? "default" : "outline"}
+                onClick={() => setStatus(item)}
+              >
+                {item}
+              </Button>
+            ))}
+          </div>
         </CardContent>
       </Card>
       <Card className="flex min-h-0 flex-1 flex-col">
