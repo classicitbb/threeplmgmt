@@ -248,6 +248,7 @@ const LOGIN_BARCODE_FORMATS = [
   "data_matrix", "pdf417", "aztec",
 ];
 const LOGIN_METHOD_STORAGE_KEY = "warehouse-wizard.login.last-method";
+const REMEMBER_ME_STORAGE_KEY = "warehouse-wizard-remember-me";
 
 function LoginBadgeScanner({
   onScan,
