@@ -31,4 +31,19 @@ describe("query client", () => {
     ).rejects.toThrow("Connection lost");
     expect(mutate).not.toHaveBeenCalled();
   });
+
+  it("allows offline-queueable mutations to run while offline", async () => {
+    const queryClient = createAppQueryClient();
+    const mutate = vi.fn().mockResolvedValue("ok");
+
+    vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+
+    const result = await queryClient
+      .getMutationCache()
+      .build(queryClient, { mutationFn: mutate, meta: { offlineQueueable: true } })
+      .execute(undefined);
+
+    expect(result).toBe("ok");
+    expect(mutate).toHaveBeenCalledTimes(1);
+  });
 });
