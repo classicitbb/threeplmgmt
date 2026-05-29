@@ -6,7 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm, type UseFormReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { supabase } from "@/integrations/supabase/client";
-import { Activity, AlertTriangle, ArrowLeftRight, BarChart3, Bot, Boxes, Building2, CheckCircle2, ChevronDown, ClipboardCheck, ClipboardList, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, HelpCircle, Home, Info, KeyRound, LayoutDashboard, Loader2, LogOut, Mail, Maximize2, MapPinned, Menu, Minimize2, Package, PackageX, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, QrCode, RadioTower, RotateCcw, Search, Settings, ShieldCheck, Star, Tags, Truck, Upload, UserPlus, Users, Warehouse } from "lucide-react";
+import { Activity, AlertTriangle, ArrowLeftRight, BarChart3, Bot, Boxes, Building2, CheckCircle2, ChevronDown, ClipboardCheck, ClipboardList, CloudOff, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, HelpCircle, Home, Info, KeyRound, LayoutDashboard, Loader2, LogOut, Mail, Maximize2, MapPinned, Menu, Minimize2, Package, PackageX, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, QrCode, RadioTower, RefreshCw, RotateCcw, Search, Settings, ShieldCheck, Star, Tags, Truck, Upload, UserPlus, Users, Warehouse } from "lucide-react";
 import {
   DndContext,
   KeyboardSensor,
@@ -30,6 +30,13 @@ import { z } from "zod";
 import { useAuth } from "@/hooks/use-auth";
 import { useFeatureFlags, MODULE_LABELS, STARTER_MODULES, type ModuleKey } from "@/hooks/use-feature-flags";
 import { assertOnline, useNetworkStatus } from "@/hooks/use-network-status";
+import {
+  enqueueOfflineWork,
+  flushOfflineQueue,
+  installOfflineAutoReplay,
+  isLikelyNetworkError,
+  useOfflineQueue,
+} from "@/lib/offline-queue";
 import {
   NAVIGATION,
   ROLE_LABELS,
@@ -903,12 +910,52 @@ function ProfileMenu({ initials, displayName, onSignOut }: { initials: string; d
   );
 }
 
+function OfflineQueueBadge({ compact = false }: { compact?: boolean }) {
+  const { count, syncing } = useOfflineQueue();
+  if (count === 0 && !syncing) return null;
+  const label = syncing ? "Syncing…" : `${count} queued`;
+  const handleClick = async () => {
+    if (syncing) return;
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      toast.error("Still offline — reconnect to a network, then tap again.");
+      return;
+    }
+    const result = await flushOfflineQueue();
+    if (result.remaining === 0 && result.succeeded > 0) {
+      toast.success(`Synced ${result.succeeded} buffered action${result.succeeded === 1 ? "" : "s"}.`);
+    } else if (result.remaining > 0) {
+      toast.warning(`${result.remaining} item${result.remaining === 1 ? "" : "s"} still pending — will retry on next reconnect.`);
+    }
+  };
+  return (
+    <Button
+      type="button"
+      size="sm"
+      variant="outline"
+      onClick={handleClick}
+      disabled={syncing}
+      className={cn(
+        "h-9 gap-1.5 border-amber-400/60 bg-amber-50 text-amber-900 hover:bg-amber-100 dark:bg-amber-950/40 dark:text-amber-100 dark:hover:bg-amber-900/50",
+        compact && "px-2 text-[11px]",
+      )}
+      title="Buffered work waiting for reconnect"
+    >
+      {syncing ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <CloudOff className="h-3.5 w-3.5" />}
+      <span className={cn(compact && "hidden sm:inline")}>{label}</span>
+      {!compact && count > 0 && !syncing ? <span className="text-xs opacity-70">tap to sync</span> : null}
+    </Button>
+  );
+}
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { pathname } = useLocation();
   const { profile, roles, signOut, user, refreshProfile } = useAuth();
   const queryClient = useQueryClient();
   const { isEnabled } = useFeatureFlags();
   const { online } = useNetworkStatus();
+  useEffect(() => {
+    installOfflineAutoReplay();
+  }, []);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const networkStatusSeenRef = useRef(false);
@@ -1113,6 +1160,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </Avatar>
               <span className="hidden max-w-[120px] truncate text-xs font-medium sm:inline">{displayName}</span>
             </div>
+            <OfflineQueueBadge compact />
             <HelpSidebar pathname={pathname} />
             <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
               <SheetTrigger asChild>
@@ -1179,6 +1227,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 </Select>
               ) : null}
               <HelpSidebar pathname={pathname} />
+              <OfflineQueueBadge />
               <ProfileMenu initials={initials} displayName={displayName} onSignOut={() => void signOut()} />
             </div>
           </div>
@@ -3116,9 +3165,46 @@ export function PutawayTasksPage() {
   });
 
   const mutation = useMutation({
+    meta: { offlineQueueable: true },
     mutationFn: async ({ taskId, pallet, location, override, reason }: { taskId: string; pallet: string; location: string; override?: boolean; reason?: string }) =>
-      confirmPutaway(taskId, pallet, location, { override, overrideReason: reason }),
-    onSuccess: async (_, vars) => {
+    {
+      // If we're offline at submit time, buffer immediately — no network call.
+      if (typeof navigator !== "undefined" && navigator.onLine === false) {
+        await enqueueOfflineWork("putaway", { taskId, pallet, location, override, reason });
+        return { queued: true as const };
+      }
+      try {
+        await confirmPutaway(taskId, pallet, location, { override, overrideReason: reason });
+        return { queued: false as const };
+      } catch (err) {
+        // Network drop mid-submit → buffer and surface as queued, not as a failure.
+        if (isLikelyNetworkError(err)) {
+          await enqueueOfflineWork("putaway", { taskId, pallet, location, override, reason });
+          return { queued: true as const };
+        }
+        throw err;
+      }
+    },
+    onSuccess: async (result, vars) => {
+      if (result?.queued) {
+        playBarcodeBeep();
+        toast.message("Saved offline — will sync when reconnected", {
+          description: `Pallet ${vars.pallet} → ${vars.location} buffered locally.`,
+          duration: 6000,
+        });
+        setCompletedIds((prev) => new Set([...prev, vars.taskId]));
+        setScanState((current) => {
+          const next = { ...current };
+          delete next[vars.taskId];
+          return next;
+        });
+        setViolations((current) => {
+          const next = { ...current };
+          delete next[vars.taskId];
+          return next;
+        });
+        return;
+      }
       playBarcodeBeep();
       toast.success(vars.override ? "Putaway locked in with override" : "Putaway locked in", {
         description: `Pallet ${vars.pallet} stored at ${vars.location}.`,

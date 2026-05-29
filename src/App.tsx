@@ -10,7 +10,7 @@ import { Analytics } from "@vercel/analytics/react";
 
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
 import { FeatureFlagContext, useFeatureFlagState } from "@/hooks/use-feature-flags";
-import { guardMutation } from "@/hooks/use-network-status";
+import { enqueueOfflineWork, isLikelyNetworkError } from "@/lib/offline-queue";
 import { supabase } from "@/integrations/supabase/client";
 import { createAppQueryClient } from "@/lib/query-client";
 
@@ -1393,6 +1393,7 @@ function PickExecutionPage() {
   }, [tasks]);
 
   const mutation = useMutation({
+    meta: { offlineQueueable: true },
     mutationFn: async ({
       taskId,
       locationCode,
@@ -1405,8 +1406,32 @@ function PickExecutionPage() {
       palletBarcode: string;
       quantity: number;
       shortReason?: string;
-    }) => guardMutation(confirmPickTask)(taskId, locationCode, palletBarcode, quantity, shortReason),
-    onSuccess: async (_res, variables) => {
+    }) => {
+      if (typeof navigator !== "undefined" && navigator.onLine === false) {
+        await enqueueOfflineWork("pick", { taskId, pickListId, locationCode, palletBarcode, quantity, shortReason });
+        return { queued: true as const };
+      }
+      try {
+        await confirmPickTask(taskId, locationCode, palletBarcode, quantity, shortReason);
+        return { queued: false as const };
+      } catch (err) {
+        if (isLikelyNetworkError(err)) {
+          await enqueueOfflineWork("pick", { taskId, pickListId, locationCode, palletBarcode, quantity, shortReason });
+          return { queued: true as const };
+        }
+        throw err;
+      }
+    },
+    onSuccess: async (res, variables) => {
+      if (res?.queued) {
+        toast.message("Pick saved offline — will sync on reconnect", {
+          description: `Task buffered locally.`,
+          duration: 5000,
+        });
+        try { navigator.vibrate?.([40, 30, 40]); } catch { /* noop */ }
+        setTimeout(() => focusNextOpen(variables.taskId), 300);
+        return;
+      }
       toast.success("Pick task confirmed");
       try { navigator.vibrate?.([60, 40, 120]); } catch { /* noop */ }
       playPickSuccessTone();

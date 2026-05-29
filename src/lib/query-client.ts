@@ -18,7 +18,12 @@ export const queryClientDefaultOptions = {
 export function createAppQueryClient() {
   const client = new QueryClient({
     mutationCache: new MutationCache({
-      onMutate: () => {
+      onMutate: (_vars, mutation) => {
+        // Allow opt-out for mutations that buffer their own work offline
+        // (e.g. putaway / pick confirmations backed by IndexedDB).
+        if ((mutation.options.meta as { offlineQueueable?: boolean } | undefined)?.offlineQueueable) {
+          return;
+        }
         assertOnline();
       },
     }),
