@@ -1147,9 +1147,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         {/* Mobile header */}
         <header className="col-span-full flex items-center justify-between border-b border-border bg-background/95 px-4 py-3 backdrop-blur lg:hidden">
           <div className="flex items-center gap-2">
-            <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground">
-              <Warehouse className="h-4 w-4" />
-            </div>
+            <img src="/logo.png" alt="Warehouse Wizard" className="h-7 w-7 shrink-0 rounded-md object-fill" />
             <span className="text-sm font-semibold">{appTitle}</span>
             <span className="hidden text-[10px] font-medium text-muted-foreground sm:inline">v{__APP_VERSION__}</span>
           </div>
