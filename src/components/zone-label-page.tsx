@@ -67,7 +67,7 @@ export function ZoneLabelPage(props: ZoneLabelPageProps) {
     win.document.write(`<!DOCTYPE html>
 <html>
 <head>
-  <title>Zone Label — ${name}</title>
+  <title>Zone Label — ${escapeHtml(name)}</title>
   <meta charset="utf-8" />
   <style>
     @page { size: A4 portrait; margin: 0; }
