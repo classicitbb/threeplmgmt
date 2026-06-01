@@ -263,7 +263,7 @@ export default function SetupWizardPage() {
                       <Select value={zone.warehouseCode} onValueChange={(value) => updateZone(index, "warehouseCode", value)}>
                         <SelectTrigger><SelectValue /></SelectTrigger>
                         <SelectContent>
-                          {payload.warehouses.map((warehouse) => (
+                          {payload.warehouses.filter((w) => w.code.trim() !== "").map((warehouse) => (
                             <SelectItem key={warehouse.code} value={warehouse.code}>{warehouse.code}</SelectItem>
                           ))}
                         </SelectContent>
@@ -329,7 +329,7 @@ export default function SetupWizardPage() {
                       <Select value={template.warehouseCode} onValueChange={(value) => updateTemplate(index, "warehouseCode", value)}>
                         <SelectTrigger><SelectValue /></SelectTrigger>
                         <SelectContent>
-                          {payload.warehouses.map((warehouse) => (
+                          {payload.warehouses.filter((w) => w.code.trim() !== "").map((warehouse) => (
                             <SelectItem key={warehouse.code} value={warehouse.code}>{warehouse.code}</SelectItem>
                           ))}
                         </SelectContent>
@@ -340,7 +340,7 @@ export default function SetupWizardPage() {
                         <SelectTrigger><SelectValue /></SelectTrigger>
                         <SelectContent>
                           {payload.zones
-                            .filter((zone) => zone.warehouseCode === template.warehouseCode)
+                            .filter((zone) => zone.warehouseCode === template.warehouseCode && zone.code.trim() !== "")
                             .map((zone) => (
                               <SelectItem key={`${zone.warehouseCode}-${zone.code}`} value={zone.code}>{zone.code}</SelectItem>
                             ))}
