@@ -787,6 +787,31 @@ export async function adminUpdateUserPassword(profileId: string, password: strin
   });
 }
 
+export async function adminUpdateUserPin(profileId: string, pin: string) {
+  const client = supabase as unknown as {
+    rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: unknown }>;
+  };
+  const { error } = await client.rpc("admin_update_user_pin", {
+    in_user_id: profileId,
+    in_pin: pin,
+  });
+  if (error) throw new Error((error as any).message ?? "Badge PIN update failed");
+  await logUserActivity("user_access_change", "profiles", profileId, {
+    fields: ["badge_pin"],
+  });
+}
+
+export async function refreshUserDeviceTrust(deviceId: string) {
+  const client = supabase as unknown as {
+    rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: unknown }>;
+  };
+  const { error } = await client.rpc("refresh_user_device_trust", {
+    in_device_id: deviceId,
+    in_user_agent: typeof navigator === "undefined" ? null : navigator.userAgent,
+  });
+  if (error) throw new Error((error as any).message ?? "Device trust update failed");
+}
+
 export async function setUserRoleVisibility(userRoleId: string, hidden: boolean, reason?: string) {
   const { error } = await (supabase.from as any)("user_roles")
     .update({

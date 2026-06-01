@@ -15,6 +15,7 @@ import { guardMutation } from "@/hooks/use-network-status";
 import { supabase } from "@/integrations/supabase/client";
 import { createAppQueryClient } from "@/lib/query-client";
 
+<<<<<<< Updated upstream
 import { confirmPickTask, formatDate, formatNumber, getInventoryDetail, getPickExecution, loginSchema, recordUserSignIn, signUpSchema, RESOURCE_DEFINITIONS } from "@/lib/wms-core";
 import {
   AppShell,
@@ -35,6 +36,10 @@ import {
   CycleCountsPage,
   LocationMovesPage,
 } from "@/components/wms-ui";
+=======
+import { confirmPickTask, formatDate, formatNumber, getInventoryDetail, getPickExecution, loginSchema, recordUserSignIn, refreshUserDeviceTrust, signUpSchema, RESOURCE_DEFINITIONS } from "@/lib/wms-core";
+import { getOrCreateDeviceId } from "@/lib/device-identity";
+>>>>>>> Stashed changes
 
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
@@ -668,7 +673,26 @@ function LoginPage() {
     mutationFn: async (values: { email: string; password: string }) => {
       const identifier = values.email.trim();
       const method = identifier.toUpperCase().startsWith("BADGE-") ? "badge" : identifier.includes("@") ? "email" : "code";
-      await auth.signIn(identifier, values.password);
+      if (method === "badge") {
+        const { data, error } = await supabase.functions.invoke("badge-login", {
+          body: {
+            badgeCode: identifier,
+            pin: values.password,
+            deviceId: getOrCreateDeviceId(),
+          },
+        });
+        if (error) throw error;
+        const tokenHash = (data as { token_hash?: string } | null)?.token_hash;
+        if (!tokenHash) throw new Error("Badge login could not create a session");
+        const { error: verifyError } = await supabase.auth.verifyOtp({
+          token_hash: tokenHash,
+          type: "email",
+        });
+        if (verifyError) throw verifyError;
+      } else {
+        await auth.signIn(identifier, values.password);
+        await refreshUserDeviceTrust(getOrCreateDeviceId());
+      }
       await recordUserSignIn(method);
     },
     onError: (error) => toast.error(friendlyAuthError(error, "login")),
@@ -737,7 +761,6 @@ function LoginPage() {
       toast.error("Enter your PIN to continue.");
       return;
     }
-    // TODO: Replace this password-backed challenge with the per-user PIN preference once that setting exists.
     window.localStorage.setItem(LOGIN_METHOD_STORAGE_KEY, "badge");
     loginMutation.mutate({ email: selectedBadge, password: badgePin });
   };

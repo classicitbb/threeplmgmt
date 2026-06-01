@@ -40,6 +40,7 @@ import {
   type ResourceDefinition,
   type DraftReceipt,
   adminInviteUser,
+  adminUpdateUserPin,
   adminUpdateUserPassword,
   updateOwnPassword,
   changePalletStatus,
@@ -5124,7 +5125,7 @@ export function UsersRolesPage() {
         await adminUpdateUserPassword(values.profileId, newPassword);
       }
       if (badgePin) {
-        await adminUpdateUserPassword(values.profileId, badgePin);
+        await adminUpdateUserPin(values.profileId, badgePin);
       }
     },
     onSuccess: async () => {
