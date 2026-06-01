@@ -48,14 +48,7 @@ function clearSupabaseSession() {
     /* noop */
   }
 }
-// Demo fallback is only enabled in dev/preview builds. In production, hardcoded
-// demo credentials must never grant a fake session, even if Supabase is unreachable.
-const demoEnabled =
-  import.meta.env.DEV ||
-  import.meta.env.VITE_ENABLE_DEMO === "true" ||
-  (typeof window !== "undefined" &&
-    /^(localhost|127\.0\.0\.1|.*\.lovable\.app)$/.test(window.location.hostname) &&
-    !/^threeplmgmt\.lovable\.app$/.test(window.location.hostname));
+const demoEnabled = import.meta.env.VITE_ENABLE_DEMO === "true";
 
 const demoUsers: Record<string, { id: string; fullName: string; roles: RoleCode[]; userCode: string; badgeCode: string }> = {
   "admin@warehousewizard.local": {
