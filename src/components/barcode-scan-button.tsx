@@ -7,6 +7,7 @@ interface BarcodeScanButtonProps {
   onScan: (value: string) => void;
   title?: string;
   className?: string;
+  enableTextRecognition?: boolean;
 }
 
 const BARCODE_FORMATS = [
@@ -15,7 +16,7 @@ const BARCODE_FORMATS = [
   "data_matrix", "pdf417", "aztec",
 ];
 
-export function BarcodeScanButton({ onScan, title = "Scan barcode", className }: BarcodeScanButtonProps) {
+export function BarcodeScanButton({ onScan, title = "Scan barcode", className, enableTextRecognition = false }: BarcodeScanButtonProps) {
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [detected, setDetected] = useState<string | null>(null);
@@ -24,6 +25,8 @@ export function BarcodeScanButton({ onScan, title = "Scan barcode", className }:
   const streamRef = useRef<MediaStream | null>(null);
   const rafRef = useRef<number | null>(null);
   const detectorRef = useRef<any>(null);
+  const textDetectorRef = useRef<any>(null);
+  const lastTextScanRef = useRef(0);
 
   const stopStream = useCallback(() => {
     if (rafRef.current != null) {
@@ -33,6 +36,7 @@ export function BarcodeScanButton({ onScan, title = "Scan barcode", className }:
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
     detectorRef.current = null;
+    textDetectorRef.current = null;
   }, []);
 
   useEffect(() => {
@@ -46,8 +50,12 @@ export function BarcodeScanButton({ onScan, title = "Scan barcode", className }:
     let cancelled = false;
 
     async function start() {
-      if (!("BarcodeDetector" in window)) {
-        setError("Live scanning requires Chrome on Android or Safari 17+. Type the code manually instead.");
+      const supportsBarcode = "BarcodeDetector" in window;
+      const supportsText = enableTextRecognition && "TextDetector" in window;
+      if (!supportsBarcode && !supportsText) {
+        setError(enableTextRecognition
+          ? "Live scanning or text recognition is not available on this device. Type the code manually instead."
+          : "Live scanning requires Chrome on Android or Safari 17+. Type the code manually instead.");
         return;
       }
       try {
@@ -62,24 +70,36 @@ export function BarcodeScanButton({ onScan, title = "Scan barcode", className }:
           await videoRef.current.play();
         }
 
-        // Use formats that the device supports (BarcodeDetector.getSupportedFormats exists in spec)
-        let formats = BARCODE_FORMATS;
-        try {
-          const supported: string[] = await (window as any).BarcodeDetector.getSupportedFormats();
-          formats = BARCODE_FORMATS.filter((f) => supported.includes(f));
-        } catch {
-          // getSupportedFormats not available — use all; constructor will ignore unknowns
+        if (supportsBarcode) {
+          // Use formats that the device supports (BarcodeDetector.getSupportedFormats exists in spec)
+          let formats = BARCODE_FORMATS;
+          try {
+            const supported: string[] = await (window as any).BarcodeDetector.getSupportedFormats();
+            formats = BARCODE_FORMATS.filter((f) => supported.includes(f));
+          } catch {
+            // getSupportedFormats not available — use all; constructor will ignore unknowns
+          }
+
+          detectorRef.current = new (window as any).BarcodeDetector({ formats: formats.length ? formats : BARCODE_FORMATS });
+        }
+        if (supportsText) {
+          textDetectorRef.current = new (window as any).TextDetector();
         }
 
-        const detector = new (window as any).BarcodeDetector({ formats: formats.length ? formats : BARCODE_FORMATS });
-        detectorRef.current = detector;
-
         const scan = async () => {
-          if (cancelled || !videoRef.current || !detectorRef.current) return;
+          if (cancelled || !videoRef.current) return;
           try {
-            const codes: Array<{ rawValue: string }> = await detectorRef.current.detect(videoRef.current);
-            if (codes.length > 0) {
-              const value = codes[0].rawValue;
+            const codes: Array<{ rawValue: string }> = detectorRef.current
+              ? await detectorRef.current.detect(videoRef.current)
+              : [];
+            const now = Date.now();
+            let detectedText: Array<{ rawValue?: string; text?: string }> = [];
+            if (codes.length === 0 && textDetectorRef.current && now - lastTextScanRef.current > 750) {
+              lastTextScanRef.current = now;
+              detectedText = await textDetectorRef.current.detect(videoRef.current);
+            }
+            const value = codes[0]?.rawValue ?? detectedText.map((item) => item.rawValue ?? item.text ?? "").filter(Boolean).join(" ");
+            if (value) {
               if (cancelled) return;
               setDetected(value);
               stopStream();
@@ -113,7 +133,7 @@ export function BarcodeScanButton({ onScan, title = "Scan barcode", className }:
       cancelled = true;
       stopStream();
     };
-  }, [open, onScan, stopStream]);
+  }, [enableTextRecognition, open, onScan, stopStream]);
 
   return (
     <>
@@ -168,7 +188,7 @@ export function BarcodeScanButton({ onScan, title = "Scan barcode", className }:
           )}
 
           <p className="text-center text-xs text-muted-foreground">
-            {detected ? "Loading…" : "Point your camera at a barcode or QR code"}
+            {detected ? "Loading…" : enableTextRecognition ? "Point your camera at a QR code, barcode, or container number" : "Point your camera at a barcode or QR code"}
           </p>
         </DialogContent>
       </Dialog>

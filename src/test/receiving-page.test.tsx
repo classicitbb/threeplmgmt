@@ -11,7 +11,7 @@ const wmsMocks = vi.hoisted(() => {
     id: "draft-1",
     receipt_number: "RCT-1",
     reference_number: "PO-1",
-    container_number: "CONT-1",
+    container_number: "MSKU1234565",
     po_number: "PO-1",
     draft_group_id: "shipment-1",
     draft_pallet_barcode: "PLT-1",
@@ -26,7 +26,7 @@ const wmsMocks = vi.hoisted(() => {
     lot_number: null,
     batch_number: null,
     created_at: "2026-06-05T00:00:00.000Z",
-    notes: JSON.stringify({ _draft: true, product_id: "prod-1", quantity: 1, draft_pallet_barcode: "PLT-1", container_number: "CONT-1", po_number: "PO-1" }),
+    notes: JSON.stringify({ _draft: true, product_id: "prod-1", quantity: 1, draft_pallet_barcode: "PLT-1", container_number: "MSKU1234565", po_number: "PO-1" }),
     source_label: null,
   };
   return {
@@ -115,7 +115,7 @@ describe("ReceivingPage", () => {
     fireEvent.click(await screen.findByRole("button", { name: /new shipment/i }));
     const dialog = await screen.findByRole("dialog");
     const textboxes = within(dialog).getAllByRole("textbox");
-    fireEvent.change(textboxes[0], { target: { value: "CONT-1" } });
+    fireEvent.change(textboxes[0], { target: { value: "MSKU1234565" } });
     fireEvent.change(textboxes[1], { target: { value: "PO-1" } });
     fireEvent.click(within(dialog).getAllByRole("combobox")[1]);
     const productMatches = await screen.findAllByText(/FLOUR/i);
