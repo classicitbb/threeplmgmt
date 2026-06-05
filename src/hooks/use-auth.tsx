@@ -279,8 +279,12 @@ export function AuthProvider({ children }: PropsWithChildren) {
             fn: string,
             args: Record<string, string>,
           ) => Promise<{ data: string | null }>;
-          const { data } = await resolveLoginCodeRpc("resolve_login_code", { in_login_code: identifier }).catch(() => ({ data: null }));
-          authEmail = data ?? "";
+          try {
+            const { data } = await resolveLoginCodeRpc("resolve_login_code", { in_login_code: identifier });
+            authEmail = data ?? "";
+          } catch {
+            authEmail = "";
+          }
         }
 
         // Always attempt real Supabase Auth first so auth.uid() is valid in DB functions.

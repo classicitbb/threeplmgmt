@@ -745,8 +745,11 @@ function LoginPage() {
   const loginMutation = useMutation({
     mutationFn: async (values: { email: string; password: string }) => {
       const identifier = values.email.trim();
-      const method = identifier.toUpperCase().startsWith("BADGE-") ? "badge" : identifier.includes("@") ? "email" : "code";
-      if (method === "badge") {
+      const isEmail = identifier.includes("@");
+      const isPin = /^\d{4,7}$/.test(values.password.trim());
+      const method = identifier.toUpperCase().startsWith("BADGE-") ? "badge" : isEmail ? "email" : "code";
+      const shouldUsePinLogin = method === "badge" || (!isEmail && isPin);
+      if (shouldUsePinLogin) {
         const { data, error } = await supabase.functions.invoke("badge-login", {
           body: {
             badgeCode: identifier,

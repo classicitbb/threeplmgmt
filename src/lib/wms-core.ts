@@ -842,10 +842,16 @@ export async function adminUpdateUserPin(profileId: string, pin: string) {
   const client = supabase as unknown as {
     rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: unknown }>;
   };
-  const { error } = await client.rpc("admin_update_user_pin", {
+  let { error } = await client.rpc("admin_update_user_pin", {
     in_user_id: profileId,
     in_pin: pin,
   });
+  if (error && String((error as any).message ?? "").includes("schema cache")) {
+    ({ error } = await client.rpc("admin_update_user_pin", {
+      in_pin: pin,
+      in_user_id: profileId,
+    }));
+  }
   if (error) throw new Error((error as any).message ?? "Badge PIN update failed");
   await logUserActivity("user_access_change", "profiles", profileId, {
     fields: ["badge_pin"],
@@ -1472,6 +1478,7 @@ export async function searchInventory(filters: {
   ageBucket?: InventoryAgeBucket | "";
   expiryWindow?: InventoryExpiryWindow | "";
 }) {
+  if (filters.status === "picked") return [];
   let query = db("inventory_search_view").select("*");
 
   if (filters.warehouseId) {
@@ -1481,7 +1488,7 @@ export async function searchInventory(filters: {
   if (filters.status && filters.status !== "all") {
     query = query.eq("status", filters.status);
   } else {
-    query = query.not("status", "in", "(picked,shipped,in_transit,missing)");
+    query = query.neq("status", "picked");
   }
 
   const { data, error } = await query.order("received_at", { ascending: false });
@@ -3702,7 +3709,7 @@ export async function completeDirectMove(palletBarcode: string, locationCode: st
   if (palletErr) throw new Error(`Pallet not found: ${palletBarcode}`);
 
   const { data: toLocation, error: locErr } = await db("locations")
-    .select("id")
+    .select("id, zone_id")
     .eq("code", locationCode)
     .single();
   if (locErr) throw new Error(`Location not found: ${locationCode}`);
@@ -3723,6 +3730,12 @@ export async function completeDirectMove(palletBarcode: string, locationCode: st
     .update({ current_location_id: toLocation.id } as any)
     .eq("id", pallet.id);
   if (palletUpdErr) throw palletUpdErr;
+
+  const { error: balanceUpdErr } = await db("inventory_balances")
+    .update({ location_id: toLocation.id, zone_id: toLocation.zone_id ?? null } as any)
+    .eq("pallet_id", pallet.id)
+    .neq("status", "picked");
+  if (balanceUpdErr) throw balanceUpdErr;
 
   await (supabase.rpc as any)("log_audit_event", {
     in_event_type: "move_task_completed",
@@ -3750,7 +3763,7 @@ export async function completeMoveTask(taskId: string, scannedPalletBarcode: str
   }
 
   const { data: toLocation, error: locErr } = await db("locations")
-    .select("id")
+    .select("id, zone_id")
     .eq("code", scannedLocationCode)
     .single();
   if (locErr) throw new Error(`Location not found: ${scannedLocationCode}`);
@@ -3759,6 +3772,12 @@ export async function completeMoveTask(taskId: string, scannedPalletBarcode: str
     .update({ current_location_id: toLocation.id } as any)
     .eq("id", pallet.id);
   if (palletUpdErr) throw palletUpdErr;
+
+  const { error: balanceUpdErr } = await db("inventory_balances")
+    .update({ location_id: toLocation.id, zone_id: toLocation.zone_id ?? null } as any)
+    .eq("pallet_id", pallet.id)
+    .neq("status", "picked");
+  if (balanceUpdErr) throw balanceUpdErr;
 
   const { error: taskUpdErr } = await db("move_tasks")
     .update({ status: "completed", to_location_id: toLocation.id, completed_at: new Date().toISOString() } as any)

@@ -6179,6 +6179,8 @@ export function LocationMovesPage() {
   const [newPallet, setNewPallet] = useState("");
   const [newLocation, setNewLocation] = useState("");
   const [newReason, setNewReason] = useState("");
+  const newPalletRef = useRef<HTMLInputElement | null>(null);
+  const newLocationRef = useRef<HTMLInputElement | null>(null);
   const [scanState, setScanState] = useState<Record<string, { pallet: string; location: string }>>({});
   const [completedIds, setCompletedIds] = useState<Set<string>>(new Set());
   const [cancelledIds, setCancelledIds] = useState<Set<string>>(new Set());
@@ -6239,6 +6241,37 @@ export function LocationMovesPage() {
     });
   }
 
+  function applyNewPalletScan(value: unknown) {
+    const pallet = normalizeScannerText(value);
+    setNewPallet(pallet);
+    playBarcodeBeep();
+    flashInput(newPalletRef.current, "blue");
+    setTimeout(() => newLocationRef.current?.focus(), 50);
+  }
+
+  function applyNewLocationScan(value: unknown) {
+    if (!newPallet.trim()) {
+      toast.error("Scan the pallet first.");
+      flashInput(newPalletRef.current, "orange");
+      newPalletRef.current?.focus();
+      return;
+    }
+    const location = normalizeScannerText(value);
+    setNewLocation(location);
+    playBarcodeBeep();
+    flashInput(newLocationRef.current, isBaySelectorCode(location) ? "orange" : "blue");
+    if (!isBaySelectorCode(location)) {
+      completeNewMove(newPallet, location);
+    }
+  }
+
+  function selectNewMoveLocation(locationCode: string) {
+    setNewLocation(locationCode);
+    playBarcodeBeep();
+    flashInput(newLocationRef.current, "blue");
+    completeNewMove(newPallet, locationCode);
+  }
+
   const pending = (tasks as any[]).filter((t) => !completedIds.has(t.id) && !cancelledIds.has(t.id) && !["completed", "cancelled"].includes(t.status));
   const done    = (tasks as any[]).filter((t) =>  completedIds.has(t.id) || cancelledIds.has(t.id) || ["completed", "cancelled"].includes(t.status));
 
@@ -6259,32 +6292,39 @@ export function LocationMovesPage() {
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="flex gap-2">
               <Input
+                ref={newPalletRef}
                 className="flex-1"
                 placeholder="Pallet barcode"
                 value={newPallet}
                 onChange={(e) => setNewPallet(normalizeScannerText(e.target.value))}
-                onKeyDown={(e) => e.key === "Enter" && completeNewMove()}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    newLocationRef.current?.focus();
+                  }
+                }}
               />
-              <BarcodeScanButton title="Scan pallet" onScan={(v) => setNewPallet(normalizeScannerText(v))} />
+              <BarcodeScanButton title="Scan pallet" onScan={applyNewPalletScan} />
             </div>
             <div className="flex gap-2">
               <Input
+                ref={newLocationRef}
                 className="flex-1"
                 placeholder="Target location (e.g. A-01-01)"
                 value={newLocation}
+                disabled={!newPallet.trim()}
                 onChange={(e) => setNewLocation(normalizeScannerText(e.target.value))}
                 onKeyDown={(e) => e.key === "Enter" && completeNewMove()}
               />
               <BarcodeScanButton
                 title="Scan target location"
-                onScan={(v) => {
-                  const nextLocation = normalizeScannerText(v);
-                  setNewLocation(nextLocation);
-                  if (newPallet.trim()) completeNewMove(newPallet, nextLocation);
-                }}
+                onScan={applyNewLocationScan}
               />
             </div>
           </div>
+          {newPallet.trim() && isBaySelectorCode(newLocation) ? (
+            <BayOccupancyGrid locationCode={newLocation} onSelect={selectNewMoveLocation} />
+          ) : null}
           <Input
             placeholder="Reason (optional — e.g. aisle blocked, consolidation)"
             value={newReason}
@@ -8004,7 +8044,7 @@ export function MobileActionBar() {
     .slice(0, 5);
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-50 flex h-14 items-center justify-around border-t border-border bg-background px-1 md:hidden">
+    <nav className="fixed bottom-0 left-0 right-0 z-50 flex h-14 items-center justify-around border-t border-teal-400 bg-teal-500 px-1 md:hidden">
       {items.map((item) => {
         const Icon = navIcons[item.to] ?? LayoutDashboard;
         const isActive = pathname === item.to;
@@ -8014,7 +8054,7 @@ export function MobileActionBar() {
             to={item.to}
             className={cn(
               "flex flex-1 flex-col items-center justify-center gap-0.5 rounded-md py-1 text-[10px] font-medium transition-colors",
-              isActive ? "text-primary" : "text-muted-foreground hover:text-foreground",
+              isActive ? "bg-primary text-primary-foreground shadow-sm" : "text-slate-900/80 hover:bg-teal-400/70 hover:text-slate-950",
             )}
             aria-label={item.label}
           >
