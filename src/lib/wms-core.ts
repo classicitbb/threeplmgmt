@@ -153,6 +153,28 @@ export type DashboardTaskRow = {
   createdAt: string;
 };
 
+export type DashboardMetricKey =
+  | "totalPallets"
+  | "warehousePallets"
+  | "availablePallets"
+  | "coolZoneOccupancy"
+  | "openReceipts"
+  | "openPutawayTasks"
+  | "openPickLists"
+  | "openMoveTasks"
+  | "openTransfers"
+  | "openCycleCounts"
+  | "openDockLoads"
+  | "openReplenishmentTasks"
+  | "recentAuditEvents"
+  | "holdStock"
+  | "quarantineStock"
+  | "expiryWarning60"
+  | "expiryWarning30"
+  | "stockAge3Months"
+  | "stockAge6Months"
+  | "stockAge12Months";
+
 export type DashboardMetrics = {
   totalPallets: number;
   totalPalletCapacity: number;
@@ -185,7 +207,30 @@ export type DashboardMetrics = {
   dockLoadRows: DashboardTaskRow[];
   replenishmentRows: DashboardTaskRow[];
   blockedBalanceRows: DashboardTaskRow[];
+  dashboardMetricKeys?: DashboardMetricKey[];
 };
+
+export function getDashboardMetricKeysForModules(enabledModules?: Partial<Record<string, boolean>>): DashboardMetricKey[] {
+  const moduleEnabled = (key: string) => enabledModules?.[key] !== false;
+  const metricModules: Array<[string, DashboardMetricKey]> = [
+    ["inventory", "totalPallets"],
+    ["inventory", "warehousePallets"],
+    ["receiving", "openReceipts"],
+    ["putaway", "openPutawayTasks"],
+    ["pick-lists", "openPickLists"],
+    ["location-moves", "openMoveTasks"],
+    ["inventory", "expiryWarning30"],
+    ["inventory", "expiryWarning60"],
+    ["inventory", "stockAge3Months"],
+    ["inventory", "stockAge6Months"],
+    ["inventory", "stockAge12Months"],
+  ];
+
+  return metricModules.flatMap(([moduleKey, metricKey]) => moduleEnabled(moduleKey) ? [metricKey] : []);
+}
+
+export type InventoryAgeBucket = "3m" | "6m" | "12m";
+export type InventoryExpiryWindow = "30d" | "60d";
 
 export const ROLE_LABELS: Record<RoleCode, string> = {
   developer: "Developer",
@@ -1187,7 +1232,12 @@ function parseReceiptNotes(notes: string | null | undefined): Record<string, any
 }
 
 function isMissingReceiptDraftColumn(error: any) {
-  return String(error?.message ?? "").includes("Could not find") && String(error?.message ?? "").includes("column") && String(error?.message ?? "").includes("receipts");
+  const message = String(error?.message ?? "");
+  return (
+    message.includes("receipts") &&
+    message.includes("column") &&
+    (message.includes("Could not find") || message.includes("does not exist"))
+  );
 }
 
 function withoutReceiptDraftColumns(row: Record<string, any>) {
@@ -1401,25 +1451,10 @@ export async function searchInventory(filters: {
   search?: string;
   warehouseId?: string;
   status?: InventoryStatus | "all";
+  ageBucket?: InventoryAgeBucket | "";
+  expiryWindow?: InventoryExpiryWindow | "";
 }) {
   let query = db("inventory_search_view").select("*");
-
-  if (filters.search) {
-    query = query.or(
-      [
-        `sku.ilike.%${filters.search}%`,
-        `product_name.ilike.%${filters.search}%`,
-        `product_barcode.ilike.%${filters.search}%`,
-        `pallet_code.ilike.%${filters.search}%`,
-        `pallet_barcode.ilike.%${filters.search}%`,
-        `container_number.ilike.%${filters.search}%`,
-        `po_number.ilike.%${filters.search}%`,
-        `lot_number.ilike.%${filters.search}%`,
-        `batch_number.ilike.%${filters.search}%`,
-        `location_code.ilike.%${filters.search}%`,
-      ].join(","),
-    );
-  }
 
   if (filters.warehouseId) {
     query = query.eq("warehouse_id", filters.warehouseId);
@@ -1433,7 +1468,62 @@ export async function searchInventory(filters: {
 
   const { data, error } = await query.order("received_at", { ascending: false });
   if (error) throw error;
-  return (data ?? []) as any[];
+  let rows = (data ?? []) as any[];
+  const searchTokens = (filters.search ?? "")
+    .trim()
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean);
+
+  if (searchTokens.length > 0) {
+    rows = rows.filter((row) => {
+      const haystack = [
+        row.sku,
+        row.product_name,
+        row.product_barcode,
+        row.pallet_code,
+        row.pallet_barcode,
+        row.container_number,
+        row.po_number,
+        row.lot_number,
+        row.batch_number,
+        row.expiry_date,
+        row.client_name,
+        row.owner_name,
+        row.warehouse_code,
+        row.warehouse_name,
+        row.zone_code,
+        row.location_code,
+        row.status,
+      ]
+        .map((value) => String(value ?? "").toLowerCase())
+        .join(" ");
+
+      return searchTokens.every((token) => haystack.includes(token));
+    });
+  }
+  const nowMs = Date.now();
+  const dayMs = 24 * 60 * 60 * 1000;
+
+  if (filters.ageBucket) {
+    const minimumDays = filters.ageBucket === "12m" ? 365 : filters.ageBucket === "6m" ? 180 : 90;
+    rows = rows.filter((row) => {
+      const value = row.received_at ?? row.created_at;
+      if (!value) return false;
+      return Math.floor((nowMs - new Date(value).getTime()) / dayMs) >= minimumDays;
+    });
+  }
+
+  if (filters.expiryWindow) {
+    const maximumDays = filters.expiryWindow === "30d" ? 30 : 60;
+    rows = rows.filter((row) => {
+      if (!row.expiry_date) return false;
+      const days = Math.ceil((new Date(row.expiry_date).getTime() - nowMs) / dayMs);
+      return days >= 0 && days <= maximumDays;
+    });
+  }
+
+  return rows;
 }
 
 export async function getInventoryDetail(balanceId: string) {
@@ -1463,6 +1553,10 @@ export async function getInventoryDetail(balanceId: string) {
       ? db("receipt_lines").select("*, receipts(*)").eq("id", pallet.receipt_line_id).maybeSingle()
       : Promise.resolve({ data: null, error: null }),
   ]);
+  const packagingId = (receiptLine as any)?.packaging_profile_id ?? pallet.packaging_profile_id ?? null;
+  const { data: packaging } = packagingId
+    ? await db("product_packaging_profiles").select("*").eq("id", packagingId).maybeSingle()
+    : { data: null };
 
   return {
     balance,
@@ -1474,6 +1568,7 @@ export async function getInventoryDetail(balanceId: string) {
     location: location ?? null,
     receiptLine: receiptLine ?? null,
     receipt: (receiptLine as any)?.receipts ?? null,
+    packaging: packaging ?? null,
     audit: audit ?? [],
   };
 }
@@ -1706,8 +1801,25 @@ export async function createPickListFlow(input: z.infer<typeof pickListSchema>) 
 
 export async function listPickLists() {
   const { data, error } = await db("pick_lists")
-    .select("*, pick_tasks(*, pallets(pallet_barcode, products(*)))")
+    .select("*, pick_tasks(*, pallets(pallet_barcode, pallet_code, quantity, available_quantity, products(*)), locations:location_id(code))")
     .order("created_at", { ascending: false });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function getPutawayTaskHistory(userId?: string) {
+  let query = db("putaway_tasks")
+    .select("*, pallets(*, products(*)), locations: suggested_location_id(*)")
+    .in("status", ["completed", "cancelled"])
+    .order("completed_at", { ascending: false })
+    .order("created_at", { ascending: false })
+    .limit(50);
+
+  if (userId) {
+    query = query.or(`assigned_user_id.eq.${userId},assigned_user_id.is.null`);
+  }
+
+  const { data, error } = await query;
   if (error) throw error;
   return data ?? [];
 }
@@ -1716,7 +1828,7 @@ export async function getPickExecution(pickListId: string) {
   const [pickList, pickTasks] = await Promise.all([
     db("pick_lists").select("*").eq("id", pickListId).single(),
     db("pick_tasks")
-      .select("*, pallets(pallet_barcode, quantity, available_quantity, products(sku, name)), locations:location_id(code)")
+      .select("*, pallets(pallet_barcode, pallet_code, quantity, available_quantity, products(sku, name)), locations:location_id(code)")
       .eq("pick_list_id", pickListId)
       .order("created_at", { ascending: true }),
   ]);
@@ -1751,6 +1863,12 @@ export async function confirmPickTask(taskId: string, scannedLocation: string, s
   if (!task.pallet_id) {
     throw new Error("Task is not linked to a pallet.");
   }
+  if (["completed", "cancelled"].includes(task.status)) {
+    throw new Error("Pick task is already closed. Refresh the pick list.");
+  }
+  if (!Number.isFinite(Number(confirmedQuantity)) || Number(confirmedQuantity) <= 0) {
+    throw new Error("Confirmed pick quantity must be greater than zero.");
+  }
 
   const [{ data: pallet, error: palletError }, { data: balance, error: balanceError }] = await Promise.all([
     db("pallets").select("*").eq("id", task.pallet_id).single(),
@@ -1769,6 +1887,9 @@ export async function confirmPickTask(taskId: string, scannedLocation: string, s
   if (location.error) throw location.error;
   if (location.data && location.data.code !== scannedLocation) {
     throw new Error("Scanned location does not match the suggested pick location.");
+  }
+  if (Number(confirmedQuantity) > Number(balance.available_quantity ?? 0)) {
+    throw new Error(`Cannot pick ${confirmedQuantity}; only ${balance.available_quantity ?? 0} available on this pallet.`);
   }
 
   const nextAvailable = Math.max(balance.available_quantity - confirmedQuantity, 0);
@@ -1834,6 +1955,9 @@ export async function confirmPickTask(taskId: string, scannedLocation: string, s
     in_metadata: {
       confirmed_quantity: confirmedQuantity,
       short_reason: shortReason ?? null,
+      previous_quantity: Number(balance.quantity ?? 0),
+      remaining_quantity: nextBalanceQuantity,
+      location_cleared: fullyDepleted,
     } as any,
   });
   if (pickAudit.error) console.error("[submitPickTaskLine] log_audit_event failed:", pickAudit.error);
@@ -2229,6 +2353,15 @@ export async function changePalletStatus(input: z.infer<typeof statusChangeSchem
     } as any,
   });
   if (statusAudit.error) console.error("[changePalletStatus] log_audit_event failed:", statusAudit.error);
+  await writeSystemLog({
+    log_type: "system_change",
+    severity: ["missing", "damaged", "quarantine"].includes(payload.new_status) ? "warning" : "info",
+    title: "Pallet status changed",
+    message: `Pallet status changed from ${balance.status} to ${payload.new_status}.`,
+    source: "inventory",
+    table_name: "pallets",
+    details: { palletId, old_status: balance.status, new_status: payload.new_status, reason: payload.reason },
+  }).catch((error) => console.error("[changePalletStatus] writeSystemLog failed:", error));
 }
 
 async function resolvePalletId(palletInput: string) {
@@ -2245,7 +2378,9 @@ async function resolvePalletId(palletInput: string) {
   return data.id as string;
 }
 
-export async function getDashboardMetrics(warehouseId?: string | null) {
+export async function getDashboardMetrics(warehouseId?: string | null, enabledModules?: Partial<Record<string, boolean>>) {
+  const dashboardMetricKeys = getDashboardMetricKeysForModules(enabledModules);
+
   const [balances, locations, receipts, putawayTasks, pickLists, moveTasks, transfers, cycleCounts, stagingLoads, replenishments, audits] = await Promise.all([
     db("inventory_balances").select("id, warehouse_id, status, zone_id, pallet_id, created_at, received_at, expiry_date"),
     db("locations").select("warehouse_id, max_pallets"),
@@ -2439,6 +2574,7 @@ export async function getDashboardMetrics(warehouseId?: string | null) {
     dockLoadRows,
     replenishmentRows,
     blockedBalanceRows: blockedRows,
+    dashboardMetricKeys,
   } satisfies DashboardMetrics;
 }
 
@@ -2933,6 +3069,15 @@ export async function updateDraftReceipt(draftId: string, values: z.infer<typeof
       .in("status", ["draft", "queued"]));
   }
   if (error) throw error;
+  await writeSystemLog({
+    log_type: "system_change",
+    severity: "info",
+    title: "Receiving draft updated",
+    message: `Draft ${draftBarcode} was updated.`,
+    source: "receiving",
+    table_name: "receipts",
+    details: { draftId, draft_pallet_barcode: draftBarcode, container_number: values.container_number || null, po_number: values.po_number || null },
+  }).catch((error) => console.error("[updateDraftReceipt] writeSystemLog failed:", error));
 }
 
 async function createReturnedPalletDraft({
@@ -2956,9 +3101,20 @@ async function createReturnedPalletDraft({
   ]);
   if (palletError) throw palletError;
 
+  if (sourceId) {
+    const { data: existingDraft, error: existingError } = await db("receipts")
+      .select("id")
+      .eq("warehouse_id", warehouseId)
+      .eq("status", "draft")
+      .ilike("notes", `%${sourceId}%`)
+      .maybeSingle();
+    if (existingError) throw existingError;
+    if (existingDraft?.id) return existingDraft.id;
+  }
+
   const receiptNumber = buildPalletCode("RCT");
   const quantity = Number(balance?.quantity ?? pallet.quantity ?? 0);
-  const { data, error } = await db("receipts").insert({
+  const receiptRow = {
     receipt_number: receiptNumber,
     receipt_type: "other",
     reference_number: pallet.pallet_barcode ?? receiptNumber,
@@ -2980,7 +3136,11 @@ async function createReturnedPalletDraft({
       packaging_profile_id: pallet.packaging_profile_id,
       reuse_pallet_barcode: pallet.pallet_barcode,
     }),
-  }).select("id").single();
+  };
+  let { data, error } = await db("receipts").insert(receiptRow).select("id").single();
+  if (error && isMissingReceiptDraftColumn(error)) {
+    ({ data, error } = await db("receipts").insert(withoutReceiptDraftColumns(receiptRow)).select("id").single());
+  }
   if (error) throw error;
   return data.id;
 }
@@ -3012,7 +3172,9 @@ export async function listDraftReceipts(warehouseId: string): Promise<DraftRecei
   return (data ?? [])
     .filter((row: any) => {
       const meta = parseReceiptNotes(row.notes);
-      return row.status === "draft" || meta._draft || String(row.notes ?? "").toLowerCase().includes("awaiting putaway");
+      if (meta._seeded_draft) return false;
+      if (String(meta.source_label ?? "").toLowerCase().includes("seeded receiving draft")) return false;
+      return row.status === "draft" || meta._draft;
     })
     .map((row: any) => {
     const meta = parseReceiptNotes(row.notes);
@@ -3199,8 +3361,22 @@ export async function completeReceiptFromDraft(
 }
 
 export async function deleteDraftReceipt(draftId: string): Promise<void> {
+  const { data: draft } = await db("receipts")
+    .select("receipt_number, reference_number, notes")
+    .eq("id", draftId)
+    .maybeSingle();
   const { error } = await db("receipts").delete().eq("id", draftId).eq("status", "draft");
   if (error) throw error;
+  const meta = parseReceiptNotes((draft as any)?.notes);
+  await writeSystemLog({
+    log_type: "system_change",
+    severity: "info",
+    title: "Receiving draft cancelled",
+    message: `Draft ${meta.draft_pallet_barcode ?? (draft as any)?.receipt_number ?? draftId} was cancelled.`,
+    source: "receiving",
+    table_name: "receipts",
+    details: { draftId, receipt_number: (draft as any)?.receipt_number ?? null, reference_number: (draft as any)?.reference_number ?? null },
+  }).catch((error) => console.error("[deleteDraftReceipt] writeSystemLog failed:", error));
 }
 
 // ── Bin capacity helper ───────────────────────────────────────────────────────
@@ -3247,20 +3423,70 @@ export async function getBayOccupancy(locationCode: string): Promise<{
     isFull: boolean;
   }>;
 } | null> {
-  const { data: anchor, error } = await db("locations")
-    .select("id, code, warehouse_id, zone_id, aisle, bay")
-    .eq("code", locationCode)
-    .maybeSingle();
-  if (error || !anchor) return null;
+  const normalizedCode = locationCode.trim();
+  let anchor: any = null;
+  const bayParts = normalizedCode.match(/^BAY:([^:]+):([^:]+):([^:]+):([^:]+)$/i);
+  const bayCodePrefix = bayParts ? `${bayParts[1]}-${bayParts[2]}-${bayParts[3]}-${bayParts[4]}-` : "";
 
-  let query = db("locations")
-    .select("id, code, aisle, bay, level, depth, max_pallets, status")
-    .eq("warehouse_id", anchor.warehouse_id)
-    .eq("zone_id", anchor.zone_id);
-  if (anchor.aisle) query = query.eq("aisle", anchor.aisle);
-  if (anchor.bay) query = query.eq("bay", anchor.bay);
-  const { data: locations, error: locError } = await query.order("level", { ascending: false }).order("depth", { ascending: true });
-  if (locError) throw locError;
+  if (bayParts) {
+    const [, warehouseCode, zoneCode, aisle, bay] = bayParts;
+    const { data: warehouse, error: warehouseError } = await db("warehouses")
+      .select("id")
+      .eq("code", warehouseCode.toUpperCase())
+      .maybeSingle();
+    if (warehouseError) throw warehouseError;
+
+    let zone: any = null;
+    if (warehouse) {
+      const zoneResult = await db("zones")
+        .select("id")
+        .eq("warehouse_id", warehouse.id)
+        .eq("code", zoneCode.toUpperCase())
+        .maybeSingle();
+      if (zoneResult.error) throw zoneResult.error;
+      zone = zoneResult.data;
+    }
+
+    anchor = {
+      code: normalizedCode,
+      warehouse_id: warehouse?.id ?? null,
+      zone_id: zone?.id ?? null,
+      aisle,
+      bay,
+    };
+  } else {
+    const { data, error } = await db("locations")
+      .select("id, code, warehouse_id, zone_id, aisle, bay")
+      .eq("code", normalizedCode)
+      .maybeSingle();
+    if (error || !data) return null;
+    anchor = data;
+  }
+
+  let locations: any[] = [];
+  if (anchor.warehouse_id && anchor.zone_id) {
+    let query = db("locations")
+      .select("id, code, aisle, bay, level, depth, max_pallets, status, location_type")
+      .eq("warehouse_id", anchor.warehouse_id)
+      .eq("zone_id", anchor.zone_id)
+      .eq("location_type", "rack");
+    if (anchor.aisle) query = query.eq("aisle", anchor.aisle);
+    if (anchor.bay) query = query.eq("bay", anchor.bay);
+    const result = await query.order("level", { ascending: false }).order("depth", { ascending: true });
+    if (result.error) throw result.error;
+    locations = result.data ?? [];
+  }
+
+  if ((locations ?? []).length === 0 && bayCodePrefix) {
+    const fallback = await db("locations")
+      .select("id, code, aisle, bay, level, depth, max_pallets, status, location_type")
+      .eq("location_type", "rack")
+      .ilike("code", `${bayCodePrefix}%`)
+      .order("level", { ascending: false })
+      .order("depth", { ascending: true });
+    if (fallback.error) throw fallback.error;
+    locations = fallback.data ?? [];
+  }
 
   const cells = await Promise.all((locations ?? []).map(async (location: any) => {
     const { count } = await db("inventory_balances")
@@ -3287,6 +3513,32 @@ export async function getBayOccupancy(locationCode: string): Promise<{
     bay: anchor.bay ?? null,
     cells,
   };
+}
+
+export async function logPutawayBaySelection(input: {
+  taskId: string;
+  scannedCode: string;
+  selectedLocationCode?: string;
+}) {
+  const { data: task, error } = await db("putaway_tasks")
+    .select("id, task_number, warehouse_id, pallet_id")
+    .eq("id", input.taskId)
+    .maybeSingle();
+  if (error || !task) return;
+
+  const audit = await (supabase.rpc as any)("log_audit_event", {
+    in_event_type: "putaway_bay_selection",
+    in_entity_table: "putaway_tasks",
+    in_entity_id: input.taskId,
+    in_pallet_id: task.pallet_id,
+    in_warehouse_id: task.warehouse_id,
+    in_metadata: {
+      task_number: task.task_number,
+      scanned_code: input.scannedCode,
+      selected_location_code: input.selectedLocationCode ?? null,
+    },
+  });
+  if (audit.error) console.error("[logPutawayBaySelection] log_audit_event failed:", audit.error);
 }
 
 // ── Move to picking area ──────────────────────────────────────────────────────
@@ -3328,8 +3580,8 @@ export async function revertPutawayToDraft(taskId: string): Promise<void> {
   const { data: task, error } = await db("putaway_tasks").select("*, pallets(pallet_barcode)").eq("id", taskId).single();
   if (error) throw error;
   if (task.status === "completed") throw new Error("Cannot revert a completed putaway task.");
-  const { error: updErr } = await db("putaway_tasks").update({ status: "draft" } as any).eq("id", taskId);
-  if (updErr) throw updErr;
+  if (task.status === "cancelled") throw new Error("Putaway task has already been returned to Receiving.");
+
   await createReturnedPalletDraft({
     palletId: task.pallet_id,
     warehouseId: task.warehouse_id,
@@ -3338,6 +3590,23 @@ export async function revertPutawayToDraft(taskId: string): Promise<void> {
     sourceId: taskId,
     reason: "Returned to receiving from putaway",
   });
+
+  const [{ error: updErr }, { error: palletErr }, { error: balanceErr }] = await Promise.all([
+    db("putaway_tasks")
+      .update({ status: "cancelled", completed_at: new Date().toISOString() } as any)
+      .eq("id", taskId)
+      .in("status", ["queued", "assigned", "in_progress", "exception", "draft"]),
+    db("pallets")
+      .update({ status: "receiving", current_location_id: null, is_stored: false, available_quantity: 0 } as any)
+      .eq("id", task.pallet_id),
+    db("inventory_balances")
+      .update({ status: "receiving", location_id: null, zone_id: null, available_quantity: 0 } as any)
+      .eq("pallet_id", task.pallet_id),
+  ]);
+  if (updErr) throw updErr;
+  if (palletErr) throw palletErr;
+  if (balanceErr) throw balanceErr;
+
   await (supabase.rpc as any)("log_audit_event", {
     in_event_type: "putaway_reverted_to_draft",
     in_entity_table: "putaway_tasks",

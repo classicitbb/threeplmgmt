@@ -236,3 +236,108 @@ export function LabelSheetPrintDialog({
     </Dialog>
   );
 }
+
+export function BayLocationCodesPrintDialog({
+  items,
+  trigger,
+}: {
+  items: LabelSheetItem[];
+  trigger: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+
+  function handlePrint() {
+    if (items.length === 0) return;
+    const pages = items.map((item) => {
+      const qr = renderQrSvg(item.code);
+      return `
+        <section class="bay-label">
+          <div class="cut cut-tl"></div><div class="cut cut-tr"></div><div class="cut cut-bl"></div><div class="cut cut-br"></div>
+          <div class="meta">
+            <div class="eyebrow">Bay location code</div>
+            <div class="code">${escapeHtml(item.code)}</div>
+            ${item.title ? `<div class="title">${escapeHtml(item.title)}</div>` : ""}
+            ${item.subtitle ? `<div class="subtitle">${escapeHtml(item.subtitle)}</div>` : ""}
+          </div>
+          <div class="qr">${qr}</div>
+        </section>`;
+    }).join("");
+
+    const win = window.open("", "_blank", "width=620,height=760");
+    if (!win) return;
+    win.document.write(`<!DOCTYPE html>
+<html>
+<head>
+  <title>Bay Location Codes — ${items.length} bays</title>
+  <meta charset="utf-8" />
+  <style>
+    @page { size: 4.5in 5.5in portrait; margin: 0; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #fff; font-family: system-ui, -apple-system, sans-serif; color: #000; }
+    .bay-label {
+      position: relative;
+      width: 4.5in;
+      height: 5.5in;
+      page-break-after: always;
+      display: grid;
+      grid-template-rows: minmax(0, 1fr) 2.25in;
+      gap: 0.16in;
+      padding: 0.28in;
+      overflow: hidden;
+    }
+    .bay-label:last-child { page-break-after: auto; }
+    .meta { min-width: 0; border-left: 0.12in solid #0f766e; padding-left: 0.16in; display: flex; flex-direction: column; justify-content: center; gap: 0.1in; }
+    .eyebrow { font-size: 11pt; font-weight: 800; text-transform: uppercase; color: #0f766e; letter-spacing: 0.04em; }
+    .code { font-size: 24pt; font-weight: 900; line-height: 1.05; word-break: break-word; }
+    .title { font-size: 13pt; font-weight: 700; }
+    .subtitle { font-size: 11pt; color: #333; line-height: 1.25; }
+    .qr { display: flex; align-items: center; justify-content: center; }
+    .qr svg { width: 2.15in; height: 2.15in; }
+    .cut { position: absolute; width: 0.18in; height: 0.18in; }
+    .cut-tl { left: 0.04in; top: 0.04in; border-left: 1px solid #999; border-top: 1px solid #999; }
+    .cut-tr { right: 0.04in; top: 0.04in; border-right: 1px solid #999; border-top: 1px solid #999; }
+    .cut-bl { left: 0.04in; bottom: 0.04in; border-left: 1px solid #999; border-bottom: 1px solid #999; }
+    .cut-br { right: 0.04in; bottom: 0.04in; border-right: 1px solid #999; border-bottom: 1px solid #999; }
+  </style>
+</head>
+<body>
+  ${pages}
+  <script>window.onload=()=>{window.print();window.close();}<\/script>
+</body>
+</html>`);
+    win.document.close();
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>{trigger}</DialogTrigger>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Print Bay Location Codes</DialogTitle>
+          <DialogDescription>
+            {items.length} bay code{items.length === 1 ? "" : "s"} from the current Locations search. Each prints at 4.5 × 5.5 in portrait with cut marks.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="max-h-64 overflow-auto rounded-md border border-border">
+          {items.length === 0 ? (
+            <p className="p-3 text-sm text-muted-foreground">No bay codes matched the current table search.</p>
+          ) : (
+            items.map((item) => (
+              <div key={item.code} className="border-b border-border px-3 py-2 last:border-b-0">
+                <p className="font-mono text-sm font-semibold">{item.code}</p>
+                {item.subtitle ? <p className="text-xs text-muted-foreground">{item.subtitle}</p> : null}
+              </div>
+            ))
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+          <Button onClick={handlePrint} disabled={items.length === 0}>
+            <Printer className="mr-2 h-4 w-4" />
+            Print {items.length} bay code{items.length === 1 ? "" : "s"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}

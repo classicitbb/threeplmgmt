@@ -1,12 +1,12 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { QRCodeSVG } from "qrcode.react";
-import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
+import { Link, NavLink, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm, type UseFormReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { supabase } from "@/integrations/supabase/client";
-import { Activity, AlertTriangle, ArrowLeftRight, BarChart3, Bot, Boxes, Building2, CheckCircle2, ChevronDown, ClipboardCheck, ClipboardList, CloudOff, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, HelpCircle, Home, Info, KeyRound, LayoutDashboard, Loader2, LogOut, Mail, Maximize2, MapPinned, Menu, Minimize2, Package, PackageX, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, QrCode, RadioTower, RefreshCw, RotateCcw, Search, Settings, ShieldCheck, Star, Tags, Trash2, Truck, Upload, UserPlus, Users } from "lucide-react";
+import { Activity, AlertTriangle, ArrowLeftRight, BarChart3, Bot, Boxes, Building2, CheckCircle2, ChevronDown, ClipboardCheck, ClipboardList, CloudOff, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, HelpCircle, Home, Info, KeyRound, LayoutDashboard, Loader2, Lock, LockOpen, LogOut, Mail, Maximize2, MapPinned, Menu, Minimize2, Package, PackageX, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, QrCode, RadioTower, RefreshCw, RotateCcw, Search, Settings, ShieldCheck, Star, Tags, Trash2, Truck, Upload, UserPlus, Users } from "lucide-react";
 import {
   DndContext,
   KeyboardSensor,
@@ -73,7 +73,9 @@ import {
   getPickExecution,
   getBinOccupancy,
   getBayOccupancy,
+  logPutawayBaySelection,
   getPutawayTasks,
+  getPutawayTaskHistory,
   getReportData,
   importCsvToResource,
   listClientVariables,
@@ -122,7 +124,22 @@ import { BarcodeScanButton } from "@/components/barcode-scan-button";
 import { type ProductSearchHandle } from "@/components/product-search";
 
 import { cn } from "@/lib/utils";
+import { getOrCreateDeviceId } from "@/lib/device-identity";
 import { invalidateWarehouseData } from "@/lib/query-invalidation";
+import {
+  filterDashboardTileDefinitions,
+  hiddenDashboardTiles,
+  loadDashboardDeviceLayout,
+  loadDashboardTileVisibility,
+  sanitizeDashboardLayout,
+  saveDashboardDeviceLayout,
+  saveDashboardTileVisibility,
+  visibleDashboardTiles,
+  type DashboardCardSize,
+  type DashboardTileConfig,
+  type DashboardTileDefinition,
+  type DashboardVisibilityMap,
+} from "@/lib/dashboard-preferences";
 import {
   buildCsvReportRows,
   buildEnterpriseDashboard,
@@ -135,7 +152,7 @@ import {
 import { HelpSidebar } from "@/components/help-sidebar";
 import { ZoneLabelPage } from "@/components/zone-label-page";
 import { LocationLabelPage } from "@/components/location-label-page";
-import { LabelSheetPrintDialog, type LabelSheetItem } from "@/components/label-sheet-print";
+import { BayLocationCodesPrintDialog, LabelSheetPrintDialog, type LabelSheetItem } from "@/components/label-sheet-print";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -182,25 +199,22 @@ type DashboardMetricKey =
   | "stockAge6Months"
   | "stockAge12Months";
 
-type DashboardCardSize = "sm" | "lg";
-
-type DashboardCardConfig = {
-  id: string;
-  label: string;
+type DashboardCardConfig = DashboardTileDefinition<ModuleKey> & {
   metricKey: DashboardMetricKey;
-  size: DashboardCardSize;
 };
 
 const DEFAULT_DASHBOARD_CARDS: DashboardCardConfig[] = [
-  { id: "totalPallets", label: "Total Pallets", metricKey: "totalPallets", size: "lg" },
-  { id: "warehousePallets", label: "This Warehouse", metricKey: "warehousePallets", size: "lg" },
-  { id: "openReceipts", label: "Open Receipts", metricKey: "openReceipts", size: "sm" },
-  { id: "openPutawayTasks", label: "Open Putaway", metricKey: "openPutawayTasks", size: "sm" },
-  { id: "openPickLists", label: "Open Pick Lists", metricKey: "openPickLists", size: "sm" },
-  { id: "openMoveTasks", label: "Open Moves", metricKey: "openMoveTasks", size: "sm" },
-  { id: "expiryWarning30", label: "Expiry 30 Days", metricKey: "expiryWarning30", size: "sm" },
-  { id: "expiryWarning60", label: "Expiry 60 Days", metricKey: "expiryWarning60", size: "sm" },
-  { id: "stockAge3Months", label: "Aging 3+ Mo", metricKey: "stockAge3Months", size: "sm" },
+  { id: "totalPallets", label: "Total Pallets", metricKey: "totalPallets", size: "lg", moduleKey: "inventory" },
+  { id: "warehousePallets", label: "This Warehouse", metricKey: "warehousePallets", size: "lg", moduleKey: "inventory" },
+  { id: "openReceipts", label: "Open Receipts", metricKey: "openReceipts", size: "sm", moduleKey: "receiving" },
+  { id: "openPutawayTasks", label: "Open Putaway", metricKey: "openPutawayTasks", size: "sm", moduleKey: "putaway" },
+  { id: "openPickLists", label: "Open Pick Lists", metricKey: "openPickLists", size: "sm", moduleKey: "pick-lists" },
+  { id: "openMoveTasks", label: "Open Moves", metricKey: "openMoveTasks", size: "sm", moduleKey: "location-moves" },
+  { id: "expiryWarning30", label: "Expiry 30 Days", metricKey: "expiryWarning30", size: "sm", moduleKey: "inventory" },
+  { id: "expiryWarning60", label: "Expiry 60 Days", metricKey: "expiryWarning60", size: "sm", moduleKey: "inventory" },
+  { id: "stockAge3Months", label: "Aging 3+ Mo", metricKey: "stockAge3Months", size: "sm", moduleKey: "inventory" },
+  { id: "stockAge6Months", label: "Aging 6+ Mo", metricKey: "stockAge6Months", size: "sm", moduleKey: "inventory" },
+  { id: "stockAge12Months", label: "Aging 12+ Mo", metricKey: "stockAge12Months", size: "sm", moduleKey: "inventory" },
 ];
 
 const DASHBOARD_FLOOR_LAYOUT_KEY = "wms.dashboard.floor.surface.layout.v1";
@@ -229,41 +243,49 @@ const DASHBOARD_METRIC_ROUTES: Record<DashboardMetricKey, AppRoute> = {
   stockAge6Months: "/inventory-search",
   stockAge12Months: "/inventory-search",
 };
-type DashboardTileConfig = {
-  id: string;
-  size: DashboardCardSize;
-};
 
-const DEFAULT_FLOOR_TILES: DashboardTileConfig[] = [
-  { id: "Inbound", size: "lg" },
-  { id: "Putaway", size: "lg" },
-  { id: "Warehouse Intelligence", size: "lg" },
-  { id: "Outbound", size: "lg" },
-  { id: "Moves & Counts", size: "lg" },
-  { id: "Blocked Exceptions", size: "lg" },
+function dashboardMetricLink(metricKey: DashboardMetricKey) {
+  if (metricKey === "stockAge3Months") return "/inventory-search?age=3m";
+  if (metricKey === "stockAge6Months") return "/inventory-search?age=6m";
+  if (metricKey === "stockAge12Months") return "/inventory-search?age=12m";
+  if (metricKey === "expiryWarning30") return "/inventory-search?expiry=30d";
+  if (metricKey === "expiryWarning60") return "/inventory-search?expiry=60d";
+  return DASHBOARD_METRIC_ROUTES[metricKey];
+}
+const DEFAULT_FLOOR_TILES: DashboardTileDefinition<ModuleKey>[] = [
+  { id: "Inbound", label: "Inbound", size: "lg", moduleKey: "receiving" },
+  { id: "Putaway", label: "Putaway", size: "lg", moduleKey: "putaway" },
+  { id: "Warehouse Intelligence", label: "Warehouse Intelligence", size: "lg" },
+  { id: "Outbound", label: "Outbound", size: "lg", moduleKey: "pick-lists" },
+  { id: "Moves & Counts", label: "Moves & Counts", size: "lg", moduleKey: "location-moves" },
+  { id: "Blocked Exceptions", label: "Blocked Exceptions", size: "lg", moduleKey: "status" },
 ];
 
-const DEFAULT_DOCK_TILES: DashboardTileConfig[] = [
-  { id: "ready", size: "sm" },
-  { id: "called", size: "sm" },
-  { id: "loading", size: "sm" },
-  { id: "blocked", size: "sm" },
-  { id: "loaded", size: "sm" },
-  { id: "warehouse-brain", size: "lg" },
+const DEFAULT_DOCK_TILES: DashboardTileDefinition<ModuleKey>[] = [
+  { id: "ready", label: "Ready", size: "sm", moduleKey: "pick-lists" },
+  { id: "called", label: "Called", size: "sm", moduleKey: "pick-lists" },
+  { id: "loading", label: "Loading", size: "sm", moduleKey: "pick-lists" },
+  { id: "blocked", label: "Blocked", size: "sm", moduleKey: "pick-lists" },
+  { id: "loaded", label: "Loaded", size: "sm", moduleKey: "pick-lists" },
+  { id: "warehouse-brain", label: "Warehouse Brain", size: "lg" },
 ];
 
-const DEFAULT_OFFICE_TILES: DashboardTileConfig[] = [
-  { id: "Fill level", size: "lg" },
-  { id: "Inventory turn watch", size: "lg" },
-  { id: "Expiration risk", size: "lg" },
-  { id: "DPMO", size: "lg" },
-  { id: "setup-checklist", size: "lg" },
-  { id: "warehouse-brain", size: "lg" },
+const DEFAULT_OFFICE_TILES: DashboardTileDefinition<ModuleKey>[] = [
+  { id: "Fill level", label: "Fill level", size: "lg", moduleKey: "locations" },
+  { id: "Inventory turn watch", label: "Inventory turn watch", size: "lg", moduleKey: "inventory" },
+  { id: "Expiration risk", label: "Expiration risk", size: "lg", moduleKey: "inventory" },
+  { id: "DPMO", label: "DPMO", size: "lg", moduleKey: "cycle-counts" },
+  { id: "setup-checklist", label: "Setup Checklist", size: "lg", moduleKey: "settings" },
+  { id: "warehouse-brain", label: "Warehouse Brain", size: "lg" },
 ];
 
-const DEFAULT_FLOOR_LAYOUT: DashboardTileConfig[] = [...DEFAULT_DASHBOARD_CARDS, ...DEFAULT_FLOOR_TILES];
-const DEFAULT_DOCK_LAYOUT: DashboardTileConfig[] = [...DEFAULT_DASHBOARD_CARDS, ...DEFAULT_DOCK_TILES];
-const DEFAULT_OFFICE_LAYOUT: DashboardTileConfig[] = [...DEFAULT_DASHBOARD_CARDS, ...DEFAULT_OFFICE_TILES];
+const DEFAULT_FLOOR_LAYOUT: DashboardTileDefinition<ModuleKey>[] = [...DEFAULT_DASHBOARD_CARDS, ...DEFAULT_FLOOR_TILES];
+const DEFAULT_DOCK_LAYOUT: DashboardTileDefinition<ModuleKey>[] = [...DEFAULT_DASHBOARD_CARDS, ...DEFAULT_DOCK_TILES];
+const DEFAULT_OFFICE_LAYOUT: DashboardTileDefinition<ModuleKey>[] = [...DEFAULT_DASHBOARD_CARDS, ...DEFAULT_OFFICE_TILES];
+
+function tileConfigsFromDefinitions(definitions: DashboardTileDefinition<ModuleKey>[]): DashboardTileConfig[] {
+  return definitions.map((tile) => ({ id: tile.id, size: tile.size }));
+}
 
 // ---------------------------------------------------------------------------
 // Barcode scanner helpers
@@ -303,38 +325,39 @@ function flashInput(el: HTMLElement | null, colour: "orange" | "blue") {
   setTimeout(() => el.classList.remove(...cls), 700);
 }
 
-function loadTileLayout(key: string, defaults: DashboardTileConfig[]) {
+function loadFallbackTileLayout(key: string, defaults: DashboardTileConfig[]) {
   if (typeof window === "undefined") return defaults;
   try {
     const raw = window.localStorage.getItem(key);
     if (!raw) return defaults;
-    const parsed = JSON.parse(raw) as DashboardTileConfig[];
-    if (!Array.isArray(parsed) || parsed.length === 0) return defaults;
-    const allowed = new Set(defaults.map((tile) => tile.id));
-    const seen = new Set<string>();
-    const sanitized = parsed
-      .filter((tile) => tile && allowed.has(tile.id))
-      .filter((tile) => {
-        if (seen.has(tile.id)) return false;
-        seen.add(tile.id);
-        return true;
-      })
-      .map((tile) => ({ id: tile.id, size: (tile.size === "lg" ? "lg" : "sm") as DashboardCardSize }));
-    const missing = defaults.filter((tile) => !seen.has(tile.id));
-    return [...sanitized, ...missing];
+    return sanitizeDashboardLayout(JSON.parse(raw), defaults);
   } catch {
     return defaults;
   }
 }
 
-function profileLayoutKey(key: string, profileId?: string | null) {
-  return profileId ? `${key}.${profileId}` : key;
+function fallbackLayoutKey(key: string, profileId?: string | null, deviceId?: string | null) {
+  return [key, profileId ?? "anonymous", deviceId ?? "device"].join(".");
 }
 
-function saveTileLayout(key: string, tiles: DashboardTileConfig[]) {
+function loadFallbackVisibility(key: string): DashboardVisibilityMap {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.localStorage.getItem(key);
+    return raw ? JSON.parse(raw) as DashboardVisibilityMap : {};
+  } catch {
+    return {};
+  }
+}
+
+function fallbackVisibilityKey(profileId: string | null | undefined, mode: DashboardMode) {
+  return `wms.dashboard.visibility.v1.${profileId ?? "anonymous"}.${mode}`;
+}
+
+function saveFallbackJson(key: string, value: unknown) {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(key, JSON.stringify(tiles));
+    window.localStorage.setItem(key, JSON.stringify(value));
   } catch {
     /* ignore */
   }
@@ -342,16 +365,20 @@ function saveTileLayout(key: string, tiles: DashboardTileConfig[]) {
 
 function SortableDashboardTile({
   tile,
+  editMode,
   onResize,
+  onHide,
   children,
   className,
 }: {
   tile: DashboardTileConfig;
+  editMode: boolean;
   onResize: (id: string) => void;
+  onHide: (id: string) => void;
   children: ReactNode;
   className?: string;
 }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: tile.id });
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: tile.id, disabled: !editMode });
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
@@ -362,25 +389,35 @@ function SortableDashboardTile({
     <div ref={setNodeRef} style={style} className={cn(tile.size === "lg" ? "sm:col-span-2" : undefined, className)}>
       <div className="group relative h-full">
         {children}
-        <div className="absolute right-3 top-3 z-10 flex items-center gap-1 rounded-md bg-background/80 p-0.5 shadow-sm backdrop-blur">
-          <button
-            type="button"
-            onClick={() => onResize(tile.id)}
-            className="grid h-6 w-6 place-items-center rounded-sm text-muted-foreground transition hover:bg-secondary hover:text-foreground"
-            aria-label="Resize tile"
-          >
-            {tile.size === "sm" ? <Maximize2 className="h-3.5 w-3.5" /> : <Minimize2 className="h-3.5 w-3.5" />}
-          </button>
-          <button
-            type="button"
-            className="grid h-6 w-6 cursor-grab place-items-center rounded-sm text-muted-foreground transition hover:bg-secondary hover:text-foreground active:cursor-grabbing"
-            aria-label="Drag tile"
-            {...attributes}
-            {...listeners}
-          >
-            <GripVertical className="h-3.5 w-3.5" />
-          </button>
-        </div>
+        {editMode ? (
+          <div className="absolute right-3 top-3 z-10 flex items-center gap-1 rounded-md bg-background/80 p-0.5 shadow-sm backdrop-blur">
+            <button
+              type="button"
+              onClick={() => onHide(tile.id)}
+              className="grid h-6 w-6 place-items-center rounded-sm text-muted-foreground transition hover:bg-secondary hover:text-foreground"
+              aria-label="Hide tile"
+            >
+              <EyeOff className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => onResize(tile.id)}
+              className="grid h-6 w-6 place-items-center rounded-sm text-muted-foreground transition hover:bg-secondary hover:text-foreground"
+              aria-label="Resize tile"
+            >
+              {tile.size === "sm" ? <Maximize2 className="h-3.5 w-3.5" /> : <Minimize2 className="h-3.5 w-3.5" />}
+            </button>
+            <button
+              type="button"
+              className="grid h-6 w-6 cursor-grab place-items-center rounded-sm text-muted-foreground transition hover:bg-secondary hover:text-foreground active:cursor-grabbing"
+              aria-label="Drag tile"
+              {...attributes}
+              {...listeners}
+            >
+              <GripVertical className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -390,21 +427,25 @@ function SortableMetricCard({
   card,
   value,
   isLoading,
+  editMode,
   onResize,
+  onHide,
 }: {
   card: DashboardCardConfig;
   value: number;
   isLoading: boolean;
+  editMode: boolean;
   onResize: (id: string) => void;
+  onHide: (id: string) => void;
 }) {
   return (
-    <SortableDashboardTile tile={card} onResize={onResize}>
+    <SortableDashboardTile tile={card} editMode={editMode} onResize={onResize} onHide={onHide}>
       <Card className="relative h-full">
         <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2 pr-20">
           <CardTitle className="text-sm font-medium text-muted-foreground">{card.label}</CardTitle>
         </CardHeader>
         <CardContent>
-          <Link to={DASHBOARD_METRIC_ROUTES[card.metricKey]} className="block rounded-sm transition hover:text-primary focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
+          <Link to={dashboardMetricLink(card.metricKey)} className="block rounded-sm transition hover:text-primary focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
             <div className="text-3xl font-bold">
               {isLoading ? <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /> : formatNumber(value)}
             </div>
@@ -420,32 +461,36 @@ function SortableSummaryCard({
   metrics,
   isLoading,
   warehouseCaption,
+  editMode,
   onResize,
+  onHide,
 }: {
   card: DashboardCardConfig;
   metrics: Awaited<ReturnType<typeof getDashboardMetrics>> | undefined;
   isLoading: boolean;
   warehouseCaption: string;
+  editMode: boolean;
   onResize: (id: string) => void;
+  onHide: (id: string) => void;
 }) {
   if (DASHBOARD_DIAL_METRICS.has(card.metricKey)) {
     const capacity = card.metricKey === "totalPallets" ? metrics?.totalPalletCapacity ?? 0 : metrics?.warehousePalletCapacity ?? 0;
     const caption = card.metricKey === "totalPallets" ? `${formatNumber(metrics?.totalPalletCapacity ?? 0)} location capacity` : warehouseCaption;
     return (
-      <SortableDashboardTile tile={card} onResize={onResize}>
+      <SortableDashboardTile tile={card} editMode={editMode} onResize={onResize} onHide={onHide}>
         <PalletDialCard
           label={card.label}
           value={metrics?.[card.metricKey] ?? 0}
           capacity={capacity}
           caption={caption}
           isLoading={isLoading}
-          route={DASHBOARD_METRIC_ROUTES[card.metricKey]}
+          route={dashboardMetricLink(card.metricKey)}
         />
       </SortableDashboardTile>
     );
   }
 
-  return <SortableMetricCard card={card} value={metrics?.[card.metricKey] ?? 0} isLoading={isLoading} onResize={onResize} />;
+  return <SortableMetricCard card={card} value={metrics?.[card.metricKey] ?? 0} isLoading={isLoading} editMode={editMode} onResize={onResize} onHide={onHide} />;
 }
 
 function PalletDialCard({
@@ -461,7 +506,7 @@ function PalletDialCard({
   capacity: number;
   caption: string;
   isLoading: boolean;
-  route: AppRoute;
+  route: string;
 }) {
   const percentage = capacity > 0 ? Math.min(100, Math.round((value / capacity) * 100)) : 0;
 
@@ -570,6 +615,7 @@ function renderField(
   form: ReturnType<typeof useForm<Record<string, unknown>>>,
   options: Array<{ label: string; value: string }> = field.options ?? [],
 ) {
+  const uppercaseInput = shouldUppercaseField(field.name);
   return (
     <FormField
       key={field.name}
@@ -607,6 +653,10 @@ function renderField(
                 type={field.type === "number" ? "number" : field.type === "date" ? "date" : "text"}
                 {...controllerField}
                 value={(controllerField.value as string | number | undefined) ?? ""}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  controllerField.onChange(uppercaseInput ? normalizeScannerText(value) : value);
+                }}
               />
             )}
           </FormControl>
@@ -714,15 +764,22 @@ function ResourceEditDialog({
   const watchedStatus = isLocations ? (form.watch("status") as string | undefined) : undefined;
   const isBeingDisabled = watchedStatus === "disabled" || watchedStatus === "maintenance";
   const wasAlreadyDisabled = isLocations && (editRecord.status === "disabled" || editRecord.status === "maintenance");
+  const originalLocationCode = isLocations ? String(editRecord.code ?? "") : "";
 
   const updateMutation = useMutation({
     mutationFn: async (values: Record<string, unknown>) => {
       const id = String(editRecord.id ?? "");
       if (!id) throw new Error(`Missing ${resource.singular} id.`);
-      return updateRecord(resource.table, id, normalizeResourceValues(resource, values, options));
+      return updateRecord(resource.table, id, normalizeResourceValues(resource, values, options, { preserveLocationCode: isLocations }));
     },
-    onSuccess: () => {
+    onSuccess: (_updated, values) => {
       toast.success(`${resource.singular} updated`);
+      if (isLocations && normalizeScannerText(values.code) !== normalizeScannerText(originalLocationCode)) {
+        toast.message("Location code changed", {
+          description: "Reprint the location label unless this code change was intentional.",
+          duration: 8000,
+        });
+      }
       queryClient.invalidateQueries({ queryKey: [resource.table] });
       onClose();
     },
@@ -1499,6 +1556,26 @@ export function ResourcePage({
       })
     );
   }, [data, filterQuery, resource.fields]);
+  const bayLabelItems = useMemo(() => {
+    if (resource.table !== "locations") return [] as LabelSheetItem[];
+    const byCode = new Map<string, LabelSheetItem>();
+    for (const row of filteredData as Array<Record<string, unknown>>) {
+      const warehouse = warehouseInfoMap.get(String(row.warehouse_id ?? ""));
+      const zone = zoneInfoMap.get(String(row.zone_id ?? ""));
+      const aisle = normalizeScannerText(row.aisle);
+      const bay = normalizeScannerText(row.bay);
+      if (!warehouse?.code || !zone?.code || !aisle || !bay) continue;
+      const code = `BAY:${normalizeScannerText(warehouse.code)}:${normalizeScannerText(zone.code)}:${aisle}:${bay}`;
+      if (!byCode.has(code)) {
+        byCode.set(code, {
+          code,
+          title: `Aisle ${aisle} · Bay ${bay}`,
+          subtitle: `${zone.name ?? zone.code} · ${warehouse.name ?? warehouse.code}`,
+        });
+      }
+    }
+    return Array.from(byCode.values()).sort((a, b) => a.code.localeCompare(b.code));
+  }, [filteredData, resource.table, warehouseInfoMap, zoneInfoMap]);
 
   function handleRowPointerUp(row: unknown) {
     if (typeof window === "undefined" || !window.matchMedia("(pointer: coarse)").matches) return;
@@ -1577,7 +1654,18 @@ export function ResourcePage({
                     trigger={
                       <DropdownMenuItem onSelect={(event) => event.preventDefault()}>
                         <Printer className="mr-2 h-4 w-4" />
-                        Print labels sheet
+                        {resource.table === "locations" ? "Print location labels sheet" : "Print labels sheet"}
+                      </DropdownMenuItem>
+                    }
+                  />
+                ) : null}
+                {resource.table === "locations" ? (
+                  <BayLocationCodesPrintDialog
+                    items={bayLabelItems}
+                    trigger={
+                      <DropdownMenuItem onSelect={(event) => event.preventDefault()}>
+                        <QrCode className="mr-2 h-4 w-4" />
+                        Print bay location codes
                       </DropdownMenuItem>
                     }
                   />
@@ -2225,6 +2313,7 @@ function normalizeResourceValues(
   resource: ResourceDefinition,
   values: Record<string, unknown>,
   options?: Awaited<ReturnType<typeof fetchOptions>>,
+  behavior?: { preserveLocationCode?: boolean },
 ) {
   const payload = resource.fields.reduce<Record<string, unknown>>((current, field) => {
     const value = values[field.name];
@@ -2235,7 +2324,7 @@ function normalizeResourceValues(
     current[field.name] = field.type === "number" && value != null ? Number(value) : value;
     return current;
   }, {});
-  if (resource.table === "locations") {
+  if (resource.table === "locations" && !behavior?.preserveLocationCode) {
     payload.code = composeLocationCode(options, payload.warehouse_id, payload.zone_id, payload.code);
   }
   return payload;
@@ -2257,13 +2346,25 @@ function shouldRestrictToDefaultWarehouse(roles: string[]) {
 
 export function DashboardPage() {
   const { profile } = useAuth();
+  const { flags, isEnabled } = useFeatureFlags();
   const [mode, setMode] = useState<DashboardMode>("floor");
-  const floorLayoutKey = profileLayoutKey(DASHBOARD_FLOOR_LAYOUT_KEY, profile?.id);
-  const dockLayoutKey = profileLayoutKey(DASHBOARD_DOCK_LAYOUT_KEY, profile?.id);
-  const officeLayoutKey = profileLayoutKey(DASHBOARD_OFFICE_LAYOUT_KEY, profile?.id);
-  const [floorTiles, setFloorTiles] = useState<DashboardTileConfig[]>(() => loadTileLayout(DASHBOARD_FLOOR_LAYOUT_KEY, DEFAULT_FLOOR_LAYOUT));
-  const [dockTiles, setDockTiles] = useState<DashboardTileConfig[]>(() => loadTileLayout(DASHBOARD_DOCK_LAYOUT_KEY, DEFAULT_DOCK_LAYOUT));
-  const [officeTiles, setOfficeTiles] = useState<DashboardTileConfig[]>(() => loadTileLayout(DASHBOARD_OFFICE_LAYOUT_KEY, DEFAULT_OFFICE_LAYOUT));
+  const [editMode, setEditMode] = useState(false);
+  const deviceId = useMemo(() => (typeof window === "undefined" ? "server-render-device" : getOrCreateDeviceId()), []);
+  const floorDefinitions = useMemo(() => filterDashboardTileDefinitions(DEFAULT_FLOOR_LAYOUT, isEnabled), [isEnabled]);
+  const dockDefinitions = useMemo(() => filterDashboardTileDefinitions(DEFAULT_DOCK_LAYOUT, isEnabled), [isEnabled]);
+  const officeDefinitions = useMemo(() => filterDashboardTileDefinitions(DEFAULT_OFFICE_LAYOUT, isEnabled), [isEnabled]);
+  const floorDefaults = useMemo(() => tileConfigsFromDefinitions(floorDefinitions), [floorDefinitions]);
+  const dockDefaults = useMemo(() => tileConfigsFromDefinitions(dockDefinitions), [dockDefinitions]);
+  const officeDefaults = useMemo(() => tileConfigsFromDefinitions(officeDefinitions), [officeDefinitions]);
+  const floorLayoutKey = fallbackLayoutKey(DASHBOARD_FLOOR_LAYOUT_KEY, profile?.id, deviceId);
+  const dockLayoutKey = fallbackLayoutKey(DASHBOARD_DOCK_LAYOUT_KEY, profile?.id, deviceId);
+  const officeLayoutKey = fallbackLayoutKey(DASHBOARD_OFFICE_LAYOUT_KEY, profile?.id, deviceId);
+  const [floorTiles, setFloorTiles] = useState<DashboardTileConfig[]>(() => loadFallbackTileLayout(floorLayoutKey, floorDefaults));
+  const [dockTiles, setDockTiles] = useState<DashboardTileConfig[]>(() => loadFallbackTileLayout(dockLayoutKey, dockDefaults));
+  const [officeTiles, setOfficeTiles] = useState<DashboardTileConfig[]>(() => loadFallbackTileLayout(officeLayoutKey, officeDefaults));
+  const [floorVisibility, setFloorVisibility] = useState<DashboardVisibilityMap>({});
+  const [dockVisibility, setDockVisibility] = useState<DashboardVisibilityMap>({});
+  const [officeVisibility, setOfficeVisibility] = useState<DashboardVisibilityMap>({});
   const dashboardRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [fitToScreen, setFitToScreen] = useState(false);
@@ -2287,26 +2388,82 @@ export function DashboardPage() {
   }, []);
 
   const { data: metrics, isLoading } = useQuery({
-    queryKey: ["dashboard-metrics", profile?.default_warehouse_id],
-    queryFn: () => getDashboardMetrics(profile?.default_warehouse_id),
+    queryKey: ["dashboard-metrics", profile?.default_warehouse_id, flags],
+    queryFn: () => getDashboardMetrics(profile?.default_warehouse_id, flags),
     refetchInterval: 15_000,
   });
   const { data: reports } = useQuery({ queryKey: ["reports", "enterprise-dashboard"], queryFn: getReportData });
   const snapshot = useMemo(() => buildEnterpriseDashboard(metrics, reports), [metrics, reports]);
-  const summaryCardsById = useMemo(() => new Map(DEFAULT_DASHBOARD_CARDS.map((card) => [card.id, card])), []);
+  const summaryCardsById = useMemo(() => {
+    const returnedMetricKeys = metrics?.dashboardMetricKeys ? new Set(metrics.dashboardMetricKeys) : null;
+    const cards = filterDashboardTileDefinitions(DEFAULT_DASHBOARD_CARDS, isEnabled)
+      .filter((card) => !returnedMetricKeys || returnedMetricKeys.has(card.metricKey));
+    return new Map(cards.map((card) => [card.id, card]));
+  }, [isEnabled, metrics?.dashboardMetricKeys]);
+  const floorDefinitionById = useMemo(() => new Map(floorDefinitions.map((tile) => [tile.id, tile])), [floorDefinitions]);
+  const dockDefinitionById = useMemo(() => new Map(dockDefinitions.map((tile) => [tile.id, tile])), [dockDefinitions]);
+  const officeDefinitionById = useMemo(() => new Map(officeDefinitions.map((tile) => [tile.id, tile])), [officeDefinitions]);
 
   useEffect(() => {
-    setFloorTiles(loadTileLayout(floorLayoutKey, DEFAULT_FLOOR_LAYOUT));
-    setDockTiles(loadTileLayout(dockLayoutKey, DEFAULT_DOCK_LAYOUT));
-    setOfficeTiles(loadTileLayout(officeLayoutKey, DEFAULT_OFFICE_LAYOUT));
-  }, [dockLayoutKey, floorLayoutKey, officeLayoutKey]);
+    let cancelled = false;
+
+    async function loadMode(
+      modeKey: DashboardMode,
+      storageKey: string,
+      defaults: DashboardTileConfig[],
+      setTiles: Dispatch<SetStateAction<DashboardTileConfig[]>>,
+      setVisibility: Dispatch<SetStateAction<DashboardVisibilityMap>>,
+    ) {
+      const fallbackLayout = loadFallbackTileLayout(storageKey, defaults);
+      const fallbackVisibility = loadFallbackVisibility(fallbackVisibilityKey(profile?.id, modeKey));
+      if (!profile?.id) {
+        setTiles(sanitizeDashboardLayout(fallbackLayout, defaults));
+        setVisibility(fallbackVisibility);
+        return;
+      }
+
+      try {
+        const [remoteLayout, remoteVisibility] = await Promise.all([
+          loadDashboardDeviceLayout(profile.id, deviceId, modeKey),
+          loadDashboardTileVisibility(profile.id, modeKey),
+        ]);
+        if (cancelled) return;
+        setTiles(sanitizeDashboardLayout(remoteLayout ?? fallbackLayout, defaults));
+        setVisibility({ ...fallbackVisibility, ...remoteVisibility });
+      } catch (error) {
+        if (cancelled) return;
+        setTiles(sanitizeDashboardLayout(fallbackLayout, defaults));
+        setVisibility(fallbackVisibility);
+        console.error("[DashboardPage] dashboard preferences unavailable:", error);
+      }
+    }
+
+    loadMode("floor", floorLayoutKey, floorDefaults, setFloorTiles, setFloorVisibility);
+    loadMode("dock", dockLayoutKey, dockDefaults, setDockTiles, setDockVisibility);
+    loadMode("office", officeLayoutKey, officeDefaults, setOfficeTiles, setOfficeVisibility);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [deviceId, dockDefaults, dockLayoutKey, floorDefaults, floorLayoutKey, officeDefaults, officeLayoutKey, profile?.id]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
-  const handleTileDragEnd = useCallback((event: DragEndEvent, key: string, setTiles: Dispatch<SetStateAction<DashboardTileConfig[]>>) => {
+  const persistLayout = useCallback((modeKey: DashboardMode, key: string, tiles: DashboardTileConfig[]) => {
+    saveFallbackJson(key, tiles);
+    if (profile?.id) {
+      saveDashboardDeviceLayout(profile.id, deviceId, modeKey, tiles).catch((error) => {
+        console.error("[DashboardPage] save layout failed:", error);
+        toast.error("Dashboard layout could not be saved");
+      });
+    }
+  }, [deviceId, profile?.id]);
+
+  const handleTileDragEnd = useCallback((event: DragEndEvent, modeKey: DashboardMode, key: string, setTiles: Dispatch<SetStateAction<DashboardTileConfig[]>>) => {
+    if (!editMode) return;
     const { active, over } = event;
     if (over && active.id !== over.id) {
       setTiles((prev) => {
@@ -2314,26 +2471,49 @@ export function DashboardPage() {
         const newIdx = prev.findIndex((tile) => tile.id === over.id);
         if (oldIdx < 0 || newIdx < 0) return prev;
         const next = arrayMove(prev, oldIdx, newIdx);
-        saveTileLayout(key, next);
+        persistLayout(modeKey, key, next);
         return next;
       });
     }
-  }, []);
+  }, [editMode, persistLayout]);
 
-  const handleTileResize = useCallback((id: string, key: string, setTiles: Dispatch<SetStateAction<DashboardTileConfig[]>>) => {
+  const handleTileResize = useCallback((id: string, modeKey: DashboardMode, key: string, setTiles: Dispatch<SetStateAction<DashboardTileConfig[]>>) => {
     setTiles((prev) => {
       const next = prev.map((tile) => tile.id === id ? { ...tile, size: (tile.size === "sm" ? "lg" : "sm") as DashboardCardSize } : tile);
-      saveTileLayout(key, next);
+      persistLayout(modeKey, key, next);
       return next;
     });
-  }, []);
+  }, [persistLayout]);
 
-  const canAccessMetric = useCallback((_key: DashboardMetricKey): boolean => true, []);
+  const handleTileVisibility = useCallback((
+    id: string,
+    modeKey: DashboardMode,
+    visible: boolean,
+    setVisibility: Dispatch<SetStateAction<DashboardVisibilityMap>>,
+  ) => {
+    setVisibility((prev) => {
+      const next = { ...prev, [id]: visible };
+      saveFallbackJson(fallbackVisibilityKey(profile?.id, modeKey), next);
+      return next;
+    });
+    if (profile?.id) {
+      saveDashboardTileVisibility(profile.id, modeKey, id, visible).catch((error) => {
+        console.error("[DashboardPage] save visibility failed:", error);
+        toast.error("Dashboard tile visibility could not be saved");
+      });
+    }
+  }, [profile?.id]);
 
-  const renderSummaryTile = useCallback((tile: DashboardTileConfig, onResize: (id: string) => void) => {
+  const floorVisibleTiles = useMemo(() => visibleDashboardTiles(floorTiles, floorVisibility, editMode), [editMode, floorTiles, floorVisibility]);
+  const dockVisibleTiles = useMemo(() => visibleDashboardTiles(dockTiles, dockVisibility, editMode), [dockTiles, dockVisibility, editMode]);
+  const officeVisibleTiles = useMemo(() => visibleDashboardTiles(officeTiles, officeVisibility, editMode), [editMode, officeTiles, officeVisibility]);
+  const floorHiddenTiles = useMemo(() => hiddenDashboardTiles(floorTiles, floorVisibility), [floorTiles, floorVisibility]);
+  const dockHiddenTiles = useMemo(() => hiddenDashboardTiles(dockTiles, dockVisibility), [dockTiles, dockVisibility]);
+  const officeHiddenTiles = useMemo(() => hiddenDashboardTiles(officeTiles, officeVisibility), [officeTiles, officeVisibility]);
+
+  const renderSummaryTile = useCallback((tile: DashboardTileConfig, onResize: (id: string) => void, onHide: (id: string) => void) => {
     const card = summaryCardsById.get(tile.id);
     if (!card) return null;
-    if (!canAccessMetric(card.metricKey)) return null;
     return (
       <SortableSummaryCard
         key={tile.id}
@@ -2341,10 +2521,12 @@ export function DashboardPage() {
         metrics={metrics}
         isLoading={isLoading}
         warehouseCaption={profile?.default_warehouse_id ? `${formatNumber(metrics?.warehousePalletCapacity ?? 0)} location capacity` : "No warehouse selected"}
+        editMode={editMode}
         onResize={onResize}
+        onHide={onHide}
       />
     );
-  }, [isLoading, metrics, profile?.default_warehouse_id, summaryCardsById]);
+  }, [editMode, isLoading, metrics, profile?.default_warehouse_id, summaryCardsById]);
 
   return (
     <div
@@ -2357,7 +2539,7 @@ export function DashboardPage() {
       <div className="flex shrink-0 flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
         <div>
           <h2 className="text-2xl font-bold tracking-tight">Command Center</h2>
-          <p className="text-sm text-muted-foreground">Live warehouse metrics. Drag cards to reorder, hover to resize.</p>
+          <p className="text-sm text-muted-foreground">Live warehouse metrics. Unlock edit mode to reorder, resize, or hide tiles.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Tabs value={mode} onValueChange={(value) => setMode(value as DashboardMode)}>
@@ -2367,6 +2549,20 @@ export function DashboardPage() {
               <TabsTrigger value="office" className="gap-1.5"><BarChart3 className="h-3.5 w-3.5" /> Office</TabsTrigger>
             </TabsList>
           </Tabs>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                size="icon"
+                variant={editMode ? "secondary" : "outline"}
+                onClick={() => setEditMode((value) => !value)}
+                aria-label={editMode ? "Lock dashboard layout" : "Unlock dashboard layout"}
+                aria-pressed={editMode}
+              >
+                {editMode ? <LockOpen className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{editMode ? "Lock dashboard layout" : "Unlock dashboard layout"}</TooltipContent>
+          </Tooltip>
           <Button size="sm" variant="outline" onClick={() => setFitToScreen((v) => !v)} aria-pressed={fitToScreen}>
             {fitToScreen ? "Reset fit" : "Fit to screen"}
           </Button>
@@ -2381,10 +2577,15 @@ export function DashboardPage() {
           <WarehouseFloorMode
             snapshot={snapshot}
             sensors={sensors}
-            tiles={floorTiles}
+            tiles={floorVisibleTiles}
+            hiddenTiles={floorHiddenTiles}
+            definitionsById={floorDefinitionById}
+            editMode={editMode}
             renderSummaryTile={renderSummaryTile}
-            onDragEnd={(event) => handleTileDragEnd(event, floorLayoutKey, setFloorTiles)}
-            onResize={(id) => handleTileResize(id, floorLayoutKey, setFloorTiles)}
+            onDragEnd={(event) => handleTileDragEnd(event, "floor", floorLayoutKey, setFloorTiles)}
+            onResize={(id) => handleTileResize(id, "floor", floorLayoutKey, setFloorTiles)}
+            onHide={(id) => handleTileVisibility(id, "floor", false, setFloorVisibility)}
+            onRestore={(id) => handleTileVisibility(id, "floor", true, setFloorVisibility)}
           />
         ) : null}
         {mode === "dock" ? (
@@ -2392,20 +2593,30 @@ export function DashboardPage() {
             loads={snapshot.dockLoads}
             recommendations={snapshot.recommendations}
             sensors={sensors}
-            tiles={dockTiles}
+            tiles={dockVisibleTiles}
+            hiddenTiles={dockHiddenTiles}
+            definitionsById={dockDefinitionById}
+            editMode={editMode}
             renderSummaryTile={renderSummaryTile}
-            onDragEnd={(event) => handleTileDragEnd(event, dockLayoutKey, setDockTiles)}
-            onResize={(id) => handleTileResize(id, dockLayoutKey, setDockTiles)}
+            onDragEnd={(event) => handleTileDragEnd(event, "dock", dockLayoutKey, setDockTiles)}
+            onResize={(id) => handleTileResize(id, "dock", dockLayoutKey, setDockTiles)}
+            onHide={(id) => handleTileVisibility(id, "dock", false, setDockVisibility)}
+            onRestore={(id) => handleTileVisibility(id, "dock", true, setDockVisibility)}
           />
         ) : null}
         {mode === "office" ? (
           <OfficeMonitoringMode
             snapshot={snapshot}
             sensors={sensors}
-            tiles={officeTiles}
+            tiles={officeVisibleTiles}
+            hiddenTiles={officeHiddenTiles}
+            definitionsById={officeDefinitionById}
+            editMode={editMode}
             renderSummaryTile={renderSummaryTile}
-            onDragEnd={(event) => handleTileDragEnd(event, officeLayoutKey, setOfficeTiles)}
-            onResize={(id) => handleTileResize(id, officeLayoutKey, setOfficeTiles)}
+            onDragEnd={(event) => handleTileDragEnd(event, "office", officeLayoutKey, setOfficeTiles)}
+            onResize={(id) => handleTileResize(id, "office", officeLayoutKey, setOfficeTiles)}
+            onHide={(id) => handleTileVisibility(id, "office", false, setOfficeVisibility)}
+            onRestore={(id) => handleTileVisibility(id, "office", true, setOfficeVisibility)}
           />
         ) : null}
       </div>
@@ -2417,77 +2628,108 @@ function WarehouseFloorMode({
   snapshot,
   sensors,
   tiles,
+  hiddenTiles,
+  definitionsById,
+  editMode,
   renderSummaryTile,
   onDragEnd,
   onResize,
+  onHide,
+  onRestore,
 }: {
   snapshot: EnterpriseDashboardSnapshot;
   sensors: ReturnType<typeof useSensors>;
   tiles: DashboardTileConfig[];
-  renderSummaryTile: (tile: DashboardTileConfig, onResize: (id: string) => void) => ReactNode;
+  hiddenTiles: DashboardTileConfig[];
+  definitionsById: Map<string, DashboardTileDefinition<ModuleKey>>;
+  editMode: boolean;
+  renderSummaryTile: (tile: DashboardTileConfig, onResize: (id: string) => void, onHide: (id: string) => void) => ReactNode;
   onDragEnd: (event: DragEndEvent) => void;
   onResize: (id: string) => void;
+  onHide: (id: string) => void;
+  onRestore: (id: string) => void;
 }) {
   const queuesByLabel = new Map(snapshot.floorQueues.map((queue) => [queue.label, queue]));
 
   return (
-    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
-      <SortableContext items={tiles.map((tile) => tile.id)} strategy={rectSortingStrategy}>
-        <div className="grid min-h-0 gap-3 md:grid-cols-2 xl:grid-cols-4">
-          {tiles.map((tile) => {
-            const summaryTile = renderSummaryTile(tile, onResize);
-            if (summaryTile) return summaryTile;
+    <div className="grid gap-3">
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+        <SortableContext items={tiles.map((tile) => tile.id)} strategy={rectSortingStrategy}>
+          <div className="grid min-h-0 gap-3 md:grid-cols-2 xl:grid-cols-4">
+            {tiles.map((tile) => {
+              const summaryTile = renderSummaryTile(tile, onResize, onHide);
+              if (summaryTile) return summaryTile;
 
-            if (tile.id === "Warehouse Intelligence") {
+              if (tile.id === "Warehouse Intelligence") {
+                return (
+                  <SortableDashboardTile key={tile.id} tile={tile} editMode={editMode} onResize={onResize} onHide={onHide}>
+                    <WarehouseIntelligenceCard snapshot={snapshot} />
+                  </SortableDashboardTile>
+                );
+              }
+
+              const queue = queuesByLabel.get(tile.id);
+              if (!queue) return null;
+
               return (
-                <SortableDashboardTile key={tile.id} tile={tile} onResize={onResize}>
-                  <WarehouseIntelligenceCard snapshot={snapshot} />
+                <SortableDashboardTile key={tile.id} tile={tile} editMode={editMode} onResize={onResize} onHide={onHide}>
+                  <Card className={cn("flex h-full min-w-0 flex-col border-l-4", toneBorder(queue.tone))}>
+                    <CardHeader className="p-4 pb-2 pr-20">
+                      <CardTitle className="flex items-center justify-between gap-4">
+                        <span>{queue.label}</span>
+                        <Link to={queue.route} className="shrink-0 rounded-sm text-3xl transition hover:text-primary focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
+                          {formatNumber(queue.count)}
+                        </Link>
+                      </CardTitle>
+                      <CardDescription>{queue.action}</CardDescription>
+                    </CardHeader>
+                    <CardContent className="flex flex-1 flex-col gap-2 p-4 pt-0">
+                      {queue.tasks.length > 0 ? (
+                        <ul className="mb-2 grid gap-1">
+                          {queue.tasks.map((task) => (
+                            <li key={task.id}>
+                              <Link
+                                to={task.route}
+                                className="flex items-center justify-between rounded-md border border-border bg-secondary/30 px-3 py-1.5 text-sm hover:bg-secondary/60 transition-colors"
+                              >
+                                <span className="font-medium truncate">{task.label}</span>
+                                <Badge variant="outline" className="ml-2 shrink-0 capitalize text-xs">{task.sublabel}</Badge>
+                              </Link>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
+                      <Button className="mt-auto h-10 w-full" asChild>
+                        <Link to={queue.route}>Open workflow</Link>
+                      </Button>
+                    </CardContent>
+                  </Card>
                 </SortableDashboardTile>
               );
-            }
+            })}
+          </div>
+        </SortableContext>
+      </DndContext>
+      <HiddenDashboardTilesPanel editMode={editMode} tiles={hiddenTiles} definitionsById={definitionsById} onRestore={onRestore} />
+    </div>
+  );
+}
 
-            const queue = queuesByLabel.get(tile.id);
-            if (!queue) return null;
+function normalizeScannerText(value: unknown) {
+  return String(value ?? "").trim().toUpperCase();
+}
 
-            return (
-              <SortableDashboardTile key={tile.id} tile={tile} onResize={onResize}>
-                <Card className={cn("flex h-full min-w-0 flex-col border-l-4", toneBorder(queue.tone))}>
-                  <CardHeader className="p-4 pb-2 pr-20">
-                    <CardTitle className="flex items-center justify-between gap-4">
-                      <span>{queue.label}</span>
-                      <Link to={queue.route} className="shrink-0 rounded-sm text-3xl transition hover:text-primary focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
-                        {formatNumber(queue.count)}
-                      </Link>
-                    </CardTitle>
-                    <CardDescription>{queue.action}</CardDescription>
-                  </CardHeader>
-                  <CardContent className="flex flex-1 flex-col gap-2 p-4 pt-0">
-                    {queue.tasks.length > 0 ? (
-                      <ul className="mb-2 grid gap-1">
-                        {queue.tasks.map((task) => (
-                          <li key={task.id}>
-                            <Link
-                              to={task.route}
-                              className="flex items-center justify-between rounded-md border border-border bg-secondary/30 px-3 py-1.5 text-sm hover:bg-secondary/60 transition-colors"
-                            >
-                              <span className="font-medium truncate">{task.label}</span>
-                              <Badge variant="outline" className="ml-2 shrink-0 capitalize text-xs">{task.sublabel}</Badge>
-                            </Link>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : null}
-                    <Button className="mt-auto h-10 w-full" asChild>
-                      <Link to={queue.route}>Open workflow</Link>
-                    </Button>
-                  </CardContent>
-                </Card>
-              </SortableDashboardTile>
-            );
-          })}
-        </div>
-      </SortableContext>
-    </DndContext>
+function shouldUppercaseField(name: string) {
+  const lower = name.toLowerCase();
+  return (
+    lower === "code" ||
+    lower === "sku" ||
+    lower.includes("barcode") ||
+    lower.includes("container") ||
+    lower.includes("po_number") ||
+    lower.includes("order_number") ||
+    lower.includes("reference_number") ||
+    lower.includes("location")
   );
 }
 
@@ -2523,69 +2765,82 @@ function DockHandoffBoard({
   recommendations,
   sensors,
   tiles,
+  hiddenTiles,
+  definitionsById,
+  editMode,
   renderSummaryTile,
   onDragEnd,
   onResize,
+  onHide,
+  onRestore,
 }: {
   loads: DockHandoffLoad[];
   recommendations: WarehouseBrainRecommendation[];
   sensors: ReturnType<typeof useSensors>;
   tiles: DashboardTileConfig[];
-  renderSummaryTile: (tile: DashboardTileConfig, onResize: (id: string) => void) => ReactNode;
+  hiddenTiles: DashboardTileConfig[];
+  definitionsById: Map<string, DashboardTileDefinition<ModuleKey>>;
+  editMode: boolean;
+  renderSummaryTile: (tile: DashboardTileConfig, onResize: (id: string) => void, onHide: (id: string) => void) => ReactNode;
   onDragEnd: (event: DragEndEvent) => void;
   onResize: (id: string) => void;
+  onHide: (id: string) => void;
+  onRestore: (id: string) => void;
 }) {
   return (
-    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
-      <SortableContext items={tiles.map((tile) => tile.id)} strategy={rectSortingStrategy}>
-        <div className="grid min-w-0 gap-4 sm:grid-cols-2 xl:grid-cols-5">
-          {tiles.map((tile) => {
-            const summaryTile = renderSummaryTile(tile, onResize);
-            if (summaryTile) return summaryTile;
+    <div className="grid gap-3">
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+        <SortableContext items={tiles.map((tile) => tile.id)} strategy={rectSortingStrategy}>
+          <div className="grid min-w-0 gap-4 sm:grid-cols-2 xl:grid-cols-5">
+            {tiles.map((tile) => {
+              const summaryTile = renderSummaryTile(tile, onResize, onHide);
+              if (summaryTile) return summaryTile;
 
-            if (tile.id === "warehouse-brain") {
+              if (tile.id === "warehouse-brain") {
+                return (
+                  <SortableDashboardTile key={tile.id} tile={tile} editMode={editMode} onResize={onResize} onHide={onHide}>
+                    <WarehouseBrainPanel recommendations={recommendations} />
+                  </SortableDashboardTile>
+                );
+              }
+
+              const status = tile.id as DockHandoffLoad["status"];
+              const laneLoads = loads.filter((load) => load.status === status);
+
               return (
-                <SortableDashboardTile key={tile.id} tile={tile} onResize={onResize}>
-                  <WarehouseBrainPanel recommendations={recommendations} />
+                <SortableDashboardTile key={tile.id} tile={tile} editMode={editMode} onResize={onResize} onHide={onHide}>
+                  <Card className={cn("h-full min-h-72 min-w-0", status === "blocked" ? "border-destructive/50" : "")}>
+                    <CardHeader className="pr-20">
+                      <CardTitle className="flex items-center justify-between gap-2 capitalize">
+                        <span>{status}</span>
+                        <Link to="/pick-lists" className="rounded-sm text-2xl transition hover:text-primary focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
+                          {formatNumber(laneLoads.length)}
+                        </Link>
+                      </CardTitle>
+                      <CardDescription>Dock handoff lane</CardDescription>
+                    </CardHeader>
+                    <CardContent className="grid gap-3">
+                      {laneLoads.map((load) => (
+                        <div key={load.id} className="rounded-lg border border-border bg-secondary/30 p-3">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-semibold">{load.route}</span>
+                            <Badge>{load.door}</Badge>
+                          </div>
+                          <p className="mt-1 truncate text-sm">{load.customer}</p>
+                          <p className="text-xs text-muted-foreground">{load.driver} · {load.pallets} pallet{load.pallets === 1 ? "" : "s"} · {load.temperatureClass}</p>
+                          {load.blocker ? <p className="mt-2 text-xs text-destructive">{load.blocker}</p> : null}
+                        </div>
+                      ))}
+                    </CardContent>
+                  </Card>
                 </SortableDashboardTile>
               );
-            }
-
-            const status = tile.id as DockHandoffLoad["status"];
-            const laneLoads = loads.filter((load) => load.status === status);
-
-            return (
-              <SortableDashboardTile key={tile.id} tile={tile} onResize={onResize}>
-                <Card className={cn("h-full min-h-72 min-w-0", status === "blocked" ? "border-destructive/50" : "")}>
-                  <CardHeader className="pr-20">
-                    <CardTitle className="flex items-center justify-between gap-2 capitalize">
-                      <span>{status}</span>
-                      <Link to="/pick-lists" className="rounded-sm text-2xl transition hover:text-primary focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
-                        {formatNumber(laneLoads.length)}
-                      </Link>
-                    </CardTitle>
-                    <CardDescription>Dock handoff lane</CardDescription>
-                  </CardHeader>
-                  <CardContent className="grid gap-3">
-                    {laneLoads.map((load) => (
-                      <div key={load.id} className="rounded-lg border border-border bg-secondary/30 p-3">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="font-semibold">{load.route}</span>
-                          <Badge>{load.door}</Badge>
-                        </div>
-                        <p className="mt-1 truncate text-sm">{load.customer}</p>
-                        <p className="text-xs text-muted-foreground">{load.driver} · {load.pallets} pallet{load.pallets === 1 ? "" : "s"} · {load.temperatureClass}</p>
-                        {load.blocker ? <p className="mt-2 text-xs text-destructive">{load.blocker}</p> : null}
-                      </div>
-                    ))}
-                  </CardContent>
-                </Card>
-              </SortableDashboardTile>
-            );
-          })}
-        </div>
-      </SortableContext>
-    </DndContext>
+            })}
+          </div>
+        </SortableContext>
+      </DndContext>
+      <HiddenDashboardTilesPanel editMode={editMode} tiles={hiddenTiles} definitionsById={definitionsById} onRestore={onRestore} />
+    </div>
   );
 }
 
@@ -2593,81 +2848,123 @@ function OfficeMonitoringMode({
   snapshot,
   sensors,
   tiles,
+  hiddenTiles,
+  definitionsById,
+  editMode,
   renderSummaryTile,
   onDragEnd,
   onResize,
+  onHide,
+  onRestore,
 }: {
   snapshot: EnterpriseDashboardSnapshot;
   sensors: ReturnType<typeof useSensors>;
   tiles: DashboardTileConfig[];
-  renderSummaryTile: (tile: DashboardTileConfig, onResize: (id: string) => void) => ReactNode;
+  hiddenTiles: DashboardTileConfig[];
+  definitionsById: Map<string, DashboardTileDefinition<ModuleKey>>;
+  editMode: boolean;
+  renderSummaryTile: (tile: DashboardTileConfig, onResize: (id: string) => void, onHide: (id: string) => void) => ReactNode;
   onDragEnd: (event: DragEndEvent) => void;
   onResize: (id: string) => void;
+  onHide: (id: string) => void;
+  onRestore: (id: string) => void;
 }) {
   const widgetsByLabel = new Map(snapshot.officeWidgets.map((widget) => [widget.label, widget]));
 
   return (
-    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
-      <SortableContext items={tiles.map((tile) => tile.id)} strategy={rectSortingStrategy}>
-        <div className="grid min-w-0 gap-4 md:grid-cols-2 xl:grid-cols-4">
-          {tiles.map((tile) => {
-            const summaryTile = renderSummaryTile(tile, onResize);
-            if (summaryTile) return summaryTile;
+    <div className="grid gap-3">
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+        <SortableContext items={tiles.map((tile) => tile.id)} strategy={rectSortingStrategy}>
+          <div className="grid min-w-0 gap-4 md:grid-cols-2 xl:grid-cols-4">
+            {tiles.map((tile) => {
+              const summaryTile = renderSummaryTile(tile, onResize, onHide);
+              if (summaryTile) return summaryTile;
 
-            if (tile.id === "setup-checklist") {
-              return (
-                <SortableDashboardTile key={tile.id} tile={tile} onResize={onResize}>
-                  <Card className="h-full">
-                    <CardHeader className="pr-20">
-                      <CardTitle className="flex items-center gap-2"><ClipboardCheck /> Setup Checklist</CardTitle>
-                      <CardDescription>Go-live prompts for admin and management setup activities.</CardDescription>
-                    </CardHeader>
-                    <CardContent className="grid gap-3">
-                      {snapshot.setupChecklist.map((item) => (
-                        <div key={item.label} className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2">
-                          <div>
-                            <p className="text-sm font-medium">{item.label}</p>
-                            <p className="text-xs text-muted-foreground">{item.owner}</p>
+              if (tile.id === "setup-checklist") {
+                return (
+                  <SortableDashboardTile key={tile.id} tile={tile} editMode={editMode} onResize={onResize} onHide={onHide}>
+                    <Card className="h-full">
+                      <CardHeader className="pr-20">
+                        <CardTitle className="flex items-center gap-2"><ClipboardCheck /> Setup Checklist</CardTitle>
+                        <CardDescription>Go-live prompts for admin and management setup activities.</CardDescription>
+                      </CardHeader>
+                      <CardContent className="grid gap-3">
+                        {snapshot.setupChecklist.map((item) => (
+                          <div key={item.label} className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2">
+                            <div>
+                              <p className="text-sm font-medium">{item.label}</p>
+                              <p className="text-xs text-muted-foreground">{item.owner}</p>
+                            </div>
+                            <Badge variant={item.complete ? "default" : "secondary"}>{item.complete ? "Ready" : "Open"}</Badge>
                           </div>
-                          <Badge variant={item.complete ? "default" : "secondary"}>{item.complete ? "Ready" : "Open"}</Badge>
-                        </div>
-                      ))}
-                    </CardContent>
+                        ))}
+                      </CardContent>
+                    </Card>
+                  </SortableDashboardTile>
+                );
+              }
+
+              if (tile.id === "warehouse-brain") {
+                return (
+                  <SortableDashboardTile key={tile.id} tile={tile} editMode={editMode} onResize={onResize} onHide={onHide}>
+                    <WarehouseBrainPanel recommendations={snapshot.recommendations} />
+                  </SortableDashboardTile>
+                );
+              }
+
+              const widget = widgetsByLabel.get(tile.id);
+              if (!widget) return null;
+
+              return (
+                <SortableDashboardTile key={tile.id} tile={tile} editMode={editMode} onResize={onResize} onHide={onHide}>
+                  <Card className={cn("h-full min-w-0 border-l-4", toneBorder(widget.tone))}>
+                    <CardHeader className="pr-20">
+                      <CardDescription>{widget.label}</CardDescription>
+                      <CardTitle className="text-4xl">
+                        <Link to={widget.route} className="rounded-sm transition hover:text-primary focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
+                          {widget.value}
+                        </Link>
+                      </CardTitle>
+                      <CardDescription>{widget.detail}</CardDescription>
+                    </CardHeader>
                   </Card>
                 </SortableDashboardTile>
               );
-            }
+            })}
+          </div>
+        </SortableContext>
+      </DndContext>
+      <HiddenDashboardTilesPanel editMode={editMode} tiles={hiddenTiles} definitionsById={definitionsById} onRestore={onRestore} />
+    </div>
+  );
+}
 
-            if (tile.id === "warehouse-brain") {
-              return (
-                <SortableDashboardTile key={tile.id} tile={tile} onResize={onResize}>
-                  <WarehouseBrainPanel recommendations={snapshot.recommendations} />
-                </SortableDashboardTile>
-              );
-            }
+function HiddenDashboardTilesPanel({
+  editMode,
+  tiles,
+  definitionsById,
+  onRestore,
+}: {
+  editMode: boolean;
+  tiles: DashboardTileConfig[];
+  definitionsById: Map<string, DashboardTileDefinition<ModuleKey>>;
+  onRestore: (id: string) => void;
+}) {
+  if (!editMode || tiles.length === 0) return null;
 
-            const widget = widgetsByLabel.get(tile.id);
-            if (!widget) return null;
-
-            return (
-              <SortableDashboardTile key={tile.id} tile={tile} onResize={onResize}>
-                <Card className={cn("h-full min-w-0 border-l-4", toneBorder(widget.tone))}>
-                  <CardHeader className="pr-20">
-                    <CardDescription>{widget.label}</CardDescription>
-                    <CardTitle className="text-4xl">
-                      <Link to={widget.route} className="rounded-sm transition hover:text-primary focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
-                        {widget.value}
-                      </Link>
-                    </CardTitle>
-                    <CardDescription>{widget.detail}</CardDescription>
-                  </CardHeader>
-                </Card>
-              </SortableDashboardTile>
-            );
-          })}
-        </div>
-      </SortableContext>
-    </DndContext>
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-lg border border-dashed border-border bg-secondary/25 px-3 py-2">
+      <span className="text-xs font-medium text-muted-foreground">Hidden tiles</span>
+      {tiles.map((tile) => {
+        const label = definitionsById.get(tile.id)?.label ?? tile.id;
+        return (
+          <Button key={tile.id} type="button" size="sm" variant="outline" className="h-8 gap-1.5" onClick={() => onRestore(tile.id)}>
+            <Eye className="h-3.5 w-3.5" />
+            {label}
+          </Button>
+        );
+      })}
+    </div>
   );
 }
 
@@ -2829,34 +3126,58 @@ function draftToReceivingValues(draft: DraftReceipt): z.infer<typeof receivingSc
   };
 }
 
-function printDraftLabels(drafts: DraftReceipt[], products: Array<{ id: string; sku: string; name: string }>) {
+function labelHasValue(value: unknown) {
+  return value != null && String(value).trim() !== "";
+}
+
+function printDraftLabels(
+  drafts: DraftReceipt[],
+  products: Array<{ id: string; sku: string; name: string; temperature_requirement?: string | null }>,
+  clients: Array<{ id: string; name: string }>,
+  warehouses: Array<{ id: string; name: string; code?: string | null }>,
+  packagingProfiles: Array<{ id: string; name?: string | null; unit_name?: string | null; unit_of_measure?: string | null }>,
+  onPrinted?: () => Promise<void> | void,
+) {
   if (drafts.length === 0) {
     toast.error("Select at least one draft label to print.");
-    return;
+    return false;
   }
   const pages = drafts.map((draft) => {
     const meta = parseDraftMeta(draft.notes);
     const product = products.find((p) => p.id === (draft.product_id ?? meta.product_id));
+    const client = clients.find((item) => item.id === draft.client_id);
+    const warehouse = warehouses.find((item) => item.id === draft.warehouse_id);
+    const packaging = packagingProfiles.find((item) => item.id === meta.packaging_profile_id);
     const barcode = draft.draft_pallet_barcode ?? meta.draft_pallet_barcode ?? draft.receipt_number;
     const qr = renderToStaticMarkup(<QRCodeSVG value={barcode} size={220} bgColor="#ffffff" fgColor="#000000" level="H" />);
+    const draftPosition = draft.draft_sequence && draft.draft_count ? `${draft.draft_sequence}/${draft.draft_count}` : "";
     const fields = [
       ["Pallet", barcode],
-      ["Container", draft.container_number ?? meta.container_number ?? ""],
-      ["PO", draft.po_number ?? meta.po_number ?? ""],
       ["SKU", product?.sku ?? ""],
       ["Product", product?.name ?? ""],
       ["Qty", draft.quantity ?? meta.quantity ?? ""],
-      ["Lot", draft.lot_number ?? meta.lot_number ?? ""],
       ["Expiry", draft.expiry_date ?? meta.expiry_date ?? ""],
-    ];
+      ["Lot", draft.lot_number ?? meta.lot_number ?? ""],
+      ["Batch", draft.batch_number ?? meta.batch_number ?? ""],
+      ["Container", draft.container_number ?? meta.container_number ?? ""],
+      ["PO", draft.po_number ?? meta.po_number ?? ""],
+      ["Client", client?.name ?? ""],
+      ["Warehouse", warehouse ? `${warehouse.code ? `${warehouse.code} - ` : ""}${warehouse.name}` : ""],
+      ["Receipt", draft.reference_number ?? draft.receipt_number ?? ""],
+      ["Packaging", packaging?.name ?? packaging?.unit_name ?? packaging?.unit_of_measure ?? ""],
+      ["Draft", draftPosition],
+    ].filter(([label, value]) => label === "Pallet" || labelHasValue(value));
     return `<section class="sheet">
-      <div class="header"><div><div class="title">Pallet Draft</div><div class="code">${barcode}</div></div><div class="badge">${draft.draft_sequence ?? ""}/${draft.draft_count ?? ""}</div></div>
-      <div class="grid">${fields.map(([label, value]) => `<div class="field"><span>${label}</span><strong>${String(value || "________")}</strong></div>`).join("")}</div>
+      <div class="header"><div><div class="title">Pallet Draft</div><div class="code">${barcode}</div></div>${draftPosition ? `<div class="badge">${draftPosition}</div>` : ""}</div>
+      <div class="grid">${fields.map(([label, value]) => `<div class="field${label === "Expiry" ? " expiry" : ""}"><span>${label}</span><strong>${String(value)}</strong></div>`).join("")}</div>
       <div class="qr">${qr}<div>${barcode}</div></div>
     </section>`;
   }).join("");
   const win = window.open("", "_blank", "width=900,height=1100");
-  if (!win) return;
+  if (!win) {
+    toast.error("Print window was blocked. Allow popups, then try again.");
+    return false;
+  }
   win.document.write(`<!DOCTYPE html><html><head><title>Pallet draft labels</title><style>
     @page { size: letter; margin: 0; }
     * { box-sizing: border-box; }
@@ -2868,13 +3189,17 @@ function printDraftLabels(drafts: DraftReceipt[], products: Array<{ id: string; 
     .badge { font-size: 16pt; font-weight: 800; border: 2px solid #1f2937; border-radius: 999px; padding: .08in .18in; }
     .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .14in; }
     .field { border: 1px solid #94a3b8; border-radius: .06in; padding: .1in; min-height: .62in; }
+    .field.expiry { border-color: #f59e0b; background: #fffbeb; }
     .field span { display: block; color: #475569; text-transform: uppercase; font-size: 8.5pt; font-weight: 800; letter-spacing: .05em; }
+    .field.expiry span { color: #92400e; }
     .field strong { display: block; margin-top: .05in; font-size: 15pt; overflow-wrap: anywhere; }
     .qr { margin-top: auto; border: 2px solid #1f2937; border-radius: .08in; padding: .22in; display: flex; flex-direction: column; align-items: center; gap: .08in; font-family: "Courier New", monospace; font-size: 16pt; font-weight: 800; }
     .qr svg { width: 2.45in; height: 2.45in; }
     @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
   </style></head><body>${pages}<script>window.onload=()=>{window.print();window.close();}<\/script></body></html>`);
   win.document.close();
+  void Promise.resolve(onPrinted?.());
+  return true;
 }
 
 export function ReceivingPage() {
@@ -2891,7 +3216,14 @@ export function ReceivingPage() {
   const defaultWarehouseId = profile?.default_warehouse_id ?? "";
   const warehouses = options?.warehouses ?? [];
   const clients = options?.clients ?? [];
-  const productOptions = (options?.products ?? []).map((p: any) => ({ id: p.id, sku: p.sku, name: p.name, barcode: p.barcode, expiry_tracked: Boolean(p.expiry_tracked) }));
+  const productOptions = (options?.products ?? []).map((p: any) => ({
+    id: p.id,
+    sku: p.sku,
+    name: p.name,
+    barcode: p.barcode,
+    expiry_tracked: Boolean(p.expiry_tracked),
+    temperature_requirement: p.temperature_requirement,
+  }));
   const packagingProfiles = options?.packagingProfiles ?? [];
   const isMobileEntry = useIsMobileEntry();
   const productRefs = useRef<Record<string, ProductSearchHandle | null>>({});
@@ -2909,6 +3241,7 @@ export function ReceivingPage() {
   const [selectedDraftIds, setSelectedDraftIds] = useState<Set<string>>(new Set());
   const [editingDraft, setEditingDraft] = useState<DraftReceipt | null>(null);
   const [lastResult, setLastResult] = useState<{ barcode: string; taskNumber: string; qty: number } | null>(null);
+  const [printAfterSaveIds, setPrintAfterSaveIds] = useState<string[]>([]);
   const [shipmentForm, setShipmentForm] = useState<ReceivingShipmentFormState>({
     receipt_type: "po",
     warehouse_id: defaultWarehouseId,
@@ -2965,6 +3298,20 @@ export function ReceivingPage() {
   }, [drafts, printContainer]);
 
   const selectedPrintDrafts = printDrafts.filter((draft) => selectedDraftIds.has(draft.id));
+  useEffect(() => {
+    if (!printOpen || selectedDraftIds.size > 0) return;
+    setSelectedDraftIds(new Set(printDrafts.map((draft) => draft.id)));
+  }, [printDrafts, printOpen, selectedDraftIds.size]);
+
+  useEffect(() => {
+    if (!printOpen || printAfterSaveIds.length === 0) return;
+    const availableIds = new Set(drafts.map((draft) => draft.id));
+    const readyIds = printAfterSaveIds.filter((id) => availableIds.has(id));
+    if (readyIds.length > 0) {
+      setSelectedDraftIds(new Set(readyIds));
+      setPrintAfterSaveIds([]);
+    }
+  }, [drafts, printAfterSaveIds, printOpen]);
   const incompleteLine = shipmentForm.lines.find((line) => {
     const remainder = remainderForLine(line);
     return !line.product_id ||
@@ -3029,7 +3376,7 @@ export function ReceivingPage() {
           draft_sequence: editingDraft.draft_sequence ?? undefined,
           draft_count: editingDraft.draft_count ?? undefined,
         });
-        return { mode, count: 1, edited: true };
+        return { mode, count: 1, edited: true, draftIds: [editingDraft.id], containerNumber: shipmentForm.container_number };
       }
       const result = await saveShipmentDrafts({
         receipt_type: shipmentForm.receipt_type,
@@ -3040,14 +3387,20 @@ export function ReceivingPage() {
         reference_number: shipmentForm.reference_number,
         lines,
       });
-      return { mode, count: result.count, edited: false };
+      return { mode, count: result.count, edited: false, draftIds: result.draftIds, containerNumber: shipmentForm.container_number };
     },
     onSuccess: async (result) => {
       toast.success(result.edited ? "Draft updated" : `${result.count} pallet draft${result.count === 1 ? "" : "s"} saved`);
       await queryClient.invalidateQueries({ queryKey: ["draft-receipts"] });
       await queryClient.invalidateQueries({ queryKey: ["dashboard-metrics"] });
       setEditingDraft(null);
-      if (result.mode === "new" && !result.edited) {
+      if (result.mode === "receive" && !result.edited) {
+        setShipmentOpen(false);
+        setPrintContainer(result.containerNumber);
+        setSelectedDraftIds(new Set(result.draftIds));
+        setPrintAfterSaveIds(result.draftIds);
+        setPrintOpen(true);
+      } else if (result.mode === "new" && !result.edited) {
         setShipmentForm((current) => ({
           ...current,
           container_number: "",
@@ -3076,6 +3429,40 @@ export function ReceivingPage() {
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Receiving failed"),
   });
+
+  const batchReceiveMutation = useMutation({
+    mutationFn: async (draftsToReceive: DraftReceipt[]) => {
+      const results = [];
+      for (const draft of draftsToReceive) {
+        results.push(await completeReceiptFromDraft(draft.id, draftToReceivingValues(draft)));
+      }
+      return results;
+    },
+    onSuccess: async (results) => {
+      const count = results.length;
+      toast.success(`${count} pallet label${count === 1 ? "" : "s"} printed and sent to Putaway.`);
+      setLastResult({
+        barcode: count === 1 ? results[0]?.palletBarcode ?? "Pallet" : `${count} pallets`,
+        taskNumber: count === 1 ? results[0]?.putawayTaskNumber ?? "queued" : "queued",
+        qty: count,
+      });
+      setPrintOpen(false);
+      setSelectedDraftIds(new Set());
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["dashboard-metrics"] }),
+        queryClient.invalidateQueries({ queryKey: ["putaway-tasks"] }),
+        queryClient.invalidateQueries({ queryKey: ["inventory-search"] }),
+        queryClient.invalidateQueries({ queryKey: ["draft-receipts"] }),
+      ]);
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Receiving failed"),
+  });
+
+  function printAndReceiveDrafts(draftsToReceive: DraftReceipt[]) {
+    printDraftLabels(draftsToReceive, productOptions, clients, warehouses, packagingProfiles, () => {
+      batchReceiveMutation.mutate(draftsToReceive);
+    });
+  }
 
   const deleteDraftMutation = useMutation({
     mutationFn: deleteDraftReceipt,
@@ -3250,7 +3637,11 @@ export function ReceivingPage() {
             <RefreshCw data-icon="inline-start" />
             Sync / Refresh
           </Button>
-          <Button variant="outline" onClick={() => { setPrintContainer(draftSearch); setSelectedDraftIds(new Set()); setPrintOpen(true); }}>
+          <Button variant="outline" onClick={() => {
+            setPrintContainer(draftSearch);
+            setSelectedDraftIds(new Set(visibleDrafts.map((draft) => draft.id)));
+            setPrintOpen(true);
+          }}>
             <Printer data-icon="inline-start" />
             Print drafts
           </Button>
@@ -3274,7 +3665,7 @@ export function ReceivingPage() {
                 placeholder="Search container, PO, pallet, SKU, product, receipt"
               />
             </div>
-            <BarcodeScanButton title="Scan container, PO, or pallet" onScan={setDraftSearch} />
+            <BarcodeScanButton title="Scan container, PO, or pallet" onScan={(value) => setDraftSearch(normalizeScannerText(value))} />
           </div>
         </CardContent>
       </Card>
@@ -3292,6 +3683,9 @@ export function ReceivingPage() {
           ) : visibleDrafts.map((draft) => {
             const meta = parseDraftMeta(draft.notes);
             const product = productOptions.find((p) => p.id === (draft.product_id ?? meta.product_id));
+            const client = clients.find((item) => item.id === draft.client_id);
+            const warehouse = warehouses.find((item) => item.id === draft.warehouse_id);
+            const packaging = packagingProfiles.find((item: any) => item.id === meta.packaging_profile_id);
             const barcode = draft.draft_pallet_barcode ?? meta.draft_pallet_barcode ?? draft.receipt_number;
             return (
               <div key={draft.id} className="grid gap-3 rounded-lg border border-border px-4 py-3 lg:grid-cols-[1fr_auto] lg:items-center">
@@ -3313,14 +3707,21 @@ export function ReceivingPage() {
                     productSku={product?.sku}
                     productName={product?.name}
                     lotNumber={draft.lot_number ?? meta.lot_number}
+                    batchNumber={draft.batch_number ?? meta.batch_number}
                     expiryDate={draft.expiry_date ?? meta.expiry_date}
-                    trigger={<Button size="sm" variant="outline"><Printer data-icon="inline-start" />Print</Button>}
+                    containerNumber={draft.container_number ?? meta.container_number}
+                    poNumber={draft.po_number ?? meta.po_number}
+                    clientName={client?.name}
+                    warehouseName={warehouse ? `${warehouse.code ? `${warehouse.code} - ` : ""}${warehouse.name}` : undefined}
+                    receiptReference={draft.reference_number ?? draft.receipt_number}
+                    packaging={packaging?.name ?? packaging?.unit_name ?? packaging?.unit_of_measure}
+                    draftSequence={draft.draft_sequence}
+                    draftCount={draft.draft_count}
+                    temperatureClass={product?.temperature_requirement}
+                    onPrinted={() => receiveMutation.mutateAsync(draft)}
+                    trigger={<Button size="sm" variant="outline" disabled={receiveMutation.isPending}><Printer data-icon="inline-start" />Print & Receive</Button>}
                   />
                   <Button size="sm" variant="outline" onClick={() => openEditDraft(draft)}><Pencil data-icon="inline-start" />Edit</Button>
-                  <Button size="sm" onClick={() => receiveMutation.mutate(draft)} disabled={receiveMutation.isPending}>
-                    {receiveMutation.isPending ? <Loader2 className="animate-spin" /> : <CheckCircle2 data-icon="inline-start" />}
-                    Receive
-                  </Button>
                   {draft.status === "draft" && (
                     <Button size="sm" variant="ghost" onClick={() => deleteDraftMutation.mutate(draft.id)} disabled={deleteDraftMutation.isPending}>
                       <Trash2 className="h-4 w-4" />
@@ -3389,7 +3790,7 @@ export function ReceivingPage() {
                   </div>
                   <div className="grid gap-1.5">
                     <ShipmentFieldLabel>Reference</ShipmentFieldLabel>
-                    <Input className="h-9 sm:h-10" value={shipmentForm.reference_number} onChange={(e) => setShipmentForm((cur) => ({ ...cur, reference_number: e.target.value }))} />
+                    <Input className="h-9 sm:h-10" value={shipmentForm.reference_number} onChange={(e) => setShipmentForm((cur) => ({ ...cur, reference_number: normalizeScannerText(e.target.value) }))} />
                   </div>
                 </div>
               )}
@@ -3494,11 +3895,11 @@ export function ReceivingPage() {
                         </div>
                         <div className="grid gap-1.5">
                           <ShipmentFieldLabel>Lot</ShipmentFieldLabel>
-                          <Input className="h-9 sm:h-10" value={line.lot_number} onChange={(e) => updateLine(line.id, { lot_number: e.target.value })} />
+                          <Input className="h-9 sm:h-10" value={line.lot_number} onChange={(e) => updateLine(line.id, { lot_number: normalizeScannerText(e.target.value) })} />
                         </div>
                         <div className="grid gap-1.5">
                           <ShipmentFieldLabel>Batch</ShipmentFieldLabel>
-                          <Input className="h-9 sm:h-10" value={line.batch_number} onChange={(e) => updateLine(line.id, { batch_number: e.target.value })} />
+                          <Input className="h-9 sm:h-10" value={line.batch_number} onChange={(e) => updateLine(line.id, { batch_number: normalizeScannerText(e.target.value) })} />
                         </div>
                         <div className="col-span-2 grid gap-1.5 md:col-span-1">
                           <ShipmentFieldLabel>Packaging</ShipmentFieldLabel>
@@ -3626,9 +4027,9 @@ export function ReceivingPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setSelectedDraftIds(new Set(printDrafts.map((draft) => draft.id)))}>Select all shown</Button>
-            <Button onClick={() => printDraftLabels(selectedPrintDrafts, productOptions)}>
-              <Printer data-icon="inline-start" />
-              Print selected
+            <Button disabled={batchReceiveMutation.isPending || selectedPrintDrafts.length === 0} onClick={() => printAndReceiveDrafts(selectedPrintDrafts)}>
+              {batchReceiveMutation.isPending ? <Loader2 className="animate-spin" /> : <Printer data-icon="inline-start" />}
+              Print selected & send to Putaway
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -3765,14 +4166,31 @@ function BayOccupancyGrid({
   locationCode: string;
   onSelect: (locationCode: string) => void;
 }) {
-  const { data } = useQuery({
+  const isBayScan = locationCode.trim().toUpperCase().startsWith("BAY:");
+  const { data, isFetching } = useQuery({
     queryKey: ["bay-occupancy", locationCode],
     queryFn: () => getBayOccupancy(locationCode),
     enabled: locationCode.length >= 2,
     staleTime: 10_000,
   });
 
-  if (!data || data.cells.length <= 1) return null;
+  if (isFetching) {
+    return (
+      <div className="rounded-md border border-border bg-secondary/20 px-3 py-2 text-xs text-muted-foreground">
+        Loading bay locations…
+      </div>
+    );
+  }
+
+  if (!data || data.cells.length === 0) {
+    return isBayScan ? (
+      <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+        No active rack locations found for this bay barcode.
+      </div>
+    ) : null;
+  }
+
+  if (!isBayScan && data.cells.length <= 1) return null;
 
   return (
     <div className="grid gap-2 rounded-md border border-border bg-secondary/20 p-3">
@@ -3818,7 +4236,12 @@ export function PutawayTasksPage() {
     queryKey: ["putaway-tasks", putawayUserId],
     queryFn: () => getPutawayTasks(putawayUserId),
   });
+  const { data: putawayHistory = [] } = useQuery({
+    queryKey: ["putaway-task-history", putawayUserId],
+    queryFn: () => getPutawayTaskHistory(putawayUserId),
+  });
   const [scanState, setScanState] = useState<Record<string, { pallet: string; location: string; override: boolean; reason: string }>>({});
+  const [bayScanState, setBayScanState] = useState<Record<string, string>>({});
   const [violations, setViolations] = useState<Record<string, string>>({});
   const [taskSearch, setTaskSearch] = useState("");
   const palletRefs = useRef<Record<string, HTMLInputElement | null>>({});
@@ -3826,14 +4249,17 @@ export function PutawayTasksPage() {
   const confirmRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const [completedIds, setCompletedIds] = useState<Set<string>>(new Set());
   const [revertedIds, setRevertedIds] = useState<Set<string>>(new Set());
+  const [returnTask, setReturnTask] = useState<any | null>(null);
 
   const revertMutation = useMutation({
     mutationFn: ({ taskId }: { taskId: string; openReceiving?: boolean }) => revertPutawayToDraft(taskId),
     onSuccess: async (_, vars) => {
       toast.success("Task saved as draft");
+      setReturnTask(null);
       setRevertedIds((prev) => new Set([...prev, vars.taskId]));
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["putaway-tasks"] }),
+        queryClient.invalidateQueries({ queryKey: ["putaway-task-history"] }),
         queryClient.invalidateQueries({ queryKey: ["draft-receipts"] }),
       ]);
       if (vars.openReceiving) navigate("/receiving");
@@ -3880,6 +4306,11 @@ export function PutawayTasksPage() {
           delete next[vars.taskId];
           return next;
         });
+        setBayScanState((current) => {
+          const next = { ...current };
+          delete next[vars.taskId];
+          return next;
+        });
         return;
       }
       playBarcodeBeep();
@@ -3899,8 +4330,14 @@ export function PutawayTasksPage() {
         delete next[vars.taskId];
         return next;
       });
+      setBayScanState((current) => {
+        const next = { ...current };
+        delete next[vars.taskId];
+        return next;
+      });
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["putaway-tasks"] }),
+        queryClient.invalidateQueries({ queryKey: ["putaway-task-history"] }),
         queryClient.invalidateQueries({ queryKey: ["inventory-search"] }),
         queryClient.invalidateQueries({ queryKey: ["dashboard-metrics"] }),
       ]);
@@ -3935,6 +4372,29 @@ export function PutawayTasksPage() {
     : pendingTasks;
   const activeTasks = visibleTasks.filter((t: any) => openPutawayStatuses.has(t.status));
 
+  function applyLocationScan(task: any, scannedValue: string) {
+    const value = normalizeScannerText(scannedValue);
+    if (!value) return;
+    const localState = scanState[task.id] ?? { pallet: task.pallets?.pallet_barcode ?? "", location: "", override: false, reason: "" };
+    if (value.toUpperCase().startsWith("BAY:")) {
+      setBayScanState((current) => ({ ...current, [task.id]: value }));
+      setScanState((current) => ({ ...current, [task.id]: { ...localState, location: "" } }));
+      void logPutawayBaySelection({ taskId: task.id, scannedCode: value });
+      playBarcodeBeep();
+      flashInput(locationRefs.current[task.id], "orange");
+      return;
+    }
+    setBayScanState((current) => {
+      const next = { ...current };
+      delete next[task.id];
+      return next;
+    });
+    setScanState((current) => ({ ...current, [task.id]: { ...localState, location: value } }));
+    playBarcodeBeep();
+    flashInput(locationRefs.current[task.id], "blue");
+    setTimeout(() => confirmRefs.current[task.id]?.focus(), 50);
+  }
+
   // Auto-focus first pallet field on desktop when tasks load
   const isMobile = typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches;
   useEffect(() => {
@@ -3966,7 +4426,7 @@ export function PutawayTasksPage() {
                 placeholder="Search pallet barcode or task"
               />
             </div>
-            <BarcodeScanButton title="Scan pallet barcode" onScan={setTaskSearch} />
+            <BarcodeScanButton title="Scan pallet barcode" onScan={(value) => setTaskSearch(normalizeScannerText(value))} />
           </div>
         </div>
       </div>
@@ -3983,7 +4443,9 @@ export function PutawayTasksPage() {
         ) : (
           visibleTasks.map((task: any) => {
             const localState = scanState[task.id] ?? { pallet: "", location: "", override: false, reason: "" };
+            const bayScan = bayScanState[task.id] ?? "";
             const binOccupancy = localState.location.length >= 2;
+            const bayOccupancy = Boolean(bayScan || binOccupancy);
             const violation = violations[task.id];
             const suggested = (task.locations as any)?.code;
             const taskPallet = task.pallets as any;
@@ -4023,13 +4485,13 @@ export function PutawayTasksPage() {
                           placeholder="Scan pallet barcode"
                           value={localState.pallet}
                           onChange={(event) => {
-                            const val = event.target.value;
+                            const val = normalizeScannerText(event.target.value);
                             setScanState((current) => ({
                               ...current,
                               [task.id]: { ...localState, pallet: val },
                             }));
                             if (val.endsWith("\n") || val.endsWith("\r")) {
-                              const trimmed = val.trim();
+                              const trimmed = normalizeScannerText(val);
                               setScanState((current) => ({
                                 ...current,
                                 [task.id]: { ...localState, pallet: trimmed },
@@ -4057,7 +4519,7 @@ export function PutawayTasksPage() {
                         <BarcodeScanButton
                           title="Scan pallet barcode"
                           onScan={(v) => {
-                            setScanState((cur) => ({ ...cur, [task.id]: { ...localState, pallet: v } }));
+                            setScanState((cur) => ({ ...cur, [task.id]: { ...localState, pallet: normalizeScannerText(v) } }));
                             playBarcodeBeep();
                             flashInput(palletRefs.current[task.id], "blue");
                             setTimeout(() => {
@@ -4077,7 +4539,18 @@ export function PutawayTasksPage() {
                           placeholder="Scan location barcode"
                           value={localState.location}
                           onChange={(event) => {
-                            const val = event.target.value.replace(/[\r\n]/g, "");
+                            const val = normalizeScannerText(event.target.value.replace(/[\r\n]/g, ""));
+                            if (/^BAY:[^:]+:[^:]+:[^:]+:[^:]+$/i.test(val.trim())) {
+                              applyLocationScan(task, val);
+                              return;
+                            }
+                            if (!val.toUpperCase().startsWith("BAY:")) {
+                              setBayScanState((current) => {
+                                const next = { ...current };
+                                delete next[task.id];
+                                return next;
+                              });
+                            }
                             setScanState((current) => ({
                               ...current,
                               [task.id]: { ...localState, location: val },
@@ -4086,31 +4559,35 @@ export function PutawayTasksPage() {
                           onKeyDown={(e) => {
                             if (e.key === "Enter") {
                               e.preventDefault();
-                              playBarcodeBeep();
-                              flashInput(locationRefs.current[task.id], "blue");
-                              setTimeout(() => confirmRefs.current[task.id]?.focus(), 50);
+                              applyLocationScan(task, e.currentTarget.value);
                             }
                           }}
                         />
                         <BarcodeScanButton
                           title="Scan location barcode"
-                          onScan={(v) => {
-                            setScanState((cur) => ({ ...cur, [task.id]: { ...localState, location: v } }));
-                            playBarcodeBeep();
-                            flashInput(locationRefs.current[task.id], "blue");
-                            setTimeout(() => confirmRefs.current[task.id]?.focus(), 50);
-                          }}
+                          onScan={(v) => applyLocationScan(task, normalizeScannerText(v))}
                         />
                       </div>
                     </div>
                   </div>
-                  {binOccupancy && (
+                  {bayOccupancy && (
                     <>
-                      <BinCapacityBar locationCode={localState.location} taskId={task.id} />
+                      {binOccupancy && <BinCapacityBar locationCode={localState.location} taskId={task.id} />}
+                      {bayScan && (
+                        <div className="rounded-md border border-border bg-secondary/20 px-3 py-2 text-xs text-muted-foreground">
+                          Bay scan <span className="font-mono font-semibold text-foreground">{bayScan}</span> loaded. Select a bin below.
+                        </div>
+                      )}
                       <BayOccupancyGrid
-                        locationCode={localState.location}
+                        locationCode={bayScan || localState.location}
                         onSelect={(location) => {
                           setScanState((current) => ({ ...current, [task.id]: { ...localState, location } }));
+                          setBayScanState((current) => {
+                            const next = { ...current };
+                            delete next[task.id];
+                            return next;
+                          });
+                          if (bayScan) void logPutawayBaySelection({ taskId: task.id, scannedCode: bayScan, selectedLocationCode: location });
                           flashInput(locationRefs.current[task.id], "blue");
                           setTimeout(() => confirmRefs.current[task.id]?.focus(), 50);
                         }}
@@ -4171,46 +4648,88 @@ export function PutawayTasksPage() {
                     {mutation.isPending ? <Loader2 className="animate-spin" /> : <CheckCircle2 data-icon="inline-start" />}
                     {localState.override ? "Override & Confirm Put-Away" : "Confirm Put-Away"}
                   </Button>
-                  <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="w-full text-muted-foreground"
-                        disabled={revertMutation.isPending}
-                      >
-                        {revertMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <RotateCcw className="h-3.5 w-3.5 mr-1" />}
-                        Save as Draft / Return to Receiving
-                      </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>Return this task to Receiving?</AlertDialogTitle>
-                        <AlertDialogDescription>
-                          This removes {task.task_number} from Putaway Tasks and creates a Saved Draft in Receiving. To find it later, open Receiving and use the Saved Drafts panel; it will be expanded when drafts exist.
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel>Keep task here</AlertDialogCancel>
-                        <AlertDialogAction
-                          className="bg-secondary text-secondary-foreground hover:bg-secondary/80"
-                          onClick={() => revertMutation.mutate({ taskId: task.id })}
-                        >
-                          Save draft
-                        </AlertDialogAction>
-                        <AlertDialogAction onClick={() => revertMutation.mutate({ taskId: task.id, openReceiving: true })}>
-                          Save draft & open Receiving
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="w-full text-muted-foreground"
+                    disabled={revertMutation.isPending}
+                    onClick={() => setReturnTask(task)}
+                  >
+                    {revertMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <RotateCcw className="h-3.5 w-3.5 mr-1" />}
+                    Save as Draft / Return to Receiving
+                  </Button>
                 </CardContent>
               </Card>
             );
           })
         )}
+        {putawayHistory.length > 0 ? (
+          <details className="group rounded-lg border border-border bg-background/60 px-3 py-2">
+            <summary className="cursor-pointer list-none text-sm text-muted-foreground hover:text-foreground">
+              <span className="group-open:hidden">Show {putawayHistory.length} completed / returned</span>
+              <span className="hidden group-open:inline">Hide completed / returned</span>
+            </summary>
+            <div className="mt-3 grid gap-2">
+              {putawayHistory.map((task: any) => {
+                const pallet = task.pallets as any;
+                const product = pallet?.products as any;
+                const suggestedLocation = task.locations?.code ?? "No suggestion";
+                const palletCode = pallet?.pallet_barcode ?? pallet?.pallet_code ?? "No pallet";
+                return (
+                  <details key={task.id} className="rounded-md border border-border px-3 py-2 text-sm opacity-85">
+                    <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <span className="block truncate font-mono text-xs">{task.task_number}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {palletCode} · {suggestedLocation}
+                        </span>
+                      </div>
+                      <Badge variant={statusBadgeVariant(task.status)} className="shrink-0 text-xs">{task.status}</Badge>
+                    </summary>
+                    <div className="mt-3 grid gap-2 rounded-md bg-muted/40 px-3 py-2 text-xs sm:grid-cols-2">
+                      <div>
+                        <p className="font-medium">{product?.name ?? "Product"}</p>
+                        <p className="font-mono text-muted-foreground">{product?.sku ?? "No SKU"}</p>
+                      </div>
+                      <div className="sm:text-right">
+                        <p className="font-mono">Pallet {palletCode}</p>
+                        <p className="text-muted-foreground">Suggested {suggestedLocation}</p>
+                      </div>
+                    </div>
+                  </details>
+                );
+              })}
+            </div>
+          </details>
+        ) : null}
       </div>
+      <AlertDialog open={Boolean(returnTask)} onOpenChange={(open) => { if (!open) setReturnTask(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Return this task to Receiving?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes {returnTask?.task_number ?? "this task"} from Putaway Tasks and creates a Saved Draft in Receiving. To find it later, open Receiving and use the Draft Pallets list.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep task here</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-secondary text-secondary-foreground hover:bg-secondary/80"
+              disabled={revertMutation.isPending || !returnTask}
+              onClick={() => returnTask && revertMutation.mutate({ taskId: returnTask.id })}
+            >
+              Save draft
+            </AlertDialogAction>
+            <AlertDialogAction
+              disabled={revertMutation.isPending || !returnTask}
+              onClick={() => returnTask && revertMutation.mutate({ taskId: returnTask.id, openReceiving: true })}
+            >
+              Save draft & open Receiving
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -4218,27 +4737,42 @@ export function PutawayTasksPage() {
 export function InventorySearchPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { roles, profile } = useAuth();
-  const [searchTerm, setSearchTerm] = useState("");
-  const [status, setStatus] = useState<string>("all");
+  const [searchTerm, setSearchTerm] = useState(searchParams.get("q") ?? "");
+  const [status, setStatus] = useState<string>(searchParams.get("status") ?? "all");
+  const [ageBucket, setAgeBucket] = useState(searchParams.get("age") ?? "");
+  const [expiryWindow, setExpiryWindow] = useState(searchParams.get("expiry") ?? "");
   const lastDetailTapRef = useRef<{ id: string; time: number } | null>(null);
   const restrictedToDefaultWarehouse = shouldRestrictToDefaultWarehouse(roles);
   const { data: options } = useQuery({
     queryKey: ["options", "inventory", restrictedToDefaultWarehouse, profile?.default_warehouse_id],
     queryFn: () => fetchOptions(false, { restrictToWarehouse: restrictedToDefaultWarehouse, warehouseId: profile?.default_warehouse_id }),
   });
-  const [warehouseId, setWarehouseId] = useState(restrictedToDefaultWarehouse ? profile?.default_warehouse_id ?? "" : "");
-  const hasInventoryFilters = Boolean(searchTerm || warehouseId || status !== "all");
+  const [warehouseId, setWarehouseId] = useState(searchParams.get("warehouse") ?? (restrictedToDefaultWarehouse ? profile?.default_warehouse_id ?? "" : ""));
+  const hasInventoryFilters = Boolean(searchTerm || warehouseId || status !== "all" || ageBucket || expiryWindow);
 
   const { data = [], isLoading } = useQuery({
-    queryKey: ["inventory-search", searchTerm, status, warehouseId],
-    queryFn: () => searchInventory({ search: searchTerm, status, warehouseId: warehouseId || undefined }),
+    queryKey: ["inventory-search", searchTerm, status, warehouseId, ageBucket, expiryWindow],
+    queryFn: () => searchInventory({ search: searchTerm, status, warehouseId: warehouseId || undefined, ageBucket: ageBucket as any, expiryWindow: expiryWindow as any }),
   });
+
+  useEffect(() => {
+    const next = new URLSearchParams();
+    if (searchTerm) next.set("q", searchTerm);
+    if (status !== "all") next.set("status", status);
+    if (warehouseId) next.set("warehouse", warehouseId);
+    if (ageBucket) next.set("age", ageBucket);
+    if (expiryWindow) next.set("expiry", expiryWindow);
+    setSearchParams(next, { replace: true });
+  }, [ageBucket, expiryWindow, searchTerm, setSearchParams, status, warehouseId]);
 
   function clearInventoryFilters() {
     setSearchTerm("");
     setStatus("all");
     setWarehouseId("");
+    setAgeBucket("");
+    setExpiryWindow("");
   }
 
   function openInventoryDetail(balanceId: string) {
@@ -4270,25 +4804,26 @@ export function InventorySearchPage() {
         <p className="text-sm text-muted-foreground">Search by SKU, pallet, container, PO, lot, batch, expiry, owner, or location.</p>
       </div>
       <Card>
-        <CardContent className="flex flex-col gap-3 p-4">
-          <div className="flex flex-wrap items-stretch gap-3">
+        <CardContent className="flex flex-col gap-2 p-3">
+          <div className="flex flex-wrap items-stretch gap-2">
             <div className="flex min-w-[17rem] flex-1 gap-2">
               <div className="relative min-w-0 flex-1">
                 <Search className="absolute left-3 top-3 text-muted-foreground" />
                 <Input type="search" className="min-w-0 pl-10" value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Search SKU, pallet, container, PO, or location" />
               </div>
-              <BarcodeScanButton title="Scan SKU, pallet, container, PO, or location barcode" onScan={setSearchTerm} />
+              <BarcodeScanButton title="Scan SKU, pallet, container, PO, or location barcode" onScan={(value) => setSearchTerm(normalizeScannerText(value))} />
             </div>
-            <Button className="min-w-24" variant="outline" onClick={clearInventoryFilters} disabled={!hasInventoryFilters}>
+            <Button className="h-9 min-w-20" variant="outline" onClick={clearInventoryFilters} disabled={!hasInventoryFilters}>
               Clear
             </Button>
           </div>
           {(options?.warehouses?.length ?? 0) > 1 && !restrictedToDefaultWarehouse ? (
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-1.5">
               <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Warehouse</span>
               <Button
                 type="button"
                 size="sm"
+                className="h-7 px-2 text-xs"
                 variant={warehouseId === "" ? "default" : "outline"}
                 onClick={() => setWarehouseId("")}
               >
@@ -4299,6 +4834,7 @@ export function InventorySearchPage() {
                   key={warehouse.id}
                   type="button"
                   size="sm"
+                  className="h-7 px-2 text-xs"
                   variant={warehouseId === warehouse.id ? "default" : "outline"}
                   onClick={() => setWarehouseId(warehouse.id)}
                 >
@@ -4307,11 +4843,12 @@ export function InventorySearchPage() {
               ))}
             </div>
           ) : null}
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-1.5">
             <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Status</span>
             <Button
               type="button"
               size="sm"
+              className="h-7 px-2 text-xs"
               variant={status === "all" ? "default" : "outline"}
               onClick={() => setStatus("all")}
             >
@@ -4322,10 +4859,40 @@ export function InventorySearchPage() {
                 key={item}
                 type="button"
                 size="sm"
+                className="h-7 px-2 text-xs"
                 variant={status === item ? "default" : "outline"}
                 onClick={() => setStatus(item)}
               >
                 {item}
+              </Button>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Age</span>
+            <Button type="button" size="sm" className="h-7 px-2 text-xs" variant={ageBucket === "" ? "default" : "outline"} onClick={() => setAgeBucket("")}>
+              All
+            </Button>
+            {[
+              ["3m", "3+ months"],
+              ["6m", "6+ months"],
+              ["12m", "12+ months"],
+            ].map(([value, label]) => (
+              <Button key={value} type="button" size="sm" className="h-7 px-2 text-xs" variant={ageBucket === value ? "default" : "outline"} onClick={() => setAgeBucket(value)}>
+                {label}
+              </Button>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Expiry</span>
+            <Button type="button" size="sm" className="h-7 px-2 text-xs" variant={expiryWindow === "" ? "default" : "outline"} onClick={() => setExpiryWindow("")}>
+              All
+            </Button>
+            {[
+              ["60d", "Next 60 days"],
+              ["30d", "Next 30 days"],
+            ].map(([value, label]) => (
+              <Button key={value} type="button" size="sm" className="h-7 px-2 text-xs" variant={expiryWindow === value ? "default" : "outline"} onClick={() => setExpiryWindow(value)}>
+                {label}
               </Button>
             ))}
           </div>
@@ -4548,7 +5115,7 @@ export function PickListsPage() {
               placeholder="Search pick lists or barcodes"
             />
           </div>
-          <BarcodeScanButton title="Scan pick list, pallet, or product barcode" onScan={setPickSearch} />
+          <BarcodeScanButton title="Scan pick list, pallet, or product barcode" onScan={(value) => setPickSearch(normalizeScannerText(value))} />
         </div>
       </div>
       <TabsList className="grid h-auto w-full grid-cols-2 sm:w-fit">
@@ -4675,12 +5242,48 @@ export function PickListsPage() {
               <span className="hidden group-open:inline">▼ Hide completed / cancelled</span>
             </summary>
             <div className="mt-2 grid gap-2">
-              {done.map((pl: any) => (
-                <div key={pl.id} className="flex items-center justify-between rounded-md border border-border px-3 py-2 text-sm opacity-60">
-                  <span className="font-mono text-xs">{pl.pick_list_number}</span>
-                  <Badge variant={statusBadgeVariant(pl.status)} className="text-xs">{pl.status}</Badge>
-                </div>
-              ))}
+              {done.map((pl: any) => {
+                const tasks: any[] = pl.pick_tasks ?? [];
+                const completedCount = tasks.filter((task) => task.status === "completed").length;
+                return (
+                  <details key={pl.id} className="group rounded-md border border-border px-3 py-2 text-sm opacity-80">
+                    <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <span className="block truncate font-mono text-xs">{pl.pick_list_number}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {completedCount}/{tasks.length} tasks completed{pl.order_number ? ` · ${pl.order_number}` : ""}
+                        </span>
+                      </div>
+                      <Badge variant={statusBadgeVariant(pl.status)} className="shrink-0 text-xs">{pl.status}</Badge>
+                    </summary>
+                    <div className="mt-3 grid gap-2">
+                      {tasks.length === 0 ? (
+                        <p className="rounded-md bg-muted/40 px-3 py-2 text-xs text-muted-foreground">No task detail recorded.</p>
+                      ) : (
+                        tasks.map((task: any) => {
+                          const product = task.pallets?.products as any;
+                          const palletCode = task.pallets?.pallet_barcode ?? task.pallets?.pallet_code ?? "—";
+                          return (
+                            <div key={task.id} className="grid gap-1 rounded-md bg-muted/40 px-3 py-2 text-xs sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                              <div className="min-w-0">
+                                <p className="truncate font-medium">{product?.name ?? "—"}</p>
+                                <p className="font-mono text-muted-foreground">
+                                  {product?.sku ?? "No SKU"} · Pallet {palletCode} · {task.locations?.code ?? "No location"}
+                                </p>
+                                {task.short_reason ? <p className="text-destructive">Short: {task.short_reason}</p> : null}
+                              </div>
+                              <div className="flex items-center gap-2 sm:justify-end">
+                                <span className="font-semibold">Qty {formatNumber(task.confirmed_quantity ?? task.quantity ?? task.requested_quantity ?? 0)}</span>
+                                <Badge variant={statusBadgeVariant(task.status)} className="text-xs">{task.status}</Badge>
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </details>
+                );
+              })}
             </div>
           </details>
         )}
@@ -4727,8 +5330,8 @@ export function PickListsPage() {
                       <FormLabel>Order number</FormLabel>
                       <FormControl>
                         <div className="flex gap-2">
-                          <Input {...field} value={field.value ?? ""} />
-                          <BarcodeScanButton title="Scan order number" onScan={field.onChange} />
+                          <Input {...field} value={field.value ?? ""} onChange={(event) => field.onChange(normalizeScannerText(event.target.value))} />
+                          <BarcodeScanButton title="Scan order number" onScan={(value) => field.onChange(normalizeScannerText(value))} />
                         </div>
                       </FormControl>
                       <FormMessage />
@@ -5460,23 +6063,23 @@ export function LocationMovesPage() {
                 className="flex-1"
                 placeholder="Pallet barcode"
                 value={newPallet}
-                onChange={(e) => setNewPallet(e.target.value)}
+                onChange={(e) => setNewPallet(normalizeScannerText(e.target.value))}
                 onKeyDown={(e) => e.key === "Enter" && completeNewMove()}
               />
-              <BarcodeScanButton title="Scan pallet" onScan={(v) => setNewPallet(v)} />
+              <BarcodeScanButton title="Scan pallet" onScan={(v) => setNewPallet(normalizeScannerText(v))} />
             </div>
             <div className="flex gap-2">
               <Input
                 className="flex-1"
                 placeholder="Target location (e.g. A-01-01)"
                 value={newLocation}
-                onChange={(e) => setNewLocation(e.target.value.toUpperCase())}
+                onChange={(e) => setNewLocation(normalizeScannerText(e.target.value))}
                 onKeyDown={(e) => e.key === "Enter" && completeNewMove()}
               />
               <BarcodeScanButton
                 title="Scan target location"
                 onScan={(v) => {
-                  const nextLocation = v.toUpperCase();
+                  const nextLocation = normalizeScannerText(v);
                   setNewLocation(nextLocation);
                   if (newPallet.trim()) completeNewMove(newPallet, nextLocation);
                 }}
@@ -5544,11 +6147,11 @@ export function LocationMovesPage() {
                         className="min-h-12 flex-1 text-base"
                         placeholder={`Scan pallet (${pBarcode})`}
                         value={local.pallet}
-                        onChange={(e) => setScanState((s) => ({ ...s, [task.id]: { ...local, pallet: e.target.value } }))}
+                        onChange={(e) => setScanState((s) => ({ ...s, [task.id]: { ...local, pallet: normalizeScannerText(e.target.value) } }))}
                       />
                       <BarcodeScanButton
                         title="Scan pallet barcode"
-                        onScan={(v) => setScanState((s) => ({ ...s, [task.id]: { ...local, pallet: v } }))}
+                        onScan={(v) => setScanState((s) => ({ ...s, [task.id]: { ...local, pallet: normalizeScannerText(v) } }))}
                       />
                     </div>
                     <div className="flex gap-2">
@@ -5556,11 +6159,11 @@ export function LocationMovesPage() {
                         className="min-h-12 flex-1 text-base"
                         placeholder={`Scan target location (${toLoc})`}
                         value={local.location}
-                        onChange={(e) => setScanState((s) => ({ ...s, [task.id]: { ...local, location: e.target.value } }))}
+                        onChange={(e) => setScanState((s) => ({ ...s, [task.id]: { ...local, location: normalizeScannerText(e.target.value) } }))}
                       />
                       <BarcodeScanButton
                         title="Scan target location"
-                        onScan={(v) => setScanState((s) => ({ ...s, [task.id]: { ...local, location: v } }))}
+                        onScan={(v) => setScanState((s) => ({ ...s, [task.id]: { ...local, location: normalizeScannerText(v) } }))}
                       />
                     </div>
                   </div>

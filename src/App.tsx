@@ -15,7 +15,7 @@ import { enqueueOfflineWork, isLikelyNetworkError } from "@/lib/offline-queue";
 import { supabase } from "@/integrations/supabase/client";
 import { createAppQueryClient } from "@/lib/query-client";
 
-import { confirmPickTask, formatDate, formatNumber, getInventoryDetail, getPickExecution, loginSchema, recordUserSignIn, refreshUserDeviceTrust, signUpSchema, RESOURCE_DEFINITIONS } from "@/lib/wms-core";
+import { confirmPickTask, formatDate, formatNumber, getBayOccupancy, getInventoryDetail, getPickExecution, loginSchema, recordUserSignIn, refreshUserDeviceTrust, signUpSchema, RESOURCE_DEFINITIONS } from "@/lib/wms-core";
 import { getOrCreateDeviceId } from "@/lib/device-identity";
 
 import { Toaster as Sonner } from "@/components/ui/sonner";
@@ -170,6 +170,10 @@ function flashInput(el: HTMLElement | null, colour: "orange" | "blue" | "red" | 
   const cls = palette[colour];
   el.classList.add(...cls);
   setTimeout(() => el.classList.remove(...cls), colour === "red" ? 1400 : 700);
+}
+
+function normalizeScannerText(value: unknown) {
+  return String(value ?? "").trim().toUpperCase();
 }
 
 function playPickSuccessTone() {
@@ -474,8 +478,18 @@ type InventoryDetailData = {
   client?: { code?: string | null; name?: string | null } | null;
   warehouse?: { code?: string | null; name?: string | null } | null;
   location?: { code?: string | null; aisle?: string | null; bay?: string | null; level?: string | null } | null;
-  receipt?: { receipt_number?: string | null; receipt_type?: string | null; reference_number?: string | null; created_at?: string | null } | null;
+  receipt?: {
+    receipt_number?: string | null;
+    receipt_type?: string | null;
+    reference_number?: string | null;
+    container_number?: string | null;
+    po_number?: string | null;
+    draft_sequence?: number | null;
+    draft_count?: number | null;
+    created_at?: string | null;
+  } | null;
   receiptLine?: { quantity?: number | null; received_quantity?: number | null; override_length?: number | null; override_width?: number | null; override_height?: number | null; override_weight?: number | null } | null;
+  packaging?: { profile_name?: string | null; name?: string | null; unit_name?: string | null; unit_of_measure?: string | null } | null;
   lot: {
     expiry_date: string | null;
     lot_number: string | null;
@@ -1335,9 +1349,17 @@ function InventoryDetailPage() {
                     productSku={data.product?.sku ?? undefined}
                     productName={data.product?.name ?? undefined}
                     lotNumber={data.lot?.lot_number}
+                    batchNumber={data.lot?.batch_number}
                     expiryDate={data.lot?.expiry_date}
+                    containerNumber={data.receipt?.container_number}
+                    poNumber={data.receipt?.po_number}
                     clientName={data.client?.name ?? data.client?.code}
-                    warehouseName={data.warehouse?.name ?? data.warehouse?.code}
+                    warehouseName={data.warehouse ? `${data.warehouse.code ? `${data.warehouse.code} - ` : ""}${data.warehouse.name ?? ""}` : undefined}
+                    locationCode={data.location?.code}
+                    receiptReference={data.receipt?.reference_number ?? data.receipt?.receipt_number}
+                    packaging={data.packaging?.profile_name ?? data.packaging?.name ?? data.packaging?.unit_name ?? data.packaging?.unit_of_measure}
+                    draftSequence={data.receipt?.draft_sequence}
+                    draftCount={data.receipt?.draft_count}
                     temperatureClass={data.product?.temperature_requirement ?? undefined}
                     trigger={<Button variant="outline">Preview pallet label</Button>}
                   />
@@ -1442,7 +1464,12 @@ function PickExecutionPage() {
       toast.success("Pick task confirmed");
       try { navigator.vibrate?.([60, 40, 120]); } catch { /* noop */ }
       playPickSuccessTone();
-      await queryClient.invalidateQueries({ queryKey: ["pick-execution", pickListId] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["pick-execution", pickListId] }),
+        queryClient.invalidateQueries({ queryKey: ["pick-lists"] }),
+        queryClient.invalidateQueries({ queryKey: ["inventory-search"] }),
+        queryClient.invalidateQueries({ queryKey: ["dashboard-metrics"] }),
+      ]);
       setTimeout(() => focusNextOpen(variables.taskId), 300);
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Pick confirmation failed"),
@@ -1458,8 +1485,12 @@ function PickExecutionPage() {
     },
     onSuccess: async () => {
       toast.success("Pick list complete — handed to dispatch");
-      await queryClient.invalidateQueries({ queryKey: ["pick-execution", pickListId] });
-      await queryClient.invalidateQueries({ queryKey: ["pick-lists"] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["pick-execution", pickListId] }),
+        queryClient.invalidateQueries({ queryKey: ["pick-lists"] }),
+        queryClient.invalidateQueries({ queryKey: ["inventory-search"] }),
+        queryClient.invalidateQueries({ queryKey: ["dashboard-metrics"] }),
+      ]);
       navigate("/pick-lists");
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Could not mark complete"),
@@ -1519,6 +1550,86 @@ function PickExecutionPage() {
   );
 }
 
+function PickBayGrid({
+  bayCode,
+  assignedLocationCode,
+  onSelectAssigned,
+}: {
+  bayCode: string;
+  assignedLocationCode: string;
+  onSelectAssigned: (locationCode: string) => void;
+}) {
+  const { data, isFetching } = useQuery({
+    queryKey: ["pick-bay-occupancy", bayCode],
+    queryFn: () => getBayOccupancy(bayCode),
+    enabled: bayCode.trim().length > 0,
+    staleTime: 10_000,
+  });
+  const assigned = assignedLocationCode.trim().toUpperCase();
+
+  if (isFetching) {
+    return (
+      <div className="lg:col-span-4 rounded-md border border-border bg-secondary/20 px-3 py-2 text-xs text-muted-foreground">
+        Loading bay locations…
+      </div>
+    );
+  }
+
+  if (!data || data.cells.length === 0) {
+    return (
+      <div className="lg:col-span-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+        No locations found for this bay barcode.
+      </div>
+    );
+  }
+
+  const hasAssignedLocation = data.cells.some((cell) => cell.locationCode.toUpperCase() === assigned);
+
+  return (
+    <div className="lg:col-span-4 grid gap-2 rounded-md border border-border bg-secondary/20 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+        <span>
+          Bay {data.aisle ?? "?"}-{data.bay ?? "?"}
+        </span>
+        <span>
+          Pick from <span className="font-mono font-semibold text-foreground">{assignedLocationCode || "assigned location"}</span>
+        </span>
+      </div>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {data.cells.map((cell) => {
+          const isAssigned = cell.locationCode.toUpperCase() === assigned;
+          const canSelect = isAssigned && cell.status === "active";
+          return (
+            <button
+              key={cell.locationId}
+              type="button"
+              disabled={!canSelect}
+              onClick={() => onSelectAssigned(cell.locationCode)}
+              className={[
+                "min-h-16 rounded-md border px-2 py-2 text-left text-xs transition focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
+                isAssigned
+                  ? "animate-pulse border-cyan-400 bg-cyan-50 text-cyan-950 ring-2 ring-cyan-400 dark:bg-cyan-950/50 dark:text-cyan-50"
+                  : "cursor-not-allowed border-muted bg-muted text-muted-foreground opacity-70",
+              ].join(" ")}
+            >
+              <span className="block font-mono font-semibold">{cell.locationCode}</span>
+              <span className="mt-1 block">
+                {cell.occupiedPallets}/{cell.maxPallets} pallets
+              </span>
+              <span className="block">{isAssigned ? "Pallet location" : cell.status !== "active" ? cell.status : "Other bin"}</span>
+            </button>
+          );
+        })}
+      </div>
+      {!hasAssignedLocation ? (
+        <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+          The assigned pallet location is not inside this scanned bay.
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function PickTaskCard({
   task,
   onConfirm,
@@ -1550,6 +1661,7 @@ function PickTaskCard({
   const shortReasonRef = useRef<HTMLInputElement | null>(null);
   const cardRef = useRef<HTMLDivElement | null>(null);
   const [keypadOpen, setKeypadOpen] = useState(false);
+  const [bayScan, setBayScan] = useState("");
   const pallet = task.pallets as any;
   const product = pallet?.products as any;
   const locationCode = task.locations?.code ?? task.pick_balance?.locations?.code ?? "";
@@ -1628,6 +1740,26 @@ function PickTaskCard({
     form.setValue("quantity", Number(next));
   };
 
+  function applyLocationScan(value: string) {
+    const scanned = normalizeScannerText(value);
+    if (!scanned) return;
+    if (scanned.toUpperCase().startsWith("BAY:")) {
+      setBayScan(scanned);
+      form.setValue("locationCode", "");
+      playBarcodeBeep();
+      flashInput(locationRef.current, "orange");
+      return;
+    }
+    setBayScan("");
+    form.setValue("locationCode", scanned);
+    playBarcodeBeep();
+    flashInput(locationRef.current, "blue");
+    setTimeout(() => {
+      flashInput(palletRef.current, "orange");
+      palletRef.current?.focus();
+    }, 50);
+  }
+
   return (
     <div ref={cardRef} className="rounded-lg transition-shadow duration-300">
     <Card>
@@ -1664,36 +1796,47 @@ function PickTaskCard({
                         }}
                         className="min-h-10 min-w-0 flex-1 transition-shadow duration-300"
                         placeholder="Scan location barcode"
-                        onChange={(event) => field.onChange(event.target.value.replace(/[\r\n]/g, ""))}
+                        onChange={(event) => {
+                          const value = normalizeScannerText(event.target.value.replace(/[\r\n]/g, ""));
+                          if (/^BAY:[^:]+:[^:]+:[^:]+:[^:]+$/i.test(value.trim())) {
+                            applyLocationScan(value);
+                            return;
+                          }
+                          if (!value.toUpperCase().startsWith("BAY:")) setBayScan("");
+                          field.onChange(value);
+                        }}
                         onKeyDown={(event) => {
                           if (event.key === "Enter") {
                             event.preventDefault();
-                            playBarcodeBeep();
-                            flashInput(locationRef.current, "blue");
-                            setTimeout(() => {
-                              flashInput(palletRef.current, "orange");
-                              palletRef.current?.focus();
-                            }, 50);
+                            applyLocationScan(event.currentTarget.value);
                           }
                         }}
                       />
                       <BarcodeScanButton
                         title="Scan location barcode"
-                        onScan={(value) => {
-                          form.setValue("locationCode", value);
-                          playBarcodeBeep();
-                          flashInput(locationRef.current, "blue");
-                          setTimeout(() => {
-                            flashInput(palletRef.current, "orange");
-                            palletRef.current?.focus();
-                          }, 50);
-                        }}
+                        onScan={applyLocationScan}
                       />
                     </div>
                   </FormControl>
                 </FormItem>
               )}
             />
+            {bayScan ? (
+              <PickBayGrid
+                bayCode={bayScan}
+                assignedLocationCode={locationCode}
+                onSelectAssigned={(selectedLocation) => {
+                  setBayScan("");
+                  form.setValue("locationCode", selectedLocation);
+                  playBarcodeBeep();
+                  flashInput(locationRef.current, "blue");
+                  setTimeout(() => {
+                    flashInput(palletRef.current, "orange");
+                    palletRef.current?.focus();
+                  }, 50);
+                }}
+              />
+            ) : null}
             <FormField
               control={form.control}
               name="palletBarcode"
@@ -1710,7 +1853,7 @@ function PickTaskCard({
                         }}
                         className="min-h-10 min-w-0 flex-1 transition-shadow duration-300"
                         placeholder="Scan pallet barcode"
-                        onChange={(event) => field.onChange(event.target.value.replace(/[\r\n]/g, ""))}
+                        onChange={(event) => field.onChange(normalizeScannerText(event.target.value.replace(/[\r\n]/g, "")))}
                         onKeyDown={(event) => {
                           if (event.key === "Enter") {
                             event.preventDefault();
@@ -1723,7 +1866,7 @@ function PickTaskCard({
                       <BarcodeScanButton
                         title="Scan pallet barcode"
                         onScan={(value) => {
-                          form.setValue("palletBarcode", value);
+                          form.setValue("palletBarcode", normalizeScannerText(value));
                           playBarcodeBeep();
                           flashInput(palletRef.current, "blue");
                           setTimeout(() => confirmRef.current?.focus(), 50);
