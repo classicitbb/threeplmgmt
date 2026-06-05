@@ -2,6 +2,7 @@ import { z } from "zod";
 import { format } from "date-fns";
 
 import { supabase } from "@/integrations/supabase/client";
+import { validateIso6346ContainerNumber } from "@/lib/container-number";
 import { isDesktopClient } from "@/lib/device-identity";
 
 // Helper to bypass strict Supabase typing for tables not yet in the schema.
@@ -1316,7 +1317,12 @@ async function createLabelRecord(label_type: string, entityId: string, labelCode
 }
 
 export async function createReceiptFlow(input: z.infer<typeof receivingSchema>) {
-  const payload = receivingSchema.parse(input);
+  let payload = receivingSchema.parse(input);
+  if (payload.container_number) {
+    const containerValidation = validateIso6346ContainerNumber(payload.container_number);
+    if (!containerValidation.valid) throw new Error(containerValidation.message);
+    payload = { ...payload, container_number: containerValidation.normalized };
+  }
   const lot = await resolveInventoryLot(payload);
   const receiptNumber = buildPalletCode("RCT");
   const palletCode = payload.pallet_barcode?.trim() || buildPalletCode("PLT");
@@ -1475,7 +1481,7 @@ export async function searchInventory(filters: {
   if (filters.status && filters.status !== "all") {
     query = query.eq("status", filters.status);
   } else {
-    query = query.not("status", "in", "(shipped,in_transit,missing)");
+    query = query.not("status", "in", "(picked,shipped,in_transit,missing)");
   }
 
   const { data, error } = await query.order("received_at", { ascending: false });
@@ -2885,6 +2891,11 @@ export type ShipmentDraftInput = {
 };
 
 export async function saveDraftReceipt(values: z.infer<typeof receivingSchema>): Promise<string> {
+  if (values.container_number) {
+    const containerValidation = validateIso6346ContainerNumber(values.container_number);
+    if (!containerValidation.valid) throw new Error(containerValidation.message);
+    values = { ...values, container_number: containerValidation.normalized };
+  }
   const receiptNumber = buildPalletCode("RCT");
   const draftBarcode = values.pallet_barcode?.trim() || buildPalletCode("PLT");
   const row = {
@@ -2933,7 +2944,9 @@ export async function saveDraftReceipt(values: z.infer<typeof receivingSchema>):
 
 export async function saveShipmentDrafts(input: ShipmentDraftInput): Promise<{ groupId: string; draftIds: string[]; count: number }> {
   if (!input.warehouse_id) throw new Error("Select a warehouse before saving shipment drafts.");
-  if (!input.container_number?.trim()) throw new Error("Enter a container number before saving shipment drafts.");
+  const containerValidation = validateIso6346ContainerNumber(input.container_number);
+  if (!containerValidation.valid) throw new Error(containerValidation.message);
+  input = { ...input, container_number: containerValidation.normalized };
   if (!input.lines.length) throw new Error("Add at least one SKU line.");
 
   const groupId = buildClientId("shipment");
@@ -3015,6 +3028,11 @@ export async function saveShipmentDrafts(input: ShipmentDraftInput): Promise<{ g
 }
 
 export async function updateDraftReceipt(draftId: string, values: z.infer<typeof receivingSchema>): Promise<void> {
+  if (values.container_number) {
+    const containerValidation = validateIso6346ContainerNumber(values.container_number);
+    if (!containerValidation.valid) throw new Error(containerValidation.message);
+    values = { ...values, container_number: containerValidation.normalized };
+  }
   let { data: existing, error: existingError } = await db("receipts")
     .select("notes, draft_pallet_barcode, draft_group_id, draft_sequence, draft_count, status")
     .eq("id", draftId)

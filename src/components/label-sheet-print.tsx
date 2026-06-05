@@ -178,15 +178,16 @@ export function LabelSheetPrintDialog({
   <title>${escapeHtml(resourceLabel)} Labels — ${items.length} items</title>
   <meta charset="utf-8" />
   <style>
-    @page { size: ${kind === "zone" ? "198mm 279mm" : "198mm 304mm"} portrait; margin: 0; }
+    @page { size: ${kind === "zone" ? "A4" : "198mm 304mm"} portrait; margin: 0; }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: #fff; font-family: system-ui, -apple-system, sans-serif; color: #000; }
     .sheet {
-      width: ${kind === "zone" ? "198mm" : "198mm"};
-      height: ${kind === "zone" ? "279mm" : "304mm"};
+      width: ${kind === "zone" ? "210mm" : "198mm"};
+      height: ${kind === "zone" ? "297mm" : "304mm"};
+      padding: ${kind === "zone" ? "9mm 6mm" : "0"};
       display: grid;
-      grid-template-columns: repeat(${cols}, 1fr);
-      grid-template-rows: repeat(${rows}, 1fr);
+      grid-template-columns: repeat(${cols}, 99mm);
+      grid-template-rows: repeat(${rows}, ${kind === "zone" ? "93mm" : "38mm"});
       gap: 0;
       page-break-after: always;
     }
@@ -305,12 +306,13 @@ export function BayLocationCodesPrintDialog({
   <title>Bay Location Codes — ${items.length} bays</title>
   <meta charset="utf-8" />
   <style>
-    @page { size: 198mm 279mm portrait; margin: 0; }
+    @page { size: A4 portrait; margin: 0; }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: #fff; font-family: system-ui, -apple-system, sans-serif; color: #000; }
     .sheet {
-      width: 198mm;
-      height: 279mm;
+      width: 210mm;
+      height: 297mm;
+      padding: 9mm 6mm;
       display: grid;
       grid-template-columns: repeat(2, 99mm);
       grid-template-rows: repeat(3, 93mm);

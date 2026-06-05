@@ -124,6 +124,7 @@ import { BarcodeScanButton } from "@/components/barcode-scan-button";
 import { type ProductSearchHandle } from "@/components/product-search";
 
 import { cn } from "@/lib/utils";
+import { extractIso6346ContainerNumber, normalizeContainerNumber, validateIso6346ContainerNumber } from "@/lib/container-number";
 import { getOrCreateDeviceId } from "@/lib/device-identity";
 import { invalidateWarehouseData } from "@/lib/query-invalidation";
 import {
@@ -1086,11 +1087,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       return;
     }
     if (online) {
-      toast.success("Connection restored. Live data will refresh.");
+      toast.success("Connection restored. Refreshing live data.");
+      void flushOfflineQueue({ silent: true }).finally(() => {
+        void queryClient.invalidateQueries();
+      });
       return;
     }
-    toast.error("Connection lost. Cached screens remain visible, but work cannot be posted until reconnect.");
-  }, [online]);
+    toast.message("Connection lost. Keep finishing scan work already open; it will sync when signal returns.", {
+      duration: 6000,
+    });
+  }, [online, queryClient]);
 
   const prefetchRouteData = useCallback((route: AppRoute) => {
     const warehouseId = profile?.default_warehouse_id;
@@ -2791,6 +2797,17 @@ function normalizeScannerText(value: unknown) {
   return String(value ?? "").trim().toUpperCase();
 }
 
+function resolveContainerScanValue(value: unknown) {
+  const result = extractIso6346ContainerNumber(value);
+  if (result.valid) return { value: result.normalized, valid: true, message: result.message, candidate: result.candidate };
+  return {
+    value: result.candidate ?? normalizeContainerNumber(value),
+    valid: false,
+    candidate: result.candidate,
+    message: result.message,
+  };
+}
+
 function isBaySelectorCode(value: string) {
   const normalized = normalizeScannerText(value);
   if (normalized.startsWith("BAY:")) return true;
@@ -3317,6 +3334,9 @@ export function ReceivingPage() {
   const [draftSearch, setDraftSearch] = useState("");
   const [printOpen, setPrintOpen] = useState(false);
   const [printContainer, setPrintContainer] = useState("");
+  const [printContainerWarning, setPrintContainerWarning] = useState<string | null>(null);
+  const [shipmentContainerTouched, setShipmentContainerTouched] = useState(false);
+  const [shipmentContainerScanWarning, setShipmentContainerScanWarning] = useState<string | null>(null);
   const [selectedDraftIds, setSelectedDraftIds] = useState<Set<string>>(new Set());
   const [editingDraft, setEditingDraft] = useState<DraftReceipt | null>(null);
   const [lastResult, setLastResult] = useState<{ barcode: string; taskNumber: string; qty: number } | null>(null);
@@ -3377,6 +3397,16 @@ export function ReceivingPage() {
   }, [drafts, printContainer]);
 
   const selectedPrintDrafts = printDrafts.filter((draft) => selectedDraftIds.has(draft.id));
+  const shipmentContainerValidation = useMemo(
+    () => validateIso6346ContainerNumber(shipmentForm.container_number),
+    [shipmentForm.container_number],
+  );
+  const shipmentContainerHasValue = shipmentForm.container_number.trim().length > 0;
+  const shipmentContainerInvalid = shipmentContainerHasValue && !shipmentContainerValidation.valid;
+  const shipmentContainerValid = shipmentContainerHasValue && shipmentContainerValidation.valid;
+  const shipmentContainerMessage = shipmentContainerScanWarning ?? (shipmentContainerHasValue
+    ? shipmentContainerValidation.message
+    : "Enter a valid ISO 6346 container number. Example: MSKU1234565.");
   useEffect(() => {
     if (!printOpen || selectedDraftIds.size > 0) return;
     setSelectedDraftIds(new Set(printDrafts.map((draft) => draft.id)));
@@ -3401,6 +3431,8 @@ export function ReceivingPage() {
   });
   const saveBlockedReason = !shipmentForm.container_number.trim()
     ? "Enter a container number before saving."
+    : !shipmentContainerValidation.valid
+      ? shipmentContainerValidation.message
     : !shipmentForm.warehouse_id
       ? "Select a warehouse before saving."
       : incompleteLine
@@ -3480,6 +3512,8 @@ export function ReceivingPage() {
         setPrintAfterSaveIds(result.draftIds);
         setPrintOpen(true);
       } else if (result.mode === "new" && !result.edited) {
+        setShipmentContainerTouched(false);
+        setShipmentContainerScanWarning(null);
         setShipmentForm((current) => ({
           ...current,
           container_number: "",
@@ -3554,6 +3588,8 @@ export function ReceivingPage() {
 
   function openNewShipment() {
     setEditingDraft(null);
+    setShipmentContainerTouched(false);
+    setShipmentContainerScanWarning(null);
     setShipmentForm({
       receipt_type: "po",
       warehouse_id: currentWarehouseId,
@@ -3569,6 +3605,8 @@ export function ReceivingPage() {
   function openEditDraft(draft: DraftReceipt) {
     const values = draftToReceivingValues(draft);
     setEditingDraft(draft);
+    setShipmentContainerTouched(Boolean(values.container_number));
+    setShipmentContainerScanWarning(null);
     setShipmentForm({
       receipt_type: values.receipt_type,
       warehouse_id: values.warehouse_id,
@@ -3686,6 +3724,41 @@ export function ReceivingPage() {
     saveShipmentMutation.mutate(mode);
   }
 
+  function setShipmentContainer(value: unknown) {
+    setShipmentContainerTouched(true);
+    setShipmentContainerScanWarning(null);
+    setShipmentForm((cur) => ({ ...cur, container_number: normalizeContainerNumber(value) }));
+  }
+
+  function applyShipmentContainerScan(value: unknown) {
+    const result = resolveContainerScanValue(value);
+    setShipmentContainerTouched(true);
+    setShipmentContainerScanWarning(result.valid ? null : result.message);
+    setShipmentForm((cur) => ({ ...cur, container_number: result.value }));
+    if (!result.valid) toast.warning(result.message);
+  }
+
+  function applyDraftSearchScan(value: unknown) {
+    const result = resolveContainerScanValue(value);
+    if (result.valid) {
+      setDraftSearch(result.value);
+      return;
+    }
+    if (result.candidate) {
+      toast.warning(result.message);
+      setDraftSearch(result.value);
+      return;
+    }
+    setDraftSearch(normalizeScannerText(value));
+  }
+
+  function applyPrintContainerScan(value: unknown) {
+    const result = resolveContainerScanValue(value);
+    setPrintContainer(result.value);
+    setPrintContainerWarning(result.valid ? null : result.message);
+    if (!result.valid) toast.warning(result.message);
+  }
+
   return (
     <div className="flex min-h-full flex-col gap-6">
       {!online && (
@@ -3744,7 +3817,7 @@ export function ReceivingPage() {
                 placeholder="Search container, PO, pallet, SKU, product, receipt"
               />
             </div>
-            <BarcodeScanButton title="Scan container, PO, or pallet" onScan={(value) => setDraftSearch(normalizeScannerText(value))} />
+            <BarcodeScanButton title="Scan container, PO, or pallet" enableTextRecognition onScan={applyDraftSearchScan} />
           </div>
         </CardContent>
       </Card>
@@ -3824,7 +3897,31 @@ export function ReceivingPage() {
               <div className="grid grid-cols-2 gap-2 sm:gap-3 md:grid-cols-3">
                 <div className="grid gap-1.5">
                   <ShipmentFieldLabel>Container number</ShipmentFieldLabel>
-                  <Input className="h-9 sm:h-10" autoFocus value={shipmentForm.container_number} onChange={(e) => setShipmentForm((cur) => ({ ...cur, container_number: e.target.value.toUpperCase() }))} />
+                  <div className="flex gap-2">
+                    <Input
+                      className={cn(
+                        "h-9 sm:h-10",
+                        shipmentContainerTouched && shipmentContainerInvalid && "border-destructive focus-visible:ring-destructive",
+                        shipmentContainerValid && "border-green-500 focus-visible:ring-green-500",
+                      )}
+                      autoFocus
+                      value={shipmentForm.container_number}
+                      onBlur={() => setShipmentContainerTouched(true)}
+                      onChange={(e) => setShipmentContainer(e.target.value)}
+                      aria-invalid={shipmentContainerInvalid}
+                      aria-describedby="container-number-help"
+                    />
+                    <BarcodeScanButton title="Scan container number" enableTextRecognition onScan={applyShipmentContainerScan} />
+                  </div>
+                  <p
+                    id="container-number-help"
+                    className={cn(
+                      "text-xs",
+                      shipmentContainerTouched && shipmentContainerInvalid ? "text-destructive" : shipmentContainerValid ? "text-green-500" : "text-muted-foreground",
+                    )}
+                  >
+                    {shipmentContainerMessage}
+                  </p>
                 </div>
                 <div className="grid gap-1.5">
                   <ShipmentFieldLabel>PO number</ShipmentFieldLabel>
@@ -4078,7 +4175,30 @@ export function ReceivingPage() {
             <DialogDescription>Filter by container, select draft pallets, then print the selected labels together.</DialogDescription>
           </DialogHeader>
           <div className="grid gap-3">
-            <Input value={printContainer} onChange={(e) => setPrintContainer(e.target.value.toUpperCase())} placeholder="Filter by container number" />
+            <div className="grid gap-1.5">
+              <div className="flex gap-2">
+                <Input
+                  value={printContainer}
+                  onChange={(e) => {
+                    const next = normalizeContainerNumber(e.target.value);
+                    setPrintContainer(next);
+                    if (next.length >= 11) {
+                      const validation = validateIso6346ContainerNumber(next);
+                      setPrintContainerWarning(validation.valid ? null : validation.message);
+                    } else {
+                      setPrintContainerWarning(null);
+                    }
+                  }}
+                  className={cn(printContainerWarning && "border-destructive focus-visible:ring-destructive")}
+                  placeholder="Filter by container number"
+                  aria-invalid={Boolean(printContainerWarning)}
+                />
+                <BarcodeScanButton title="Scan container number" enableTextRecognition onScan={applyPrintContainerScan} />
+              </div>
+              <p className={cn("text-xs", printContainerWarning ? "text-destructive" : "text-muted-foreground")}>
+                {printContainerWarning ?? "Enter or scan an ISO 6346 container number to narrow this label batch."}
+              </p>
+            </div>
             <ScrollArea className="max-h-[50vh] pr-3">
               <div className="grid gap-2">
                 {printDrafts.map((draft) => {

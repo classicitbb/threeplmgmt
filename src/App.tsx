@@ -1437,6 +1437,15 @@ function PickExecutionPage() {
 
   const completeMutation = useMutation({
     mutationFn: async () => {
+      const { data: openTasks, error: openError } = await supabase
+        .from("pick_tasks")
+        .select("id, status")
+        .eq("pick_list_id", pickListId)
+        .in("status", Array.from(PICK_OPEN_STATUSES));
+      if (openError) throw openError;
+      if ((openTasks ?? []).length > 0) {
+        throw new Error("Confirm every pick task before closing the pick list.");
+      }
       const { error } = await supabase
         .from("pick_lists")
         .update({ status: "completed" })
