@@ -3337,6 +3337,8 @@ export function ReceivingPage() {
   const [printContainerWarning, setPrintContainerWarning] = useState<string | null>(null);
   const [shipmentContainerTouched, setShipmentContainerTouched] = useState(false);
   const [shipmentContainerScanWarning, setShipmentContainerScanWarning] = useState<string | null>(null);
+  const shipmentContainerInputRef = useRef<HTMLInputElement>(null);
+  const shipmentPoInputRef = useRef<HTMLInputElement>(null);
   const [selectedDraftIds, setSelectedDraftIds] = useState<Set<string>>(new Set());
   const [editingDraft, setEditingDraft] = useState<DraftReceipt | null>(null);
   const [lastResult, setLastResult] = useState<{ barcode: string; taskNumber: string; qty: number } | null>(null);
@@ -3899,6 +3901,7 @@ export function ReceivingPage() {
                   <ShipmentFieldLabel>Container number</ShipmentFieldLabel>
                   <div className="flex gap-2">
                     <Input
+                      ref={shipmentContainerInputRef}
                       className={cn(
                         "h-9 sm:h-10",
                         shipmentContainerTouched && shipmentContainerInvalid && "border-destructive focus-visible:ring-destructive",
@@ -3908,10 +3911,11 @@ export function ReceivingPage() {
                       value={shipmentForm.container_number}
                       onBlur={() => setShipmentContainerTouched(true)}
                       onChange={(e) => setShipmentContainer(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); shipmentPoInputRef.current?.focus(); } }}
                       aria-invalid={shipmentContainerInvalid}
                       aria-describedby="container-number-help"
                     />
-                    <BarcodeScanButton title="Scan container number" enableTextRecognition onScan={applyShipmentContainerScan} />
+                    <BarcodeScanButton title="Scan container number" enableTextRecognition inputRef={shipmentContainerInputRef} onScan={applyShipmentContainerScan} />
                   </div>
                   <p
                     id="container-number-help"
@@ -3925,7 +3929,7 @@ export function ReceivingPage() {
                 </div>
                 <div className="grid gap-1.5">
                   <ShipmentFieldLabel>PO number</ShipmentFieldLabel>
-                  <Input className="h-9 sm:h-10" value={shipmentForm.po_number} onChange={(e) => setShipmentForm((cur) => ({ ...cur, po_number: e.target.value.toUpperCase(), reference_number: e.target.value.toUpperCase() }))} />
+                  <Input ref={shipmentPoInputRef} className="h-9 sm:h-10" value={shipmentForm.po_number} onChange={(e) => setShipmentForm((cur) => ({ ...cur, po_number: e.target.value.toUpperCase(), reference_number: e.target.value.toUpperCase() }))} />
                 </div>
                 <div className="col-span-2 grid gap-1.5 md:col-span-1">
                   <ShipmentFieldLabel>Warehouse</ShipmentFieldLabel>
