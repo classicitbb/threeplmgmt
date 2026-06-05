@@ -13,6 +13,16 @@ function json(body: Record<string, unknown>, status = 200) {
   })
 }
 
+function clientIp(req: Request) {
+  const forwarded = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
+  return (
+    req.headers.get('cf-connecting-ip')?.trim() ||
+    forwarded ||
+    req.headers.get('x-real-ip')?.trim() ||
+    ''
+  )
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders })
@@ -22,7 +32,7 @@ Deno.serve(async (req) => {
     return json({ error: 'Method not allowed' }, 405)
   }
 
-  let body: { badgeCode?: string; pin?: string; deviceId?: string }
+  let body: { badgeCode?: string; pin?: string; deviceId?: string; isDesktop?: boolean }
   try {
     body = await req.json()
   } catch {
@@ -33,8 +43,8 @@ Deno.serve(async (req) => {
   const pin = body.pin?.trim()
   const deviceId = body.deviceId?.trim()
 
-  if (!badgeCode || !pin || !deviceId) {
-    return json({ error: 'Badge, PIN, and device are required' }, 400)
+  if (!badgeCode || !pin || !deviceId || body.isDesktop) {
+    return json({ error: 'Badge sign-in is unavailable' }, 401)
   }
 
   const supabaseUrl = Deno.env.get('SUPABASE_URL')
@@ -52,10 +62,12 @@ Deno.serve(async (req) => {
     in_badge_code: badgeCode,
     in_pin: pin,
     in_device_id: deviceId,
+    in_current_ip: clientIp(req),
+    in_is_desktop: Boolean(body.isDesktop),
   })
 
   if (loginError) {
-    return json({ error: loginError.message || 'Badge login failed' }, 401)
+    return json({ error: 'Badge sign-in is unavailable' }, 401)
   }
 
   const login = Array.isArray(loginRows) ? loginRows[0] : null

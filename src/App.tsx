@@ -14,9 +14,10 @@ import { FeatureFlagContext, useFeatureFlagState } from "@/hooks/use-feature-fla
 import { enqueueOfflineWork, isLikelyNetworkError } from "@/lib/offline-queue";
 import { supabase } from "@/integrations/supabase/client";
 import { createAppQueryClient } from "@/lib/query-client";
+import { cn } from "@/lib/utils";
 
-import { confirmPickTask, formatDate, formatNumber, getInventoryDetail, getPickExecution, loginSchema, recordUserSignIn, refreshUserDeviceTrust, signUpSchema, RESOURCE_DEFINITIONS } from "@/lib/wms-core";
-import { getOrCreateDeviceId } from "@/lib/device-identity";
+import { confirmPickTask, formatDate, formatNumber, getBayOccupancy, getInventoryDetail, getPickExecution, loginSchema, recordUserSignIn, refreshUserDeviceTrust, RESOURCE_DEFINITIONS } from "@/lib/wms-core";
+import { clearTrustedDeviceShortcut, getOrCreateDeviceId, hasTrustedDeviceShortcut, isDesktopClient, markTrustedDeviceShortcut } from "@/lib/device-identity";
 
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
@@ -70,6 +71,18 @@ const ProtectedShell = lazy(() =>
 );
 
 const RELEASE_HISTORY = [
+  {
+    version: "1.1.8 Beta",
+    date: "June 2026",
+    changes: [
+      "Putaway and pick: shortened bay codes open the bay selector while full location scans still confirm directly",
+      "Locations: table columns now show Warehouse and Zone before Aisle, with Label before Max Pallets",
+      "Location labels: batch sheets match the per-row beam label design on Avery 99 x 38 mm labels",
+      "Bay and zone labels: batch sheets print shortened bay/zone aisle codes on Avery 99 x 93 mm labels",
+      "Badge sign-in: trusted-device PIN shortcut is limited to previously authenticated mobile/tablet devices",
+      "Access control: public Request Access is hidden; Admin and Dev users add accounts inside Settings",
+    ],
+  },
   {
     version: "1.1.7",
     date: "May 2026",
@@ -170,6 +183,17 @@ function flashInput(el: HTMLElement | null, colour: "orange" | "blue" | "red" | 
   const cls = palette[colour];
   el.classList.add(...cls);
   setTimeout(() => el.classList.remove(...cls), colour === "red" ? 1400 : 700);
+}
+
+function normalizeScannerText(value: unknown) {
+  return String(value ?? "").trim().toUpperCase();
+}
+
+function isBaySelectorCode(value: string) {
+  const normalized = normalizeScannerText(value);
+  if (normalized.startsWith("BAY:")) return true;
+  const parts = normalized.split("-").filter(Boolean);
+  return parts.length >= 4 && !parts.some((part) => /^L\d+$/i.test(part));
 }
 
 function playPickSuccessTone() {
@@ -474,8 +498,18 @@ type InventoryDetailData = {
   client?: { code?: string | null; name?: string | null } | null;
   warehouse?: { code?: string | null; name?: string | null } | null;
   location?: { code?: string | null; aisle?: string | null; bay?: string | null; level?: string | null } | null;
-  receipt?: { receipt_number?: string | null; receipt_type?: string | null; reference_number?: string | null; created_at?: string | null } | null;
+  receipt?: {
+    receipt_number?: string | null;
+    receipt_type?: string | null;
+    reference_number?: string | null;
+    container_number?: string | null;
+    po_number?: string | null;
+    draft_sequence?: number | null;
+    draft_count?: number | null;
+    created_at?: string | null;
+  } | null;
   receiptLine?: { quantity?: number | null; received_quantity?: number | null; override_length?: number | null; override_width?: number | null; override_height?: number | null; override_weight?: number | null } | null;
+  packaging?: { profile_name?: string | null; name?: string | null; unit_name?: string | null; unit_of_measure?: string | null } | null;
   lot: {
     expiry_date: string | null;
     lot_number: string | null;
@@ -666,12 +700,17 @@ function PendingAccessShell() {
 
 function LoginPage() {
   const auth = useAuth();
-  const [mode, setMode] = useState<"login" | "signup" | "reset" | "update">(() =>
+  const [mode, setMode] = useState<"login" | "reset" | "update">(() =>
     typeof window !== "undefined" && new URLSearchParams(window.location.search).get("reset") === "1" ? "update" : "login",
   );
+  const [badgeShortcutAvailable, setBadgeShortcutAvailable] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return !isDesktopClient() && hasTrustedDeviceShortcut(getOrCreateDeviceId());
+  });
   const [loginMethod, setLoginMethod] = useState<"badge" | "code">(() => {
-    if (typeof window === "undefined") return "badge";
-    return window.localStorage.getItem(LOGIN_METHOD_STORAGE_KEY) === "code" ? "code" : "badge";
+    if (typeof window === "undefined") return "code";
+    const badgeAllowed = !isDesktopClient() && hasTrustedDeviceShortcut(getOrCreateDeviceId());
+    return badgeAllowed && window.localStorage.getItem(LOGIN_METHOD_STORAGE_KEY) === "badge" ? "badge" : "code";
   });
   const [scannedBadge, setScannedBadge] = useState("");
   const [manualBadge, setManualBadge] = useState("");
@@ -703,21 +742,20 @@ function LoginPage() {
     defaultValues: { password: "" },
   });
 
-  const signUpForm = useForm({
-    resolver: zodResolver(signUpSchema),
-    defaultValues: { fullName: "", email: "", phone: "", password: "" },
-  });
-
   const loginMutation = useMutation({
     mutationFn: async (values: { email: string; password: string }) => {
       const identifier = values.email.trim();
-      const method = identifier.toUpperCase().startsWith("BADGE-") ? "badge" : identifier.includes("@") ? "email" : "code";
-      if (method === "badge") {
+      const isEmail = identifier.includes("@");
+      const isPin = /^\d{4,7}$/.test(values.password.trim());
+      const method = identifier.toUpperCase().startsWith("BADGE-") ? "badge" : isEmail ? "email" : "code";
+      const shouldUsePinLogin = method === "badge" || (!isEmail && isPin);
+      if (shouldUsePinLogin) {
         const { data, error } = await supabase.functions.invoke("badge-login", {
           body: {
             badgeCode: identifier,
             pin: values.password,
             deviceId: getOrCreateDeviceId(),
+            isDesktop: isDesktopClient(),
           },
         });
         if (error) throw error;
@@ -730,7 +768,20 @@ function LoginPage() {
         if (verifyError) throw verifyError;
       } else {
         await auth.signIn(identifier, values.password);
-        await refreshUserDeviceTrust(getOrCreateDeviceId());
+        const deviceId = getOrCreateDeviceId();
+        try {
+          await refreshUserDeviceTrust(deviceId);
+          if (!isDesktopClient()) {
+            markTrustedDeviceShortcut(deviceId);
+            setBadgeShortcutAvailable(true);
+          } else {
+            clearTrustedDeviceShortcut();
+            setBadgeShortcutAvailable(false);
+          }
+        } catch {
+          clearTrustedDeviceShortcut();
+          setBadgeShortcutAvailable(false);
+        }
       }
       await recordUserSignIn(method);
     },
@@ -766,34 +817,24 @@ function LoginPage() {
     onError: (error) => toast.error(friendlyAuthError(error, "login")),
   });
 
-  const signUpMutation = useMutation({
-    mutationFn: async (values: { fullName: string; email: string; phone: string; password: string }) => {
-      const { error } = await supabase.auth.signUp({
-        email: values.email,
-        password: values.password,
-        options: {
-          data: { full_name: values.fullName, phone: values.phone },
-        },
-      });
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      toast.success("Account created! Please wait for admin approval before signing in.");
-      setMode("login");
-      signUpForm.reset();
-    },
-    onError: (error) => toast.error(friendlyAuthError(error, "signup")),
-  });
-
   const selectedBadge = scannedBadge || manualBadge.trim();
   const rememberLoginMethod = useCallback((method: "badge" | "code") => {
+    if (method === "badge" && !badgeShortcutAvailable) {
+      toast.error("Badge sign-in requires full login on this mobile or tablet first.");
+      return;
+    }
     setLoginMethod(method);
     window.localStorage.setItem(LOGIN_METHOD_STORAGE_KEY, method);
-  }, []);
+  }, [badgeShortcutAvailable]);
 
   const submitBadgePin = () => {
     if (!selectedBadge) {
       toast.error("Scan or enter a badge code first.");
+      return;
+    }
+    if (!badgeShortcutAvailable) {
+      toast.error("Use normal sign-in on this device before badge sign-in.");
+      setLoginMethod("code");
       return;
     }
     if (badgePin.length < 4) {
@@ -808,10 +849,24 @@ function LoginPage() {
     setScannedBadge(value);
     setManualBadge("");
     setBadgePin("");
-    setPinDialogOpen(true);
-    window.localStorage.setItem(LOGIN_METHOD_STORAGE_KEY, "badge");
-    toast.success("Badge scanned. Enter your PIN.");
-  }, []);
+    if (badgeShortcutAvailable) {
+      setPinDialogOpen(true);
+      window.localStorage.setItem(LOGIN_METHOD_STORAGE_KEY, "badge");
+      toast.success("Badge scanned. Enter your PIN.");
+    } else {
+      toast.error("Badge sign-in requires full login on this mobile or tablet first.");
+      setLoginMethod("code");
+    }
+  }, [badgeShortcutAvailable]);
+
+  useEffect(() => {
+    const available = !isDesktopClient() && hasTrustedDeviceShortcut(getOrCreateDeviceId());
+    setBadgeShortcutAvailable(available);
+    if (!available && loginMethod === "badge") {
+      setLoginMethod("code");
+      window.localStorage.setItem(LOGIN_METHOD_STORAGE_KEY, "code");
+    }
+  }, [loginMethod]);
 
   if (auth.session && mode !== "update") {
     return <Navigate to="/dashboard" replace />;
@@ -858,31 +913,31 @@ function LoginPage() {
 
           <div>
             <h2 className="text-2xl font-bold tracking-tight text-center">
-              {mode === "signup" ? "Create account" : mode === "reset" ? "Reset password" : mode === "update" ? "Set new password" : "Welcome back"}
+              {mode === "reset" ? "Reset password" : mode === "update" ? "Set new password" : "Welcome back"}
             </h2>
             <p className="mt-1 text-sm text-muted-foreground text-center">
-              {mode === "signup"
-                ? "Request access. An admin will approve your account."
-                : mode === "reset"
+              {mode === "reset"
                   ? "Send yourself a secure recovery link."
                   : mode === "update"
                     ? "Choose a new password for your account."
-                  : "Scan your badge or sign in with a user code."}
+                  : "Use your approved email or user code. Badge sign-in appears only on trusted mobile/tablet devices."}
             </p>
           </div>
 
           {mode === "login" ? (
             <div className="flex flex-col gap-3">
-              <div className="grid grid-cols-2 gap-2 rounded-lg border border-border bg-secondary/30 p-1">
-                <Button
-                  type="button"
-                  variant={loginMethod === "badge" ? "default" : "ghost"}
-                  className="h-9"
-                  onClick={() => rememberLoginMethod("badge")}
-                >
-                  <ScanLine className="mr-2 h-4 w-4" />
-                  Badge scan
-                </Button>
+              <div className={cn("grid gap-2 rounded-lg border border-border bg-secondary/30 p-1", badgeShortcutAvailable ? "grid-cols-2" : "grid-cols-1")}>
+                {badgeShortcutAvailable ? (
+                  <Button
+                    type="button"
+                    variant={loginMethod === "badge" ? "default" : "ghost"}
+                    className="h-9"
+                    onClick={() => rememberLoginMethod("badge")}
+                  >
+                    <ScanLine className="mr-2 h-4 w-4" />
+                    Badge scan
+                  </Button>
+                ) : null}
                 <Button
                   type="button"
                   variant={loginMethod === "code" ? "default" : "ghost"}
@@ -894,7 +949,7 @@ function LoginPage() {
                 </Button>
               </div>
 
-              {loginMethod === "badge" ? (
+              {loginMethod === "badge" && badgeShortcutAvailable ? (
                 <div className="flex flex-col gap-3">
                   <LoginBadgeScanner onScan={handleBadgeScan} onErrorChange={setBadgeScannerError} scannedCode={selectedBadge} />
                   <div className="rounded-lg border border-border bg-secondary/30 p-2.5">
@@ -1049,75 +1104,7 @@ function LoginPage() {
                 ) : null}
               </form>
             </Form>
-          ) : (
-            <Form {...signUpForm}>
-              <form className="space-y-3" onSubmit={signUpForm.handleSubmit((v) => signUpMutation.mutate(v))}>
-                <FormField
-                  control={signUpForm.control}
-                  name="fullName"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Full Name</FormLabel>
-                      <FormControl><Input {...field} placeholder="Jane Smith" /></FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={signUpForm.control}
-                  name="email"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Email</FormLabel>
-                      <FormControl><Input {...field} type="email" placeholder="jane@example.com" /></FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={signUpForm.control}
-                  name="phone"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Phone Number</FormLabel>
-                      <FormControl><Input {...field} type="tel" placeholder="+1 555 000 0000" /></FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={signUpForm.control}
-                  name="password"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Password</FormLabel>
-                      <FormControl>
-                        <div className="relative">
-                          <Input {...field} className="pr-12" type={showSignUpPassword ? "text" : "password"} placeholder="Min 8 characters" />
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="absolute right-1 top-1/2 h-8 w-8 -translate-y-1/2 text-muted-foreground"
-                            onClick={() => setShowSignUpPassword((current) => !current)}
-                            aria-label={showSignUpPassword ? "Hide password" : "Show password"}
-                            title={showSignUpPassword ? "Hide password" : "Show password"}
-                          >
-                            {showSignUpPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                          </Button>
-                        </div>
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <Button type="submit" className="w-full" disabled={signUpMutation.isPending}>
-                  {signUpMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                  Request access
-                </Button>
-              </form>
-            </Form>
-          )}
+          ) : null}
 
           <p className="text-center text-sm text-muted-foreground">
             {mode === "login" ? (
@@ -1126,10 +1113,7 @@ function LoginPage() {
                   Reset password
                 </button>
                 <span className="text-muted-foreground/60">|</span>
-                <span>New user?</span>
-                <button className="font-medium text-primary underline-offset-4 hover:underline" onClick={() => setMode("signup")}>
-                  Request access
-                </button>
+                <span>Admins and Dev users add accounts inside Settings.</span>
               </span>
             ) : mode === "reset" ? (
               <>
@@ -1138,14 +1122,7 @@ function LoginPage() {
                   Sign in
                 </button>
               </>
-            ) : (
-              <>
-                Already have an account?{" "}
-                <button className="font-medium text-primary underline-offset-4 hover:underline" onClick={() => setMode("login")}>
-                  Sign in
-                </button>
-              </>
-            )}
+            ) : null}
           </p>
         </div>
       </div>
@@ -1335,9 +1312,17 @@ function InventoryDetailPage() {
                     productSku={data.product?.sku ?? undefined}
                     productName={data.product?.name ?? undefined}
                     lotNumber={data.lot?.lot_number}
+                    batchNumber={data.lot?.batch_number}
                     expiryDate={data.lot?.expiry_date}
+                    containerNumber={data.receipt?.container_number}
+                    poNumber={data.receipt?.po_number}
                     clientName={data.client?.name ?? data.client?.code}
-                    warehouseName={data.warehouse?.name ?? data.warehouse?.code}
+                    warehouseName={data.warehouse ? `${data.warehouse.code ? `${data.warehouse.code} - ` : ""}${data.warehouse.name ?? ""}` : undefined}
+                    locationCode={data.location?.code}
+                    receiptReference={data.receipt?.reference_number ?? data.receipt?.receipt_number}
+                    packaging={data.packaging?.profile_name ?? data.packaging?.name ?? data.packaging?.unit_name ?? data.packaging?.unit_of_measure}
+                    draftSequence={data.receipt?.draft_sequence}
+                    draftCount={data.receipt?.draft_count}
                     temperatureClass={data.product?.temperature_requirement ?? undefined}
                     trigger={<Button variant="outline">Preview pallet label</Button>}
                   />
@@ -1442,7 +1427,12 @@ function PickExecutionPage() {
       toast.success("Pick task confirmed");
       try { navigator.vibrate?.([60, 40, 120]); } catch { /* noop */ }
       playPickSuccessTone();
-      await queryClient.invalidateQueries({ queryKey: ["pick-execution", pickListId] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["pick-execution", pickListId] }),
+        queryClient.invalidateQueries({ queryKey: ["pick-lists"] }),
+        queryClient.invalidateQueries({ queryKey: ["inventory-search"] }),
+        queryClient.invalidateQueries({ queryKey: ["dashboard-metrics"] }),
+      ]);
       setTimeout(() => focusNextOpen(variables.taskId), 300);
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Pick confirmation failed"),
@@ -1450,6 +1440,15 @@ function PickExecutionPage() {
 
   const completeMutation = useMutation({
     mutationFn: async () => {
+      const { data: openTasks, error: openError } = await supabase
+        .from("pick_tasks")
+        .select("id, status")
+        .eq("pick_list_id", pickListId)
+        .in("status", Array.from(PICK_OPEN_STATUSES));
+      if (openError) throw openError;
+      if ((openTasks ?? []).length > 0) {
+        throw new Error("Confirm every pick task before closing the pick list.");
+      }
       const { error } = await supabase
         .from("pick_lists")
         .update({ status: "completed" })
@@ -1458,8 +1457,12 @@ function PickExecutionPage() {
     },
     onSuccess: async () => {
       toast.success("Pick list complete — handed to dispatch");
-      await queryClient.invalidateQueries({ queryKey: ["pick-execution", pickListId] });
-      await queryClient.invalidateQueries({ queryKey: ["pick-lists"] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["pick-execution", pickListId] }),
+        queryClient.invalidateQueries({ queryKey: ["pick-lists"] }),
+        queryClient.invalidateQueries({ queryKey: ["inventory-search"] }),
+        queryClient.invalidateQueries({ queryKey: ["dashboard-metrics"] }),
+      ]);
       navigate("/pick-lists");
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Could not mark complete"),
@@ -1519,6 +1522,86 @@ function PickExecutionPage() {
   );
 }
 
+function PickBayGrid({
+  bayCode,
+  assignedLocationCode,
+  onSelectAssigned,
+}: {
+  bayCode: string;
+  assignedLocationCode: string;
+  onSelectAssigned: (locationCode: string) => void;
+}) {
+  const { data, isFetching } = useQuery({
+    queryKey: ["pick-bay-occupancy", bayCode],
+    queryFn: () => getBayOccupancy(bayCode),
+    enabled: bayCode.trim().length > 0,
+    staleTime: 10_000,
+  });
+  const assigned = assignedLocationCode.trim().toUpperCase();
+
+  if (isFetching) {
+    return (
+      <div className="lg:col-span-4 rounded-md border border-border bg-secondary/20 px-3 py-2 text-xs text-muted-foreground">
+        Loading bay locations…
+      </div>
+    );
+  }
+
+  if (!data || data.cells.length === 0) {
+    return (
+      <div className="lg:col-span-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+        No locations found for this bay barcode.
+      </div>
+    );
+  }
+
+  const hasAssignedLocation = data.cells.some((cell) => cell.locationCode.toUpperCase() === assigned);
+
+  return (
+    <div className="lg:col-span-4 grid gap-2 rounded-md border border-border bg-secondary/20 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+        <span>
+          Bay {data.aisle ?? "?"}-{data.bay ?? "?"}
+        </span>
+        <span>
+          Pick from <span className="font-mono font-semibold text-foreground">{assignedLocationCode || "assigned location"}</span>
+        </span>
+      </div>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {data.cells.map((cell) => {
+          const isAssigned = cell.locationCode.toUpperCase() === assigned;
+          const canSelect = isAssigned && cell.status === "active";
+          return (
+            <button
+              key={cell.locationId}
+              type="button"
+              disabled={!canSelect}
+              onClick={() => onSelectAssigned(cell.locationCode)}
+              className={[
+                "min-h-16 rounded-md border px-2 py-2 text-left text-xs transition focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
+                isAssigned
+                  ? "animate-pulse border-cyan-400 bg-cyan-50 text-cyan-950 ring-2 ring-cyan-400 dark:bg-cyan-950/50 dark:text-cyan-50"
+                  : "cursor-not-allowed border-muted bg-muted text-muted-foreground opacity-70",
+              ].join(" ")}
+            >
+              <span className="block font-mono font-semibold">{cell.locationCode}</span>
+              <span className="mt-1 block">
+                {cell.occupiedPallets}/{cell.maxPallets} pallets
+              </span>
+              <span className="block">{isAssigned ? "Pallet location" : cell.status !== "active" ? cell.status : "Other bin"}</span>
+            </button>
+          );
+        })}
+      </div>
+      {!hasAssignedLocation ? (
+        <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+          The assigned pallet location is not inside this scanned bay.
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function PickTaskCard({
   task,
   onConfirm,
@@ -1550,6 +1633,7 @@ function PickTaskCard({
   const shortReasonRef = useRef<HTMLInputElement | null>(null);
   const cardRef = useRef<HTMLDivElement | null>(null);
   const [keypadOpen, setKeypadOpen] = useState(false);
+  const [bayScan, setBayScan] = useState("");
   const pallet = task.pallets as any;
   const product = pallet?.products as any;
   const locationCode = task.locations?.code ?? task.pick_balance?.locations?.code ?? "";
@@ -1628,6 +1712,26 @@ function PickTaskCard({
     form.setValue("quantity", Number(next));
   };
 
+  function applyLocationScan(value: string) {
+    const scanned = normalizeScannerText(value);
+    if (!scanned) return;
+    if (isBaySelectorCode(scanned)) {
+      setBayScan(scanned);
+      form.setValue("locationCode", "");
+      playBarcodeBeep();
+      flashInput(locationRef.current, "orange");
+      return;
+    }
+    setBayScan("");
+    form.setValue("locationCode", scanned);
+    playBarcodeBeep();
+    flashInput(locationRef.current, "blue");
+    setTimeout(() => {
+      flashInput(palletRef.current, "orange");
+      palletRef.current?.focus();
+    }, 50);
+  }
+
   return (
     <div ref={cardRef} className="rounded-lg transition-shadow duration-300">
     <Card>
@@ -1664,36 +1768,47 @@ function PickTaskCard({
                         }}
                         className="min-h-10 min-w-0 flex-1 transition-shadow duration-300"
                         placeholder="Scan location barcode"
-                        onChange={(event) => field.onChange(event.target.value.replace(/[\r\n]/g, ""))}
+                        onChange={(event) => {
+                          const value = normalizeScannerText(event.target.value.replace(/[\r\n]/g, ""));
+                          if (/^BAY:[^:]+:[^:]+:[^:]+:[^:]+$/i.test(value.trim())) {
+                            applyLocationScan(value);
+                            return;
+                          }
+                          if (!value.toUpperCase().startsWith("BAY:")) setBayScan("");
+                          field.onChange(value);
+                        }}
                         onKeyDown={(event) => {
                           if (event.key === "Enter") {
                             event.preventDefault();
-                            playBarcodeBeep();
-                            flashInput(locationRef.current, "blue");
-                            setTimeout(() => {
-                              flashInput(palletRef.current, "orange");
-                              palletRef.current?.focus();
-                            }, 50);
+                            applyLocationScan(event.currentTarget.value);
                           }
                         }}
                       />
                       <BarcodeScanButton
                         title="Scan location barcode"
-                        onScan={(value) => {
-                          form.setValue("locationCode", value);
-                          playBarcodeBeep();
-                          flashInput(locationRef.current, "blue");
-                          setTimeout(() => {
-                            flashInput(palletRef.current, "orange");
-                            palletRef.current?.focus();
-                          }, 50);
-                        }}
+                        onScan={applyLocationScan}
                       />
                     </div>
                   </FormControl>
                 </FormItem>
               )}
             />
+            {bayScan ? (
+              <PickBayGrid
+                bayCode={bayScan}
+                assignedLocationCode={locationCode}
+                onSelectAssigned={(selectedLocation) => {
+                  setBayScan("");
+                  form.setValue("locationCode", selectedLocation);
+                  playBarcodeBeep();
+                  flashInput(locationRef.current, "blue");
+                  setTimeout(() => {
+                    flashInput(palletRef.current, "orange");
+                    palletRef.current?.focus();
+                  }, 50);
+                }}
+              />
+            ) : null}
             <FormField
               control={form.control}
               name="palletBarcode"
@@ -1710,7 +1825,7 @@ function PickTaskCard({
                         }}
                         className="min-h-10 min-w-0 flex-1 transition-shadow duration-300"
                         placeholder="Scan pallet barcode"
-                        onChange={(event) => field.onChange(event.target.value.replace(/[\r\n]/g, ""))}
+                        onChange={(event) => field.onChange(normalizeScannerText(event.target.value.replace(/[\r\n]/g, "")))}
                         onKeyDown={(event) => {
                           if (event.key === "Enter") {
                             event.preventDefault();
@@ -1723,7 +1838,7 @@ function PickTaskCard({
                       <BarcodeScanButton
                         title="Scan pallet barcode"
                         onScan={(value) => {
-                          form.setValue("palletBarcode", value);
+                          form.setValue("palletBarcode", normalizeScannerText(value));
                           playBarcodeBeep();
                           flashInput(palletRef.current, "blue");
                           setTimeout(() => confirmRef.current?.focus(), 50);
