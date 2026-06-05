@@ -14,9 +14,10 @@ import { FeatureFlagContext, useFeatureFlagState } from "@/hooks/use-feature-fla
 import { enqueueOfflineWork, isLikelyNetworkError } from "@/lib/offline-queue";
 import { supabase } from "@/integrations/supabase/client";
 import { createAppQueryClient } from "@/lib/query-client";
+import { cn } from "@/lib/utils";
 
-import { confirmPickTask, formatDate, formatNumber, getBayOccupancy, getInventoryDetail, getPickExecution, loginSchema, recordUserSignIn, refreshUserDeviceTrust, signUpSchema, RESOURCE_DEFINITIONS } from "@/lib/wms-core";
-import { getOrCreateDeviceId } from "@/lib/device-identity";
+import { confirmPickTask, formatDate, formatNumber, getBayOccupancy, getInventoryDetail, getPickExecution, loginSchema, recordUserSignIn, refreshUserDeviceTrust, RESOURCE_DEFINITIONS } from "@/lib/wms-core";
+import { clearTrustedDeviceShortcut, getOrCreateDeviceId, hasTrustedDeviceShortcut, isDesktopClient, markTrustedDeviceShortcut } from "@/lib/device-identity";
 
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
@@ -70,6 +71,18 @@ const ProtectedShell = lazy(() =>
 );
 
 const RELEASE_HISTORY = [
+  {
+    version: "1.1.8 Beta",
+    date: "June 2026",
+    changes: [
+      "Putaway and pick: shortened bay codes open the bay selector while full location scans still confirm directly",
+      "Locations: table columns now show Warehouse and Zone before Aisle, with Label before Max Pallets",
+      "Location labels: batch sheets match the per-row beam label design on Avery 99 x 38 mm labels",
+      "Bay and zone labels: batch sheets print shortened bay/zone aisle codes on Avery 99 x 93 mm labels",
+      "Badge sign-in: trusted-device PIN shortcut is limited to previously authenticated mobile/tablet devices",
+      "Access control: public Request Access is hidden; Admin and Dev users add accounts inside Settings",
+    ],
+  },
   {
     version: "1.1.7",
     date: "May 2026",
@@ -174,6 +187,13 @@ function flashInput(el: HTMLElement | null, colour: "orange" | "blue" | "red" | 
 
 function normalizeScannerText(value: unknown) {
   return String(value ?? "").trim().toUpperCase();
+}
+
+function isBaySelectorCode(value: string) {
+  const normalized = normalizeScannerText(value);
+  if (normalized.startsWith("BAY:")) return true;
+  const parts = normalized.split("-").filter(Boolean);
+  return parts.length >= 4 && !parts.some((part) => /^L\d+$/i.test(part));
 }
 
 function playPickSuccessTone() {
@@ -680,12 +700,17 @@ function PendingAccessShell() {
 
 function LoginPage() {
   const auth = useAuth();
-  const [mode, setMode] = useState<"login" | "signup" | "reset" | "update">(() =>
+  const [mode, setMode] = useState<"login" | "reset" | "update">(() =>
     typeof window !== "undefined" && new URLSearchParams(window.location.search).get("reset") === "1" ? "update" : "login",
   );
+  const [badgeShortcutAvailable, setBadgeShortcutAvailable] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return !isDesktopClient() && hasTrustedDeviceShortcut(getOrCreateDeviceId());
+  });
   const [loginMethod, setLoginMethod] = useState<"badge" | "code">(() => {
-    if (typeof window === "undefined") return "badge";
-    return window.localStorage.getItem(LOGIN_METHOD_STORAGE_KEY) === "code" ? "code" : "badge";
+    if (typeof window === "undefined") return "code";
+    const badgeAllowed = !isDesktopClient() && hasTrustedDeviceShortcut(getOrCreateDeviceId());
+    return badgeAllowed && window.localStorage.getItem(LOGIN_METHOD_STORAGE_KEY) === "badge" ? "badge" : "code";
   });
   const [scannedBadge, setScannedBadge] = useState("");
   const [manualBadge, setManualBadge] = useState("");
@@ -717,11 +742,6 @@ function LoginPage() {
     defaultValues: { password: "" },
   });
 
-  const signUpForm = useForm({
-    resolver: zodResolver(signUpSchema),
-    defaultValues: { fullName: "", email: "", phone: "", password: "" },
-  });
-
   const loginMutation = useMutation({
     mutationFn: async (values: { email: string; password: string }) => {
       const identifier = values.email.trim();
@@ -732,6 +752,7 @@ function LoginPage() {
             badgeCode: identifier,
             pin: values.password,
             deviceId: getOrCreateDeviceId(),
+            isDesktop: isDesktopClient(),
           },
         });
         if (error) throw error;
@@ -744,7 +765,20 @@ function LoginPage() {
         if (verifyError) throw verifyError;
       } else {
         await auth.signIn(identifier, values.password);
-        await refreshUserDeviceTrust(getOrCreateDeviceId());
+        const deviceId = getOrCreateDeviceId();
+        try {
+          await refreshUserDeviceTrust(deviceId);
+          if (!isDesktopClient()) {
+            markTrustedDeviceShortcut(deviceId);
+            setBadgeShortcutAvailable(true);
+          } else {
+            clearTrustedDeviceShortcut();
+            setBadgeShortcutAvailable(false);
+          }
+        } catch {
+          clearTrustedDeviceShortcut();
+          setBadgeShortcutAvailable(false);
+        }
       }
       await recordUserSignIn(method);
     },
@@ -780,34 +814,24 @@ function LoginPage() {
     onError: (error) => toast.error(friendlyAuthError(error, "login")),
   });
 
-  const signUpMutation = useMutation({
-    mutationFn: async (values: { fullName: string; email: string; phone: string; password: string }) => {
-      const { error } = await supabase.auth.signUp({
-        email: values.email,
-        password: values.password,
-        options: {
-          data: { full_name: values.fullName, phone: values.phone },
-        },
-      });
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      toast.success("Account created! Please wait for admin approval before signing in.");
-      setMode("login");
-      signUpForm.reset();
-    },
-    onError: (error) => toast.error(friendlyAuthError(error, "signup")),
-  });
-
   const selectedBadge = scannedBadge || manualBadge.trim();
   const rememberLoginMethod = useCallback((method: "badge" | "code") => {
+    if (method === "badge" && !badgeShortcutAvailable) {
+      toast.error("Badge sign-in requires full login on this mobile or tablet first.");
+      return;
+    }
     setLoginMethod(method);
     window.localStorage.setItem(LOGIN_METHOD_STORAGE_KEY, method);
-  }, []);
+  }, [badgeShortcutAvailable]);
 
   const submitBadgePin = () => {
     if (!selectedBadge) {
       toast.error("Scan or enter a badge code first.");
+      return;
+    }
+    if (!badgeShortcutAvailable) {
+      toast.error("Use normal sign-in on this device before badge sign-in.");
+      setLoginMethod("code");
       return;
     }
     if (badgePin.length < 4) {
@@ -822,10 +846,24 @@ function LoginPage() {
     setScannedBadge(value);
     setManualBadge("");
     setBadgePin("");
-    setPinDialogOpen(true);
-    window.localStorage.setItem(LOGIN_METHOD_STORAGE_KEY, "badge");
-    toast.success("Badge scanned. Enter your PIN.");
-  }, []);
+    if (badgeShortcutAvailable) {
+      setPinDialogOpen(true);
+      window.localStorage.setItem(LOGIN_METHOD_STORAGE_KEY, "badge");
+      toast.success("Badge scanned. Enter your PIN.");
+    } else {
+      toast.error("Badge sign-in requires full login on this mobile or tablet first.");
+      setLoginMethod("code");
+    }
+  }, [badgeShortcutAvailable]);
+
+  useEffect(() => {
+    const available = !isDesktopClient() && hasTrustedDeviceShortcut(getOrCreateDeviceId());
+    setBadgeShortcutAvailable(available);
+    if (!available && loginMethod === "badge") {
+      setLoginMethod("code");
+      window.localStorage.setItem(LOGIN_METHOD_STORAGE_KEY, "code");
+    }
+  }, [loginMethod]);
 
   if (auth.session && mode !== "update") {
     return <Navigate to="/dashboard" replace />;
@@ -872,31 +910,31 @@ function LoginPage() {
 
           <div>
             <h2 className="text-2xl font-bold tracking-tight text-center">
-              {mode === "signup" ? "Create account" : mode === "reset" ? "Reset password" : mode === "update" ? "Set new password" : "Welcome back"}
+              {mode === "reset" ? "Reset password" : mode === "update" ? "Set new password" : "Welcome back"}
             </h2>
             <p className="mt-1 text-sm text-muted-foreground text-center">
-              {mode === "signup"
-                ? "Request access. An admin will approve your account."
-                : mode === "reset"
+              {mode === "reset"
                   ? "Send yourself a secure recovery link."
                   : mode === "update"
                     ? "Choose a new password for your account."
-                  : "Scan your badge or sign in with a user code."}
+                  : "Use your approved email or user code. Badge sign-in appears only on trusted mobile/tablet devices."}
             </p>
           </div>
 
           {mode === "login" ? (
             <div className="flex flex-col gap-3">
-              <div className="grid grid-cols-2 gap-2 rounded-lg border border-border bg-secondary/30 p-1">
-                <Button
-                  type="button"
-                  variant={loginMethod === "badge" ? "default" : "ghost"}
-                  className="h-9"
-                  onClick={() => rememberLoginMethod("badge")}
-                >
-                  <ScanLine className="mr-2 h-4 w-4" />
-                  Badge scan
-                </Button>
+              <div className={cn("grid gap-2 rounded-lg border border-border bg-secondary/30 p-1", badgeShortcutAvailable ? "grid-cols-2" : "grid-cols-1")}>
+                {badgeShortcutAvailable ? (
+                  <Button
+                    type="button"
+                    variant={loginMethod === "badge" ? "default" : "ghost"}
+                    className="h-9"
+                    onClick={() => rememberLoginMethod("badge")}
+                  >
+                    <ScanLine className="mr-2 h-4 w-4" />
+                    Badge scan
+                  </Button>
+                ) : null}
                 <Button
                   type="button"
                   variant={loginMethod === "code" ? "default" : "ghost"}
@@ -908,7 +946,7 @@ function LoginPage() {
                 </Button>
               </div>
 
-              {loginMethod === "badge" ? (
+              {loginMethod === "badge" && badgeShortcutAvailable ? (
                 <div className="flex flex-col gap-3">
                   <LoginBadgeScanner onScan={handleBadgeScan} onErrorChange={setBadgeScannerError} scannedCode={selectedBadge} />
                   <div className="rounded-lg border border-border bg-secondary/30 p-2.5">
@@ -1063,75 +1101,7 @@ function LoginPage() {
                 ) : null}
               </form>
             </Form>
-          ) : (
-            <Form {...signUpForm}>
-              <form className="space-y-3" onSubmit={signUpForm.handleSubmit((v) => signUpMutation.mutate(v))}>
-                <FormField
-                  control={signUpForm.control}
-                  name="fullName"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Full Name</FormLabel>
-                      <FormControl><Input {...field} placeholder="Jane Smith" /></FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={signUpForm.control}
-                  name="email"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Email</FormLabel>
-                      <FormControl><Input {...field} type="email" placeholder="jane@example.com" /></FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={signUpForm.control}
-                  name="phone"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Phone Number</FormLabel>
-                      <FormControl><Input {...field} type="tel" placeholder="+1 555 000 0000" /></FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={signUpForm.control}
-                  name="password"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Password</FormLabel>
-                      <FormControl>
-                        <div className="relative">
-                          <Input {...field} className="pr-12" type={showSignUpPassword ? "text" : "password"} placeholder="Min 8 characters" />
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="absolute right-1 top-1/2 h-8 w-8 -translate-y-1/2 text-muted-foreground"
-                            onClick={() => setShowSignUpPassword((current) => !current)}
-                            aria-label={showSignUpPassword ? "Hide password" : "Show password"}
-                            title={showSignUpPassword ? "Hide password" : "Show password"}
-                          >
-                            {showSignUpPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                          </Button>
-                        </div>
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <Button type="submit" className="w-full" disabled={signUpMutation.isPending}>
-                  {signUpMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                  Request access
-                </Button>
-              </form>
-            </Form>
-          )}
+          ) : null}
 
           <p className="text-center text-sm text-muted-foreground">
             {mode === "login" ? (
@@ -1140,10 +1110,7 @@ function LoginPage() {
                   Reset password
                 </button>
                 <span className="text-muted-foreground/60">|</span>
-                <span>New user?</span>
-                <button className="font-medium text-primary underline-offset-4 hover:underline" onClick={() => setMode("signup")}>
-                  Request access
-                </button>
+                <span>Admins and Dev users add accounts inside Settings.</span>
               </span>
             ) : mode === "reset" ? (
               <>
@@ -1152,14 +1119,7 @@ function LoginPage() {
                   Sign in
                 </button>
               </>
-            ) : (
-              <>
-                Already have an account?{" "}
-                <button className="font-medium text-primary underline-offset-4 hover:underline" onClick={() => setMode("login")}>
-                  Sign in
-                </button>
-              </>
-            )}
+            ) : null}
           </p>
         </div>
       </div>
@@ -1743,7 +1703,7 @@ function PickTaskCard({
   function applyLocationScan(value: string) {
     const scanned = normalizeScannerText(value);
     if (!scanned) return;
-    if (scanned.toUpperCase().startsWith("BAY:")) {
+    if (isBaySelectorCode(scanned)) {
       setBayScan(scanned);
       form.setValue("locationCode", "");
       playBarcodeBeep();

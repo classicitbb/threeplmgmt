@@ -2,6 +2,7 @@ import { z } from "zod";
 import { format } from "date-fns";
 
 import { supabase } from "@/integrations/supabase/client";
+import { isDesktopClient } from "@/lib/device-identity";
 
 // Helper to bypass strict Supabase typing for tables not yet in the schema.
 // Once all WMS tables are migrated, this can be replaced with direct db() calls.
@@ -851,12 +852,23 @@ export async function adminUpdateUserPin(profileId: string, pin: string) {
 }
 
 export async function refreshUserDeviceTrust(deviceId: string) {
+  const desktop = isDesktopClient();
+  const functionResult = await supabase.functions.invoke("trust-device", {
+    body: {
+      deviceId,
+      isDesktop: desktop,
+    },
+  });
+  if (!functionResult.error) return;
+
   const client = supabase as unknown as {
     rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: unknown }>;
   };
   const { error } = await client.rpc("refresh_user_device_trust", {
     in_device_id: deviceId,
     in_user_agent: typeof navigator === "undefined" ? null : navigator.userAgent,
+    in_last_known_ip: null,
+    in_is_desktop: desktop,
   });
   if (error) throw new Error((error as any).message ?? "Device trust update failed");
 }
@@ -3459,8 +3471,23 @@ export async function getBayOccupancy(locationCode: string): Promise<{
       .select("id, code, warehouse_id, zone_id, aisle, bay")
       .eq("code", normalizedCode)
       .maybeSingle();
-    if (error || !data) return null;
-    anchor = data;
+    if (error) throw error;
+    if (data) {
+      anchor = data;
+    } else {
+      const prefix = normalizedCode.endsWith("-") ? normalizedCode : `${normalizedCode}-`;
+      const prefixResult = await db("locations")
+        .select("id, code, warehouse_id, zone_id, aisle, bay")
+        .eq("location_type", "rack")
+        .ilike("code", `${prefix}%`)
+        .order("level", { ascending: false })
+        .order("depth", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      if (prefixResult.error) throw prefixResult.error;
+      if (!prefixResult.data) return null;
+      anchor = { ...prefixResult.data, code: normalizedCode };
+    }
   }
 
   let locations: any[] = [];

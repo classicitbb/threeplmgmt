@@ -1453,8 +1453,14 @@ export function ResourcePage({
       archiveField: resource.archiveField,
     }),
   });
+  const { data: locationRowsForLabels = [] } = useQuery({
+    queryKey: ["locations", "label-source"],
+    enabled: resource.table === "zones",
+    queryFn: () => listRecords("locations", "*", { column: "code" }),
+  });
   const queryClient = useQueryClient();
-  const extraColumnCount = (resource.supportsHide ? 1 : 0) + (["warehouses", "zones"].includes(resource.table) ? 1 : 0) + 1 + (resource.table === "products" ? 1 : 0);
+  const hasTrailingLabelColumn = ["warehouses", "zones"].includes(resource.table);
+  const extraColumnCount = (resource.supportsHide ? 1 : 0) + (hasTrailingLabelColumn ? 1 : 0) + 1 + (resource.table === "products" ? 1 : 0);
   const isProducts = resource.table === "products";
   const { data: productQtyRows = [] } = useQuery({
     queryKey: ["product-qty-totals"],
@@ -1556,6 +1562,33 @@ export function ResourcePage({
       })
     );
   }, [data, filterQuery, resource.fields]);
+  const tableFields = useMemo(() => {
+    if (resource.table !== "locations") return resource.fields;
+    const fieldMap = new Map(resource.fields.map((field) => [field.name, field]));
+    const orderedNames = [
+      "code",
+      "warehouse_id",
+      "zone_id",
+      "aisle",
+      "bay",
+      "level",
+      "depth",
+      "location_type",
+      "temperature_class",
+      "max_pallets",
+      "pick_sequence",
+      "putaway_sequence",
+      "mixed_sku_allowed",
+      "mixed_lot_allowed",
+      "max_height",
+      "status",
+      "notes",
+    ];
+    return [
+      ...orderedNames.map((name) => fieldMap.get(name)).filter(Boolean),
+      ...resource.fields.filter((field) => !orderedNames.includes(field.name)),
+    ] as typeof resource.fields;
+  }, [resource.fields, resource.table]);
   const bayLabelItems = useMemo(() => {
     if (resource.table !== "locations") return [] as LabelSheetItem[];
     const byCode = new Map<string, LabelSheetItem>();
@@ -1565,7 +1598,7 @@ export function ResourcePage({
       const aisle = normalizeScannerText(row.aisle);
       const bay = normalizeScannerText(row.bay);
       if (!warehouse?.code || !zone?.code || !aisle || !bay) continue;
-      const code = `BAY:${normalizeScannerText(warehouse.code)}:${normalizeScannerText(zone.code)}:${aisle}:${bay}`;
+      const code = `${normalizeScannerText(warehouse.code)}-${normalizeScannerText(zone.code)}-${aisle}-${bay}`;
       if (!byCode.has(code)) {
         byCode.set(code, {
           code,
@@ -1576,6 +1609,33 @@ export function ResourcePage({
     }
     return Array.from(byCode.values()).sort((a, b) => a.code.localeCompare(b.code));
   }, [filteredData, resource.table, warehouseInfoMap, zoneInfoMap]);
+  const zoneAisleLabelItems = useMemo(() => {
+    if (resource.table !== "zones") return [] as LabelSheetItem[];
+    const visibleZoneIds = new Set((filteredData as Array<Record<string, unknown>>).map((row) => String(row.id ?? "")));
+    const zoneById = new Map((filteredData as Array<Record<string, unknown>>).map((row) => [String(row.id ?? ""), row]));
+    const byCode = new Map<string, LabelSheetItem>();
+    for (const row of locationRowsForLabels as Array<Record<string, unknown>>) {
+      const zoneId = String(row.zone_id ?? "");
+      if (!visibleZoneIds.has(zoneId)) continue;
+      const zone = zoneById.get(zoneId);
+      const warehouse = warehouseInfoMap.get(String(row.warehouse_id ?? zone?.warehouse_id ?? ""));
+      const zoneCode = normalizeScannerText(zone?.code);
+      const zoneName = String(zone?.name ?? zoneCode);
+      const aisle = normalizeScannerText(row.aisle);
+      if (!warehouse?.code || !zoneCode || !aisle) continue;
+      const code = `${normalizeScannerText(warehouse.code)}-${zoneCode}-${aisle}`;
+      if (!byCode.has(code)) {
+        byCode.set(code, {
+          code,
+          title: zoneName,
+          subtitle: `${warehouse.name ?? warehouse.code} · Aisle ${aisle}`,
+          aisle,
+          temperatureClass: String(zone?.temperature_class ?? "ambient"),
+        });
+      }
+    }
+    return Array.from(byCode.values()).sort((a, b) => a.code.localeCompare(b.code));
+  }, [filteredData, locationRowsForLabels, resource.table, warehouseInfoMap]);
 
   function handleRowPointerUp(row: unknown) {
     if (typeof window === "undefined" || !window.matchMedia("(pointer: coarse)").matches) return;
@@ -1636,25 +1696,28 @@ export function ResourcePage({
                 {["locations", "zones"].includes(resource.table) ? (
                   <LabelSheetPrintDialog
                     resourceLabel={resource.singular}
-                    items={(filteredData as Array<Record<string, unknown>>).map((row): LabelSheetItem => {
-                      const code = String((row as any).code ?? (row as any).id ?? "");
-                      const title = (row as any).name ? String((row as any).name) : null;
-                      const subtitleParts: string[] = [];
-                      if (resource.table === "locations") {
-                        const w = warehouseMap.get(String((row as any).warehouse_id ?? ""));
-                        const z = zoneMap.get(String((row as any).zone_id ?? ""));
-                        if (z) subtitleParts.push(`Zone: ${z}`);
-                        if (w) subtitleParts.push(w);
-                      } else if (resource.table === "zones") {
-                        const w = warehouseMap.get(String((row as any).warehouse_id ?? ""));
-                        if (w) subtitleParts.push(w);
-                      }
-                      return { code, title, subtitle: subtitleParts.join(" · ") || null };
-                    })}
+                    kind={resource.table === "zones" ? "zone" : "location"}
+                    items={resource.table === "zones"
+                      ? zoneAisleLabelItems
+                      : (filteredData as Array<Record<string, unknown>>).map((row): LabelSheetItem => {
+                        const warehouse = warehouseInfoMap.get(String((row as any).warehouse_id ?? ""));
+                        const zone = zoneInfoMap.get(String((row as any).zone_id ?? ""));
+                        return {
+                          code: String((row as any).code ?? (row as any).id ?? ""),
+                          title: (row as any).name ? String((row as any).name) : null,
+                          aisle: String((row as any).aisle ?? ""),
+                          bay: String((row as any).bay ?? ""),
+                          level: (row as any).level as number | string | null,
+                          locationType: String((row as any).location_type ?? ""),
+                          temperatureClass: String((row as any).temperature_class ?? "ambient"),
+                          warehouseName: warehouse?.name ?? warehouse?.code ?? null,
+                          zoneName: zone?.name ?? zone?.code ?? null,
+                        };
+                      })}
                     trigger={
                       <DropdownMenuItem onSelect={(event) => event.preventDefault()}>
                         <Printer className="mr-2 h-4 w-4" />
-                        {resource.table === "locations" ? "Print location labels sheet" : "Print labels sheet"}
+                        {resource.table === "locations" ? "Print location labels sheet" : "Print zone labels sheet"}
                       </DropdownMenuItem>
                     }
                   />
@@ -1729,15 +1792,18 @@ export function ResourcePage({
             <Table>
               <TableHeader className="sticky top-0 z-10 bg-card">
                 <TableRow>
-                  {resource.fields.map((field) => (
+                  {tableFields.map((field) => (
                     <Fragment key={field.name}>
+                      {resource.table === "locations" && field.name === "max_pallets" ? (
+                        <TableHead className="w-28">Label</TableHead>
+                      ) : null}
                       <TableHead>{field.label}</TableHead>
                       {isProducts && field.name === "name" ? (
                         <TableHead className="w-20 text-right">Qty</TableHead>
                       ) : null}
                     </Fragment>
                   ))}
-                  {["warehouses", "zones"].includes(resource.table) ? <TableHead className="w-28">Barcode</TableHead> : null}
+                  {hasTrailingLabelColumn ? <TableHead className="w-28">Label</TableHead> : null}
                   {resource.supportsHide ? <TableHead className="w-32">Visibility</TableHead> : null}
                   <TableHead className="w-16" />
                 </TableRow>
@@ -1745,13 +1811,13 @@ export function ResourcePage({
               <TableBody>
                 {isLoading ? (
                   <TableRow>
-                    <TableCell className="h-24 text-center text-muted-foreground" colSpan={resource.fields.length + extraColumnCount}>
+                    <TableCell className="h-24 text-center text-muted-foreground" colSpan={tableFields.length + extraColumnCount + (resource.table === "locations" ? 1 : 0)}>
                       Loading {resource.title.toLowerCase()}...
                     </TableCell>
                   </TableRow>
                 ) : filteredData.length === 0 ? (
                   <TableRow>
-                    <TableCell className="h-24 text-center text-muted-foreground" colSpan={resource.fields.length + extraColumnCount}>
+                    <TableCell className="h-24 text-center text-muted-foreground" colSpan={tableFields.length + extraColumnCount + (resource.table === "locations" ? 1 : 0)}>
                       {filterQuery ? `No ${resource.title.toLowerCase()} matched "${filterQuery}".` : `No ${resource.title.toLowerCase()} found.`}
                     </TableCell>
                   </TableRow>
@@ -1763,7 +1829,7 @@ export function ResourcePage({
                       onDoubleClick={() => setEditRecord(row as Record<string, unknown>)}
                       onPointerUp={() => handleRowPointerUp(row)}
                     >
-                      {resource.fields.map((field) => {
+                      {tableFields.map((field) => {
                         const rawValue = (row as Record<string, unknown>)[field.name];
                         let displayValue: React.ReactNode;
                         if (rawValue == null || rawValue === "") {
@@ -1803,6 +1869,27 @@ export function ResourcePage({
                           displayValue = String(rawValue);
                         }
                         const cell = <TableCell key={field.name}>{displayValue}</TableCell>;
+                        if (resource.table === "locations" && field.name === "max_pallets") {
+                          return (
+                            <Fragment key={field.name}>
+                              <TableCell className="w-28">
+                                <LocationLabelPage
+                                  code={String((row as Record<string, unknown>).code ?? "")}
+                                  aisle={(row as Record<string, unknown>).aisle as string | null}
+                                  bay={(row as Record<string, unknown>).bay as string | null}
+                                  level={(row as Record<string, unknown>).level as number | null}
+                                  locationType={(row as Record<string, unknown>).location_type as string | null}
+                                  temperatureClass={String((row as Record<string, unknown>).temperature_class ?? "ambient")}
+                                  warehouseCode={warehouseInfoMap.get(String((row as Record<string, unknown>).warehouse_id))?.code}
+                                  zoneCode={zoneInfoMap.get(String((row as Record<string, unknown>).zone_id))?.code}
+                                  warehouseName={warehouseInfoMap.get(String((row as Record<string, unknown>).warehouse_id))?.name}
+                                  zoneName={zoneInfoMap.get(String((row as Record<string, unknown>).zone_id))?.name}
+                                />
+                              </TableCell>
+                              {cell}
+                            </Fragment>
+                          );
+                        }
                         if (isProducts && field.name === "name") {
                           const qty = productQtyMap.get(String((row as Record<string, unknown>).id ?? "")) ?? 0;
                           return (
@@ -1816,24 +1903,10 @@ export function ResourcePage({
                         }
                         return cell;
                       })}
-                      {["warehouses", "zones", "locations"].includes(resource.table) ? (
+                      {hasTrailingLabelColumn ? (
                         <TableCell>
                           <div className="flex items-center gap-1">
-                            {resource.table === "locations" ? (
-                              <LocationLabelPage
-                                code={String((row as Record<string, unknown>).code ?? "")}
-                                aisle={(row as Record<string, unknown>).aisle as string | null}
-                                bay={(row as Record<string, unknown>).bay as string | null}
-                                level={(row as Record<string, unknown>).level as number | null}
-                                locationType={(row as Record<string, unknown>).location_type as string | null}
-                                temperatureClass={String((row as Record<string, unknown>).temperature_class ?? "ambient")}
-                                warehouseCode={warehouseInfoMap.get(String((row as Record<string, unknown>).warehouse_id))?.code}
-                                zoneCode={zoneInfoMap.get(String((row as Record<string, unknown>).zone_id))?.code}
-                                warehouseName={warehouseInfoMap.get(String((row as Record<string, unknown>).warehouse_id))?.name}
-                                zoneName={zoneInfoMap.get(String((row as Record<string, unknown>).zone_id))?.name}
-                              />
-                            ) : (
-                              <>
+                            <>
                                 <BarcodePrintDialog
                                   labelType={resource.table === "warehouses" ? "warehouse" : "zone"}
                                   code={String((row as Record<string, unknown>).code ?? "")}
@@ -1850,7 +1923,6 @@ export function ResourcePage({
                                   />
                                 )}
                               </>
-                            )}
                           </div>
                         </TableCell>
                       ) : null}
@@ -2717,6 +2789,13 @@ function WarehouseFloorMode({
 
 function normalizeScannerText(value: unknown) {
   return String(value ?? "").trim().toUpperCase();
+}
+
+function isBaySelectorCode(value: string) {
+  const normalized = normalizeScannerText(value);
+  if (normalized.startsWith("BAY:")) return true;
+  const parts = normalized.split("-").filter(Boolean);
+  return parts.length >= 4 && !parts.some((part) => /^L\d+$/i.test(part));
 }
 
 function shouldUppercaseField(name: string) {
@@ -4166,7 +4245,7 @@ function BayOccupancyGrid({
   locationCode: string;
   onSelect: (locationCode: string) => void;
 }) {
-  const isBayScan = locationCode.trim().toUpperCase().startsWith("BAY:");
+  const isBayScan = isBaySelectorCode(locationCode);
   const { data, isFetching } = useQuery({
     queryKey: ["bay-occupancy", locationCode],
     queryFn: () => getBayOccupancy(locationCode),
@@ -4376,7 +4455,7 @@ export function PutawayTasksPage() {
     const value = normalizeScannerText(scannedValue);
     if (!value) return;
     const localState = scanState[task.id] ?? { pallet: task.pallets?.pallet_barcode ?? "", location: "", override: false, reason: "" };
-    if (value.toUpperCase().startsWith("BAY:")) {
+    if (isBaySelectorCode(value)) {
       setBayScanState((current) => ({ ...current, [task.id]: value }));
       setScanState((current) => ({ ...current, [task.id]: { ...localState, location: "" } }));
       void logPutawayBaySelection({ taskId: task.id, scannedCode: value });
@@ -7396,7 +7475,7 @@ export function SettingsPage() {
                   <li>All clients, pallets, inventory, orders, picks, transfers, and counts will be deleted.</li>
                   <li>All printed labels, templates, integrations, AI recommendations, and reports will be cleared.</li>
                   <li>All audit history and system logs will be cleared.</li>
-                  <li><strong>All users except developer accounts</strong> will be removed and will need to request access again.</li>
+                  <li><strong>All users except developer accounts</strong> will be removed and must be re-created by an Admin or Dev user.</li>
                 </ul>
                 <div className="grid gap-1.5 pt-2">
                   <label htmlFor="reset-challenge" className="text-sm font-medium">Type <span className="font-mono font-semibold">RESET ALL</span> to confirm</label>
@@ -7445,6 +7524,19 @@ export function SettingsPage() {
                 <span className="font-mono text-xs font-semibold text-primary">v{__APP_VERSION__}</span>
               </div>
               {[
+                {
+                  version: "1.1.8 Beta",
+                  date: "June 2026",
+                  changes: [
+                    "Putaway and Pick: shortened bay codes open the bay selector while full location scans still confirm directly",
+                    "Locations table: Warehouse and Zone now appear before Aisle, and Label appears before Max Pallets",
+                    "Location labels: batch printing now matches the per-row beam label design on Avery 99 x 38 mm labels",
+                    "Bay labels: shortened location codes without level numbers print on Avery 99 x 93 mm labels",
+                    "Zone labels: warehouse-zone-aisle codes print on Avery 99 x 93 mm labels",
+                    "Badge sign-in: trusted-device PIN shortcut is limited to previously authenticated mobile/tablet devices",
+                    "Access control: public Request Access is hidden; Admin and Dev users add accounts from Settings",
+                  ],
+                },
                 {
                   version: "1.1.7",
                   date: "May 2026",
@@ -7584,7 +7676,7 @@ export function SettingsPage() {
                 ["Status Controls", "Pallet hold, quarantine, damaged, missing with reason audit"],
                 ["Dashboard", "Floor, Dock, and Office modes with draggable metric cards"],
                 ["Reports", "Inventory, occupancy, and cycle count exports"],
-                ["Users & Roles", "Role-based access with warehouse scope and badge login"],
+                ["Users & Roles", "Admin/Dev user creation, role scope, and trusted-device badge login"],
                 ["System Log", "Full audit trail viewer with severity filtering and resolve workflow"],
                 ["Help Centre", "Contextual help sidebar and searchable article wiki"],
               ].map(([feature, desc]) => (

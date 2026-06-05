@@ -7,3 +7,5 @@ project_id = "gxfvxmxplngvxdkpmxgw"
     verify_jwt = true
   [functions.badge-login]
     verify_jwt = false
+  [functions.trust-device]
+    verify_jwt = true
