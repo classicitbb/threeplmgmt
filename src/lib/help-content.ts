@@ -33,7 +33,7 @@ export const setupWizardSteps: SetupWizardStepDetail[] = [
   },
   {
     number: 3,
-    title: "Generate locations for each zone",
+    title: "Generate bin locations for each zone",
     summary: "Decide how aisles, bays, levels, and depth positions are produced.",
     details: [
       "Pick the aisle count, bays per aisle, levels per bay, and depth (1\u20135) that match the physical racking.",
@@ -54,7 +54,7 @@ export const setupWizardSteps: SetupWizardStepDetail[] = [
   {
     number: 5,
     title: "Create the structure",
-    summary: "Run the setup to create exactly the warehouses, zones, and locations you defined.",
+    summary: "Run the setup to create exactly the warehouses, zones, and bin locations you defined.",
     details: [
       "The wizard creates warehouses, zones, and every location row in a single transaction.",
       "Demo operational data (products, pallets, receipts, etc.) is no longer seeded by default \u2014 developers can opt in from the final step.",
@@ -129,8 +129,8 @@ const routeHelpDefinitions: Record<string, RouteHelpDefinition> = {
   },
   locations: {
     id: "locations",
-    title: "Locations",
-    summary: "Locations are the physical slots used for directed putaway, picking, counting, and occupancy reporting.",
+    title: "Bin Locations",
+    summary: "Bin Locations are the physical slots used for directed putaway, picking, counting, and occupancy reporting.",
     keyActions: ["Generate rack/staging/quarantine locations", "Print beam labels and bay-code labels", "Set sequencing and capacity rules", "Hide retired locations rather than removing history"],
     commonMistakes: ["Assigning inactive locations to live work", "Changing a physical code without reprinting the rack label", "Using mixed-SKU settings that conflict with product handling rules"],
     permissions: "Managed by admins and warehouse managers.",
@@ -284,7 +284,7 @@ const routeHelpDefinitions: Record<string, RouteHelpDefinition> = {
     id: "setup-wizard",
     title: "Warehouse Setup Wizard",
     summary: "The wizard builds warehouse structure from blank forms; demo operational data is opt-in for developers only.",
-    keyActions: ["Define warehouses", "Define zones", "Generate locations", "Review and create structure"],
+    keyActions: ["Define warehouses", "Define zones", "Generate bin locations", "Review and create structure"],
     commonMistakes: ["Leaving warehouse codes inconsistent across steps", "Choosing location rules that do not match the actual zone purpose"],
     permissions: "Visible to admins and warehouse managers. Execution uses admin reset/setup controls.",
     wikiArticleIds: ["warehouse-setup", "settings-reset"],
@@ -308,7 +308,7 @@ export const helpArticles: HelpArticle[] = [
     title: "Warehouse Setup Wizard",
     module: "setup-wizard",
     audience: "Admins and warehouse managers",
-    keywords: ["wizard", "setup", "warehouse", "zones", "locations", "seed"],
+    keywords: ["wizard", "setup", "warehouse", "zones", "bin locations", "seed"],
     sections: [
       { title: "When to Use It", content: ["Use the wizard during a new implementation or after a full environment reset.", "On a fresh tenant every form starts blank \u2014 the wizard never invents warehouses, zones, or locations.", "When an existing warehouse environment is detected, current structure is preloaded so new facilities or storage areas can be layered in for review."] },
       { title: "Step Sequence", content: ["Step 1 defines facilities.", "Step 2 defines zones inside each facility.", "Step 3 defines how locations are generated for each zone.", "Step 4 reviews the final structure.", "Step 5 creates the structure (demo operational data is opt-in for developers)."] },
