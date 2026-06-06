@@ -3,7 +3,7 @@ import { format } from "date-fns";
 
 import { supabase } from "@/integrations/supabase/client";
 import { validateIso6346ContainerNumber } from "@/lib/container-number";
-import { isDesktopClient } from "@/lib/device-identity";
+// isDesktopClient reserved for future device-aware flows
 
 // Helper to bypass strict Supabase typing for tables not yet in the schema.
 // Once all WMS tables are migrated, this can be replaced with direct db() calls.
@@ -1214,7 +1214,7 @@ function buildPalletCode(prefix: string) {
   return `${prefix}-${time}${rand}`;
 }
 
-function buildClientId(prefix: string) {
+function buildClientId(_prefix?: string) {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
   return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (char) => {
     const rand = Math.floor(Math.random() * 16);

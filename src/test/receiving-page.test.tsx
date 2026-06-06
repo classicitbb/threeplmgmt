@@ -109,7 +109,7 @@ describe("ReceivingPage", () => {
   });
 
   it("saves a shipment draft and opens the print dialog for Save & Receive", async () => {
-    wmsMocks.listDraftReceipts.mockResolvedValue([wmsMocks.draft]);
+    wmsMocks.listDraftReceipts.mockResolvedValue([wmsMocks.draft] as never);
     renderReceivingPage();
 
     fireEvent.click(await screen.findByRole("button", { name: /new shipment/i }));
@@ -128,7 +128,7 @@ describe("ReceivingPage", () => {
   });
 
   it("printing a draft row completes receiving and sends it to putaway", async () => {
-    wmsMocks.listDraftReceipts.mockResolvedValue([wmsMocks.draft]);
+    wmsMocks.listDraftReceipts.mockResolvedValue([wmsMocks.draft] as never);
     renderReceivingPage();
 
     fireEvent.click(await screen.findByRole("button", { name: /print & receive/i }));

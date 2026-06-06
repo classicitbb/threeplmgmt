@@ -3869,7 +3869,7 @@ export function ReceivingPage() {
                     draftSequence={draft.draft_sequence}
                     draftCount={draft.draft_count}
                     temperatureClass={product?.temperature_requirement}
-                    onPrinted={() => receiveMutation.mutateAsync(draft)}
+                    onPrinted={async () => { await receiveMutation.mutateAsync(draft); }}
                     trigger={<Button size="sm" variant="outline" disabled={receiveMutation.isPending}><Printer data-icon="inline-start" />Print & Receive</Button>}
                   />
                   <Button size="sm" variant="outline" onClick={() => openEditDraft(draft)}><Pencil data-icon="inline-start" />Edit</Button>
