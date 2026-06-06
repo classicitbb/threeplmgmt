@@ -133,7 +133,8 @@ export type WarehouseLocationTemplate = {
   aisleCount: number;
   baysPerAisle: number;
   levels: number;
-  maxPallets: number;
+  positionsPerLevel: number;
+  depth: number;
   locationType: string;
   temperatureClass: TemperatureClass;
   mixedSkuAllowed: boolean;
