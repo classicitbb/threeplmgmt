@@ -18,25 +18,6 @@ import { createAppQueryClient } from "@/lib/query-client";
 import { confirmPickTask, formatDate, formatNumber, getInventoryDetail, getPickExecution, loginSchema, recordUserSignIn, refreshUserDeviceTrust, signUpSchema, RESOURCE_DEFINITIONS } from "@/lib/wms-core";
 import { getOrCreateDeviceId, hasTrustedDeviceShortcut, isDesktopClient } from "@/lib/device-identity";
 import { cn } from "@/lib/utils";
-import {
-  AppShell,
-  DashboardPage,
-  InventorySearchPage,
-  MobileActionBar,
-  PickListsPage,
-  PutawayTasksPage,
-  ReceivingPage,
-  ReportsPage,
-  ResourcePage,
-  SettingsPage,
-  StatusPage,
-  SystemLogPage,
-  EmailLogPage,
-  TransfersPage,
-  UsersRolesPage,
-  CycleCountsPage,
-  LocationMovesPage,
-} from "@/components/wms-ui";
 
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
