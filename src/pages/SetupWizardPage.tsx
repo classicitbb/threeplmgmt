@@ -105,7 +105,7 @@ export default function SetupWizardPage() {
       zones: payload.zones.length,
       locationTemplates: payload.locationTemplates.length,
       locationsWillCreate: payload.locationTemplates.reduce(
-        (sum, t) => sum + t.aisleCount * t.baysPerAisle * t.levels,
+        (sum, t) => sum + t.aisleCount * t.baysPerAisle * t.levels * Math.max(1, t.positionsPerLevel || 1),
         0,
       ),
     }),
@@ -369,8 +369,11 @@ export default function SetupWizardPage() {
                     <Field label="Levels">
                       <Input type="number" value={template.levels} onChange={(event) => updateTemplate(index, "levels", Number(event.target.value))} />
                     </Field>
-                    <Field label="Max pallets">
-                      <Input type="number" value={template.maxPallets} onChange={(event) => updateTemplate(index, "maxPallets", Number(event.target.value))} />
+                    <Field label="Positions / level (1–3)">
+                      <Input type="number" min={1} max={3} value={template.positionsPerLevel} onChange={(event) => updateTemplate(index, "positionsPerLevel", Number(event.target.value))} />
+                    </Field>
+                    <Field label="Depth = capacity (1–5)">
+                      <Input type="number" min={1} max={5} value={template.depth} onChange={(event) => updateTemplate(index, "depth", Number(event.target.value))} />
                     </Field>
                     <Field label="Status">
                       <Input value={template.status} onChange={(event) => updateTemplate(index, "status", event.target.value)} />
@@ -469,7 +472,7 @@ export default function SetupWizardPage() {
               <Card>
                 <CardHeader>
                   <CardTitle>Location generation matrix</CardTitle>
-                  <CardDescription>Each row generates aisles × bays × levels locations inside the named zone.</CardDescription>
+                  <CardDescription>Each row generates aisles × bays × levels × positions locations inside the named zone. Capacity per slot = depth.</CardDescription>
                 </CardHeader>
                 <CardContent className="overflow-auto p-0">
                   <Table>
@@ -482,13 +485,14 @@ export default function SetupWizardPage() {
                         <TableHead className="text-right">Aisles</TableHead>
                         <TableHead className="text-right">Bays</TableHead>
                         <TableHead className="text-right">Levels</TableHead>
-                        <TableHead className="text-right">Max plt</TableHead>
+                        <TableHead className="text-right">Pos/lvl</TableHead>
+                        <TableHead className="text-right">Depth</TableHead>
                         <TableHead className="text-right">Total locs</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {payload.locationTemplates.map((t, i) => {
-                        const locs = t.aisleCount * t.baysPerAisle * t.levels;
+                        const locs = t.aisleCount * t.baysPerAisle * t.levels * Math.max(1, t.positionsPerLevel || 1);
                         return (
                           <TableRow key={i} className={cn(i % 2 === 0 ? "bg-background" : "bg-muted/20")}>
                             <TableCell className="font-mono">{t.warehouseCode}</TableCell>
@@ -498,13 +502,14 @@ export default function SetupWizardPage() {
                             <TableCell className="text-right">{t.aisleCount}</TableCell>
                             <TableCell className="text-right">{t.baysPerAisle}</TableCell>
                             <TableCell className="text-right">{t.levels}</TableCell>
-                            <TableCell className="text-right">{t.maxPallets}</TableCell>
+                            <TableCell className="text-right">{t.positionsPerLevel}</TableCell>
+                            <TableCell className="text-right">{t.depth}</TableCell>
                             <TableCell className="text-right font-semibold">{locs}</TableCell>
                           </TableRow>
                         );
                       })}
                       <TableRow className="border-t-2 bg-muted/30 font-semibold">
-                        <TableCell colSpan={8} className="text-right text-muted-foreground">Total locations</TableCell>
+                        <TableCell colSpan={9} className="text-right text-muted-foreground">Total locations</TableCell>
                         <TableCell className="text-right">{totals.locationsWillCreate}</TableCell>
                       </TableRow>
                     </TableBody>
