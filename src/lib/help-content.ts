@@ -27,7 +27,7 @@ export const setupWizardSteps: SetupWizardStepDetail[] = [
     summary: "Group locations by purpose and temperature class.",
     details: [
       "Create zones such as Receiving, Put-Away, Picking, Cool, Quarantine, or Bulk for each warehouse.",
-      "Set the temperature class (ambient, cool, frozen) so directed putaway can match products to compatible zones.",
+      "Set the temperature class (ambient, cool, frozen) so directed put-away can match products to compatible zones.",
       "Mark zones that should not accept normal stock (for example Quarantine or Damaged) so suggestions skip them.",
     ],
   },
@@ -130,7 +130,7 @@ const routeHelpDefinitions: Record<string, RouteHelpDefinition> = {
   locations: {
     id: "locations",
     title: "Bin Locations",
-    summary: "Bin Locations are the physical slots used for directed putaway, picking, counting, and occupancy reporting.",
+    summary: "Bin Locations are the physical slots used for directed put-away, picking, counting, and occupancy reporting.",
     keyActions: ["Generate rack/staging/quarantine locations", "Print beam labels and bay-code labels", "Set sequencing and capacity rules", "Hide retired locations rather than removing history"],
     commonMistakes: ["Assigning inactive locations to live work", "Changing a physical code without reprinting the rack label", "Using mixed-SKU settings that conflict with product handling rules"],
     permissions: "Managed by admins and warehouse managers.",
@@ -157,20 +157,20 @@ const routeHelpDefinitions: Record<string, RouteHelpDefinition> = {
   receiving: {
     id: "receiving",
     title: "Receiving",
-    summary: "Receiving creates receipts, pallet identity, lot context, and the downstream putaway workload.",
-    keyActions: ["Create receipt and pallet records", "Capture lot/expiry details", "Launch directed putaway"],
+    summary: "Receiving creates receipts, pallet identity, lot context, and the downstream put-away workload.",
+    keyActions: ["Create receipt and pallet records", "Capture lot/expiry details", "Launch directed put-away"],
     commonMistakes: ["Skipping reference numbers", "Receiving cool-chain items without proper profile or zone setup"],
     permissions: "Used by admins, managers, and inventory clerks.",
     wikiArticleIds: ["receiving-flow", "label-printing"],
   },
-  putaway: {
-    id: "putaway",
+  put-away: {
+    id: "put-away",
     title: "Put-Away",
     summary: "Put-Away confirms pallet and location scans before stock becomes stored and available.",
-    keyActions: ["Scan pallet", "Scan a full location or shortened bay code", "Select an available bay cell when prompted", "Complete directed putaway with audit logging"],
+    keyActions: ["Scan pallet", "Scan a full location or shortened bay code", "Select an available bay cell when prompted", "Complete directed put-away with audit logging"],
     commonMistakes: ["Scanning the wrong location", "Treating a bay code as a final location", "Trying to store cool stock in ambient locations"],
     permissions: "Used by admins, managers, clerks, and operators.",
-    wikiArticleIds: ["putaway-flow", "location-generation"],
+    wikiArticleIds: ["put-away-flow", "location-generation"],
   },
   inventory: {
     id: "inventory",
@@ -194,7 +194,7 @@ const routeHelpDefinitions: Record<string, RouteHelpDefinition> = {
     id: "transfers",
     title: "Transfers",
     summary: "Transfers preserve pallet identity and audit history while stock moves between facilities.",
-    keyActions: ["Create transfer", "Dispatch", "Receive into destination and trigger putaway"],
+    keyActions: ["Create transfer", "Dispatch", "Receive into destination and trigger put-away"],
     commonMistakes: ["Dispatching the wrong pallet", "Receiving stock before destination structure is ready"],
     permissions: "Used by admins, managers, clerks, and dispatch drivers for handoff visibility.",
     wikiArticleIds: ["transfer-flow"],
@@ -362,18 +362,18 @@ export const helpArticles: HelpArticle[] = [
     title: "Receiving Workflow",
     module: "receiving",
     audience: "Clerks and supervisors",
-    keywords: ["receiving", "receipt", "pallet", "lot", "expiry", "putaway"],
+    keywords: ["receiving", "receipt", "pallet", "lot", "expiry", "put-away"],
     sections: [
-      { title: "Core Flow", content: ["Receiving creates the receipt, lot context, pallet identity, and the downstream putaway task.", "Reference numbers and packaging profiles should be entered carefully because they affect later handling."] },
+      { title: "Core Flow", content: ["Receiving creates the receipt, lot context, pallet identity, and the downstream put-away task.", "Reference numbers and packaging profiles should be entered carefully because they affect later handling."] },
       { title: "Critical Checks", content: ["Confirm warehouse, product, quantity, and lot/expiry values before posting.", "Cool-chain items must align with cool-zone storage."] },
     ],
   },
   {
-    id: "putaway-flow",
+    id: "put-away-flow",
     title: "Directed Put-Away",
-    module: "putaway",
+    module: "put-away",
     audience: "Operators and supervisors",
-    keywords: ["putaway", "scan", "location", "temperature", "store"],
+    keywords: ["put-away", "scan", "location", "temperature", "store"],
     sections: [
       { title: "How It Works", content: ["Put-Away is complete only after the pallet barcode and location barcode are both confirmed.", "A full location code fills the confirmation field directly. A shortened bay code opens the bay selector so the operator can tap the exact available slot.", "Successful confirmation moves stock into stored and available status."] },
       { title: "Common Exceptions", content: ["A location that is inactive, full, or temperature-incompatible will block the move.", "Scan mismatches should be corrected before retrying."] },
@@ -407,7 +407,7 @@ export const helpArticles: HelpArticle[] = [
     audience: "Managers, clerks, and dispatch staff",
     keywords: ["transfer", "dispatch", "receive", "inter-warehouse", "intra-warehouse", "in transit", "driver signoff"],
     sections: [
-      { title: "Transfer Stages", content: ["Transfers move a pallet from source warehouse, to in-transit, then to receiving at the destination. The source record, destination record, pallet identity, and lot identity stay connected.", "Destination receipt should be followed by directed putaway so inventory does not sit invisible in a receiving lane."] },
+      { title: "Transfer Stages", content: ["Transfers move a pallet from source warehouse, to in-transit, then to receiving at the destination. The source record, destination record, pallet identity, and lot identity stay connected.", "Destination receipt should be followed by directed put-away so inventory does not sit invisible in a receiving lane."] },
       { title: "Driver Departure Sign-Off", content: ["Before dispatch, the driver scans their badge or enters their user code. This creates a signed handoff that stock has physically departed.", "This control prevents the waste loop where the system says a pallet is in transit while the pallet is still in staging, loaded on the wrong vehicle, or awaiting paperwork."] },
       { title: "Lean Reasoning", content: ["Treat transfer departure as a quality gate: scan pallet, validate route, sign off driver, then move to in-transit. The extra seconds prevent motion, waiting, searching, and correction work later.", "If a transfer is blocked, stop the flow visibly instead of dispatching a bad load. That is an Andon-style escalation while the problem is still cheap to fix."] },
     ],
@@ -435,7 +435,7 @@ export const helpArticles: HelpArticle[] = [
     audience: "Clerks, operators, and supervisors",
     keywords: ["cycle count", "variance", "count sheet", "stock check"],
     sections: [
-      { title: "Counting Rules", content: ["Cycle counts can target a location, zone, SKU, or spot check. High-value, high-risk, and high-velocity stock should be counted more often than slow, stable stock.", "Entered quantities update stock and create adjustment records when variances exist. Variance is evidence of a broken handoff somewhere in receiving, putaway, picking, transfer, or status control."] },
+      { title: "Counting Rules", content: ["Cycle counts can target a location, zone, SKU, or spot check. High-value, high-risk, and high-velocity stock should be counted more often than slow, stable stock.", "Entered quantities update stock and create adjustment records when variances exist. Variance is evidence of a broken handoff somewhere in receiving, put-away, picking, transfer, or status control."] },
       { title: "Six Sigma View", content: ["DPMO is a defect-per-million-opportunities signal. In WMS terms, a defect can be a wrong location, wrong quantity, missing pallet, or wrong status.", "Use DMAIC thinking: define the defect, measure where it happens, analyze the cause, improve the process, and control it with scans, roles, labels, and standard work."] },
     ],
     acronyms: {
@@ -498,7 +498,7 @@ export const helpArticles: HelpArticle[] = [
     sections: [
       { title: "Templates", content: ["Location templates generate consistent codes and capacities across a zone. Codes should be readable in the aisle and sortable in the system.", "Aisle, bay, and level counts should match the real warehouse footprint you want operators to use. Never create virtual locations that operators cannot physically find."] },
       { title: "Rack and Bay Codes", content: ["Full location labels identify the exact rack cell, including level. Bay labels remove the level so scanning the bay code opens a selector for every active location in that bay.", "This supports rack-upright scanning without creating separate bay records. The selector still uses the existing aisle, bay, level, depth, capacity, and status fields."] },
-      { title: "Import Template", content: ["Use the CSV template for bulk location creation when you already know the warehouse and zone IDs. Required fields prevent partial locations from entering directed work.", "Sequence fields should reflect walking and travel paths. Good sequencing removes motion waste by guiding putaway and picking through a sensible route."] },
+      { title: "Import Template", content: ["Use the CSV template for bulk location creation when you already know the warehouse and zone IDs. Required fields prevent partial locations from entering directed work.", "Sequence fields should reflect walking and travel paths. Good sequencing removes motion waste by guiding put-away and picking through a sensible route."] },
     ],
     acronyms: {
       CSV: "Comma-separated values file.",
@@ -513,7 +513,7 @@ export const helpArticles: HelpArticle[] = [
     audience: "Clerks and supervisors",
     keywords: ["products", "sku", "master data", "rotation", "temperature"],
     sections: [
-      { title: "Critical Fields", content: ["The most important product controls are owner, rotation method, temperature requirement, and tracking flags. These fields drive receiving checks, putaway location eligibility, pick rotation, labels, and reports.", "Discontinued products should be hidden rather than deleted so historical receipts, picks, counts, and transfers still explain themselves."] },
+      { title: "Critical Fields", content: ["The most important product controls are owner, rotation method, temperature requirement, and tracking flags. These fields drive receiving checks, put-away location eligibility, pick rotation, labels, and reports.", "Discontinued products should be hidden rather than deleted so historical receipts, picks, counts, and transfers still explain themselves."] },
       { title: "Import Template", content: ["Use the CSV template before importing products. Fill required identifiers first: SKU, name, client owner, temperature requirement, rotation method, and active flag.", "Do not import unknown temperature or rotation values. Bad master data creates waste immediately because every downstream scan asks the system to enforce the wrong rule."] },
     ],
     acronyms: {
@@ -540,7 +540,7 @@ export const helpArticles: HelpArticle[] = [
     audience: "Operators, supervisors, and managers",
     keywords: ["floor mode", "dock handoff", "office dashboard", "dumbwaiter", "andon", "widgets"],
     sections: [
-      { title: "Floor Mode", content: ["Use Floor mode at shift start on tablets or shared workstations.", "The large workflow cards point operators to scan-confirmed putaway, picking, exception, and setup work."] },
+      { title: "Floor Mode", content: ["Use Floor mode at shift start on tablets or shared workstations.", "The large workflow cards point operators to scan-confirmed put-away, picking, exception, and setup work."] },
       { title: "Dock Handoff", content: ["Dock mode is the dumbwaiter-style board for staged outbound goods.", "Loads are grouped by ready, called, loading, blocked, and loaded so delivery handoff starts from a clear status lane."] },
       { title: "Office Monitoring", content: ["Office mode is for managers watching fill level, inventory turn signals, expiration risk, DPMO, setup readiness, and Warehouse Brain recommendations."] },
     ],
@@ -640,7 +640,7 @@ const routeMatchers: Array<{ match: (pathname: string) => boolean; helpId: strin
   { match: (pathname) => pathname === "/products", helpId: "products" },
   { match: (pathname) => pathname === "/packaging-profiles", helpId: "packaging-profiles" },
   { match: (pathname) => pathname === "/receiving", helpId: "receiving" },
-  { match: (pathname) => pathname === "/putaway-tasks", helpId: "putaway" },
+  { match: (pathname) => pathname === "/put-away-tasks", helpId: "put-away" },
   { match: (pathname) => pathname === "/inventory-search" || pathname.startsWith("/inventory/"), helpId: "inventory" },
   { match: (pathname) => pathname === "/pick-lists" || pathname.startsWith("/pick-lists/"), helpId: "pick-lists" },
   { match: (pathname) => pathname === "/transfers", helpId: "transfers" },
