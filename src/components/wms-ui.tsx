@@ -115,6 +115,7 @@ import {
   completeDirectMove,
   completeMoveTask,
   cancelMoveTask,
+  expandLocationRange,
 } from "@/lib/wms-core";
 import { ProductSearch } from "@/components/product-search";
 import { PalletLabelPage } from "@/components/pallet-label-page";
