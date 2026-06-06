@@ -1,49 +1,61 @@
 ## Goal
 
-Audit and rework the Setup Wizard so it never seeds forms or invents zones/locations for a brand-new tenant. Forms must open empty and let the user type freely. Prefilled rows are only allowed when the wizard is being used to extend an already-configured environment.
+Make the location creation model match the physical rack: every bay-level is split into 1–3 side-by-side **positions**, and each position is its own location/bin. Depth (1–5) is the per-position pallet capacity, not a separate set of locations.
 
-## Current behavior (audit findings)
+Formula: `locations per bay = positions_per_level × levels`, each with `max_pallets = depth`.
 
-- `createDefaultWarehouseSetupPayload()` (`src/lib/wms-core.ts:965`) hard-codes 3 warehouses (`MAIN`, `PORT`, `WLD`), 13 zones (`STG`/`DSP`/`QTN`/`AMB` per warehouse + `COOL`), and 16 location templates with aisles/bays/levels/maxPallets/temperature pre-filled.
-- `SetupWizardPage.tsx` initializes state from that default, so every "fresh" wizard run lands on Barbados warehouses and 4 suggested zones per facility.
-- "Add warehouse / Add zone / Add location template" buttons also inject made-up defaults ("New Warehouse", "Bridgetown", "New Zone", `STG`, aisleCount 1, etc.) instead of blank rows.
-- Step 4 always calls `runWarehouseSetup(payload)` with default `seedMode = "starter_ops"`, which on the backend (`run_warehouse_setup`) inserts demo clients, products, pallets, receipts, putaway tasks, transfers, and cycle counts. UI copy ("seed starter operational data so receiving, putaway, picking… can be tested immediately") promises this.
-- `wms-core.test.ts` asserts the 3-warehouse default and must be updated.
+## Code format
 
-## Plan
+New segment appended: `WH-ZONE-A-01-L02-P1` (P1…P3). Existing helpers (`composeLocationCode`, label/QR pages) already pass `localCode` through, so adding `-P{n}` at the leaf is enough — no upstream parser changes.
 
-### 1. `src/lib/wms-core.ts`
+## Changes
 
-- Replace `createDefaultWarehouseSetupPayload()` with a true blank payload: `{ warehouses: [], zones: [], locationTemplates: [] }`.
-- Add a new helper `createBlankWarehouse() / createBlankZone(warehouseCode) / createBlankLocationTemplate(warehouseCode, zoneCode)` returning all-empty strings and zero counts (`aisleCount: 0`, `baysPerAisle: 0`, `levels: 0`, `maxPallets: 0`, `temperatureClass: "ambient"`, status `"active"`, toggles false). These are used by the "Add" buttons.
-- Add `loadExistingSetupPayload()` that reads current `warehouses`, `zones`, and a derived location-template summary (group by warehouse+zone+location_type) from Supabase so the wizard can hydrate when extending an existing environment.
-- Change `runWarehouseSetup` default `seedMode` to `"structure_only"` so the wizard does not seed demo operational data unless explicitly asked.
+### 1. `src/components/wms-ui.tsx` — `LocationWizardDialog`
+- Replace the current schema fields with:
+  - `prefix` (aisle, unchanged)
+  - `start_bay`, `end_bay` (unchanged)
+  - `positions_per_level` (1–3, **new**)
+  - `levels` (1–6, tightened from 1–20)
+  - `depth` (1–5, now used as capacity)
+  - Drop the standalone `max_pallets` input — it is derived from `depth`.
+- Rewrite the generation loop:
+  ```text
+  for bay in start..end:
+    for level in 1..levels:
+      for pos in 1..positions_per_level:
+        code = `${prefix}-${bay}-L${level}-P${pos}`
+        max_pallets = depth
+  ```
+- Update the live count: `bays × levels × positions_per_level`.
+- Persist `depth` as the column value (capacity per slot) and keep `level`, `bay`, `aisle` as today; add a new `position` value into `depth`-style addressing — store position in the existing `depth` column? No — see schema note below.
 
-### 2. `src/pages/SetupWizardPage.tsx`
+### 2. Schema — add `position` to `locations`
+- New migration: `ALTER TABLE public.locations ADD COLUMN position smallint;` (nullable, default null) + index on `(warehouse_id, aisle, bay, level, position)`.
+- `depth` column keeps its current meaning (pallet positions deep = capacity dimension); `max_pallets` stores the actual capacity number (= depth value chosen in the wizard) so existing capacity/occupancy code keeps working unchanged.
+- No backfill needed — user is wiping & recreating via the wizard.
 
-- On mount, query existing warehouses. 
-  - **Empty tenant (no warehouses):** start with the new blank payload. Show a banner: "Starting from scratch — add your first warehouse." All three steps render empty lists with only the "Add …" buttons.
-  - **Existing tenant:** call `loadExistingSetupPayload()` and prefill warehouses/zones/templates as read-only-by-default rows tagged `existing: true` for review/edit, plus a clear "Add new warehouse / zone / location rule" affordance for the new structure being layered in.
-- Update "Add warehouse / zone / location template" handlers to push blank rows from the new helpers (no Barbados, no `STG`, no aisle defaults).
-- Replace Step 4 copy: remove "seed starter operational data" language; describe only structure creation. Add a separate, clearly-labeled secondary action "Also load demo operational data" (only visible to developer role) that passes `seedMode: "starter_ops"` — default action stays structure-only.
-- Keep the existing accordion help, totals, and review tables; they continue to work against whatever the user actually entered.
+### 3. `src/lib/wms-core.ts` — `WarehouseLocationTemplate`
+- Add `positionsPerLevel: number` (default 1) and tighten `levels` (1–6), `maxPallets` is removed from the template (derived from `depth`).
+- Update `createBlankLocationTemplate()` and `createDefaultWarehouseSetupPayload()` accordingly.
+- Update the inferred-template builder (`groups` / `_levels` block, ~line 1126) to count `_positions` too and back-compute `positionsPerLevel`.
 
-### 3. Tests & docs
+### 4. `src/pages/SetupWizardPage.tsx`
+- Add a **Positions / level** numeric input (1–3) next to Levels.
+- Drop the **Max pallets** input; show a derived **Capacity per slot = depth** read-only.
+- Update totals: `aisleCount × baysPerAisle × levels × positionsPerLevel`.
+- Update column header copy ("Each row generates aisles × bays × levels × positions locations").
 
-- Update `src/test/wms-core.test.ts` `createDefaultWarehouseSetupPayload` block to assert the payload is empty and that `createBlankWarehouse()` returns blank strings / zeros.
-- Update `src/lib/help-content.ts` and the inline help text in `src/components/wms-ui.tsx:6325` to drop the "seed starter operational data" promise from the wizard description, and add a line noting demo data is opt-in for developers only.
-- Add a Change-log entry in `AGENTS.md` under section 5: user-approved change that the Setup Wizard starts blank and only prefills when extending an existing warehouse environment.
+### 5. Reset All copy
+- Add a one-line note in the Reset All confirmation that location codes will be regenerated under the new positional scheme so the user understands re-running the wizard is the intended next step.
 
-### 4. Out of scope
+### 6. Tests
+- Update `src/test/wms-core.test.ts` blank-template expectations to include `positionsPerLevel: 0` and remove `maxPallets`.
+- Add a small unit test for the new wizard count math (extract the loop into a tiny pure helper in `wms-core.ts` to make it testable, e.g. `expandLocationRange(values)` returning the array of `{aisle,bay,level,position,max_pallets,code}`).
 
-- Backend `run_warehouse_setup` SQL stays as-is; we just stop calling it with `starter_ops` by default. No new migration required.
-- No changes to Reset All, role gating, or cascade-delete flows.
+### 7. Out of scope (flag for follow-up)
+- Bay-scan UX: "driver scans bay code → sees the front grid of that bay with availability" is a new Putaway/Inventory screen. Not part of this change — log as a separate task once the data shape lands.
+- Label sheet templates: they already render whatever `code` is passed, so `-P1` shows up automatically; no template change needed.
 
-## Files touched
-
-- `src/lib/wms-core.ts`
-- `src/pages/SetupWizardPage.tsx`
-- `src/lib/help-content.ts`
-- `src/components/wms-ui.tsx` (one help paragraph)
-- `src/test/wms-core.test.ts`
-- `AGENTS.md` (change log entry)
+## Risk / impact
+- `locations.position` is additive and nullable — no breakage for existing queries.
+- Code changes are concentrated in the wizard, the setup wizard, and the `wms-core` template helpers. Putaway, inventory, picking, labels read `locations.code` / `max_pallets` and stay untouched.
