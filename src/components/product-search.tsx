@@ -21,6 +21,13 @@ export type ProductOption = {
   sku: string;
   name: string;
   barcode?: string;
+  meta?: {
+    totalQty: number;
+    palletCount: number;
+    palletCode?: string;
+    palletQty?: number;
+    locationCode?: string;
+  };
 };
 
 export type ProductSearchHandle = {
@@ -35,21 +42,23 @@ type Props = {
   placeholder?: string;
   disabled?: boolean;
   error?: boolean;
+  onSelectComplete?: () => void;
 };
 
 export const ProductSearch = forwardRef<ProductSearchHandle, Props>(function ProductSearch(
-  { value, onChange, options, placeholder = "Search product by code or name…", disabled, error },
+  { value, onChange, options, placeholder = "Search product by code or name…", disabled, error, onSelectComplete },
   ref,
 ) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  const preventCloseAutoFocusRef = useRef(false);
 
   const selected = options.find((o) => o.id === value);
 
   const filtered =
     query.length === 0
-      ? options.slice(0, 8)
+      ? options.slice(0, 60)
       : options
           .filter((o) => {
             const q = query.toLowerCase();
@@ -59,18 +68,20 @@ export const ProductSearch = forwardRef<ProductSearchHandle, Props>(function Pro
               (o.barcode && o.barcode.toLowerCase().includes(q))
             );
           })
-          .slice(0, 8);
+          .slice(0, 60);
 
   // USB/Bluetooth HID scanner: exact barcode match → auto-select
   useEffect(() => {
     if (!query) return;
     const match = options.find((o) => o.barcode && o.barcode === query);
     if (match) {
+      preventCloseAutoFocusRef.current = Boolean(onSelectComplete);
       onChange(match.id);
       setQuery("");
       setOpen(false);
+      setTimeout(() => onSelectComplete?.(), 0);
     }
-  }, [query, options, onChange]);
+  }, [query, options, onChange, onSelectComplete]);
 
   useImperativeHandle(
     ref,
@@ -82,9 +93,11 @@ export const ProductSearch = forwardRef<ProductSearchHandle, Props>(function Pro
       scanBarcode: (raw: string) => {
         const match = options.find((o) => o.barcode && o.barcode === raw);
         if (match) {
+          preventCloseAutoFocusRef.current = Boolean(onSelectComplete);
           onChange(match.id);
           setQuery("");
           setOpen(false);
+          setTimeout(() => onSelectComplete?.(), 0);
           return true;
         }
         setQuery(raw);
@@ -93,7 +106,7 @@ export const ProductSearch = forwardRef<ProductSearchHandle, Props>(function Pro
         return false;
       },
     }),
-    [options, onChange],
+    [options, onChange, onSelectComplete],
   );
 
   return (
@@ -123,7 +136,15 @@ export const ProductSearch = forwardRef<ProductSearchHandle, Props>(function Pro
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+      <PopoverContent
+        className="w-[var(--radix-popover-trigger-width)] p-0"
+        align="start"
+        onCloseAutoFocus={(event) => {
+          if (!preventCloseAutoFocusRef.current) return;
+          event.preventDefault();
+          preventCloseAutoFocusRef.current = false;
+        }}
+      >
         <Command shouldFilter={false}>
           <CommandInput
             ref={inputRef}
@@ -131,7 +152,7 @@ export const ProductSearch = forwardRef<ProductSearchHandle, Props>(function Pro
             value={query}
             onValueChange={setQuery}
           />
-          <CommandList>
+          <CommandList className="max-h-72 overflow-y-auto">
             <CommandEmpty>No products matched. Check the SKU or name.</CommandEmpty>
             <CommandGroup>
               {filtered.map((product) => (
@@ -139,16 +160,44 @@ export const ProductSearch = forwardRef<ProductSearchHandle, Props>(function Pro
                   key={product.id}
                   value={product.id}
                   onSelect={() => {
+                    preventCloseAutoFocusRef.current = Boolean(onSelectComplete);
                     onChange(product.id);
                     setQuery("");
                     setOpen(false);
+                    setTimeout(() => onSelectComplete?.(), 0);
                   }}
                 >
                   <Check
-                    className={cn("mr-2 h-4 w-4", value === product.id ? "opacity-100" : "opacity-0")}
+                    className={cn("mr-2 h-4 w-4 shrink-0", value === product.id ? "opacity-100" : "opacity-0")}
                   />
-                  <span className="font-mono text-xs text-muted-foreground mr-2">{product.sku}</span>
-                  <span className="truncate">{product.name}</span>
+                  {product.meta ? (
+                    <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                      <div className="flex items-baseline justify-between gap-2">
+                        <span className="truncate">
+                          <span className="font-mono text-xs text-muted-foreground mr-2">{product.sku}</span>
+                          <span>{product.name}</span>
+                        </span>
+                        <span className="shrink-0 text-xs font-semibold tabular-nums">
+                          Total {product.meta.totalQty}
+                        </span>
+                      </div>
+                      <div className="flex items-baseline justify-between gap-2 text-xs text-muted-foreground">
+                        <span className="truncate font-mono">
+                          {product.meta.palletCode
+                            ? `Pallet ${product.meta.palletCode} · Qty ${product.meta.palletQty}${product.meta.locationCode ? ` @ ${product.meta.locationCode}` : ""}`
+                            : "No pickable pallets"}
+                        </span>
+                        <span className="shrink-0 tabular-nums">
+                          {product.meta.palletCount} pallet{product.meta.palletCount === 1 ? "" : "s"}
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <span className="font-mono text-xs text-muted-foreground mr-2">{product.sku}</span>
+                      <span className="truncate">{product.name}</span>
+                    </>
+                  )}
                 </CommandItem>
               ))}
             </CommandGroup>

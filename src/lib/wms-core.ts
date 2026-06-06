@@ -2,6 +2,8 @@ import { z } from "zod";
 import { format } from "date-fns";
 
 import { supabase } from "@/integrations/supabase/client";
+import { validateIso6346ContainerNumber } from "@/lib/container-number";
+import { isDesktopClient } from "@/lib/device-identity";
 
 // Helper to bypass strict Supabase typing for tables not yet in the schema.
 // Once all WMS tables are migrated, this can be replaced with direct db() calls.
@@ -153,6 +155,28 @@ export type DashboardTaskRow = {
   createdAt: string;
 };
 
+export type DashboardMetricKey =
+  | "totalPallets"
+  | "warehousePallets"
+  | "availablePallets"
+  | "coolZoneOccupancy"
+  | "openReceipts"
+  | "openPutawayTasks"
+  | "openPickLists"
+  | "openMoveTasks"
+  | "openTransfers"
+  | "openCycleCounts"
+  | "openDockLoads"
+  | "openReplenishmentTasks"
+  | "recentAuditEvents"
+  | "holdStock"
+  | "quarantineStock"
+  | "expiryWarning60"
+  | "expiryWarning30"
+  | "stockAge3Months"
+  | "stockAge6Months"
+  | "stockAge12Months";
+
 export type DashboardMetrics = {
   totalPallets: number;
   totalPalletCapacity: number;
@@ -171,6 +195,11 @@ export type DashboardMetrics = {
   recentAuditEvents: number;
   holdStock: number;
   quarantineStock: number;
+  expiryWarning60: number;
+  expiryWarning30: number;
+  stockAge3Months: number;
+  stockAge6Months: number;
+  stockAge12Months: number;
   receiptRows: DashboardTaskRow[];
   putawayTaskRows: DashboardTaskRow[];
   pickListRows: DashboardTaskRow[];
@@ -180,7 +209,30 @@ export type DashboardMetrics = {
   dockLoadRows: DashboardTaskRow[];
   replenishmentRows: DashboardTaskRow[];
   blockedBalanceRows: DashboardTaskRow[];
+  dashboardMetricKeys?: DashboardMetricKey[];
 };
+
+export function getDashboardMetricKeysForModules(enabledModules?: Partial<Record<string, boolean>>): DashboardMetricKey[] {
+  const moduleEnabled = (key: string) => enabledModules?.[key] !== false;
+  const metricModules: Array<[string, DashboardMetricKey]> = [
+    ["inventory", "totalPallets"],
+    ["inventory", "warehousePallets"],
+    ["receiving", "openReceipts"],
+    ["putaway", "openPutawayTasks"],
+    ["pick-lists", "openPickLists"],
+    ["location-moves", "openMoveTasks"],
+    ["inventory", "expiryWarning30"],
+    ["inventory", "expiryWarning60"],
+    ["inventory", "stockAge3Months"],
+    ["inventory", "stockAge6Months"],
+    ["inventory", "stockAge12Months"],
+  ];
+
+  return metricModules.flatMap(([moduleKey, metricKey]) => moduleEnabled(moduleKey) ? [metricKey] : []);
+}
+
+export type InventoryAgeBucket = "3m" | "6m" | "12m";
+export type InventoryExpiryWindow = "30d" | "60d";
 
 export const ROLE_LABELS: Record<RoleCode, string> = {
   developer: "Developer",
@@ -346,14 +398,14 @@ export const RESOURCE_DEFINITIONS: Record<string, ResourceDefinition> = {
       { name: "putaway_sequence", label: "Putaway seq", type: "number" },
       { name: "mixed_sku_allowed", label: "Mixed SKU", type: "boolean" },
       { name: "mixed_lot_allowed", label: "Mixed lot", type: "boolean" },
-      { name: "max_pallet_height_cm", label: "Max height (cm)", type: "number", description: "Leave blank for no height restriction. Set for bays near roof beams." },
+      { name: "max_height", label: "Max height (cm)", type: "number", description: "Leave blank for no height restriction. Set for bays near roof beams." },
       { name: "status", label: "Status", type: "select", options: [
         { label: "Active", value: "active" },
         { label: "Blocked", value: "blocked" },
         { label: "Maintenance", value: "maintenance" },
         { label: "Disabled", value: "disabled" },
       ], required: true },
-      { name: "location_notes", label: "Notes", type: "textarea", description: "Special constraints or beam clearance notes." },
+      { name: "notes", label: "Notes", type: "textarea", description: "Special constraints or beam clearance notes." },
       { name: "warehouse_id", label: "Warehouse", type: "select", required: true },
       { name: "zone_id", label: "Zone", type: "select", required: true },
     ],
@@ -430,6 +482,8 @@ export const signUpSchema = z.object({
 export const receivingSchema = z.object({
   receipt_type: z.enum(["po", "transfer", "other"]),
   reference_number: z.string().optional().or(z.literal("")),
+  container_number: z.string().optional().or(z.literal("")),
+  po_number: z.string().optional().or(z.literal("")),
   warehouse_id: z.string().uuid(),
   client_id: z.string().uuid().optional().or(z.literal("")),
   product_id: z.string().uuid(),
@@ -446,6 +500,10 @@ export const receivingSchema = z.object({
   override_height: z.coerce.number().optional(),
   override_weight: z.coerce.number().optional(),
   reuse_pallet_barcode: z.string().optional(),
+  pallet_barcode: z.string().optional(),
+  draft_group_id: z.string().uuid().optional(),
+  draft_sequence: z.coerce.number().optional(),
+  draft_count: z.coerce.number().optional(),
 });
 
 export const pickListSchema = z.object({
@@ -717,14 +775,7 @@ export async function updateProfileDetails(input: ProfileUpdateInput) {
 
   const { error } = await (supabase.from as any)("profiles").update(payload).eq("id", input.profileId);
   if (error) {
-    const formattedError = formatSupabaseError(error, "Update failed");
-    if (formattedError.includes("badge_code") || formattedError.includes("user_code")) {
-      const { user_code: _userCode, badge_code: _badgeCode, ...legacyPayload } = payload;
-      const { error: legacyError } = await (supabase.from as any)("profiles").update(legacyPayload).eq("id", input.profileId);
-      if (legacyError) throw new Error(formatSupabaseError(legacyError, "Update failed"));
-    } else {
-      throw new Error(formattedError);
-    }
+    throw new Error(formatSupabaseError(error, "Update failed"));
   }
   await logUserActivity("user_access_change", "profiles", input.profileId, {
     fields: Object.keys(payload),
@@ -884,6 +935,75 @@ export async function getPickableProductIds(warehouseId?: string): Promise<Set<s
   return new Set((data ?? []).map((row: any) => row.product_id as string));
 }
 
+export type PickableStockSummary = {
+  totalAvailable: number;
+  palletCount: number;
+  topPallet: {
+    pallet_code: string;
+    pallet_barcode: string;
+    available_quantity: number;
+    location_code: string;
+    expiry_date: string | null;
+  } | null;
+};
+
+/** Per-product pickable stock — only counts pallets currently sitting in a
+ *  known location with available qty. The `topPallet` is what FEFO/FIFO
+ *  selection would pick first, so the UI preview matches what
+ *  `selectPickCandidates` will reserve on release. */
+export async function getPickableStockSummary(
+  warehouseId?: string,
+): Promise<Map<string, PickableStockSummary>> {
+  let query = db("pallets")
+    .select(
+      "id, pallet_code, pallet_barcode, product_id, available_quantity, created_at, current_location_id, locations:current_location_id(code), inventory_lots:inventory_lot_id(expiry_date)",
+    )
+    .eq("status", "available")
+    .gt("available_quantity", 0)
+    .not("current_location_id", "is", null);
+  if (warehouseId) query = query.eq("current_warehouse_id", warehouseId);
+  const { data, error } = await query;
+  if (error) throw error;
+
+  const rows = (data ?? []) as any[];
+  rows.sort((a, b) => {
+    const ax = a.inventory_lots?.expiry_date ?? null;
+    const bx = b.inventory_lots?.expiry_date ?? null;
+    if (ax && bx) {
+      if (ax < bx) return -1;
+      if (ax > bx) return 1;
+    } else if (ax && !bx) return -1;
+    else if (!ax && bx) return 1;
+    const ac = a.created_at ?? "";
+    const bc = b.created_at ?? "";
+    return ac < bc ? -1 : ac > bc ? 1 : 0;
+  });
+
+  const map = new Map<string, PickableStockSummary>();
+  for (const row of rows) {
+    const productId = row.product_id as string;
+    const qty = Number(row.available_quantity ?? 0);
+    const existing = map.get(productId);
+    if (existing) {
+      existing.totalAvailable += qty;
+      existing.palletCount += 1;
+    } else {
+      map.set(productId, {
+        totalAvailable: qty,
+        palletCount: 1,
+        topPallet: {
+          pallet_code: row.pallet_code,
+          pallet_barcode: row.pallet_barcode,
+          available_quantity: qty,
+          location_code: row.locations?.code ?? "",
+          expiry_date: row.inventory_lots?.expiry_date ?? null,
+        },
+      });
+    }
+  }
+  return map;
+}
+
 export async function listUserActivities(limit = 25) {
   const { data, error } = await db("audit_events")
     .select("*, profiles:actor_user_id(full_name, email)")
@@ -926,95 +1046,122 @@ async function logUserActivity(
 }
 
 export function createDefaultWarehouseSetupPayload(): WarehouseSetupPayload {
-  const warehouses: WarehouseSetupWarehouse[] = [
-    { code: "MAIN", name: "Main Warehouse", city: "Bridgetown", country: "Barbados", hasCoolZone: true },
-    { code: "PORT", name: "Port Receiving Warehouse", city: "Bridgetown", country: "Barbados", hasCoolZone: false },
-    { code: "WLD", name: "Wildey Distribution Warehouse", city: "Wildey", country: "Barbados", hasCoolZone: false },
-  ];
+  return { warehouses: [], zones: [], locationTemplates: [] };
+}
 
-  const ambientZones = (warehouseCode: string): WarehouseSetupZone[] => [
-    { warehouseCode, code: "STG", name: "Staging", temperatureClass: "ambient", isStaging: true, isDispatch: false, isQuarantine: false, sortOrder: 10 },
-    { warehouseCode, code: "DSP", name: "Dispatch", temperatureClass: "ambient", isStaging: false, isDispatch: true, isQuarantine: false, sortOrder: 20 },
-    { warehouseCode, code: "QTN", name: "Quarantine", temperatureClass: "ambient", isStaging: false, isDispatch: false, isQuarantine: true, sortOrder: 30 },
-    { warehouseCode, code: "AMB", name: "Ambient Rack", temperatureClass: "ambient", isStaging: false, isDispatch: false, isQuarantine: false, sortOrder: 40 },
-  ];
+export function createBlankWarehouse(): WarehouseSetupWarehouse {
+  return { code: "", name: "", city: "", country: "", hasCoolZone: false };
+}
 
-  const zones: WarehouseSetupZone[] = [
-    ...warehouses.flatMap((warehouse) => ambientZones(warehouse.code)),
-    { warehouseCode: "MAIN", code: "COOL", name: "Cool Storage", temperatureClass: "cool", isStaging: false, isDispatch: false, isQuarantine: false, sortOrder: 50 },
-  ];
+export function createBlankZone(warehouseCode = ""): WarehouseSetupZone {
+  return {
+    warehouseCode,
+    code: "",
+    name: "",
+    temperatureClass: "ambient",
+    isStaging: false,
+    isDispatch: false,
+    isQuarantine: false,
+    sortOrder: 0,
+  };
+}
 
-  const ambientLocationTemplates = (warehouseCode: string): WarehouseLocationTemplate[] => [
-    {
-      warehouseCode,
-      zoneCode: "STG",
-      aisleCount: 1,
-      baysPerAisle: 6,
-      levels: 1,
-      maxPallets: 4,
-      locationType: "staging",
-      temperatureClass: "ambient",
-      mixedSkuAllowed: true,
-      mixedLotAllowed: true,
-      status: "active",
-    },
-    {
-      warehouseCode,
-      zoneCode: "DSP",
-      aisleCount: 1,
-      baysPerAisle: 4,
-      levels: 1,
-      maxPallets: 3,
-      locationType: "dispatch",
-      temperatureClass: "ambient",
-      mixedSkuAllowed: true,
-      mixedLotAllowed: true,
-      status: "active",
-    },
-    {
-      warehouseCode,
-      zoneCode: "QTN",
-      aisleCount: 1,
-      baysPerAisle: 4,
-      levels: 1,
-      maxPallets: 1,
-      locationType: "quarantine",
-      temperatureClass: "ambient",
-      mixedSkuAllowed: false,
-      mixedLotAllowed: false,
-      status: "active",
-    },
-    {
-      warehouseCode,
-      zoneCode: "AMB",
-      aisleCount: 2,
-      baysPerAisle: 8,
-      levels: 3,
-      maxPallets: 1,
-      locationType: "rack",
-      temperatureClass: "ambient",
-      mixedSkuAllowed: false,
-      mixedLotAllowed: false,
-      status: "active",
-    },
-  ];
+export function createBlankLocationTemplate(
+  warehouseCode = "",
+  zoneCode = "",
+): WarehouseLocationTemplate {
+  return {
+    warehouseCode,
+    zoneCode,
+    aisleCount: 0,
+    baysPerAisle: 0,
+    levels: 0,
+    maxPallets: 0,
+    locationType: "",
+    temperatureClass: "ambient",
+    mixedSkuAllowed: false,
+    mixedLotAllowed: false,
+    status: "active",
+  };
+}
 
-  const locationTemplates: WarehouseLocationTemplate[] = [
-    ...warehouses.flatMap((warehouse) => ambientLocationTemplates(warehouse.code)),
-    {
-      warehouseCode: "MAIN",
-      zoneCode: "COOL",
-      aisleCount: 2,
-      baysPerAisle: 8,
-      levels: 3,
-      maxPallets: 1,
-      locationType: "rack",
-      temperatureClass: "cool",
-      mixedSkuAllowed: false,
-      mixedLotAllowed: false,
-      status: "active",
-    },
-  ];
+export async function loadExistingSetupPayload(): Promise<WarehouseSetupPayload> {
+  const [whR, zoneR, locR] = await Promise.all([
+    db("warehouses").select("code, name, city, country").order("code"),
+    db("zones").select("code, name, temperature_class, is_staging, is_dispatch, is_quarantine, sort_order, warehouses:warehouse_id(code)").order("sort_order"),
+    db("locations").select("location_type, temperature_class, max_pallets, mixed_sku_allowed, mixed_lot_allowed, status, aisle, bay, level, warehouses:warehouse_id(code), zones:zone_id(code, temperature_class)"),
+  ]);
+  if (whR.error) throw whR.error;
+  if (zoneR.error) throw zoneR.error;
+  if (locR.error) throw locR.error;
+
+  const warehouses: WarehouseSetupWarehouse[] = (whR.data ?? []).map((w: any) => ({
+    code: w.code,
+    name: w.name ?? "",
+    city: w.city ?? "",
+    country: w.country ?? "",
+    hasCoolZone: false,
+  }));
+
+  const zones: WarehouseSetupZone[] = (zoneR.data ?? []).map((z: any) => ({
+    warehouseCode: z.warehouses?.code ?? "",
+    code: z.code,
+    name: z.name ?? "",
+    temperatureClass: (z.temperature_class ?? "ambient") as TemperatureClass,
+    isStaging: !!z.is_staging,
+    isDispatch: !!z.is_dispatch,
+    isQuarantine: !!z.is_quarantine,
+    sortOrder: Number(z.sort_order ?? 0),
+  }));
+
+  // Mark warehouses that already have a cool zone
+  for (const z of zones) {
+    if (z.temperatureClass === "cool") {
+      const wh = warehouses.find((w) => w.code === z.warehouseCode);
+      if (wh) wh.hasCoolZone = true;
+    }
+  }
+
+  // Derive one template per (warehouse, zone, location_type) using aggregate counts.
+  const groups = new Map<string, WarehouseLocationTemplate & { _aisles: Set<string>; _bays: Set<string>; _levels: Set<string> }>();
+  for (const l of (locR.data ?? []) as any[]) {
+    const wCode = l.warehouses?.code ?? "";
+    const zCode = l.zones?.code ?? "";
+    if (!wCode || !zCode) continue;
+    const key = `${wCode}|${zCode}|${l.location_type ?? ""}`;
+    let g = groups.get(key);
+    if (!g) {
+      g = {
+        warehouseCode: wCode,
+        zoneCode: zCode,
+        aisleCount: 0,
+        baysPerAisle: 0,
+        levels: 0,
+        maxPallets: Number(l.max_pallets ?? 1),
+        locationType: l.location_type ?? "rack",
+        temperatureClass: (l.temperature_class ?? l.zones?.temperature_class ?? "ambient") as TemperatureClass,
+        mixedSkuAllowed: !!l.mixed_sku_allowed,
+        mixedLotAllowed: !!l.mixed_lot_allowed,
+        status: l.status ?? "active",
+        _aisles: new Set<string>(),
+        _bays: new Set<string>(),
+        _levels: new Set<string>(),
+      };
+      groups.set(key, g);
+    }
+    if (l.aisle != null) g._aisles.add(String(l.aisle));
+    if (l.bay != null) g._bays.add(String(l.bay));
+    if (l.level != null) g._levels.add(String(l.level));
+  }
+  const locationTemplates: WarehouseLocationTemplate[] = Array.from(groups.values()).map((g) => {
+    const { _aisles, _bays, _levels, ...rest } = g;
+    return {
+      ...rest,
+      aisleCount: _aisles.size || 1,
+      baysPerAisle: Math.max(1, Math.ceil((_bays.size || 1) / Math.max(1, _aisles.size || 1))),
+      levels: _levels.size || 1,
+    };
+  });
 
   return { warehouses, zones, locationTemplates };
 }
@@ -1022,10 +1169,37 @@ export function createDefaultWarehouseSetupPayload(): WarehouseSetupPayload {
 export async function resetWmsData() {
   const { data, error } = await (supabase.rpc as any)("reset_wms_data");
   if (error) throw error;
-  return data;
+  return data as { status?: string; deleted_users?: number; kept_users?: number; message?: string };
 }
 
-export async function runWarehouseSetup(setupPayload: WarehouseSetupPayload, seedMode = "starter_ops") {
+export type CascadeDeleteResult =
+  | { ok: true }
+  | { ok: false; blocked_by: Array<{ table: string; count: number }> };
+
+async function callCascadeDelete(rpc: string, id: string): Promise<CascadeDeleteResult> {
+  const { data, error } = await (supabase.rpc as any)(rpc, { in_id: id });
+  if (error) throw error;
+  return data as CascadeDeleteResult;
+}
+
+export const deleteWarehouseCascade = (id: string) => callCascadeDelete("delete_warehouse_cascade", id);
+export const deleteZoneCascade = (id: string) => callCascadeDelete("delete_zone_cascade", id);
+export const deleteLocationCascade = (id: string) => callCascadeDelete("delete_location_cascade", id);
+export const deleteProductCascade = (id: string) => callCascadeDelete("delete_product_cascade", id);
+export const deleteClientCascade = (id: string) => callCascadeDelete("delete_client_cascade", id);
+
+export async function deleteResourceCascade(table: string, id: string): Promise<CascadeDeleteResult> {
+  switch (table) {
+    case "warehouses": return deleteWarehouseCascade(id);
+    case "zones": return deleteZoneCascade(id);
+    case "locations": return deleteLocationCascade(id);
+    case "products": return deleteProductCascade(id);
+    case "clients": return deleteClientCascade(id);
+    default: throw new Error(`No cascade delete available for ${table}`);
+  }
+}
+
+export async function runWarehouseSetup(setupPayload: WarehouseSetupPayload, seedMode: "structure_only" | "starter_ops" = "structure_only") {
   const { data, error } = await (supabase.rpc as any)("run_warehouse_setup", {
     setup_payload: setupPayload,
     seed_mode: seedMode,
@@ -1035,7 +1209,54 @@ export async function runWarehouseSetup(setupPayload: WarehouseSetupPayload, see
 }
 
 function buildPalletCode(prefix: string) {
-  return `${prefix}-${Date.now().toString().slice(-8)}`;
+  const time = Date.now().toString().slice(-8);
+  const rand = Math.random().toString(36).slice(2, 6).toUpperCase();
+  return `${prefix}-${time}${rand}`;
+}
+
+function buildClientId(prefix: string) {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (char) => {
+    const rand = Math.floor(Math.random() * 16);
+    const value = char === "x" ? rand : (rand & 0x3) | 0x8;
+    return value.toString(16);
+  });
+}
+
+function parseReceiptNotes(notes: string | null | undefined): Record<string, any> {
+  if (!notes) return {};
+  try {
+    const parsed = JSON.parse(notes);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function isMissingReceiptDraftColumn(error: any) {
+  const message = String(error?.message ?? "");
+  return (
+    message.includes("receipts") &&
+    message.includes("column") &&
+    (message.includes("Could not find") || message.includes("does not exist"))
+  );
+}
+
+function withoutReceiptDraftColumns(row: Record<string, any>) {
+  const {
+    container_number,
+    po_number,
+    draft_group_id,
+    draft_pallet_barcode,
+    draft_sequence,
+    draft_count,
+    ...rest
+  } = row;
+  return rest;
+}
+
+function normalizeReferenceNumber(payload: Pick<z.infer<typeof receivingSchema>, "reference_number" | "po_number">, fallback: string) {
+  return payload.reference_number || payload.po_number || fallback;
 }
 
 async function resolveInventoryLot(payload: z.infer<typeof receivingSchema>) {
@@ -1085,10 +1306,15 @@ async function createLabelRecord(label_type: string, entityId: string, labelCode
 }
 
 export async function createReceiptFlow(input: z.infer<typeof receivingSchema>) {
-  const payload = receivingSchema.parse(input);
+  let payload = receivingSchema.parse(input);
+  if (payload.container_number) {
+    const containerValidation = validateIso6346ContainerNumber(payload.container_number);
+    if (!containerValidation.valid) throw new Error(containerValidation.message);
+    payload = { ...payload, container_number: containerValidation.normalized };
+  }
   const lot = await resolveInventoryLot(payload);
   const receiptNumber = buildPalletCode("RCT");
-  const palletCode = buildPalletCode("PLT");
+  const palletCode = payload.pallet_barcode?.trim() || buildPalletCode("PLT");
 
   const { data: product, error: productError } = await db("products")
     .select("*")
@@ -1101,14 +1327,27 @@ export async function createReceiptFlow(input: z.infer<typeof receivingSchema>) 
     ? await db("product_packaging_profiles").select("*").eq("id", payload.packaging_profile_id).single()
     : { data: null };
 
-  const receipt = await upsertRecord("receipts", {
+  const receiptPayload = {
     receipt_number: receiptNumber,
     receipt_type: payload.receipt_type,
-    reference_number: payload.reference_number || receiptNumber,
+    reference_number: normalizeReferenceNumber(payload, receiptNumber),
+    container_number: payload.container_number || null,
+    po_number: payload.po_number || null,
+    draft_group_id: payload.draft_group_id || null,
+    draft_pallet_barcode: palletCode,
+    draft_sequence: payload.draft_sequence ?? null,
+    draft_count: payload.draft_count ?? null,
     warehouse_id: payload.warehouse_id,
     client_id: payload.client_id,
     status: "completed",
-  });
+  };
+  let receipt: any;
+  try {
+    receipt = await upsertRecord("receipts", receiptPayload);
+  } catch (error: any) {
+    if (!isMissingReceiptDraftColumn(error)) throw error;
+    receipt = await upsertRecord("receipts", withoutReceiptDraftColumns(receiptPayload));
+  }
 
   const receiptLine = await upsertRecord("receipt_lines", {
     receipt_id: receipt.id,
@@ -1201,6 +1440,9 @@ export async function createReceiptFlow(input: z.infer<typeof receivingSchema>) 
       receipt_id: receipt.id,
       receipt_line_id: receiptLine.id,
       quantity: payload.quantity,
+      container_number: payload.container_number || null,
+      po_number: payload.po_number || null,
+      draft_group_id: payload.draft_group_id || null,
     } as any,
   });
   if (auditResult.error) {
@@ -1216,23 +1458,11 @@ export async function searchInventory(filters: {
   search?: string;
   warehouseId?: string;
   status?: InventoryStatus | "all";
+  ageBucket?: InventoryAgeBucket | "";
+  expiryWindow?: InventoryExpiryWindow | "";
 }) {
+  if (filters.status === "picked") return [];
   let query = db("inventory_search_view").select("*");
-
-  if (filters.search) {
-    query = query.or(
-      [
-        `sku.ilike.%${filters.search}%`,
-        `product_name.ilike.%${filters.search}%`,
-        `product_barcode.ilike.%${filters.search}%`,
-        `pallet_code.ilike.%${filters.search}%`,
-        `pallet_barcode.ilike.%${filters.search}%`,
-        `lot_number.ilike.%${filters.search}%`,
-        `batch_number.ilike.%${filters.search}%`,
-        `location_code.ilike.%${filters.search}%`,
-      ].join(","),
-    );
-  }
 
   if (filters.warehouseId) {
     query = query.eq("warehouse_id", filters.warehouseId);
@@ -1240,11 +1470,68 @@ export async function searchInventory(filters: {
 
   if (filters.status && filters.status !== "all") {
     query = query.eq("status", filters.status);
+  } else {
+    query = query.neq("status", "picked");
   }
 
   const { data, error } = await query.order("received_at", { ascending: false });
   if (error) throw error;
-  return (data ?? []) as any[];
+  let rows = (data ?? []) as any[];
+  const searchTokens = (filters.search ?? "")
+    .trim()
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean);
+
+  if (searchTokens.length > 0) {
+    rows = rows.filter((row) => {
+      const haystack = [
+        row.sku,
+        row.product_name,
+        row.product_barcode,
+        row.pallet_code,
+        row.pallet_barcode,
+        row.container_number,
+        row.po_number,
+        row.lot_number,
+        row.batch_number,
+        row.expiry_date,
+        row.client_name,
+        row.owner_name,
+        row.warehouse_code,
+        row.warehouse_name,
+        row.zone_code,
+        row.location_code,
+        row.status,
+      ]
+        .map((value) => String(value ?? "").toLowerCase())
+        .join(" ");
+
+      return searchTokens.every((token) => haystack.includes(token));
+    });
+  }
+  const nowMs = Date.now();
+  const dayMs = 24 * 60 * 60 * 1000;
+
+  if (filters.ageBucket) {
+    const minimumDays = filters.ageBucket === "12m" ? 365 : filters.ageBucket === "6m" ? 180 : 90;
+    rows = rows.filter((row) => {
+      const value = row.received_at ?? row.created_at;
+      if (!value) return false;
+      return Math.floor((nowMs - new Date(value).getTime()) / dayMs) >= minimumDays;
+    });
+  }
+
+  if (filters.expiryWindow) {
+    const maximumDays = filters.expiryWindow === "30d" ? 30 : 60;
+    rows = rows.filter((row) => {
+      if (!row.expiry_date) return false;
+      const days = Math.ceil((new Date(row.expiry_date).getTime() - nowMs) / dayMs);
+      return days >= 0 && days <= maximumDays;
+    });
+  }
+
+  return rows;
 }
 
 export async function getInventoryDetail(balanceId: string) {
@@ -1274,6 +1561,10 @@ export async function getInventoryDetail(balanceId: string) {
       ? db("receipt_lines").select("*, receipts(*)").eq("id", pallet.receipt_line_id).maybeSingle()
       : Promise.resolve({ data: null, error: null }),
   ]);
+  const packagingId = (receiptLine as any)?.packaging_profile_id ?? pallet.packaging_profile_id ?? null;
+  const { data: packaging } = packagingId
+    ? await db("product_packaging_profiles").select("*").eq("id", packagingId).maybeSingle()
+    : { data: null };
 
   return {
     balance,
@@ -1285,6 +1576,7 @@ export async function getInventoryDetail(balanceId: string) {
     location: location ?? null,
     receiptLine: receiptLine ?? null,
     receipt: (receiptLine as any)?.receipts ?? null,
+    packaging: packaging ?? null,
     audit: audit ?? [],
   };
 }
@@ -1318,10 +1610,16 @@ export async function confirmPutaway(
     .single();
 
   if (taskError) throw taskError;
+  if (!["queued", "assigned", "in_progress", "exception"].includes(task.status)) {
+    throw new Error("Putaway task is already closed or no longer available.");
+  }
 
   const pallet = task.pallets as any;
   if (!pallet || pallet.pallet_barcode !== scannedPalletBarcode) {
     throw new Error("Scanned pallet barcode does not match the task pallet.");
+  }
+  if (!["receiving", "hold", "quarantine"].includes(pallet.status)) {
+    throw new Error(`Pallet is no longer available for putaway (status: ${pallet.status}).`);
   }
 
   const { data: location, error: locationError } = await db("locations")
@@ -1357,6 +1655,18 @@ export async function confirmPutaway(
     throw new Error(`RULE_VIOLATION: ${ruleCheck.reason}`);
   }
 
+  const { data: claimedTask, error: claimError } = await db("putaway_tasks")
+    .update({
+      status: "completed",
+      completed_at: new Date().toISOString(),
+    })
+    .eq("id", taskId)
+    .in("status", ["queued", "assigned", "in_progress", "exception"])
+    .select("id")
+    .maybeSingle();
+  if (claimError) throw claimError;
+  if (!claimedTask) throw new Error("Putaway task was completed by another user. Refresh the queue.");
+
   await Promise.all([
     db("pallets")
       .update({
@@ -1376,12 +1686,6 @@ export async function confirmPutaway(
         available_quantity: pallet.quantity,
       })
       .eq("pallet_id", pallet.id),
-    db("putaway_tasks")
-      .update({
-        status: "completed",
-        completed_at: new Date().toISOString(),
-      })
-      .eq("id", taskId),
   ]);
 
   const putawayAudit = await (supabase.rpc as any)("log_audit_event", {
@@ -1407,8 +1711,8 @@ export async function confirmPutaway(
 async function selectPickCandidates(productId: string, warehouseId: string, quantity: number) {
   const { data: product } = await db("products").select("*").eq("id", productId).single();
 
-  const { data, error } = await db("inventory_search_view")
-    .select("*")
+  const { data, error } = await db("inventory_balances")
+    .select("pallet_id, location_id, available_quantity, expiry_date, received_at")
     .eq("product_id", productId)
     .eq("warehouse_id", warehouseId)
     .eq("status", "available")
@@ -1419,7 +1723,7 @@ async function selectPickCandidates(productId: string, warehouseId: string, quan
     if (product?.rotation_method === "fefo") {
       return (left.expiry_date ?? "9999-12-31").localeCompare(right.expiry_date ?? "9999-12-31");
     }
-    return left.received_at.localeCompare(right.received_at);
+    return String(left.received_at ?? "").localeCompare(String(right.received_at ?? ""));
   });
 
   const chosen: any[] = [];
@@ -1435,16 +1739,36 @@ async function selectPickCandidates(productId: string, warehouseId: string, quan
 
 export async function createPickListFlow(input: z.infer<typeof pickListSchema>) {
   const payload = pickListSchema.parse(input);
-  const orderNumber = payload.order_number;
-
-  const order = await upsertRecord("orders", {
-    order_number: orderNumber,
-    client_id: payload.client_id,
-    warehouse_id: payload.warehouse_id,
-    requested_ship_date: payload.requested_ship_date || null,
-    status: "queued",
-    notes: payload.notes || null,
-  });
+  // Ensure the order number is unique even if the operator re-uses one they
+  // already typed (the orders table has a unique constraint on order_number).
+  // We try the supplied number first, then fall back to suffixed retries.
+  const baseOrderNumber = payload.order_number;
+  let order: any;
+  let attempt = 0;
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const candidateNumber = attempt === 0
+      ? baseOrderNumber
+      : `${baseOrderNumber}-${Date.now().toString().slice(-6)}${attempt > 1 ? `-${attempt}` : ""}`;
+    const { data: existing } = await db("orders")
+      .select("id")
+      .eq("order_number", candidateNumber)
+      .maybeSingle();
+    if (existing) {
+      attempt += 1;
+      if (attempt > 5) throw new Error("Could not allocate a unique order number — try a different one.");
+      continue;
+    }
+    order = await upsertRecord("orders", {
+      order_number: candidateNumber,
+      client_id: payload.client_id,
+      warehouse_id: payload.warehouse_id,
+      requested_ship_date: payload.requested_ship_date || null,
+      status: "queued",
+      notes: payload.notes || null,
+    });
+    break;
+  }
 
   const pickList = await upsertRecord("pick_lists", {
     pick_list_number: buildPalletCode("PKL"),
@@ -1485,8 +1809,25 @@ export async function createPickListFlow(input: z.infer<typeof pickListSchema>) 
 
 export async function listPickLists() {
   const { data, error } = await db("pick_lists")
-    .select("*, pick_tasks(*, pallets(pallet_barcode, products(*)))")
+    .select("*, pick_tasks(*, pallets(pallet_barcode, pallet_code, quantity, available_quantity, products(*)), locations:location_id(code))")
     .order("created_at", { ascending: false });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function getPutawayTaskHistory(userId?: string) {
+  let query = db("putaway_tasks")
+    .select("*, pallets(*, products(*)), locations: suggested_location_id(*)")
+    .in("status", ["completed", "cancelled"])
+    .order("completed_at", { ascending: false })
+    .order("created_at", { ascending: false })
+    .limit(50);
+
+  if (userId) {
+    query = query.or(`assigned_user_id.eq.${userId},assigned_user_id.is.null`);
+  }
+
+  const { data, error } = await query;
   if (error) throw error;
   return data ?? [];
 }
@@ -1495,7 +1836,7 @@ export async function getPickExecution(pickListId: string) {
   const [pickList, pickTasks] = await Promise.all([
     db("pick_lists").select("*").eq("id", pickListId).single(),
     db("pick_tasks")
-      .select("*, pallets(pallet_barcode, quantity, available_quantity, products(sku, name)), locations:location_id(code)")
+      .select("*, pallets(pallet_barcode, pallet_code, quantity, available_quantity, products(sku, name)), locations:location_id(code)")
       .eq("pick_list_id", pickListId)
       .order("created_at", { ascending: true }),
   ]);
@@ -1530,6 +1871,12 @@ export async function confirmPickTask(taskId: string, scannedLocation: string, s
   if (!task.pallet_id) {
     throw new Error("Task is not linked to a pallet.");
   }
+  if (["completed", "cancelled"].includes(task.status)) {
+    throw new Error("Pick task is already closed. Refresh the pick list.");
+  }
+  if (!Number.isFinite(Number(confirmedQuantity)) || Number(confirmedQuantity) <= 0) {
+    throw new Error("Confirmed pick quantity must be greater than zero.");
+  }
 
   const [{ data: pallet, error: palletError }, { data: balance, error: balanceError }] = await Promise.all([
     db("pallets").select("*").eq("id", task.pallet_id).single(),
@@ -1549,9 +1896,15 @@ export async function confirmPickTask(taskId: string, scannedLocation: string, s
   if (location.data && location.data.code !== scannedLocation) {
     throw new Error("Scanned location does not match the suggested pick location.");
   }
+  if (Number(confirmedQuantity) > Number(balance.available_quantity ?? 0)) {
+    throw new Error(`Cannot pick ${confirmedQuantity}; only ${balance.available_quantity ?? 0} available on this pallet.`);
+  }
 
   const nextAvailable = Math.max(balance.available_quantity - confirmedQuantity, 0);
   const nextStatus: InventoryStatus = nextAvailable === 0 ? "picked" : "available";
+  const fullyDepleted = nextAvailable === 0;
+  const nextPalletQuantity = Math.max(Number(pallet.quantity ?? 0) - confirmedQuantity, 0);
+  const nextBalanceQuantity = Math.max(Number(balance.quantity ?? 0) - confirmedQuantity, 0);
 
   await Promise.all([
     db("pick_tasks")
@@ -1563,16 +1916,40 @@ export async function confirmPickTask(taskId: string, scannedLocation: string, s
       })
       .eq("id", taskId),
     db("pallets")
-      .update({
-        available_quantity: nextAvailable,
-        status: nextStatus,
-      })
+      .update(
+        fullyDepleted
+          ? {
+              available_quantity: 0,
+              quantity: 0,
+              reserved_quantity: 0,
+              status: nextStatus,
+              current_location_id: null,
+              is_stored: false,
+            }
+          : {
+              available_quantity: nextAvailable,
+              quantity: nextPalletQuantity,
+              status: nextStatus,
+            },
+      )
       .eq("id", pallet.id),
     db("inventory_balances")
-      .update({
-        available_quantity: nextAvailable,
-        status: nextStatus,
-      })
+      .update(
+        fullyDepleted
+          ? {
+              available_quantity: 0,
+              quantity: 0,
+              reserved_quantity: 0,
+              status: nextStatus,
+              location_id: null,
+              zone_id: null,
+            }
+          : {
+              available_quantity: nextAvailable,
+              quantity: nextBalanceQuantity,
+              status: nextStatus,
+            },
+      )
       .eq("id", balance.id),
   ]);
 
@@ -1586,9 +1963,44 @@ export async function confirmPickTask(taskId: string, scannedLocation: string, s
     in_metadata: {
       confirmed_quantity: confirmedQuantity,
       short_reason: shortReason ?? null,
+      previous_quantity: Number(balance.quantity ?? 0),
+      remaining_quantity: nextBalanceQuantity,
+      location_cleared: fullyDepleted,
     } as any,
   });
   if (pickAudit.error) console.error("[submitPickTaskLine] log_audit_event failed:", pickAudit.error);
+
+  // Roll up the parent pick list if every sibling task is finished.
+  if (task.pick_list_id) {
+    const { data: siblings } = await db("pick_tasks")
+      .select("id, status")
+      .eq("pick_list_id", task.pick_list_id);
+    const allDone = (siblings ?? []).every((row: any) =>
+      ["completed", "cancelled", "exception"].includes(row.status),
+    );
+    if (allDone && (siblings ?? []).length > 0) {
+      const { data: parent } = await db("pick_lists")
+        .select("id, status, warehouse_id, order_id")
+        .eq("id", task.pick_list_id)
+        .single();
+      if (parent && !["completed", "cancelled"].includes(parent.status)) {
+        await db("pick_lists")
+          .update({ status: "completed" })
+          .eq("id", parent.id);
+        if (parent.order_id) {
+          await db("orders").update({ status: "completed" }).eq("id", parent.order_id);
+        }
+        const completeAudit = await (supabase.rpc as any)("log_audit_event", {
+          in_event_type: "pick_list_completed",
+          in_entity_table: "pick_lists",
+          in_entity_id: parent.id,
+          in_warehouse_id: parent.warehouse_id,
+          in_metadata: {} as any,
+        });
+        if (completeAudit.error) console.error("[confirmPickTask] pick_list rollup audit failed:", completeAudit.error);
+      }
+    }
+  }
 }
 
 export async function cancelPickList(pickListId: string, reason?: string) {
@@ -1949,6 +2361,15 @@ export async function changePalletStatus(input: z.infer<typeof statusChangeSchem
     } as any,
   });
   if (statusAudit.error) console.error("[changePalletStatus] log_audit_event failed:", statusAudit.error);
+  await writeSystemLog({
+    log_type: "system_change",
+    severity: ["missing", "damaged", "quarantine"].includes(payload.new_status) ? "warning" : "info",
+    title: "Pallet status changed",
+    message: `Pallet status changed from ${balance.status} to ${payload.new_status}.`,
+    source: "inventory",
+    table_name: "pallets",
+    details: { palletId, old_status: balance.status, new_status: payload.new_status, reason: payload.reason },
+  }).catch((error) => console.error("[changePalletStatus] writeSystemLog failed:", error));
 }
 
 async function resolvePalletId(palletInput: string) {
@@ -1965,18 +2386,20 @@ async function resolvePalletId(palletInput: string) {
   return data.id as string;
 }
 
-export async function getDashboardMetrics(warehouseId?: string | null) {
+export async function getDashboardMetrics(warehouseId?: string | null, enabledModules?: Partial<Record<string, boolean>>) {
+  const dashboardMetricKeys = getDashboardMetricKeysForModules(enabledModules);
+
   const [balances, locations, receipts, putawayTasks, pickLists, moveTasks, transfers, cycleCounts, stagingLoads, replenishments, audits] = await Promise.all([
-    db("inventory_balances").select("*"),
+    db("inventory_balances").select("id, warehouse_id, status, zone_id, pallet_id, created_at, received_at, expiry_date"),
     db("locations").select("warehouse_id, max_pallets"),
-    db("receipts").select("*").in("status", ["draft", "queued", "assigned", "in_progress"]),
-    db("putaway_tasks").select("*").in("status", ["queued", "assigned", "in_progress", "exception"]),
-    db("pick_lists").select("*").in("status", ["draft", "queued", "assigned", "in_progress", "exception"]),
-    db("move_tasks").select("*").in("status", ["queued", "assigned", "in_progress", "exception"]),
-    db("transfers").select("*").in("status", ["draft", "queued", "assigned", "in_progress", "exception"]),
-    db("cycle_counts").select("*").in("status", ["queued", "assigned", "in_progress", "exception"]),
-    db("staging_loads").select("*, pick_lists(warehouse_id)").in("status", ["ready", "called", "loading", "blocked"]),
-    db("replenishment_tasks").select("*").in("status", ["queued", "assigned", "in_progress", "exception"]),
+    db("receipts").select("id, receipt_number, reference_number, warehouse_id, status, created_at").in("status", ["draft", "queued", "assigned", "in_progress"]),
+    db("putaway_tasks").select("id, task_number, warehouse_id, status, created_at").in("status", ["queued", "assigned", "in_progress", "exception"]),
+    db("pick_lists").select("id, pick_list_number, warehouse_id, status, created_at").in("status", ["draft", "queued", "assigned", "in_progress", "exception"]),
+    db("move_tasks").select("id, task_number, warehouse_id, status, created_at").in("status", ["queued", "assigned", "in_progress", "exception"]),
+    db("transfers").select("id, transfer_number, source_warehouse_id, destination_warehouse_id, status, created_at").in("status", ["draft", "queued", "assigned", "in_progress", "exception"]),
+    db("cycle_counts").select("id, count_number, warehouse_id, status, created_at").in("status", ["queued", "assigned", "in_progress", "exception"]),
+    db("staging_loads").select("id, route_code, status, created_at, pick_lists(warehouse_id)").in("status", ["ready", "called", "loading", "blocked"]),
+    db("replenishment_tasks").select("id, task_number, warehouse_id, status, created_at").in("status", ["queued", "assigned", "in_progress", "exception"]),
     db("audit_events").select("id, warehouse_id").order("created_at", { ascending: false }).limit(50),
   ]);
 
@@ -1994,10 +2417,13 @@ export async function getDashboardMetrics(warehouseId?: string | null) {
 
   const allBalanceRows = balances.data ?? [];
   const balanceRows = warehouseId ? allBalanceRows.filter((row: any) => row.warehouse_id === warehouseId) : allBalanceRows;
-  const coolRows = balanceRows.filter((row: any) => row.zone_id);
+  const retiredStatuses = new Set(["picked", "shipped", "in_transit", "missing"]);
+  const liveAllBalanceRows = allBalanceRows.filter((row: any) => !retiredStatuses.has(row.status));
+  const liveBalanceRows = balanceRows.filter((row: any) => !retiredStatuses.has(row.status));
+  const coolRows = liveBalanceRows.filter((row: any) => row.zone_id);
   const locationRows = locations.data ?? [];
   const totalPalletCapacity = locationRows.reduce((sum: number, row: any) => sum + Number(row.max_pallets ?? 0), 0);
-  const warehouseRows = warehouseId ? balanceRows : [];
+  const warehouseRows = warehouseId ? liveBalanceRows : [];
   const warehousePalletCapacity = warehouseId
     ? locationRows
         .filter((row: any) => row.warehouse_id === warehouseId)
@@ -2016,6 +2442,21 @@ export async function getDashboardMetrics(warehouseId?: string | null) {
     : (stagingLoads.data ?? []);
   const scopedReplenishments = warehouseId ? (replenishments.data ?? []).filter((row: any) => row.warehouse_id === warehouseId) : (replenishments.data ?? []);
   const scopedAudits = warehouseId ? (audits.data ?? []).filter((row: any) => row.warehouse_id === warehouseId) : (audits.data ?? []);
+  const nowMs = Date.now();
+  const dayMs = 24 * 60 * 60 * 1000;
+  const daysUntil = (value: string | null | undefined) => value ? Math.ceil((new Date(value).getTime() - nowMs) / dayMs) : null;
+  const ageDays = (value: string | null | undefined) => value ? Math.floor((nowMs - new Date(value).getTime()) / dayMs) : 0;
+  const expiryWarning60 = liveBalanceRows.filter((row: any) => {
+    const days = daysUntil(row.expiry_date);
+    return days !== null && days >= 0 && days <= 60;
+  }).length;
+  const expiryWarning30 = liveBalanceRows.filter((row: any) => {
+    const days = daysUntil(row.expiry_date);
+    return days !== null && days >= 0 && days <= 30;
+  }).length;
+  const stockAge3Months = liveBalanceRows.filter((row: any) => ageDays(row.received_at ?? row.created_at) >= 90).length;
+  const stockAge6Months = liveBalanceRows.filter((row: any) => ageDays(row.received_at ?? row.created_at) >= 180).length;
+  const stockAge12Months = liveBalanceRows.filter((row: any) => ageDays(row.received_at ?? row.created_at) >= 365).length;
 
   const receiptRows: DashboardTaskRow[] = scopedReceipts
     .filter((row: any) => row.status === "draft")
@@ -2110,7 +2551,7 @@ export async function getDashboardMetrics(warehouseId?: string | null) {
     }));
 
   return {
-    totalPallets: allBalanceRows.length,
+    totalPallets: liveAllBalanceRows.length,
     totalPalletCapacity,
     warehousePallets: warehouseRows.length,
     warehousePalletCapacity,
@@ -2127,6 +2568,11 @@ export async function getDashboardMetrics(warehouseId?: string | null) {
     recentAuditEvents: scopedAudits.length,
     holdStock: balanceRows.filter((row: any) => row.status === "hold").length,
     quarantineStock: balanceRows.filter((row: any) => row.status === "quarantine").length,
+    expiryWarning60,
+    expiryWarning30,
+    stockAge3Months,
+    stockAge6Months,
+    stockAge12Months,
     receiptRows,
     putawayTaskRows: putawayRows,
     pickListRows: pickRows,
@@ -2136,6 +2582,7 @@ export async function getDashboardMetrics(warehouseId?: string | null) {
     dockLoadRows,
     replenishmentRows,
     blockedBalanceRows: blockedRows,
+    dashboardMetricKeys,
   } satisfies DashboardMetrics;
 }
 
@@ -2387,26 +2834,81 @@ export type DraftReceipt = {
   id: string;
   receipt_number: string;
   reference_number: string | null;
+  container_number: string | null;
+  po_number: string | null;
+  draft_group_id: string | null;
+  draft_pallet_barcode: string | null;
+  draft_sequence: number | null;
+  draft_count: number | null;
   warehouse_id: string;
   client_id: string | null;
+  status: string;
   product_id: string | null;
   quantity: number | null;
+  expiry_date: string | null;
+  lot_number: string | null;
+  batch_number: string | null;
   created_at: string;
   notes: string | null;
   source_label: string | null;
 };
 
+export type ShipmentDraftLineInput = {
+  product_id: string;
+  client_id?: string;
+  packaging_profile_id?: string;
+  total_quantity: number;
+  quantity_per_pallet: number;
+  pallet_count: number;
+  expiry_date?: string;
+  lot_number?: string;
+  batch_number?: string;
+  manufacture_date?: string;
+  loading_date?: string;
+  remainder_quantity?: number;
+  remainder_action?: "waive" | "manual" | "special";
+  create_special_pallet?: boolean;
+};
+
+export type ShipmentDraftInput = {
+  receipt_type: "po" | "transfer" | "other";
+  warehouse_id: string;
+  client_id?: string;
+  container_number: string;
+  po_number?: string;
+  reference_number?: string;
+  lines: ShipmentDraftLineInput[];
+};
+
 export async function saveDraftReceipt(values: z.infer<typeof receivingSchema>): Promise<string> {
+  if (values.container_number) {
+    const containerValidation = validateIso6346ContainerNumber(values.container_number);
+    if (!containerValidation.valid) throw new Error(containerValidation.message);
+    values = { ...values, container_number: containerValidation.normalized };
+  }
   const receiptNumber = buildPalletCode("RCT");
-  const { data, error } = await db("receipts").insert({
+  const draftBarcode = values.pallet_barcode?.trim() || buildPalletCode("PLT");
+  const row = {
     receipt_number: receiptNumber,
     receipt_type: values.receipt_type,
-    reference_number: values.reference_number || receiptNumber,
+    reference_number: normalizeReferenceNumber(values, receiptNumber),
+    container_number: values.container_number || null,
+    po_number: values.po_number || null,
+    draft_group_id: values.draft_group_id || null,
+    draft_pallet_barcode: draftBarcode,
+    draft_sequence: values.draft_sequence ?? null,
+    draft_count: values.draft_count ?? null,
     warehouse_id: values.warehouse_id,
     client_id: values.client_id || null,
     status: "draft",
     notes: JSON.stringify({
       _draft: true,
+      draft_pallet_barcode: draftBarcode,
+      container_number: values.container_number,
+      po_number: values.po_number,
+      draft_group_id: values.draft_group_id,
+      draft_sequence: values.draft_sequence,
+      draft_count: values.draft_count,
       product_id: values.product_id,
       quantity: values.quantity,
       lot_number: values.lot_number,
@@ -2421,9 +2923,181 @@ export async function saveDraftReceipt(values: z.infer<typeof receivingSchema>):
       override_weight: values.override_weight,
       reuse_pallet_barcode: values.reuse_pallet_barcode,
     }),
-  }).select("id").single();
+  };
+  let { data, error } = await db("receipts").insert(row).select("id").single();
+  if (error && isMissingReceiptDraftColumn(error)) {
+    ({ data, error } = await db("receipts").insert(withoutReceiptDraftColumns(row)).select("id").single());
+  }
   if (error) throw error;
   return data.id;
+}
+
+export async function saveShipmentDrafts(input: ShipmentDraftInput): Promise<{ groupId: string; draftIds: string[]; count: number }> {
+  if (!input.warehouse_id) throw new Error("Select a warehouse before saving shipment drafts.");
+  const containerValidation = validateIso6346ContainerNumber(input.container_number);
+  if (!containerValidation.valid) throw new Error(containerValidation.message);
+  input = { ...input, container_number: containerValidation.normalized };
+  if (!input.lines.length) throw new Error("Add at least one SKU line.");
+
+  const groupId = buildClientId("shipment");
+  const rows: any[] = [];
+
+  for (const line of input.lines) {
+    if (!line.product_id) throw new Error("Each shipment line needs a product.");
+    if (line.total_quantity <= 0 || line.quantity_per_pallet <= 0 || line.pallet_count <= 0) {
+      throw new Error("Each shipment line needs positive quantity, per-pallet quantity, and pallet count.");
+    }
+    const fullQty = Number(line.quantity_per_pallet);
+    const remainderQty = Number(line.remainder_quantity ?? 0);
+    if (remainderQty > 0 && !line.remainder_action) {
+      throw new Error("Choose how to handle leftover quantity before creating drafts.");
+    }
+    const quantities = Array.from({ length: Number(line.pallet_count) }, () => fullQty);
+    if (remainderQty > 0 && line.remainder_action === "special" && line.create_special_pallet) {
+      quantities.push(remainderQty);
+    }
+
+    quantities.forEach((quantity, index) => {
+      const receiptNumber = buildPalletCode("RCT");
+      const draftBarcode = buildPalletCode("PLT");
+      rows.push({
+        receipt_number: receiptNumber,
+        receipt_type: input.receipt_type,
+        reference_number: input.reference_number || input.po_number || receiptNumber,
+        container_number: input.container_number.trim(),
+        po_number: input.po_number?.trim() || null,
+        draft_group_id: groupId,
+        draft_pallet_barcode: draftBarcode,
+        draft_sequence: index + 1,
+        draft_count: quantities.length,
+        warehouse_id: input.warehouse_id,
+        client_id: line.client_id || input.client_id || null,
+        status: "draft",
+        notes: JSON.stringify({
+          _draft: true,
+          _shipment: true,
+          draft_pallet_barcode: draftBarcode,
+          draft_group_id: groupId,
+          draft_sequence: index + 1,
+          draft_count: quantities.length,
+          container_number: input.container_number.trim(),
+          po_number: input.po_number?.trim() || "",
+          product_id: line.product_id,
+          quantity,
+          total_quantity: line.total_quantity,
+          quantity_per_pallet: line.quantity_per_pallet,
+          remainder_quantity: remainderQty,
+          remainder_action: line.remainder_action ?? null,
+          special_pallet: remainderQty > 0 && line.remainder_action === "special" && index === quantities.length - 1,
+          lot_number: line.lot_number,
+          batch_number: line.batch_number,
+          expiry_date: line.expiry_date,
+          manufacture_date: line.manufacture_date,
+          loading_date: line.loading_date,
+          packaging_profile_id: line.packaging_profile_id,
+        }),
+      });
+    });
+  }
+
+  let { data, error } = await db("receipts").insert(rows).select("id");
+  if (error && isMissingReceiptDraftColumn(error)) {
+    ({ data, error } = await db("receipts").insert(rows.map(withoutReceiptDraftColumns)).select("id"));
+  }
+  if (error) throw error;
+  await writeSystemLog({
+    log_type: "system_change",
+    severity: "info",
+    title: `Shipment drafts created for container ${input.container_number.trim()}`,
+    message: `${rows.length} pallet draft${rows.length === 1 ? "" : "s"} created.`,
+    source: "receiving",
+    table_name: "receipts",
+    details: { groupId, container_number: input.container_number.trim(), po_number: input.po_number ?? null, draft_count: rows.length },
+  }).catch((error) => console.error("[saveShipmentDrafts] writeSystemLog failed:", error));
+  return { groupId, draftIds: (data ?? []).map((row: any) => row.id), count: rows.length };
+}
+
+export async function updateDraftReceipt(draftId: string, values: z.infer<typeof receivingSchema>): Promise<void> {
+  if (values.container_number) {
+    const containerValidation = validateIso6346ContainerNumber(values.container_number);
+    if (!containerValidation.valid) throw new Error(containerValidation.message);
+    values = { ...values, container_number: containerValidation.normalized };
+  }
+  let { data: existing, error: existingError } = await db("receipts")
+    .select("notes, draft_pallet_barcode, draft_group_id, draft_sequence, draft_count, status")
+    .eq("id", draftId)
+    .in("status", ["draft", "queued"])
+    .single();
+  if (existingError && isMissingReceiptDraftColumn(existingError)) {
+    ({ data: existing, error: existingError } = await db("receipts")
+      .select("notes, status")
+      .eq("id", draftId)
+      .in("status", ["draft", "queued"])
+      .single());
+  }
+  if (existingError) throw existingError;
+  const meta = parseReceiptNotes(existing?.notes);
+  const draftBarcode = values.pallet_barcode?.trim() || existing?.draft_pallet_barcode || meta.draft_pallet_barcode || buildPalletCode("PLT");
+  const nextMeta = {
+    ...meta,
+    _draft: true,
+    draft_pallet_barcode: draftBarcode,
+    container_number: values.container_number,
+    po_number: values.po_number,
+    draft_group_id: values.draft_group_id || existing?.draft_group_id || meta.draft_group_id,
+    draft_sequence: values.draft_sequence ?? existing?.draft_sequence ?? meta.draft_sequence,
+    draft_count: values.draft_count ?? existing?.draft_count ?? meta.draft_count,
+    product_id: values.product_id,
+    quantity: values.quantity,
+    lot_number: values.lot_number,
+    batch_number: values.batch_number,
+    expiry_date: values.expiry_date,
+    manufacture_date: values.manufacture_date,
+    loading_date: values.loading_date,
+    packaging_profile_id: values.packaging_profile_id,
+    override_length: values.override_length,
+    override_width: values.override_width,
+    override_height: values.override_height,
+    override_weight: values.override_weight,
+  };
+  const updatePayload: Record<string, any> = {
+    receipt_type: values.receipt_type,
+    reference_number: normalizeReferenceNumber(values, draftBarcode),
+    container_number: values.container_number || null,
+    po_number: values.po_number || null,
+    draft_group_id: values.draft_group_id || existing?.draft_group_id || meta.draft_group_id || null,
+    draft_pallet_barcode: draftBarcode,
+    draft_sequence: values.draft_sequence ?? existing?.draft_sequence ?? meta.draft_sequence ?? null,
+    draft_count: values.draft_count ?? existing?.draft_count ?? meta.draft_count ?? null,
+    warehouse_id: values.warehouse_id,
+    client_id: values.client_id || null,
+    notes: JSON.stringify(nextMeta),
+  };
+  if (existing?.status === "queued") {
+    updatePayload.status = "draft";
+  }
+  let { error } = await db("receipts")
+    .update({
+      ...updatePayload,
+    })
+    .eq("id", draftId)
+    .in("status", ["draft", "queued"]);
+  if (error && isMissingReceiptDraftColumn(error)) {
+    ({ error } = await db("receipts")
+      .update(withoutReceiptDraftColumns(updatePayload))
+      .eq("id", draftId)
+      .in("status", ["draft", "queued"]));
+  }
+  if (error) throw error;
+  await writeSystemLog({
+    log_type: "system_change",
+    severity: "info",
+    title: "Receiving draft updated",
+    message: `Draft ${draftBarcode} was updated.`,
+    source: "receiving",
+    table_name: "receipts",
+    details: { draftId, draft_pallet_barcode: draftBarcode, container_number: values.container_number || null, po_number: values.po_number || null },
+  }).catch((error) => console.error("[updateDraftReceipt] writeSystemLog failed:", error));
 }
 
 async function createReturnedPalletDraft({
@@ -2447,12 +3121,24 @@ async function createReturnedPalletDraft({
   ]);
   if (palletError) throw palletError;
 
+  if (sourceId) {
+    const { data: existingDraft, error: existingError } = await db("receipts")
+      .select("id")
+      .eq("warehouse_id", warehouseId)
+      .eq("status", "draft")
+      .ilike("notes", `%${sourceId}%`)
+      .maybeSingle();
+    if (existingError) throw existingError;
+    if (existingDraft?.id) return existingDraft.id;
+  }
+
   const receiptNumber = buildPalletCode("RCT");
   const quantity = Number(balance?.quantity ?? pallet.quantity ?? 0);
-  const { data, error } = await db("receipts").insert({
+  const receiptRow = {
     receipt_number: receiptNumber,
     receipt_type: "other",
     reference_number: pallet.pallet_barcode ?? receiptNumber,
+    draft_pallet_barcode: pallet.pallet_barcode ?? receiptNumber,
     warehouse_id: warehouseId,
     client_id: pallet.client_id ?? null,
     status: "draft",
@@ -2464,31 +3150,71 @@ async function createReturnedPalletDraft({
       source_id: sourceId ?? null,
       reason: reason ?? null,
       returned_pallet_id: palletId,
+      draft_pallet_barcode: pallet.pallet_barcode,
       product_id: pallet.product_id,
       quantity,
       packaging_profile_id: pallet.packaging_profile_id,
       reuse_pallet_barcode: pallet.pallet_barcode,
     }),
-  }).select("id").single();
+  };
+  let { data, error } = await db("receipts").insert(receiptRow).select("id").single();
+  if (error && isMissingReceiptDraftColumn(error)) {
+    ({ data, error } = await db("receipts").insert(withoutReceiptDraftColumns(receiptRow)).select("id").single());
+  }
   if (error) throw error;
   return data.id;
 }
 
 export async function listDraftReceipts(warehouseId: string): Promise<DraftReceipt[]> {
-  const { data, error } = await db("receipts")
-    .select("id, receipt_number, reference_number, warehouse_id, client_id, status, created_at, notes")
-    .eq("status", "draft")
+  let { data, error } = await db("receipts")
+    .select("id, receipt_number, reference_number, container_number, po_number, draft_group_id, draft_pallet_barcode, draft_sequence, draft_count, warehouse_id, client_id, status, created_at, notes, receipt_lines(id, product_id, quantity, received_quantity, inventory_lots(expiry_date, lot_number, batch_number), pallets(id, pallet_barcode, quantity, status))")
+    .in("status", ["draft", "queued"])
     .eq("warehouse_id", warehouseId)
     .order("created_at", { ascending: false })
-    .limit(20);
+    .limit(200);
+  if (error && isMissingReceiptDraftColumn(error)) {
+    ({ data, error } = await db("receipts")
+      .select("id, receipt_number, reference_number, warehouse_id, client_id, status, created_at, notes, receipt_lines(id, product_id, quantity, received_quantity, inventory_lots(expiry_date, lot_number, batch_number), pallets(id, pallet_barcode, quantity, status))")
+      .in("status", ["draft", "queued"])
+      .eq("warehouse_id", warehouseId)
+      .order("created_at", { ascending: false })
+      .limit(200));
+  }
+  if (error) {
+    ({ data, error } = await db("receipts")
+      .select("id, receipt_number, reference_number, warehouse_id, client_id, status, created_at, notes")
+      .in("status", ["draft", "queued"])
+      .eq("warehouse_id", warehouseId)
+      .order("created_at", { ascending: false })
+      .limit(200));
+  }
   if (error) throw error;
-  return (data ?? []).map((row: any) => {
-    const meta = row.notes ? JSON.parse(row.notes) : {};
+  return (data ?? [])
+    .filter((row: any) => {
+      const meta = parseReceiptNotes(row.notes);
+      if (meta._seeded_draft) return false;
+      if (String(meta.source_label ?? "").toLowerCase().includes("seeded receiving draft")) return false;
+      return row.status === "draft" || meta._draft;
+    })
+    .map((row: any) => {
+    const meta = parseReceiptNotes(row.notes);
+    const line = Array.isArray(row.receipt_lines) ? row.receipt_lines[0] : row.receipt_lines;
+    const pallet = Array.isArray(line?.pallets) ? line.pallets[0] : line?.pallets;
+    const lot = Array.isArray(line?.inventory_lots) ? line.inventory_lots[0] : line?.inventory_lots;
     return {
       ...row,
-      product_id: meta.product_id ?? null,
-      quantity: meta.quantity ?? null,
-      source_label: meta.source_label ?? null,
+      container_number: row.container_number ?? meta.container_number ?? null,
+      po_number: row.po_number ?? meta.po_number ?? null,
+      draft_group_id: row.draft_group_id ?? meta.draft_group_id ?? null,
+      draft_pallet_barcode: row.draft_pallet_barcode ?? meta.draft_pallet_barcode ?? pallet?.pallet_barcode ?? null,
+      draft_sequence: row.draft_sequence ?? meta.draft_sequence ?? null,
+      draft_count: row.draft_count ?? meta.draft_count ?? null,
+      product_id: meta.product_id ?? line?.product_id ?? null,
+      quantity: meta.quantity ?? line?.quantity ?? pallet?.quantity ?? null,
+      expiry_date: meta.expiry_date ?? lot?.expiry_date ?? null,
+      lot_number: meta.lot_number ?? lot?.lot_number ?? null,
+      batch_number: meta.batch_number ?? lot?.batch_number ?? null,
+      source_label: meta.source_label ?? (row.status === "queued" ? "Seeded receiving draft" : null),
     };
   });
 }
@@ -2607,13 +3333,46 @@ export async function completeReceiptFromDraft(
   draftId: string,
   values: z.infer<typeof receivingSchema>,
 ): Promise<{ palletBarcode: string; putawayTaskNumber: string }> {
-  const { data: draft } = await db("receipts").select("notes").eq("id", draftId).single();
-  const meta = draft?.notes ? JSON.parse(draft.notes) : {};
+  let { data: draft, error: draftError } = await db("receipts").select("id, status, notes, container_number, po_number, draft_group_id, draft_pallet_barcode, draft_sequence, draft_count").eq("id", draftId).single();
+  if (draftError && isMissingReceiptDraftColumn(draftError)) {
+    ({ data: draft, error: draftError } = await db("receipts").select("id, status, notes").eq("id", draftId).single());
+  }
+  if (draftError) throw draftError;
+  const meta = parseReceiptNotes(draft?.notes);
   if (meta._returned) {
     return completeReturnedPalletDraft(draftId, values, meta);
   }
+  if (draft?.status === "queued" && !meta._draft) {
+    const { data: line, error: lineError } = await db("receipt_lines")
+      .select("id, pallets(id, pallet_barcode), receipts(id)")
+      .eq("receipt_id", draftId)
+      .limit(1)
+      .maybeSingle();
+    if (lineError) throw lineError;
+    const pallet = Array.isArray((line as any)?.pallets) ? (line as any).pallets[0] : (line as any)?.pallets;
+    if (!pallet?.id) throw new Error("Seeded receiving draft is missing its pallet.");
+    const { data: putawayTask, error: putawayError } = await db("putaway_tasks")
+      .select("task_number")
+      .eq("pallet_id", pallet.id)
+      .in("status", ["draft", "queued", "assigned", "in_progress"])
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (putawayError) throw putawayError;
+    const { error: receiptError } = await db("receipts").update({ status: "completed" }).eq("id", draftId);
+    if (receiptError) throw receiptError;
+    return { palletBarcode: pallet.pallet_barcode, putawayTaskNumber: putawayTask?.task_number ?? "existing putaway task" };
+  }
 
-  const result = await createReceiptFlow(values);
+  const result = await createReceiptFlow({
+    ...values,
+    container_number: values.container_number || draft?.container_number || meta.container_number || "",
+    po_number: values.po_number || draft?.po_number || meta.po_number || "",
+    pallet_barcode: values.pallet_barcode || draft?.draft_pallet_barcode || meta.draft_pallet_barcode || "",
+    draft_group_id: values.draft_group_id || draft?.draft_group_id || meta.draft_group_id || undefined,
+    draft_sequence: values.draft_sequence ?? draft?.draft_sequence ?? meta.draft_sequence,
+    draft_count: values.draft_count ?? draft?.draft_count ?? meta.draft_count,
+  });
   const { error: draftCancelError } = await db("receipts").update({ status: "cancelled" }).eq("id", draftId);
   if (draftCancelError) {
     console.error("[completeReceiptFromDraft] failed to cancel draft:", draftCancelError);
@@ -2622,8 +3381,22 @@ export async function completeReceiptFromDraft(
 }
 
 export async function deleteDraftReceipt(draftId: string): Promise<void> {
+  const { data: draft } = await db("receipts")
+    .select("receipt_number, reference_number, notes")
+    .eq("id", draftId)
+    .maybeSingle();
   const { error } = await db("receipts").delete().eq("id", draftId).eq("status", "draft");
   if (error) throw error;
+  const meta = parseReceiptNotes((draft as any)?.notes);
+  await writeSystemLog({
+    log_type: "system_change",
+    severity: "info",
+    title: "Receiving draft cancelled",
+    message: `Draft ${meta.draft_pallet_barcode ?? (draft as any)?.receipt_number ?? draftId} was cancelled.`,
+    source: "receiving",
+    table_name: "receipts",
+    details: { draftId, receipt_number: (draft as any)?.receipt_number ?? null, reference_number: (draft as any)?.reference_number ?? null },
+  }).catch((error) => console.error("[deleteDraftReceipt] writeSystemLog failed:", error));
 }
 
 // ── Bin capacity helper ───────────────────────────────────────────────────────
@@ -2653,6 +3426,154 @@ export async function getBinOccupancy(locationCode: string): Promise<{
     occupiedPallets: count ?? 0,
     status: location.status ?? "active",
   };
+}
+
+export async function getBayOccupancy(locationCode: string): Promise<{
+  anchorCode: string;
+  aisle: string | null;
+  bay: string | null;
+  cells: Array<{
+    locationId: string;
+    locationCode: string;
+    level: string | null;
+    depth: string | null;
+    maxPallets: number;
+    occupiedPallets: number;
+    status: string;
+    isFull: boolean;
+  }>;
+} | null> {
+  const normalizedCode = locationCode.trim();
+  let anchor: any = null;
+  const bayParts = normalizedCode.match(/^BAY:([^:]+):([^:]+):([^:]+):([^:]+)$/i);
+  const bayCodePrefix = bayParts ? `${bayParts[1]}-${bayParts[2]}-${bayParts[3]}-${bayParts[4]}-` : "";
+
+  if (bayParts) {
+    const [, warehouseCode, zoneCode, aisle, bay] = bayParts;
+    const { data: warehouse, error: warehouseError } = await db("warehouses")
+      .select("id")
+      .eq("code", warehouseCode.toUpperCase())
+      .maybeSingle();
+    if (warehouseError) throw warehouseError;
+
+    let zone: any = null;
+    if (warehouse) {
+      const zoneResult = await db("zones")
+        .select("id")
+        .eq("warehouse_id", warehouse.id)
+        .eq("code", zoneCode.toUpperCase())
+        .maybeSingle();
+      if (zoneResult.error) throw zoneResult.error;
+      zone = zoneResult.data;
+    }
+
+    anchor = {
+      code: normalizedCode,
+      warehouse_id: warehouse?.id ?? null,
+      zone_id: zone?.id ?? null,
+      aisle,
+      bay,
+    };
+  } else {
+    const { data, error } = await db("locations")
+      .select("id, code, warehouse_id, zone_id, aisle, bay")
+      .eq("code", normalizedCode)
+      .maybeSingle();
+    if (error) throw error;
+    if (data) {
+      anchor = data;
+    } else {
+      const prefix = normalizedCode.endsWith("-") ? normalizedCode : `${normalizedCode}-`;
+      const prefixResult = await db("locations")
+        .select("id, code, warehouse_id, zone_id, aisle, bay")
+        .eq("location_type", "rack")
+        .ilike("code", `${prefix}%`)
+        .order("level", { ascending: false })
+        .order("depth", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      if (prefixResult.error) throw prefixResult.error;
+      if (!prefixResult.data) return null;
+      anchor = { ...prefixResult.data, code: normalizedCode };
+    }
+  }
+
+  let locations: any[] = [];
+  if (anchor.warehouse_id && anchor.zone_id) {
+    let query = db("locations")
+      .select("id, code, aisle, bay, level, depth, max_pallets, status, location_type")
+      .eq("warehouse_id", anchor.warehouse_id)
+      .eq("zone_id", anchor.zone_id)
+      .eq("location_type", "rack");
+    if (anchor.aisle) query = query.eq("aisle", anchor.aisle);
+    if (anchor.bay) query = query.eq("bay", anchor.bay);
+    const result = await query.order("level", { ascending: false }).order("depth", { ascending: true });
+    if (result.error) throw result.error;
+    locations = result.data ?? [];
+  }
+
+  if ((locations ?? []).length === 0 && bayCodePrefix) {
+    const fallback = await db("locations")
+      .select("id, code, aisle, bay, level, depth, max_pallets, status, location_type")
+      .eq("location_type", "rack")
+      .ilike("code", `${bayCodePrefix}%`)
+      .order("level", { ascending: false })
+      .order("depth", { ascending: true });
+    if (fallback.error) throw fallback.error;
+    locations = fallback.data ?? [];
+  }
+
+  const cells = await Promise.all((locations ?? []).map(async (location: any) => {
+    const { count } = await db("inventory_balances")
+      .select("*", { count: "exact", head: true })
+      .eq("location_id", location.id)
+      .not("status", "in", "(picked,shipped,in_transit,missing)");
+    const occupiedPallets = count ?? 0;
+    const maxPallets = Number(location.max_pallets ?? 0);
+    return {
+      locationId: location.id,
+      locationCode: location.code,
+      level: location.level ?? null,
+      depth: location.depth ?? null,
+      maxPallets,
+      occupiedPallets,
+      status: location.status ?? "active",
+      isFull: maxPallets > 0 && occupiedPallets >= maxPallets,
+    };
+  }));
+
+  return {
+    anchorCode: anchor.code,
+    aisle: anchor.aisle ?? null,
+    bay: anchor.bay ?? null,
+    cells,
+  };
+}
+
+export async function logPutawayBaySelection(input: {
+  taskId: string;
+  scannedCode: string;
+  selectedLocationCode?: string;
+}) {
+  const { data: task, error } = await db("putaway_tasks")
+    .select("id, task_number, warehouse_id, pallet_id")
+    .eq("id", input.taskId)
+    .maybeSingle();
+  if (error || !task) return;
+
+  const audit = await (supabase.rpc as any)("log_audit_event", {
+    in_event_type: "putaway_bay_selection",
+    in_entity_table: "putaway_tasks",
+    in_entity_id: input.taskId,
+    in_pallet_id: task.pallet_id,
+    in_warehouse_id: task.warehouse_id,
+    in_metadata: {
+      task_number: task.task_number,
+      scanned_code: input.scannedCode,
+      selected_location_code: input.selectedLocationCode ?? null,
+    },
+  });
+  if (audit.error) console.error("[logPutawayBaySelection] log_audit_event failed:", audit.error);
 }
 
 // ── Move to picking area ──────────────────────────────────────────────────────
@@ -2694,8 +3615,8 @@ export async function revertPutawayToDraft(taskId: string): Promise<void> {
   const { data: task, error } = await db("putaway_tasks").select("*, pallets(pallet_barcode)").eq("id", taskId).single();
   if (error) throw error;
   if (task.status === "completed") throw new Error("Cannot revert a completed putaway task.");
-  const { error: updErr } = await db("putaway_tasks").update({ status: "draft" } as any).eq("id", taskId);
-  if (updErr) throw updErr;
+  if (task.status === "cancelled") throw new Error("Putaway task has already been returned to Receiving.");
+
   await createReturnedPalletDraft({
     palletId: task.pallet_id,
     warehouseId: task.warehouse_id,
@@ -2704,6 +3625,23 @@ export async function revertPutawayToDraft(taskId: string): Promise<void> {
     sourceId: taskId,
     reason: "Returned to receiving from putaway",
   });
+
+  const [{ error: updErr }, { error: palletErr }, { error: balanceErr }] = await Promise.all([
+    db("putaway_tasks")
+      .update({ status: "cancelled", completed_at: new Date().toISOString() } as any)
+      .eq("id", taskId)
+      .in("status", ["queued", "assigned", "in_progress", "exception", "draft"]),
+    db("pallets")
+      .update({ status: "receiving", current_location_id: null, is_stored: false, available_quantity: 0 } as any)
+      .eq("id", task.pallet_id),
+    db("inventory_balances")
+      .update({ status: "receiving", location_id: null, zone_id: null, available_quantity: 0 } as any)
+      .eq("pallet_id", task.pallet_id),
+  ]);
+  if (updErr) throw updErr;
+  if (palletErr) throw palletErr;
+  if (balanceErr) throw balanceErr;
+
   await (supabase.rpc as any)("log_audit_event", {
     in_event_type: "putaway_reverted_to_draft",
     in_entity_table: "putaway_tasks",
@@ -2754,7 +3692,7 @@ export async function completeDirectMove(palletBarcode: string, locationCode: st
   if (palletErr) throw new Error(`Pallet not found: ${palletBarcode}`);
 
   const { data: toLocation, error: locErr } = await db("locations")
-    .select("id")
+    .select("id, zone_id")
     .eq("code", locationCode)
     .single();
   if (locErr) throw new Error(`Location not found: ${locationCode}`);
@@ -2775,6 +3713,12 @@ export async function completeDirectMove(palletBarcode: string, locationCode: st
     .update({ current_location_id: toLocation.id } as any)
     .eq("id", pallet.id);
   if (palletUpdErr) throw palletUpdErr;
+
+  const { error: balanceUpdErr } = await db("inventory_balances")
+    .update({ location_id: toLocation.id, zone_id: toLocation.zone_id ?? null } as any)
+    .eq("pallet_id", pallet.id)
+    .neq("status", "picked");
+  if (balanceUpdErr) throw balanceUpdErr;
 
   await (supabase.rpc as any)("log_audit_event", {
     in_event_type: "move_task_completed",
@@ -2802,7 +3746,7 @@ export async function completeMoveTask(taskId: string, scannedPalletBarcode: str
   }
 
   const { data: toLocation, error: locErr } = await db("locations")
-    .select("id")
+    .select("id, zone_id")
     .eq("code", scannedLocationCode)
     .single();
   if (locErr) throw new Error(`Location not found: ${scannedLocationCode}`);
@@ -2811,6 +3755,12 @@ export async function completeMoveTask(taskId: string, scannedPalletBarcode: str
     .update({ current_location_id: toLocation.id } as any)
     .eq("id", pallet.id);
   if (palletUpdErr) throw palletUpdErr;
+
+  const { error: balanceUpdErr } = await db("inventory_balances")
+    .update({ location_id: toLocation.id, zone_id: toLocation.zone_id ?? null } as any)
+    .eq("pallet_id", pallet.id)
+    .neq("status", "picked");
+  if (balanceUpdErr) throw balanceUpdErr;
 
   const { error: taskUpdErr } = await db("move_tasks")
     .update({ status: "completed", to_location_id: toLocation.id, completed_at: new Date().toISOString() } as any)
@@ -2829,8 +3779,8 @@ export async function completeMoveTask(taskId: string, scannedPalletBarcode: str
 export async function cancelMoveTask(taskId: string): Promise<void> {
   const { data: task, error: taskErr } = await db("move_tasks").select("*").eq("id", taskId).single();
   if (taskErr) throw taskErr;
-  if (task.status !== "queued") {
-    throw new Error("Only queued move tasks can be cancelled.");
+  if (!["queued", "in_progress"].includes(task.status)) {
+    throw new Error("Only queued or in-progress move tasks can be cancelled.");
   }
 
   const { error: taskUpdErr } = await db("move_tasks")

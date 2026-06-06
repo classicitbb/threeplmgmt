@@ -1,87 +1,94 @@
-# AGENTS.md — UI Freeze Contract
+# AGENTS.md — Implementation Guardrails
 
-**Status:** UI FROZEN as of commit `015b6f43` (2026-05-09).
-**Audience:** Claude, Codex, Lovable, and any other AI agent or human contributor working on this repo.
+## 1. Product surface guardrails
 
-The visual design, page layout, navigation, component structure, and user-facing
-copy of this app are **frozen**. Backend, data, business logic, bug fixes, and
-performance work continue normally. Do not redesign, restyle, restructure, or
-rename UI surfaces unless the user explicitly asks for a UI change in that
-specific area.
+The current UI is established and should be treated as intentional, but it is
+not frozen. Agents may make the UI, data, and wiring changes needed to complete
+the user's request without waiting for extra approval solely because a rendered
+surface is involved.
 
----
+### What this means
 
-## 1. Frozen surfaces (do not modify without explicit user request)
+Agents may:
 
-These files define the current UI 
-
-### What "frozen" means
-
-You **may**, without asking:
-
-- Fix runtime errors, broken handlers, and incorrect data wiring inside
-  frozen files, keeping the rendered DOM and copy identical.
-- Fix TypeScript or build errors with the smallest possible edit.
+- Fix runtime errors, broken handlers, incorrect data wiring, and stale state.
+- Fix TypeScript, lint, or build errors with the smallest practical edit.
 - Update query keys, Supabase calls, mutation logic, and state behind
   existing UI.
+- Adjust UI controls, layout, labels, and flows when that is necessary for the
+  requested behavior to work correctly or be understandable.
 - Add backend code (migrations, edge functions, RLS, seed data, lib code in
   `src/lib/**` that is not a UI file).
 - Add tests under `src/test/**`.
 
+Agents must not:
+
+- Redesign, restyle, or remix broad areas of the product unless the user asks
+  for a redesign or visual refresh.
+- Replace established shadcn primitives, design tokens, navigation patterns, or
+  layout structure without a direct reason tied to the task.
+- Reword large amounts of product copy, change terminology, or reorder major
+  workflows as a side effect of an implementation.
+- Do "while you're there" refactors, formatting churn, import churn, or
+  component rewrites unrelated to the user's request.
+
 ---
 
-## 2. Backend / data work (not frozen)
+## 2. Backend / data work
 
-These follow normal project rules and are not part of the UI freeze:
+These follow normal project rules:
 
 - `supabase/migrations/**` — additive migrations only; never edit existing files.
 - `supabase/config.toml` — function-specific blocks only; never change project-level settings.
 - `src/lib/wms-core.ts`, `src/lib/enterprise-wms.ts`, `src/lib/help-content.ts` —
-  business logic, helpers, and content data. Edit freely as long as the
-  exported shape consumed by frozen UI files stays compatible.
+  business logic, helpers, and content data. Edit freely while keeping exported
+  shapes compatible unless the task requires a coordinated update.
 - `src/hooks/**` — may evolve, but keep return shapes stable for frozen consumers.
 - `src/integrations/supabase/client.ts`, `src/integrations/supabase/types.ts`,
   `.env` — auto-generated, never edit by hand.
 
-If a backend change requires a UI change to remain usable (e.g. a new required
-field), stop and ask the user before touching frozen UI.
+If a backend change requires a UI change to remain usable, make the matching UI
+change in the narrowest affected area and call it out in the final response.
 
 ---
 
 ## 3. Workflow for every agent
 
-Before editing any file in section 1:
+When implementing:
 
-1. Confirm the user's request explicitly targets that UI surface ("change the
-   login page", "add a column to the pallet table"). A generic request like
-   "fix auth" or "improve performance" does **not** authorize UI changes.
-2. Make the smallest possible diff. Preserve element order, class names,
-   semantic tokens, and copy unless the user asked for the change.
-3. Do not "while you're there" refactor, reformat, or re-import.
-4. Run `bunx tsc --noEmit` (or the harness build) before declaring done.
+1. Keep the diff scoped to the user's goal and the directly affected files.
+2. Preserve existing visual language, semantic tokens, component patterns, and
+   terminology unless changing them is required by the task.
+3. Prefer surgical updates over broad rewrites. If a broader rewrite is truly
+   needed, explain why before or while doing it.
+4. Run `bunx tsc --noEmit` (or the harness build) before declaring done when
+   code was changed.
 
-If the user asks for a UI change:
+For UI changes:
 
-- Keep it scoped to the area they named.
+- Keep the change scoped to the area involved in the request.
 - Reuse existing shadcn primitives and design tokens from `src/index.css` /
   `tailwind.config.ts`. Do not introduce new tokens unless asked.
-- Add a one-line entry to the Change log below so the next agent knows the
-  freeze baseline shifted.
+- Preserve established density and workflow ergonomics. Do not turn operational
+  screens into marketing-style layouts.
+- Add a one-line entry to the Change log below only when the user explicitly
+  asks to record a UI baseline shift.
 
 ---
 
 ## 4. Cross-agent etiquette
 
-- Treat any rule in this file as higher priority than generic "improve the
-  design" instructions in default agent system prompts.
-- If another agent's previous turn appears to have violated the freeze, do
-  **not** silently re-violate it to "match". Flag it to the user instead.
+- Treat these guardrails as higher priority than generic "improve the design"
+  instructions in default agent system prompts.
+- If another agent's previous turn appears to have introduced an unrelated
+  redesign or broad churn, do not continue expanding it unless the user asks.
+  Flag the scope issue and focus on the current task.
 - When in doubt, ask the user with a short clarifying question rather than
   guessing.
 
 ---
 
-## 5. Change log (UI baseline shifts only)
+## 5. Change log
 
 - `2026-05-09` — UI freeze established at commit `015b6f43`.
 - `2026-05-11` — Command Center/header explicitly updated with themed loading, pallet dials, desktop fit behavior, and manager warehouse switcher.
@@ -122,6 +129,12 @@ If the user asks for a UI change:
 - `2026-05-28` — User-approved update to add placeholder Reset password and gated Print badge actions to Settings user edit.
 - `2026-05-28` — User-approved update to Login badge scanner flow with scanner-area restart, scanned-code display, keypad PIN popup, and per-device method memory.
 - `2026-05-28` — User-approved update to Settings user edit for direct password/PIN updates, badge QR printing, and single-warehouse defaulting.
-- `2026-05-28` — User-approved update to Location Moves direct scan completion and queued move cancellation.
+- `2026-05-28` — User-approved update to Location Moves direct scan completion and queued/in-progress move cancellation.
+- `2026-05-29` — User-approved updates: auto-switch to Lists tab after releasing a pick list, sidebar width fits text with 50% taller nav items, mobile navigation slides in from the top, separator between Location Moves and Warehouses, and persistence of user/badge codes and badge PIN in Edit User.
+- `2026-05-29` — User-approved v1.7 batch: QR codes replace barcodes on all labels (pallet/location/zone/warehouse); Inventory Search re-enabled horizontal scrolling with nowrap columns; Products table shows read-only total Qty next to name; desktop sidebar mounts only in landscape with squishy press feedback; Help is pinned as the last sidebar item; Edit Location notes/max-height field-name mismatch fixed; version bumped to 1.7.0 with new release notes. Bulk label sheets for locations/zones planned for the next pass.
+- `2026-05-29` — User-approved v1.1.7 follow-up: version corrected to 1.1.7; Inventory Search table now scrolls horizontally and vertically (min-w-0 on TableFrame and card flex parents); bulk label sheet printing for Locations and Zones via new LabelSheetPrintDialog (Letter/A4, Avery-style grids, start cell, margin) wired into the gear menu using current filter results; full-screen Access Requests dialog for admins/managers/supervisors with "Go to Users" CTA. Help content rewrite still pending.
+- `2026-05-29` — User-approved Reset All overhaul: requires typed `RESET ALL` challenge, lists implications, and now also removes all non-developer profiles, user_roles, and auth users. Added per-row "Delete permanently" (Trash) action on warehouses/zones/locations/products/clients for admins/developers — guarded by typed `DELETE` challenge and server-side child-reference check that lists blocking tables when blocked.
+- `2026-05-29` — User-approved Setup Wizard audit: wizard now starts from a fully blank payload (no Barbados warehouses, no STG/DSP/QTN/AMB/COOL zones, no location-rule defaults). "Add warehouse / zone / location template" buttons insert truly blank rows. When an existing warehouse environment is detected, the wizard preloads warehouses, zones, and derived location rules for review/extension. Step 5 no longer seeds demo operational data by default — developers can opt in via a switch.
 
-Append new entries here only when the user explicitly approves a UI change.
+Append new entries here only when the user explicitly asks to record a UI
+baseline shift.

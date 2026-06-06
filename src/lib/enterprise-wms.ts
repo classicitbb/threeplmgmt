@@ -209,7 +209,8 @@ export function buildEnterpriseDashboard(
   const inventory = reportData?.inventory ?? [];
   const occupancy = reportData?.occupancy ?? [];
   const cycleCounts = reportData?.cycleCounts ?? [];
-  const expiringSoon = countExpiringSoon(inventory, 30);
+  const expiring60 = metrics?.expiryWarning60 ?? countExpiringSoon(inventory, 60);
+  const expiring30 = metrics?.expiryWarning30 ?? countExpiringSoon(inventory, 30);
   const lowStock = inventory.filter((row) => (row.available_quantity ?? 0) > 0 && (row.available_quantity ?? 0) <= 10).length;
   const controlled = (metrics?.holdStock ?? 0) + (metrics?.quarantineStock ?? 0);
   const fullLocations = occupancy.filter((row) => row.is_full).length;
@@ -226,7 +227,7 @@ export function buildEnterpriseDashboard(
     officeWidgets: [
       { label: "Fill level", value: `${fillRate}%`, tone: fillRate > 92 ? "warning" : "success", detail: `${usedCapacity}/${totalCapacity || 0} slots used`, route: "/locations" },
       { label: "Inventory turn watch", value: `${lowStock}`, tone: lowStock > 0 ? "warning" : "success", detail: "SKU/location balances at or below 10 available units", route: "/inventory-search" },
-      { label: "Expiration risk", value: `${expiringSoon}`, tone: expiringSoon > 0 ? "critical" : "success", detail: "Lots expiring inside 30 days", route: "/inventory-search" },
+      { label: "Expiration risk", value: `${expiring30}`, tone: expiring30 > 0 ? "critical" : expiring60 > 0 ? "warning" : "success", detail: `${expiring60} inside 60 days · ${expiring30} inside 30 days`, route: "/inventory-search" },
       { label: "DPMO", value: `${dpmo}`, tone: dpmo > 50_000 ? "critical" : dpmo > 10_000 ? "warning" : "success", detail: "Cycle-count defect signal", route: "/cycle-counts" },
     ],
     floorQueues: [
@@ -299,7 +300,8 @@ export function buildWarehouseBrainRecommendations(
   reportData: EnterpriseReportData | undefined,
 ): WarehouseBrainRecommendation[] {
   const inventory = reportData?.inventory ?? [];
-  const expiringSoon = countExpiringSoon(inventory, 30);
+  const expiring60 = metrics?.expiryWarning60 ?? countExpiringSoon(inventory, 60);
+  const expiring30 = metrics?.expiryWarning30 ?? countExpiringSoon(inventory, 30);
   const lowStock = inventory.filter((row) => (row.available_quantity ?? 0) > 0 && (row.available_quantity ?? 0) <= 10).length;
   const controlled = (metrics?.holdStock ?? 0) + (metrics?.quarantineStock ?? 0);
   const openWork = (metrics?.openPutawayTasks ?? 0) + (metrics?.openPickLists ?? 0);
@@ -320,13 +322,13 @@ export function buildWarehouseBrainRecommendations(
     });
   }
 
-  if (expiringSoon > 0) {
+  if (expiring60 > 0) {
     recommendations.push({
       id: "expiry-risk",
       title: "FEFO risk needs supervisor review",
-      severity: "critical",
+      severity: expiring30 > 0 || expiring60 > 5 ? "critical" : "warning",
       audience: ["warehouse_manager", "inventory_clerk"],
-      reason: `${expiringSoon} lot${expiringSoon === 1 ? "" : "s"} expire inside the next 30 days.`,
+      reason: `${expiring60} lot${expiring60 === 1 ? "" : "s"} expire inside 60 days; ${expiring30} inside 30 days.`,
       nextAction: "Prioritize those lots in wave release or move them to hold if QA requires review.",
       route: "/inventory-search",
     });

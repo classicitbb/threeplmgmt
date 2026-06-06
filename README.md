@@ -38,7 +38,7 @@ This recovery PR intentionally keeps the enterprise WMS gap-review work and the 
 
 | Role | Email | User code | Badge code |
 | --- | --- | --- | --- |
-| Developer | `russelljhunte@gmail.com` | — | — |
+| Developer | `russelljhunte@gmail.com` | `Falcon-Crate-92!Tundra` | — |
 | Admin | `admin@warehousewizard.local` | `ADMIN01` | `BADGE-ADMIN01` |
 | Warehouse Manager | `manager@warehousewizard.local` | `MGR01` | `BADGE-MGR01` |
 | Inventory Clerk | `clerk@warehousewizard.local` | `CLK01` | `BADGE-CLK01` |

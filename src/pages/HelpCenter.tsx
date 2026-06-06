@@ -46,6 +46,7 @@ export default function HelpCenterPage() {
           </p>
         </div>
         <Input
+          type="search"
           placeholder="Search help articles, modules, or workflow terms"
           value={query}
           onChange={(event) => setQuery(event.target.value)}

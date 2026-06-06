@@ -1,11 +1,15 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, Circle, Loader2, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import {
+  createBlankLocationTemplate,
+  createBlankWarehouse,
+  createBlankZone,
   createDefaultWarehouseSetupPayload,
+  loadExistingSetupPayload,
   runWarehouseSetup,
   type TemperatureClass,
   type WarehouseLocationTemplate,
@@ -15,6 +19,7 @@ import {
 } from "@/lib/wms-core";
 import { setupWizardSteps } from "@/lib/help-content";
 import { invalidateWarehouseData } from "@/lib/query-invalidation";
+import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
@@ -64,13 +69,30 @@ function StepIndicator({ step, current }: { step: number; current: number }) {
 export default function SetupWizardPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { roles } = useAuth();
+  const isDeveloper = roles.includes("developer");
   const [step, setStep] = useState(0);
   const [payload, setPayload] = useState<WarehouseSetupPayload>(createDefaultWarehouseSetupPayload());
+  const [seedDemoData, setSeedDemoData] = useState(false);
+
+  const existingQuery = useQuery({
+    queryKey: ["setup-wizard", "existing"],
+    queryFn: loadExistingSetupPayload,
+    staleTime: 0,
+  });
+
+  const hasExisting = (existingQuery.data?.warehouses.length ?? 0) > 0;
+
+  useEffect(() => {
+    if (existingQuery.data && hasExisting) {
+      setPayload(existingQuery.data);
+    }
+  }, [existingQuery.data, hasExisting]);
 
   const mutation = useMutation({
-    mutationFn: async () => runWarehouseSetup(payload),
+    mutationFn: async () => runWarehouseSetup(payload, seedDemoData ? "starter_ops" : "structure_only"),
     onSuccess: async () => {
-      toast.success("Warehouse setup completed and starter data seeded.");
+      toast.success(seedDemoData ? "Warehouse structure created and demo data seeded." : "Warehouse structure created.");
       await invalidateWarehouseData(queryClient);
       navigate("/warehouses");
     },
@@ -117,6 +139,21 @@ export default function SetupWizardPage() {
 
   return (
     <div className="grid gap-6">
+      <div
+        className={cn(
+          "rounded-lg border px-4 py-3 text-sm",
+          hasExisting
+            ? "border-amber-500/40 bg-amber-50 text-amber-900 dark:border-amber-500/30 dark:bg-amber-950/40 dark:text-amber-200"
+            : "border-primary/40 bg-primary/5 text-foreground",
+        )}
+      >
+        {existingQuery.isLoading
+          ? "Checking for existing warehouse configuration…"
+          : hasExisting
+            ? "An existing warehouse environment was detected. Existing warehouses, zones, and location rules are preloaded for review or extension. Add new entries below — nothing is created until you confirm in step 5."
+            : "Starting from scratch — no warehouses exist yet. Add your first warehouse below. Forms are intentionally blank: type your own codes, names, and counts."}
+      </div>
+
       {/* Step indicators with strong contrast */}
       <div className="flex flex-wrap items-center gap-2">
         {steps.map((_, index) => (
@@ -156,8 +193,8 @@ export default function SetupWizardPage() {
         <CardHeader>
           <CardTitle>Warehouse Setup Wizard</CardTitle>
           <CardDescription>
-            Build the warehouse structure, then seed starter operational data so receiving, putaway, picking, transfers,
-            and counts can be tested immediately.
+            Build the warehouse structure step by step. The wizard creates only the warehouses, zones, and locations you
+            define here — no demo products, pallets, or orders are added.
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-6">
@@ -193,15 +230,17 @@ export default function SetupWizardPage() {
                   </CardContent>
                 </Card>
               ))}
+              {payload.warehouses.length === 0 ? (
+                <p className="rounded-md border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+                  No warehouses yet. Click <strong>Add warehouse</strong> to start.
+                </p>
+              ) : null}
               <Button
                 variant="outline"
                 onClick={() =>
                   setPayload((current) => ({
                     ...current,
-                    warehouses: [
-                      ...current.warehouses,
-                      { code: `WH${current.warehouses.length + 1}`, name: "New Warehouse", city: "Bridgetown", country: "Barbados", hasCoolZone: false },
-                    ],
+                    warehouses: [...current.warehouses, createBlankWarehouse()],
                   }))
                 }
               >
@@ -224,7 +263,7 @@ export default function SetupWizardPage() {
                       <Select value={zone.warehouseCode} onValueChange={(value) => updateZone(index, "warehouseCode", value)}>
                         <SelectTrigger><SelectValue /></SelectTrigger>
                         <SelectContent>
-                          {payload.warehouses.map((warehouse) => (
+                          {payload.warehouses.filter((w) => w.code.trim() !== "").map((warehouse) => (
                             <SelectItem key={warehouse.code} value={warehouse.code}>{warehouse.code}</SelectItem>
                           ))}
                         </SelectContent>
@@ -257,24 +296,17 @@ export default function SetupWizardPage() {
                   </CardContent>
                 </Card>
               ))}
+              {payload.zones.length === 0 ? (
+                <p className="rounded-md border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+                  No zones yet. Click <strong>Add zone</strong> to start.
+                </p>
+              ) : null}
               <Button
                 variant="outline"
                 onClick={() =>
                   setPayload((current) => ({
                     ...current,
-                    zones: [
-                      ...current.zones,
-                      {
-                        warehouseCode: current.warehouses[0]?.code ?? "MAIN",
-                        code: `ZONE${current.zones.length + 1}`,
-                        name: "New Zone",
-                        temperatureClass: "ambient",
-                        isStaging: false,
-                        isDispatch: false,
-                        isQuarantine: false,
-                        sortOrder: (current.zones.length + 1) * 10,
-                      },
-                    ],
+                    zones: [...current.zones, createBlankZone(current.warehouses[0]?.code ?? "")],
                   }))
                 }
               >
@@ -297,7 +329,7 @@ export default function SetupWizardPage() {
                       <Select value={template.warehouseCode} onValueChange={(value) => updateTemplate(index, "warehouseCode", value)}>
                         <SelectTrigger><SelectValue /></SelectTrigger>
                         <SelectContent>
-                          {payload.warehouses.map((warehouse) => (
+                          {payload.warehouses.filter((w) => w.code.trim() !== "").map((warehouse) => (
                             <SelectItem key={warehouse.code} value={warehouse.code}>{warehouse.code}</SelectItem>
                           ))}
                         </SelectContent>
@@ -308,7 +340,7 @@ export default function SetupWizardPage() {
                         <SelectTrigger><SelectValue /></SelectTrigger>
                         <SelectContent>
                           {payload.zones
-                            .filter((zone) => zone.warehouseCode === template.warehouseCode)
+                            .filter((zone) => zone.warehouseCode === template.warehouseCode && zone.code.trim() !== "")
                             .map((zone) => (
                               <SelectItem key={`${zone.warehouseCode}-${zone.code}`} value={zone.code}>{zone.code}</SelectItem>
                             ))}
@@ -363,6 +395,11 @@ export default function SetupWizardPage() {
                   </CardContent>
                 </Card>
               ))}
+              {payload.locationTemplates.length === 0 ? (
+                <p className="rounded-md border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+                  No location rules yet. Click <strong>Add location template</strong> to start.
+                </p>
+              ) : null}
               <Button
                 variant="outline"
                 onClick={() =>
@@ -370,19 +407,10 @@ export default function SetupWizardPage() {
                     ...current,
                     locationTemplates: [
                       ...current.locationTemplates,
-                      {
-                        warehouseCode: current.warehouses[0]?.code ?? "MAIN",
-                        zoneCode: current.zones[0]?.code ?? "STG",
-                        aisleCount: 1,
-                        baysPerAisle: 6,
-                        levels: 1,
-                        maxPallets: 1,
-                        locationType: "rack",
-                        temperatureClass: "ambient",
-                        mixedSkuAllowed: false,
-                        mixedLotAllowed: false,
-                        status: "active",
-                      },
+                      createBlankLocationTemplate(
+                        current.warehouses[0]?.code ?? "",
+                        current.zones[0]?.code ?? "",
+                      ),
                     ],
                   }))
                 }
@@ -493,21 +521,29 @@ export default function SetupWizardPage() {
                 <CardHeader>
                   <CardTitle>Create and Seed</CardTitle>
                   <CardDescription>
-                    This will create the warehouse structure and seed starter operational data using the wizard payload.
+                    This will create the warehouse structure you defined above. No demo products, pallets, or orders
+                    are added unless you opt in below.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="grid gap-4">
                   <p className="text-sm text-muted-foreground">
-                    Starter data includes clients, products, packaging profiles, initial pallets, inventory, putaway work,
-                    pick work, transfer work, cycle counts, labels, and audit history.
-                  </p>
-                  <p className="text-sm text-muted-foreground">
                     The wizard is idempotent — existing warehouse codes are updated in place. Run{" "}
                     <strong>Reset All</strong> in Settings first if you want a completely clean slate.
                   </p>
+                  {isDeveloper ? (
+                    <div className="flex items-center justify-between rounded-lg border border-dashed border-border px-4 py-3">
+                      <div className="grid gap-1">
+                        <Label htmlFor="seed-demo">Also load demo operational data (developers only)</Label>
+                        <span className="text-xs text-muted-foreground">
+                          Adds sample clients, products, pallets, receipts, putaway/pick/transfer work, and cycle counts.
+                        </span>
+                      </div>
+                      <Switch id="seed-demo" checked={seedDemoData} onCheckedChange={setSeedDemoData} />
+                    </div>
+                  ) : null}
                   <Button onClick={() => mutation.mutate()} disabled={mutation.isPending}>
                     {mutation.isPending ? <Loader2 className="animate-spin" /> : null}
-                    Create warehouse structure and seed starter data
+                    {seedDemoData ? "Create warehouse structure and seed demo data" : "Create warehouse structure"}
                   </Button>
                 </CardContent>
               </Card>

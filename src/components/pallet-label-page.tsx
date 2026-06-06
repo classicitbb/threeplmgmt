@@ -1,5 +1,4 @@
-import { useEffect, useRef } from "react";
-import JsBarcode from "jsbarcode";
+import { QRCodeSVG } from "qrcode.react";
 import { Printer } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -17,11 +16,20 @@ interface PalletLabelPageProps {
   productName?: string;
   quantity?: number;
   lotNumber?: string | null;
+  batchNumber?: string | null;
   expiryDate?: string | null;
+  containerNumber?: string | null;
+  poNumber?: string | null;
   clientName?: string | null;
   warehouseName?: string | null;
+  locationCode?: string | null;
+  receiptReference?: string | null;
+  packaging?: string | null;
+  draftSequence?: string | number | null;
+  draftCount?: string | number | null;
   temperatureClass?: string;
   trigger?: React.ReactNode;
+  onPrinted?: () => Promise<void> | void;
 }
 
 const TEMP_COLOURS: Record<string, string> = {
@@ -43,6 +51,10 @@ function displayValue(value: unknown) {
   return String(value);
 }
 
+function hasValue(value: unknown) {
+  return value != null && String(value).trim() !== "";
+}
+
 function escapeHtml(value: unknown) {
   return displayValue(value)
     .replace(/&/g, "&amp;")
@@ -52,39 +64,23 @@ function escapeHtml(value: unknown) {
     .replace(/'/g, "&#39;");
 }
 
-function FieldBlock({ label, value }: { label: string; value: unknown }) {
+function FieldBlock({ label, value, highlight }: { label: string; value: unknown; highlight?: boolean }) {
   return (
-    <div className="rounded-md border border-slate-300 bg-white/70 px-3 py-2">
-      <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">{label}</p>
+    <div className={highlight ? "rounded-md border border-amber-500 bg-amber-50 px-3 py-2" : "rounded-md border border-slate-300 bg-white/70 px-3 py-2"}>
+      <p className={highlight ? "text-[10px] font-bold uppercase tracking-wide text-amber-700" : "text-[10px] font-bold uppercase tracking-wide text-slate-500"}>{label}</p>
       <p className="mt-1 min-h-5 break-words text-sm font-semibold text-slate-950">{displayValue(value)}</p>
     </div>
   );
 }
 
-function BarcodePreview({ code }: { code: string }) {
-  const ref = useRef<SVGSVGElement>(null);
-
-  useEffect(() => {
-    if (!ref.current || !code) return;
-    try {
-      JsBarcode(ref.current, code, {
-        format: "CODE128",
-        width: 2,
-        height: 70,
-        displayValue: true,
-        fontSize: 28,
-        textMargin: 15,
-        margin: 0,
-        marginRight: 11,
-        background: "#ffffff",
-        lineColor: "#000000",
-      });
-    } catch {
-      // invalid barcode value
-    }
-  }, [code]);
-
-  return <svg ref={ref} />;
+function BarcodePreview({ code, size = 220 }: { code: string; size?: number }) {
+  if (!code) return null;
+  return (
+    <div className="flex flex-col items-center gap-2">
+      <QRCodeSVG value={code} size={size} bgColor="#ffffff" fgColor="#000000" level="H" />
+      <p className="font-mono text-sm font-semibold tracking-wider text-black">{code}</p>
+    </div>
+  );
 }
 
 export function PalletLabelPage(props: PalletLabelPageProps) {
@@ -94,27 +90,44 @@ export function PalletLabelPage(props: PalletLabelPageProps) {
     productName,
     quantity,
     lotNumber,
+    batchNumber,
     expiryDate,
+    containerNumber,
+    poNumber,
     clientName,
     warehouseName,
+    locationCode,
+    receiptReference,
+    packaging,
+    draftSequence,
+    draftCount,
     temperatureClass = "ambient",
     trigger,
+    onPrinted,
   } = props;
 
   const accentColor = TEMP_COLOURS[temperatureClass] ?? TEMP_COLOURS.ambient;
   const tempLabel = TEMP_LABELS[temperatureClass] ?? temperatureClass;
   const safeBarcode = displayValue(barcode);
+  const draftPosition = hasValue(draftSequence) && hasValue(draftCount) ? `${draftSequence}/${draftCount}` : draftSequence;
   const fields = [
     ["Pallet barcode", safeBarcode],
     ["Temperature", tempLabel],
     ["SKU", productSku],
     ["Product", productName],
     ["Quantity", quantity],
-    ["Client", clientName],
-    ["Lot", lotNumber],
     ["Expiry", expiryDate],
+    ["Lot", lotNumber],
+    ["Batch", batchNumber],
+    ["Container", containerNumber],
+    ["PO", poNumber],
+    ["Client", clientName],
     ["Warehouse", warehouseName],
-  ] as const;
+    ["Location", locationCode],
+    ["Receipt", receiptReference],
+    ["Packaging", packaging],
+    ["Draft", draftPosition],
+  ].filter(([label, value]) => label === "Pallet barcode" || hasValue(value));
 
   function handlePrint() {
     const barcodeEl = document.getElementById(`__pl-bc-${barcode}`);
@@ -153,12 +166,15 @@ export function PalletLabelPage(props: PalletLabelPageProps) {
     .temp-badge { font-size: 14pt; font-weight: 800; padding: 0.08in 0.18in; border-radius: 999px; background: ${accentColor}; color: #fff; white-space: nowrap; }
     .field-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.14in; }
     .field { border: 1px solid #94a3b8; border-radius: 0.06in; background: rgba(255,255,255,0.75); padding: 0.1in; min-height: 0.62in; }
+    .field.expiry { border-color: #f59e0b; background: #fffbeb; }
     .field-label { color: #475569; text-transform: uppercase; font-size: 8.5pt; font-weight: 800; letter-spacing: 0.05em; }
+    .field.expiry .field-label { color: #92400e; }
     .field-value { margin-top: 0.05in; font-size: 14pt; line-height: 1.2; font-weight: 750; overflow-wrap: anywhere; }
     .barcode-section { margin-top: auto; border: 2px solid ${accentColor}; background: #fff; border-radius: 0.08in; padding: 0.2in; }
     .barcode-label { color: #475569; text-transform: uppercase; font-size: 9pt; font-weight: 800; letter-spacing: 0.05em; text-align: center; }
-    .barcode-wrap { display: flex; justify-content: center; align-items: center; min-height: 2.1in; padding-top: 0.12in; }
-    .barcode-wrap svg { width: 100%; max-height: 2in; }
+    .barcode-wrap { display: flex; flex-direction: column; justify-content: center; align-items: center; min-height: 2.6in; padding-top: 0.12in; gap: 0.08in; }
+    .barcode-wrap svg { width: 2.4in; height: 2.4in; }
+    .barcode-text { font-family: 'Courier New', monospace; font-size: 16pt; font-weight: 800; letter-spacing: 0.04em; }
     .footer { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #94a3b8; padding-top: 0.14in; }
     .footer-text { font-size: 9pt; color: #475569; font-weight: 650; }
     @media print {
@@ -178,11 +194,11 @@ export function PalletLabelPage(props: PalletLabelPageProps) {
       <span class="temp-badge">${escapeHtml(tempLabel)}</span>
     </div>
     <div class="field-grid">
-      ${fields.map(([label, value]) => `<div class="field"><div class="field-label">${escapeHtml(label)}</div><div class="field-value">${escapeHtml(value)}</div></div>`).join("")}
+      ${fields.map(([label, value]) => `<div class="field${label === "Expiry" ? " expiry" : ""}"><div class="field-label">${escapeHtml(label)}</div><div class="field-value">${escapeHtml(value)}</div></div>`).join("")}
     </div>
     <div class="barcode-section">
-      <div class="barcode-label">Scan barcode</div>
-      <div class="barcode-wrap">${barcodeSvg}</div>
+      <div class="barcode-label">Scan QR code</div>
+      <div class="barcode-wrap">${barcodeSvg}<div class="barcode-text">${escapeHtml(safeBarcode)}</div></div>
     </div>
     <div class="footer">
       <span class="footer-text">Warehouse Wizard</span>
@@ -193,6 +209,7 @@ export function PalletLabelPage(props: PalletLabelPageProps) {
 </body>
 </html>`);
     win.document.close();
+    void Promise.resolve(onPrinted?.());
   }
 
   return (
@@ -240,7 +257,7 @@ export function PalletLabelPage(props: PalletLabelPageProps) {
 
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
               {fields.map(([label, value]) => (
-                <FieldBlock key={label} label={label} value={value} />
+                <FieldBlock key={label} label={label} value={value} highlight={label === "Expiry"} />
               ))}
             </div>
 

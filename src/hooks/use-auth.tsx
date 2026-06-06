@@ -177,6 +177,13 @@ export function AuthProvider({ children }: PropsWithChildren) {
   useEffect(() => {
     let mounted = true;
 
+    const handlePageHide = () => {
+      if (window.localStorage.getItem(rememberMeKey) === "0") {
+        clearSupabaseSession();
+      }
+    };
+    window.addEventListener("pagehide", handlePageHide);
+
     supabase.auth.getSession().catch(() => ({ data: { session: null } })).then(async ({ data }) => {
       if (!mounted) {
         return;
@@ -243,6 +250,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
     return () => {
       mounted = false;
+      window.removeEventListener("pagehide", handlePageHide);
       authListener.subscription.unsubscribe();
     };
   }, []);
@@ -265,8 +273,12 @@ export function AuthProvider({ children }: PropsWithChildren) {
             fn: string,
             args: Record<string, string>,
           ) => Promise<{ data: string | null }>;
-          const { data } = await resolveLoginCodeRpc("resolve_login_code", { in_login_code: identifier }).catch(() => ({ data: null }));
-          authEmail = data ?? "";
+          try {
+            const { data } = await resolveLoginCodeRpc("resolve_login_code", { in_login_code: identifier });
+            authEmail = data ?? "";
+          } catch {
+            authEmail = "";
+          }
         }
 
         // Always attempt real Supabase Auth first so auth.uid() is valid in DB functions.

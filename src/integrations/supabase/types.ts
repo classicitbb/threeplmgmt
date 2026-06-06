@@ -1845,6 +1845,7 @@ export type Database = {
         Row: {
           active: boolean
           approved: boolean
+          badge_code: string | null
           created_at: string
           default_warehouse_id: string | null
           email: string | null
@@ -1852,10 +1853,12 @@ export type Database = {
           id: string
           phone: string | null
           updated_at: string
+          user_code: string | null
         }
         Insert: {
           active?: boolean
           approved?: boolean
+          badge_code?: string | null
           created_at?: string
           default_warehouse_id?: string | null
           email?: string | null
@@ -1863,10 +1866,12 @@ export type Database = {
           id: string
           phone?: string | null
           updated_at?: string
+          user_code?: string | null
         }
         Update: {
           active?: boolean
           approved?: boolean
+          badge_code?: string | null
           created_at?: string
           default_warehouse_id?: string | null
           email?: string | null
@@ -1874,6 +1879,7 @@ export type Database = {
           id?: string
           phone?: string | null
           updated_at?: string
+          user_code?: string | null
         }
         Relationships: [
           {
@@ -2955,14 +2961,20 @@ export type Database = {
       }
     }
     Functions: {
+      _delete_guard_check: { Args: never; Returns: boolean }
       admin_update_user_password: {
         Args: { in_password: string; in_user_id: string }
         Returns: undefined
       }
+      delete_client_cascade: { Args: { in_id: string }; Returns: Json }
       delete_email: {
         Args: { message_id: number; queue_name: string }
         Returns: boolean
       }
+      delete_location_cascade: { Args: { in_id: string }; Returns: Json }
+      delete_product_cascade: { Args: { in_id: string }; Returns: Json }
+      delete_warehouse_cascade: { Args: { in_id: string }; Returns: Json }
+      delete_zone_cascade: { Args: { in_id: string }; Returns: Json }
       directed_putaway_candidates: {
         Args: { in_pallet_id: string }
         Returns: {
@@ -3012,6 +3024,7 @@ export type Database = {
           read_ct: number
         }[]
       }
+      reset_wms_data: { Args: never; Returns: Json }
     }
     Enums: {
       app_role_code:
