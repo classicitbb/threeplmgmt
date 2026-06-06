@@ -240,7 +240,7 @@ export function buildEnterpriseDashboard(
         tasks: (metrics?.receiptRows ?? []).slice(0, 5),
       },
       {
-        label: "Putaway",
+        label: "Put-Away",
         count: metrics?.openPutawayTasks ?? 0,
         action: "Complete scan-confirmed putaway",
         route: "/putaway-tasks",
