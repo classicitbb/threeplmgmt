@@ -7564,7 +7564,10 @@ export function SettingsPage() {
   const resetMutation = useMutation({
     mutationFn: resetWmsData,
     onSuccess: async (result) => {
-      const removed = (result as { deleted_users?: number } | null)?.deleted_users ?? 0;
+      const removed =
+        (result as { deleted_users?: number; removed_users?: number } | null)?.removed_users ??
+        (result as { deleted_users?: number; removed_users?: number } | null)?.deleted_users ??
+        0;
       toast.success(`Reset complete. Removed ${removed} user account${removed === 1 ? "" : "s"}.`);
       await invalidateWarehouseData(queryClient);
       navigate("/setup-wizard");
