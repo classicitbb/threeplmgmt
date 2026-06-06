@@ -16,3 +16,14 @@ export function getOrCreateDeviceId() {
   window.localStorage.setItem(DEVICE_ID_STORAGE_KEY, next);
   return next;
 }
+
+export function isDesktopClient() {
+  if (typeof window === "undefined") return false;
+  try {
+    const hasFinePointer = window.matchMedia?.("(hover: hover) and (pointer: fine)").matches ?? false;
+    const isTouch = "ontouchstart" in window || (navigator.maxTouchPoints ?? 0) > 0;
+    return hasFinePointer && !isTouch;
+  } catch {
+    return false;
+  }
+}
