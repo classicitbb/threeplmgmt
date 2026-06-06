@@ -1077,7 +1077,8 @@ export function createBlankLocationTemplate(
     aisleCount: 0,
     baysPerAisle: 0,
     levels: 0,
-    maxPallets: 0,
+    positionsPerLevel: 0,
+    depth: 0,
     locationType: "",
     temperatureClass: "ambient",
     mixedSkuAllowed: false,
@@ -1090,7 +1091,7 @@ export async function loadExistingSetupPayload(): Promise<WarehouseSetupPayload>
   const [whR, zoneR, locR] = await Promise.all([
     db("warehouses").select("code, name, city, country").order("code"),
     db("zones").select("code, name, temperature_class, is_staging, is_dispatch, is_quarantine, sort_order, warehouses:warehouse_id(code)").order("sort_order"),
-    db("locations").select("location_type, temperature_class, max_pallets, mixed_sku_allowed, mixed_lot_allowed, status, aisle, bay, level, warehouses:warehouse_id(code), zones:zone_id(code, temperature_class)"),
+    db("locations").select("location_type, temperature_class, max_pallets, depth, position, mixed_sku_allowed, mixed_lot_allowed, status, aisle, bay, level, warehouses:warehouse_id(code), zones:zone_id(code, temperature_class)"),
   ]);
   if (whR.error) throw whR.error;
   if (zoneR.error) throw zoneR.error;
@@ -1124,7 +1125,7 @@ export async function loadExistingSetupPayload(): Promise<WarehouseSetupPayload>
   }
 
   // Derive one template per (warehouse, zone, location_type) using aggregate counts.
-  const groups = new Map<string, WarehouseLocationTemplate & { _aisles: Set<string>; _bays: Set<string>; _levels: Set<string> }>();
+  const groups = new Map<string, WarehouseLocationTemplate & { _aisles: Set<string>; _bays: Set<string>; _levels: Set<string>; _positions: Set<string> }>();
   for (const l of (locR.data ?? []) as any[]) {
     const wCode = l.warehouses?.code ?? "";
     const zCode = l.zones?.code ?? "";
@@ -1138,7 +1139,8 @@ export async function loadExistingSetupPayload(): Promise<WarehouseSetupPayload>
         aisleCount: 0,
         baysPerAisle: 0,
         levels: 0,
-        maxPallets: Number(l.max_pallets ?? 1),
+        positionsPerLevel: 1,
+        depth: Number(l.depth ?? l.max_pallets ?? 1),
         locationType: l.location_type ?? "rack",
         temperatureClass: (l.temperature_class ?? l.zones?.temperature_class ?? "ambient") as TemperatureClass,
         mixedSkuAllowed: !!l.mixed_sku_allowed,
@@ -1147,20 +1149,23 @@ export async function loadExistingSetupPayload(): Promise<WarehouseSetupPayload>
         _aisles: new Set<string>(),
         _bays: new Set<string>(),
         _levels: new Set<string>(),
+        _positions: new Set<string>(),
       };
       groups.set(key, g);
     }
-    if (l.aisle != null) g._aisles.add(String(l.aisle));
-    if (l.bay != null) g._bays.add(String(l.bay));
-    if (l.level != null) g._levels.add(String(l.level));
+    if (l.aisle != null) g!._aisles.add(String(l.aisle));
+    if (l.bay != null) g!._bays.add(String(l.bay));
+    if (l.level != null) g!._levels.add(String(l.level));
+    if (l.position != null) g!._positions.add(String(l.position));
   }
   const locationTemplates: WarehouseLocationTemplate[] = Array.from(groups.values()).map((g) => {
-    const { _aisles, _bays, _levels, ...rest } = g;
+    const { _aisles, _bays, _levels, _positions, ...rest } = g;
     return {
       ...rest,
       aisleCount: _aisles.size || 1,
       baysPerAisle: Math.max(1, Math.ceil((_bays.size || 1) / Math.max(1, _aisles.size || 1))),
       levels: _levels.size || 1,
+      positionsPerLevel: _positions.size || 1,
     };
   });
 
