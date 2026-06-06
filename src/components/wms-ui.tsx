@@ -2117,8 +2117,8 @@ function LocationWizardDialog({ trigger }: { trigger?: React.ReactNode }) {
       start_bay: 1,
       end_bay: 10,
       levels: 3,
+      positions_per_level: 1,
       depth: 1,
-      max_pallets: 1,
       location_type: "rack",
       temperature_class: "ambient",
       mixed_sku_allowed: false,
@@ -2139,32 +2139,35 @@ function LocationWizardDialog({ trigger }: { trigger?: React.ReactNode }) {
 
   const locationCount =
     Math.max((form.watch("end_bay") ?? 1) - (form.watch("start_bay") ?? 1) + 1, 0) *
-    Math.max(form.watch("levels") ?? 1, 1);
+    Math.max(form.watch("levels") ?? 1, 1) *
+    Math.max(form.watch("positions_per_level") ?? 1, 1);
 
   const mutation = useMutation({
     mutationFn: async (values: LocationWizardValues) => {
-      const locations = [];
-
-      for (let bay = values.start_bay; bay <= values.end_bay; bay += 1) {
-        for (let level = 1; level <= values.levels; level += 1) {
-          const localCode = `${values.prefix}-${String(bay).padStart(2, "0")}-L${String(level).padStart(2, "0")}`;
-          locations.push({
-            warehouse_id: values.warehouse_id,
-            zone_id: values.zone_id,
-            code: composeLocationCode(options, values.warehouse_id, values.zone_id, localCode),
-            aisle: values.prefix,
-            bay: String(bay).padStart(2, "0"),
-            level,
-            depth: values.depth,
-            max_pallets: values.max_pallets,
-            location_type: values.location_type,
-            temperature_class: values.temperature_class,
-            mixed_sku_allowed: values.mixed_sku_allowed,
-            mixed_lot_allowed: values.mixed_lot_allowed,
-            status: "active",
-          });
-        }
-      }
+      const expanded = expandLocationRange({
+        prefix: values.prefix,
+        startBay: values.start_bay,
+        endBay: values.end_bay,
+        positionsPerLevel: values.positions_per_level,
+        levels: values.levels,
+        depth: values.depth,
+      });
+      const locations = expanded.map((row) => ({
+        warehouse_id: values.warehouse_id,
+        zone_id: values.zone_id,
+        code: composeLocationCode(options, values.warehouse_id, values.zone_id, row.localCode),
+        aisle: row.aisle,
+        bay: row.bay,
+        level: row.level,
+        position: row.position,
+        depth: row.depth,
+        max_pallets: row.maxPallets,
+        location_type: values.location_type,
+        temperature_class: values.temperature_class,
+        mixed_sku_allowed: values.mixed_sku_allowed,
+        mixed_lot_allowed: values.mixed_lot_allowed,
+        status: "active",
+      }));
 
       for (const location of locations) {
         await upsertRecord("locations", location);
@@ -2191,7 +2194,7 @@ function LocationWizardDialog({ trigger }: { trigger?: React.ReactNode }) {
       <DialogContent className="max-h-[90vh] overflow-hidden sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Create locations by range</DialogTitle>
-          <DialogDescription>Generate repeated bay and level locations without typing every record.</DialogDescription>
+          <DialogDescription>Each bay-level splits into 1–3 side-by-side positions. Total = bays × levels × positions. Depth = pallet capacity per slot.</DialogDescription>
         </DialogHeader>
         <ScrollArea className="max-h-[72vh] pr-4">
           <Form {...form}>
@@ -2213,9 +2216,9 @@ function LocationWizardDialog({ trigger }: { trigger?: React.ReactNode }) {
               <TextField form={form} name="prefix" label="Aisle prefix" hint="Letter or short code, e.g. A or BR." />
               <TextField form={form} name="start_bay" label="Start bay" type="number" hint="First bay number in the range (≥ 1)." />
               <TextField form={form} name="end_bay" label="End bay" type="number" hint="Must be ≥ start bay." />
-              <TextField form={form} name="levels" label="Levels" type="number" hint="How many vertical levels per bay (1–20)." />
-              <TextField form={form} name="depth" label="Depth" type="number" hint="Pallet positions deep (1–5)." />
-              <TextField form={form} name="max_pallets" label="Max pallets" type="number" hint="Capacity per location." />
+              <TextField form={form} name="levels" label="Levels" type="number" hint="Vertical levels per bay (1–6)." />
+              <TextField form={form} name="positions_per_level" label="Positions per level" type="number" hint="Side-by-side slots in each bay-level (1–3)." />
+              <TextField form={form} name="depth" label="Depth (capacity)" type="number" hint="Pallets deep per slot = capacity (1–5)." />
               <SelectField form={form} name="location_type" label="Type" hint="Used by directed putaway rules." options={[
                 { label: "Rack", value: "rack" },
                 { label: "Staging", value: "staging" },
