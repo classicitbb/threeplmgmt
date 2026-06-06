@@ -2962,6 +2962,16 @@ export type Database = {
     }
     Functions: {
       _delete_guard_check: { Args: never; Returns: boolean }
+      admin_invite_user: {
+        Args: {
+          in_email: string
+          in_full_name: string
+          in_password: string
+          in_role_code?: string
+          in_warehouse_id?: string
+        }
+        Returns: string
+      }
       admin_update_user_password: {
         Args: { in_password: string; in_user_id: string }
         Returns: undefined
