@@ -163,14 +163,14 @@ const routeHelpDefinitions: Record<string, RouteHelpDefinition> = {
     permissions: "Used by admins, managers, and inventory clerks.",
     wikiArticleIds: ["receiving-flow", "label-printing"],
   },
-  put-away: {
-    id: "put-away",
+  putaway: {
+    id: "putaway",
     title: "Put-Away",
     summary: "Put-Away confirms pallet and location scans before stock becomes stored and available.",
     keyActions: ["Scan pallet", "Scan a full location or shortened bay code", "Select an available bay cell when prompted", "Complete directed put-away with audit logging"],
     commonMistakes: ["Scanning the wrong location", "Treating a bay code as a final location", "Trying to store cool stock in ambient locations"],
     permissions: "Used by admins, managers, clerks, and operators.",
-    wikiArticleIds: ["put-away-flow", "location-generation"],
+    wikiArticleIds: ["putaway-flow", "location-generation"],
   },
   inventory: {
     id: "inventory",
@@ -369,9 +369,9 @@ export const helpArticles: HelpArticle[] = [
     ],
   },
   {
-    id: "put-away-flow",
+    id: "putaway-flow",
     title: "Directed Put-Away",
-    module: "put-away",
+    module: "putaway",
     audience: "Operators and supervisors",
     keywords: ["put-away", "scan", "location", "temperature", "store"],
     sections: [
@@ -640,7 +640,7 @@ const routeMatchers: Array<{ match: (pathname: string) => boolean; helpId: strin
   { match: (pathname) => pathname === "/products", helpId: "products" },
   { match: (pathname) => pathname === "/packaging-profiles", helpId: "packaging-profiles" },
   { match: (pathname) => pathname === "/receiving", helpId: "receiving" },
-  { match: (pathname) => pathname === "/put-away-tasks", helpId: "put-away" },
+  { match: (pathname) => pathname === "/putaway-tasks", helpId: "putaway" },
   { match: (pathname) => pathname === "/inventory-search" || pathname.startsWith("/inventory/"), helpId: "inventory" },
   { match: (pathname) => pathname === "/pick-lists" || pathname.startsWith("/pick-lists/"), helpId: "pick-lists" },
   { match: (pathname) => pathname === "/transfers", helpId: "transfers" },
