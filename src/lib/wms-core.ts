@@ -2859,13 +2859,18 @@ export async function parseCsvForResource(resource: ResourceDefinition, file: Fi
         // FK resolution
         if (UUID_RE.test(value)) {
           if (key === "client_owner_id" && clientLookup && !clientLookup.has(`id:${value}`)) {
-            errors.push(`client_owner_id: no client matches UUID ${value}`);
+            warnings.push(`client_owner_id: UUID ${value} not found — left blank, assign after import`);
+            normalized[key] = null;
             continue;
           }
           normalized[key] = value;
         } else if (key === "client_owner_id" && clientLookup) {
           const resolved = clientLookup.get(`code:${value.toLowerCase()}`) ?? clientLookup.get(`name:${value.toLowerCase()}`);
-          if (!resolved) { errors.push(`client_owner_id: no client matches "${value}"`); continue; }
+          if (!resolved) {
+            warnings.push(`client_owner_id: "${value}" not found — left blank, assign after import`);
+            normalized[key] = null;
+            continue;
+          }
           normalized[key] = resolved;
         } else {
           errors.push(`${key}: expected UUID, got "${value}"`);
@@ -2876,8 +2881,11 @@ export async function parseCsvForResource(resource: ResourceDefinition, file: Fi
       }
     }
 
-    // Required field check for columns missing entirely
+    // Required field check for columns missing entirely.
+    // Skip nullable-in-DB FKs (e.g. client_owner_id) — users can fill them in after import.
+    const skipRequired = new Set(["client_owner_id"]);
     for (const f of resource.fields) {
+      if (skipRequired.has(f.name)) continue;
       if (f.required && !(f.name in normalized) && !errors.some((e) => e.includes(f.name))) {
         errors.push(`Missing required: ${f.name}`);
       }
