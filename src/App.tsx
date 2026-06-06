@@ -15,28 +15,9 @@ import { enqueueOfflineWork, isLikelyNetworkError } from "@/lib/offline-queue";
 import { supabase } from "@/integrations/supabase/client";
 import { createAppQueryClient } from "@/lib/query-client";
 
-import { confirmPickTask, formatDate, formatNumber, getInventoryDetail, getPickExecution, loginSchema, recordUserSignIn, refreshUserDeviceTrust, signUpSchema, RESOURCE_DEFINITIONS } from "@/lib/wms-core";
+import { confirmPickTask, formatDate, formatNumber, getBayOccupancy, getInventoryDetail, getPickExecution, loginSchema, recordUserSignIn, refreshUserDeviceTrust, signUpSchema, RESOURCE_DEFINITIONS } from "@/lib/wms-core";
 import { getOrCreateDeviceId, hasTrustedDeviceShortcut, isDesktopClient } from "@/lib/device-identity";
 import { cn } from "@/lib/utils";
-import {
-  AppShell,
-  DashboardPage,
-  InventorySearchPage,
-  MobileActionBar,
-  PickListsPage,
-  PutawayTasksPage,
-  ReceivingPage,
-  ReportsPage,
-  ResourcePage,
-  SettingsPage,
-  StatusPage,
-  SystemLogPage,
-  EmailLogPage,
-  TransfersPage,
-  UsersRolesPage,
-  CycleCountsPage,
-  LocationMovesPage,
-} from "@/components/wms-ui";
 
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
@@ -761,10 +742,11 @@ function LoginPage() {
     defaultValues: { password: "" },
   });
 
-  const signUpForm = useForm({
+  const _signUpForm = useForm({
     resolver: zodResolver(signUpSchema),
     defaultValues: { fullName: "", email: "", phone: "", password: "" },
   });
+  void _signUpForm;
 
   const loginMutation = useMutation({
     mutationFn: async (values: { email: string; password: string }) => {
@@ -1451,7 +1433,7 @@ function PickExecutionPage() {
         .from("pick_tasks")
         .select("id, status")
         .eq("pick_list_id", pickListId)
-        .in("status", Array.from(PICK_OPEN_STATUSES));
+      .in("status", Array.from(PICK_OPEN_STATUSES) as ("queued" | "assigned" | "in_progress")[]);
       if (openError) throw openError;
       if ((openTasks ?? []).length > 0) {
         throw new Error("Confirm every pick task before closing the pick list.");
@@ -1562,7 +1544,7 @@ function PickBayGrid({
     );
   }
 
-  const hasAssignedLocation = data.cells.some((cell) => cell.locationCode.toUpperCase() === assigned);
+  const hasAssignedLocation = data.cells.some((cell: { locationCode: string }) => cell.locationCode.toUpperCase() === assigned);
 
   return (
     <div className="lg:col-span-4 grid gap-2 rounded-md border border-border bg-secondary/20 p-3">
@@ -1575,7 +1557,7 @@ function PickBayGrid({
         </span>
       </div>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        {data.cells.map((cell) => {
+        {data.cells.map((cell: { locationId: string; locationCode: string; status: string; occupiedPallets: number; maxPallets: number }) => {
           const isAssigned = cell.locationCode.toUpperCase() === assigned;
           const canSelect = isAssigned && cell.status === "active";
           return (

@@ -4,6 +4,7 @@ import { distributeShipmentLine } from "@/components/wms-ui";
 const baseLine = {
   id: "line-1",
   product_id: "product-1",
+  packaging_profile_id: "",
   total_quantity: 1000,
   quantity_per_pallet: 83,
   pallet_count: 12,

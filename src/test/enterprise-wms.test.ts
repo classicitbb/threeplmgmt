@@ -38,6 +38,11 @@ function dashboardMetrics(overrides: Partial<DashboardMetrics> = {}): DashboardM
     replenishmentRows: [],
     blockedBalanceRows: [],
     receiptRows: [],
+    expiryWarning30: 0,
+    expiryWarning60: 0,
+    stockAge3Months: 0,
+    stockAge6Months: 0,
+    stockAge12Months: 0,
     ...overrides,
   };
 }

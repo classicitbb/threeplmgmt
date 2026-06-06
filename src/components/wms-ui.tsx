@@ -55,7 +55,6 @@ import {
   createCycleCountFlow,
   createPickListFlow,
   getPickableStockSummary,
-  createReceiptFlow,
   createTransferFlow,
   cancelPickList,
   deleteClientVariable,
@@ -80,7 +79,6 @@ import {
   importCsvToResource,
   listClientVariables,
   listDraftReceipts,
-  saveDraftReceipt,
   saveShipmentDrafts,
   updateDraftReceipt,
   completeReceiptFromDraft,
@@ -144,7 +142,6 @@ import {
 import {
   buildCsvReportRows,
   buildEnterpriseDashboard,
-  generateZplLabel,
   type DashboardMode,
   type DockHandoffLoad,
   type EnterpriseDashboardSnapshot,
@@ -2474,7 +2471,7 @@ export function DashboardPage() {
   const snapshot = useMemo(() => buildEnterpriseDashboard(metrics, reports), [metrics, reports]);
   const summaryCardsById = useMemo(() => {
     const returnedMetricKeys = metrics?.dashboardMetricKeys ? new Set(metrics.dashboardMetricKeys) : null;
-    const cards = filterDashboardTileDefinitions(DEFAULT_DASHBOARD_CARDS, isEnabled)
+    const cards = (filterDashboardTileDefinitions(DEFAULT_DASHBOARD_CARDS, isEnabled) as DashboardCardConfig[])
       .filter((card) => !returnedMetricKeys || returnedMetricKeys.has(card.metricKey));
     return new Map(cards.map((card) => [card.id, card]));
   }, [isEnabled, metrics?.dashboardMetricKeys]);
@@ -3872,7 +3869,7 @@ export function ReceivingPage() {
                     draftSequence={draft.draft_sequence}
                     draftCount={draft.draft_count}
                     temperatureClass={product?.temperature_requirement}
-                    onPrinted={() => receiveMutation.mutateAsync(draft)}
+                    onPrinted={async () => { await receiveMutation.mutateAsync(draft); }}
                     trigger={<Button size="sm" variant="outline" disabled={receiveMutation.isPending}><Printer data-icon="inline-start" />Print & Receive</Button>}
                   />
                   <Button size="sm" variant="outline" onClick={() => openEditDraft(draft)}><Pencil data-icon="inline-start" />Edit</Button>
