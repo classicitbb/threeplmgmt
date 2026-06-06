@@ -2727,6 +2727,216 @@ export async function importCsvToResource(resource: ResourceDefinition, file: Fi
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// CSV Import (preview + commit)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const STRIP_FIELDS = new Set(["id", "created_at", "updated_at"]);
+
+export type ImportRowPreview = {
+  rowNumber: number;
+  raw: Record<string, string>;
+  normalized: Record<string, unknown> | null;
+  errors: string[];
+  warnings: string[];
+};
+
+export type ImportPreview = {
+  resourceTable: string;
+  headers: string[];
+  rows: ImportRowPreview[];
+  summary: { total: number; valid: number; invalid: number };
+  file: File;
+};
+
+function parseCsvRobust(text: string): { headers: string[]; rows: Record<string, string>[] } {
+  const records: string[][] = [];
+  let cur: string[] = [];
+  let field = "";
+  let inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (text[i + 1] === '"') { field += '"'; i++; } else { inQuotes = false; }
+      } else { field += c; }
+    } else {
+      if (c === '"') inQuotes = true;
+      else if (c === ",") { cur.push(field); field = ""; }
+      else if (c === "\n" || c === "\r") {
+        if (c === "\r" && text[i + 1] === "\n") i++;
+        cur.push(field); field = "";
+        if (cur.some((v) => v !== "")) records.push(cur);
+        cur = [];
+      } else { field += c; }
+    }
+  }
+  if (field !== "" || cur.length > 0) { cur.push(field); if (cur.some((v) => v !== "")) records.push(cur); }
+  if (records.length === 0) return { headers: [], rows: [] };
+  const headers = records[0].map((h) => h.trim());
+  const rows = records.slice(1).map((vals) => {
+    const o: Record<string, string> = {};
+    headers.forEach((h, i) => { o[h] = (vals[i] ?? "").trim(); });
+    return o;
+  });
+  return { headers, rows };
+}
+
+function coerceBoolean(v: string): boolean | null {
+  const s = v.trim().toLowerCase();
+  if (s === "") return null;
+  if (["true", "1", "yes", "y", "t"].includes(s)) return true;
+  if (["false", "0", "no", "n", "f"].includes(s)) return false;
+  return null;
+}
+
+export async function parseCsvForResource(resource: ResourceDefinition, file: File): Promise<ImportPreview> {
+  const text = await file.text();
+  const { headers, rows } = parseCsvRobust(text);
+
+  // Build field lookup for normalization
+  const fieldByName = new Map(resource.fields.map((f) => [f.name, f]));
+
+  // For products: preload clients to resolve client_owner_id by code/name
+  let clientLookup: Map<string, string> | null = null;
+  if (resource.table === "products") {
+    const { data } = await db("clients").select("id, code, name");
+    clientLookup = new Map();
+    (data ?? []).forEach((c: any) => {
+      if (c.code) clientLookup!.set(`code:${String(c.code).toLowerCase()}`, c.id);
+      if (c.name) clientLookup!.set(`name:${String(c.name).toLowerCase()}`, c.id);
+      clientLookup!.set(`id:${c.id}`, c.id);
+    });
+  }
+
+  // For products: preload existing SKUs to flag duplicates
+  let existingSkus: Set<string> | null = null;
+  if (resource.table === "products") {
+    const { data } = await db("products").select("sku");
+    existingSkus = new Set((data ?? []).map((r: any) => String(r.sku).toLowerCase()));
+  }
+  const seenInFile = new Set<string>();
+
+  const preview: ImportRowPreview[] = rows.map((raw, idx) => {
+    const errors: string[] = [];
+    const warnings: string[] = [];
+    const normalized: Record<string, unknown> = {};
+
+    // Skip template metadata rows (label row "required/optional" pattern, all "required"/"optional" tokens)
+    const allValues = Object.values(raw);
+    if (allValues.length > 0 && allValues.every((v) => v === "required" || v === "optional" || v === "")) {
+      return { rowNumber: idx + 2, raw, normalized: null, errors: ["Skipped template marker row"], warnings: [] };
+    }
+
+    for (const [key, valueRaw] of Object.entries(raw)) {
+      if (STRIP_FIELDS.has(key)) continue; // ignore server-managed fields
+      const field = fieldByName.get(key);
+      if (!field) {
+        warnings.push(`Unknown column "${key}" (ignored)`);
+        continue;
+      }
+      const value = valueRaw;
+      if (value === "" || value == null) {
+        if (field.required) errors.push(`Missing required: ${field.name}`);
+        continue;
+      }
+      if (field.type === "boolean") {
+        const b = coerceBoolean(value);
+        if (b == null) { errors.push(`${field.name}: invalid boolean "${value}"`); continue; }
+        normalized[key] = b;
+      } else if (field.type === "number") {
+        const n = Number(value);
+        if (!Number.isFinite(n)) { errors.push(`${field.name}: invalid number "${value}"`); continue; }
+        normalized[key] = n;
+      } else if (field.type === "select" && field.options?.length) {
+        const match = field.options.find((o) => o.value.toLowerCase() === value.toLowerCase());
+        if (!match) {
+          errors.push(`${field.name}: "${value}" not one of ${field.options.map((o) => o.value).join("/")}`);
+          continue;
+        }
+        normalized[key] = match.value;
+      } else if (key.endsWith("_id")) {
+        // FK resolution
+        if (UUID_RE.test(value)) {
+          if (key === "client_owner_id" && clientLookup && !clientLookup.has(`id:${value}`)) {
+            errors.push(`client_owner_id: no client matches UUID ${value}`);
+            continue;
+          }
+          normalized[key] = value;
+        } else if (key === "client_owner_id" && clientLookup) {
+          const resolved = clientLookup.get(`code:${value.toLowerCase()}`) ?? clientLookup.get(`name:${value.toLowerCase()}`);
+          if (!resolved) { errors.push(`client_owner_id: no client matches "${value}"`); continue; }
+          normalized[key] = resolved;
+        } else {
+          errors.push(`${key}: expected UUID, got "${value}"`);
+          continue;
+        }
+      } else {
+        normalized[key] = value;
+      }
+    }
+
+    // Required field check for columns missing entirely
+    for (const f of resource.fields) {
+      if (f.required && !(f.name in normalized) && !errors.some((e) => e.includes(f.name))) {
+        errors.push(`Missing required: ${f.name}`);
+      }
+    }
+
+    // Products: dedupe by SKU (insert-only)
+    if (resource.table === "products" && normalized.sku) {
+      const sku = String(normalized.sku).toLowerCase();
+      if (seenInFile.has(sku)) errors.push(`Duplicate SKU "${normalized.sku}" within file`);
+      else seenInFile.add(sku);
+      if (existingSkus?.has(sku)) errors.push(`SKU "${normalized.sku}" already exists`);
+    }
+
+    return {
+      rowNumber: idx + 2,
+      raw,
+      normalized: errors.length === 0 ? normalized : null,
+      errors,
+      warnings,
+    };
+  });
+
+  const valid = preview.filter((r) => r.normalized).length;
+  return {
+    resourceTable: resource.table,
+    headers,
+    rows: preview,
+    summary: { total: preview.length, valid, invalid: preview.length - valid },
+    file,
+  };
+}
+
+export async function commitImportRows(
+  resource: ResourceDefinition,
+  preview: ImportPreview,
+): Promise<{ inserted: number; failed: number; errors: Array<{ row: number; error: string }> }> {
+  const errors: Array<{ row: number; error: string }> = [];
+  let inserted = 0;
+  for (const row of preview.rows) {
+    if (!row.normalized) continue;
+    const { error } = await db(resource.table).insert(row.normalized as never).select();
+    if (error) {
+      errors.push({ row: row.rowNumber, error: formatSupabaseError(error, "Insert failed") });
+    } else {
+      inserted++;
+    }
+  }
+  // Best-effort archive of the original file
+  try {
+    await supabase.storage.from("imports").upload(
+      `${resource.table}/${Date.now()}-${preview.file.name}`,
+      preview.file,
+      { cacheControl: "3600", upsert: true },
+    );
+  } catch { /* ignore */ }
+  return { inserted, failed: errors.length, errors };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Client Variables
 // ─────────────────────────────────────────────────────────────────────────────
 
