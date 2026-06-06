@@ -491,10 +491,10 @@ export const helpArticles: HelpArticle[] = [
   },
   {
     id: "location-generation",
-    title: "Generating Locations",
+    title: "Generating Bin Locations",
     module: "locations",
     audience: "Admins and warehouse managers",
-    keywords: ["locations", "generation", "aisles", "bays", "levels", "capacity"],
+    keywords: ["bin locations", "generation", "aisles", "bays", "levels", "capacity"],
     sections: [
       { title: "Templates", content: ["Location templates generate consistent codes and capacities across a zone. Codes should be readable in the aisle and sortable in the system.", "Aisle, bay, and level counts should match the real warehouse footprint you want operators to use. Never create virtual locations that operators cannot physically find."] },
       { title: "Rack and Bay Codes", content: ["Full location labels identify the exact rack cell, including level. Bay labels remove the level so scanning the bay code opens a selector for every active location in that bay.", "This supports rack-upright scanning without creating separate bay records. The selector still uses the existing aisle, bay, level, depth, capacity, and status fields."] },
