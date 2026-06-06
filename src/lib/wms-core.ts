@@ -3617,17 +3617,17 @@ export async function getPalletByBarcode(barcode: string): Promise<{
   };
 }
 
-// ── Putaway draft revert ───────────────────────────────────────────────────────
+// ── Put-Away draft revert ───────────────────────────────────────────────────────
 export async function revertPutawayToDraft(taskId: string): Promise<void> {
   const { data: task, error } = await db("putaway_tasks").select("*, pallets(pallet_barcode)").eq("id", taskId).single();
   if (error) throw error;
   if (task.status === "completed") throw new Error("Cannot revert a completed putaway task.");
-  if (task.status === "cancelled") throw new Error("Putaway task has already been returned to Receiving.");
+  if (task.status === "cancelled") throw new Error("Put-Away task has already been returned to Receiving.");
 
   await createReturnedPalletDraft({
     palletId: task.pallet_id,
     warehouseId: task.warehouse_id,
-    sourceLabel: `Putaway task ${task.task_number}`,
+    sourceLabel: `Put-Away task ${task.task_number}`,
     sourceType: "putaway_returned",
     sourceId: taskId,
     reason: "Returned to receiving from putaway",
