@@ -7782,7 +7782,7 @@ export function SettingsPage() {
                   version: "1.0.0",
                   date: "May 2026",
                   changes: [
-                    "Full warehouse master data — Warehouses, Zones, Locations (bulk wizard), Clients, Products, Packaging Profiles",
+                    "Full warehouse master data — Warehouses, Zones, Bin Locations (bulk wizard), Clients, Products, Packaging Profiles",
                     "Receiving workflow — manual, purchase order, and transfer receipt types with lot/expiry capture",
                     "Directed putaway with temperature and capacity validation",
                     "Inventory search and pallet-level detail with full movement history",
