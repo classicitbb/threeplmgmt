@@ -742,10 +742,11 @@ function LoginPage() {
     defaultValues: { password: "" },
   });
 
-  const signUpForm = useForm({
+  const _signUpForm = useForm({
     resolver: zodResolver(signUpSchema),
     defaultValues: { fullName: "", email: "", phone: "", password: "" },
   });
+  void _signUpForm;
 
   const loginMutation = useMutation({
     mutationFn: async (values: { email: string; password: string }) => {
@@ -1432,7 +1433,7 @@ function PickExecutionPage() {
         .from("pick_tasks")
         .select("id, status")
         .eq("pick_list_id", pickListId)
-        .in("status", Array.from(PICK_OPEN_STATUSES));
+      .in("status", Array.from(PICK_OPEN_STATUSES) as ("queued" | "assigned" | "in_progress")[]);
       if (openError) throw openError;
       if ((openTasks ?? []).length > 0) {
         throw new Error("Confirm every pick task before closing the pick list.");
@@ -1521,7 +1522,7 @@ function PickBayGrid({
 }) {
   const { data, isFetching } = useQuery({
     queryKey: ["pick-bay-occupancy", bayCode],
-    queryFn: () => getBayOccupancy(bayCode),
+    queryFn: () => getBayOccupancyFn(bayCode),
     enabled: bayCode.trim().length > 0,
     staleTime: 10_000,
   });
@@ -1543,7 +1544,7 @@ function PickBayGrid({
     );
   }
 
-  const hasAssignedLocation = data.cells.some((cell) => cell.locationCode.toUpperCase() === assigned);
+  const hasAssignedLocation = data.cells.some((cell: { locationCode: string }) => cell.locationCode.toUpperCase() === assigned);
 
   return (
     <div className="lg:col-span-4 grid gap-2 rounded-md border border-border bg-secondary/20 p-3">
@@ -1556,7 +1557,7 @@ function PickBayGrid({
         </span>
       </div>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        {data.cells.map((cell) => {
+        {data.cells.map((cell: { locationId: string; locationCode: string; status: string; occupiedPallets: number; maxPallets: number }) => {
           const isAssigned = cell.locationCode.toUpperCase() === assigned;
           const canSelect = isAssigned && cell.status === "active";
           return (
