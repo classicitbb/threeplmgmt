@@ -35,7 +35,6 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 const demoSessionKey = "warehouse-wizard-demo-session";
-<<<<<<< Updated upstream
 // Demo fallback is only enabled in dev/preview builds. In production, hardcoded
 // demo credentials must never grant a fake session, even if Supabase is unreachable.
 const demoEnabled =
@@ -44,22 +43,6 @@ const demoEnabled =
   (typeof window !== "undefined" &&
     /^(localhost|127\.0\.0\.1|.*\.lovable\.app)$/.test(window.location.hostname) &&
     !/^threeplmgmt\.lovable\.app$/.test(window.location.hostname));
-=======
-const rememberMeKey = "warehouse-wizard-remember-me";
-
-function clearSupabaseSession() {
-  try {
-    Object.keys(window.localStorage).forEach((key) => {
-      if (key.startsWith("sb-") && key.endsWith("-auth-token")) {
-        window.localStorage.removeItem(key);
-      }
-    });
-  } catch {
-    /* noop */
-  }
-}
-const demoEnabled = import.meta.env.VITE_ENABLE_DEMO === "true";
->>>>>>> Stashed changes
 
 const demoUsers: Record<string, { id: string; fullName: string; roles: RoleCode[]; userCode: string; badgeCode: string }> = {
   "admin@warehousewizard.local": {

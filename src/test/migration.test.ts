@@ -34,6 +34,10 @@ const adminUpdatePasswordMigration = readFileSync(
   path.resolve(process.cwd(), "supabase/migrations/20260528001000_admin_update_user_password.sql"),
   "utf8",
 );
+const cleanSlateResetMigration = readFileSync(
+  path.resolve(process.cwd(), "supabase/migrations/20260606090000_harden_reset_all_clean_slate.sql"),
+  "utf8",
+);
 
 describe("init_wms migration", () => {
   it("creates the core warehouse tables", () => {
@@ -123,7 +127,19 @@ describe("admin password update migration", () => {
   it("adds an admin-only RPC for direct credential updates", () => {
     expect(adminUpdatePasswordMigration).toContain("create or replace function public.admin_update_user_password");
     expect(adminUpdatePasswordMigration).toContain("public.has_role(auth.uid(), 'admin')");
-    expect(adminUpdatePasswordMigration).toContain("encrypted_password = crypt(in_password, gen_salt('bf'))");
+    expect(adminUpdatePasswordMigration).toContain("encrypted_password = extensions.crypt(in_password, extensions.gen_salt('bf'::text))");
     expect(adminUpdatePasswordMigration).toContain("grant execute on function public.admin_update_user_password(uuid, text) to authenticated");
+  });
+});
+
+describe("clean slate reset migration", () => {
+  it("preserves developer access while clearing seeded users and newer reset tables", () => {
+    expect(cleanSlateResetMigration).toContain("create or replace function public.reset_wms_data()");
+    expect(cleanSlateResetMigration).toContain("public.has_role(actor_user, 'developer')");
+    expect(cleanSlateResetMigration).toContain("lower(coalesce(p.email, '')) = 'russelljhunte@gmail.com'");
+    expect(cleanSlateResetMigration).toContain("delete from auth.users");
+    expect(cleanSlateResetMigration).toContain("public.user_device_trust");
+    expect(cleanSlateResetMigration).toContain("public.email_send_log");
+    expect(cleanSlateResetMigration).toContain("grant execute on function public.reset_wms_data() to authenticated");
   });
 });

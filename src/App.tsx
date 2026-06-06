@@ -15,8 +15,8 @@ import { guardMutation } from "@/hooks/use-network-status";
 import { supabase } from "@/integrations/supabase/client";
 import { createAppQueryClient } from "@/lib/query-client";
 
-<<<<<<< Updated upstream
-import { confirmPickTask, formatDate, formatNumber, getInventoryDetail, getPickExecution, loginSchema, recordUserSignIn, signUpSchema, RESOURCE_DEFINITIONS } from "@/lib/wms-core";
+import { confirmPickTask, formatDate, formatNumber, getInventoryDetail, getPickExecution, loginSchema, recordUserSignIn, refreshUserDeviceTrust, signUpSchema, RESOURCE_DEFINITIONS } from "@/lib/wms-core";
+import { getOrCreateDeviceId } from "@/lib/device-identity";
 import {
   AppShell,
   DashboardPage,
@@ -36,10 +36,6 @@ import {
   CycleCountsPage,
   LocationMovesPage,
 } from "@/components/wms-ui";
-=======
-import { confirmPickTask, formatDate, formatNumber, getInventoryDetail, getPickExecution, loginSchema, recordUserSignIn, refreshUserDeviceTrust, signUpSchema, RESOURCE_DEFINITIONS } from "@/lib/wms-core";
-import { getOrCreateDeviceId } from "@/lib/device-identity";
->>>>>>> Stashed changes
 
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
