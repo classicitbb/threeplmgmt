@@ -2057,6 +2057,11 @@ export function ResourcePage({
 }
 
 function ImportButton({ resource, asMenuItems = false }: { resource: ResourceDefinition; asMenuItems?: boolean }) {
+  const queryClient = useQueryClient();
+  const [preview, setPreview] = useState<ImportPreview | null>(null);
+  const [parsing, setParsing] = useState(false);
+  const [committing, setCommitting] = useState(false);
+
   function handleImport() {
     const input = document.createElement("input");
     input.type = "file";
@@ -2064,15 +2069,37 @@ function ImportButton({ resource, asMenuItems = false }: { resource: ResourceDef
     input.onchange = async () => {
       const file = input.files?.[0];
       if (!file) return;
-      const errors = await importCsvToResource(resource, file);
-      if (errors.length > 0) {
-        downloadCsv(`${resource.table}-errors.csv`, errors);
-        toast.error(`Imported with ${errors.length} row errors`);
-      } else {
-        toast.success(`${resource.title} imported`);
+      setParsing(true);
+      try {
+        const p = await parseCsvForResource(resource, file);
+        setPreview(p);
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Could not parse CSV");
+      } finally {
+        setParsing(false);
       }
     };
     input.click();
+  }
+
+  async function handleConfirm() {
+    if (!preview) return;
+    setCommitting(true);
+    try {
+      const result = await commitImportRows(resource, preview);
+      if (result.failed > 0) {
+        downloadCsv(`${resource.table}-errors.csv`, result.errors);
+        toast.error(`Imported ${result.inserted}, failed ${result.failed} — error report downloaded`);
+      } else {
+        toast.success(`Imported ${result.inserted} ${resource.title.toLowerCase()}`);
+      }
+      setPreview(null);
+      await queryClient.invalidateQueries({ queryKey: ["records", resource.table] });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Import failed");
+    } finally {
+      setCommitting(false);
+    }
   }
 
   if (asMenuItems) {
@@ -2082,10 +2109,17 @@ function ImportButton({ resource, asMenuItems = false }: { resource: ResourceDef
           <FileDown className="mr-2 h-4 w-4" />
           Template
         </DropdownMenuItem>
-        <DropdownMenuItem onSelect={(event) => { event.preventDefault(); handleImport(); }}>
+        <DropdownMenuItem onSelect={(event) => { event.preventDefault(); handleImport(); }} disabled={parsing}>
           <Upload className="mr-2 h-4 w-4" />
-          Import CSV
+          {parsing ? "Parsing…" : "Import CSV"}
         </DropdownMenuItem>
+        <ImportPreviewDialog
+          resource={resource}
+          preview={preview}
+          onCancel={() => setPreview(null)}
+          onConfirm={handleConfirm}
+          committing={committing}
+        />
       </>
     );
   }
@@ -2099,11 +2133,93 @@ function ImportButton({ resource, asMenuItems = false }: { resource: ResourceDef
       <Button
         variant="outline"
         onClick={handleImport}
+        disabled={parsing}
       >
         <Upload data-icon="inline-start" />
-        Import CSV
+        {parsing ? "Parsing…" : "Import CSV"}
       </Button>
+      <ImportPreviewDialog
+        resource={resource}
+        preview={preview}
+        onCancel={() => setPreview(null)}
+        onConfirm={handleConfirm}
+        committing={committing}
+      />
     </>
+  );
+}
+
+function ImportPreviewDialog({
+  resource,
+  preview,
+  onCancel,
+  onConfirm,
+  committing,
+}: {
+  resource: ResourceDefinition;
+  preview: ImportPreview | null;
+  onCancel: () => void;
+  onConfirm: () => void;
+  committing: boolean;
+}) {
+  const open = preview !== null;
+  const summary = preview?.summary ?? { total: 0, valid: 0, invalid: 0 };
+  const previewCols = resource.fields.slice(0, 5).map((f) => f.name);
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o && !committing) onCancel(); }}>
+      <DialogContent className="max-w-5xl">
+        <DialogHeader>
+          <DialogTitle>Review {resource.title} import</DialogTitle>
+          <DialogDescription>
+            Rows are validated before anything is written. IDs and timestamps from the file are ignored — new records get fresh IDs.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex flex-wrap gap-2 text-sm">
+          <Badge variant="secondary">Total {summary.total}</Badge>
+          <Badge className="bg-emerald-600 text-white hover:bg-emerald-600">Valid {summary.valid}</Badge>
+          <Badge variant="destructive">Errors {summary.invalid}</Badge>
+        </div>
+        <ScrollArea className="max-h-[55vh] rounded border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-12">#</TableHead>
+                <TableHead className="w-24">Status</TableHead>
+                {previewCols.map((c) => <TableHead key={c}>{c}</TableHead>)}
+                <TableHead>Issues</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {preview?.rows.map((r) => (
+                <TableRow key={r.rowNumber}>
+                  <TableCell className="font-mono text-xs">{r.rowNumber}</TableCell>
+                  <TableCell>
+                    {r.normalized
+                      ? <Badge className="bg-emerald-600 text-white hover:bg-emerald-600">OK</Badge>
+                      : <Badge variant="destructive">Error</Badge>}
+                  </TableCell>
+                  {previewCols.map((c) => (
+                    <TableCell key={c} className="text-xs">
+                      {String((r.normalized?.[c] ?? r.raw[c]) ?? "")}
+                    </TableCell>
+                  ))}
+                  <TableCell className="text-xs">
+                    {[...r.errors, ...r.warnings].join("; ")}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </ScrollArea>
+        <DialogFooter>
+          <Button variant="outline" onClick={onCancel} disabled={committing}>Cancel</Button>
+          <Button onClick={onConfirm} disabled={committing || summary.valid === 0}>
+            {committing ? <Loader2 className="animate-spin" /> : <Upload data-icon="inline-start" />}
+            Import {summary.valid} row{summary.valid === 1 ? "" : "s"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
