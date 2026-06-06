@@ -15,7 +15,7 @@ import { enqueueOfflineWork, isLikelyNetworkError } from "@/lib/offline-queue";
 import { supabase } from "@/integrations/supabase/client";
 import { createAppQueryClient } from "@/lib/query-client";
 
-import { confirmPickTask, formatDate, formatNumber, getInventoryDetail, getPickExecution, loginSchema, recordUserSignIn, refreshUserDeviceTrust, signUpSchema, RESOURCE_DEFINITIONS } from "@/lib/wms-core";
+import { confirmPickTask, formatDate, formatNumber, getBayOccupancy, getInventoryDetail, getPickExecution, loginSchema, recordUserSignIn, refreshUserDeviceTrust, signUpSchema, RESOURCE_DEFINITIONS } from "@/lib/wms-core";
 import { getOrCreateDeviceId, hasTrustedDeviceShortcut, isDesktopClient } from "@/lib/device-identity";
 import { cn } from "@/lib/utils";
 
@@ -1522,7 +1522,7 @@ function PickBayGrid({
 }) {
   const { data, isFetching } = useQuery({
     queryKey: ["pick-bay-occupancy", bayCode],
-    queryFn: () => getBayOccupancyFn(bayCode),
+    queryFn: () => getBayOccupancy(bayCode),
     enabled: bayCode.trim().length > 0,
     staleTime: 10_000,
   });
