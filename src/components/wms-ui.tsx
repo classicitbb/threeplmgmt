@@ -205,7 +205,7 @@ const DEFAULT_DASHBOARD_CARDS: DashboardCardConfig[] = [
   { id: "totalPallets", label: "Total Pallets", metricKey: "totalPallets", size: "lg", moduleKey: "inventory" },
   { id: "warehousePallets", label: "This Warehouse", metricKey: "warehousePallets", size: "lg", moduleKey: "inventory" },
   { id: "openReceipts", label: "Open Receipts", metricKey: "openReceipts", size: "sm", moduleKey: "receiving" },
-  { id: "openPutawayTasks", label: "Open Putaway", metricKey: "openPutawayTasks", size: "sm", moduleKey: "putaway" },
+  { id: "openPutawayTasks", label: "Open Put-Away", metricKey: "openPutawayTasks", size: "sm", moduleKey: "putaway" },
   { id: "openPickLists", label: "Open Pick Lists", metricKey: "openPickLists", size: "sm", moduleKey: "pick-lists" },
   { id: "openMoveTasks", label: "Open Moves", metricKey: "openMoveTasks", size: "sm", moduleKey: "location-moves" },
   { id: "expiryWarning30", label: "Expiry 30 Days", metricKey: "expiryWarning30", size: "sm", moduleKey: "inventory" },
@@ -252,7 +252,7 @@ function dashboardMetricLink(metricKey: DashboardMetricKey) {
 }
 const DEFAULT_FLOOR_TILES: DashboardTileDefinition<ModuleKey>[] = [
   { id: "Inbound", label: "Inbound", size: "lg", moduleKey: "receiving" },
-  { id: "Putaway", label: "Putaway", size: "lg", moduleKey: "putaway" },
+  { id: "Putaway", label: "Put-Away", size: "lg", moduleKey: "putaway" },
   { id: "Warehouse Intelligence", label: "Warehouse Intelligence", size: "lg" },
   { id: "Outbound", label: "Outbound", size: "lg", moduleKey: "pick-lists" },
   { id: "Moves & Counts", label: "Moves & Counts", size: "lg", moduleKey: "location-moves" },
@@ -3552,7 +3552,7 @@ export function ReceivingPage() {
     },
     onSuccess: async (results) => {
       const count = results.length;
-      toast.success(`${count} pallet label${count === 1 ? "" : "s"} printed and sent to Putaway.`);
+      toast.success(`${count} pallet label${count === 1 ? "" : "s"} printed and sent to Put-Away.`);
       setLastResult({
         barcode: count === 1 ? results[0]?.palletBarcode ?? "Pallet" : `${count} pallets`,
         taskNumber: count === 1 ? results[0]?.putawayTaskNumber ?? "queued" : "queued",
@@ -3769,10 +3769,10 @@ export function ReceivingPage() {
         <div className="flex flex-col gap-2 rounded-lg border border-green-200 bg-green-50 p-4 dark:border-green-900 dark:bg-green-950/30 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-sm font-semibold text-green-800 dark:text-green-300">Pallet {lastResult.barcode} received · {lastResult.qty} units</p>
-            <p className="text-xs text-green-700 dark:text-green-400">Putaway task {lastResult.taskNumber} queued</p>
+            <p className="text-xs text-green-700 dark:text-green-400">Put-Away task {lastResult.taskNumber} queued</p>
           </div>
           <div className="flex gap-2">
-            <Button size="sm" onClick={() => navigate("/putaway-tasks")}>Go to Putaway</Button>
+            <Button size="sm" onClick={() => navigate("/putaway-tasks")}>Go to Put-Away</Button>
             <Button size="sm" variant="ghost" onClick={() => setLastResult(null)}>x</Button>
           </div>
         </div>
@@ -4229,7 +4229,7 @@ export function ReceivingPage() {
             <Button variant="outline" onClick={() => setSelectedDraftIds(new Set(printDrafts.map((draft) => draft.id)))}>Select all shown</Button>
             <Button disabled={batchReceiveMutation.isPending || selectedPrintDrafts.length === 0} onClick={() => printAndReceiveDrafts(selectedPrintDrafts)}>
               {batchReceiveMutation.isPending ? <Loader2 className="animate-spin" /> : <Printer data-icon="inline-start" />}
-              Print selected & send to Putaway
+              Print selected & send to Put-Away
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -4514,7 +4514,7 @@ export function PutawayTasksPage() {
         return;
       }
       playBarcodeBeep();
-      toast.success(vars.override ? "Putaway locked in with override" : "Putaway locked in", {
+      toast.success(vars.override ? "Put-Away locked in with override" : "Put-Away locked in", {
         description: `Pallet ${vars.pallet} stored at ${vars.location}.`,
         duration: 7000,
         className: "border-emerald-400 bg-emerald-50 text-emerald-950 dark:border-emerald-500 dark:bg-emerald-950 dark:text-emerald-50",
@@ -4549,7 +4549,7 @@ export function PutawayTasksPage() {
         setViolations((current) => ({ ...current, [vars.taskId]: reason }));
         toast.warning(`Location rule violation: ${reason}. Tick "Override" to put away anyway.`);
       } else {
-        toast.error(msg || "Putaway failed");
+        toast.error(msg || "Put-Away failed");
       }
     },
   });
@@ -4608,7 +4608,7 @@ export function PutawayTasksPage() {
     <div className="flex h-full min-h-0 flex-col gap-6 overflow-hidden">
       <div className="shrink-0 rounded-lg border border-border bg-background/95 p-4 shadow-sm backdrop-blur sm:flex sm:items-end sm:justify-between sm:gap-3">
         <div>
-          <h2 className="text-2xl font-semibold">Putaway Tasks</h2>
+          <h2 className="text-2xl font-semibold">Put-Away Tasks</h2>
           <p className="text-sm text-muted-foreground">Scan pallet barcode, then location barcode, and confirm.</p>
         </div>
         <div className="mt-3 flex min-w-0 flex-col gap-2 sm:mt-0 sm:min-w-80 sm:items-end">
@@ -4909,7 +4909,7 @@ export function PutawayTasksPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Return this task to Receiving?</AlertDialogTitle>
             <AlertDialogDescription>
-              This removes {returnTask?.task_number ?? "this task"} from Putaway Tasks and creates a Saved Draft in Receiving. To find it later, open Receiving and use the Draft Pallets list.
+              This removes {returnTask?.task_number ?? "this task"} from Put-Away Tasks and creates a Saved Draft in Receiving. To find it later, open Receiving and use the Draft Pallets list.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -5732,7 +5732,7 @@ export function TransfersPage() {
     mutationFn: async (transferId: string) => receiveTransfer(transferId),
     onSuccess: async () => {
       toast.success("Transfer received — putaway task created", {
-        action: { label: "Go to Putaway", onClick: () => navigate("/putaway-tasks") },
+        action: { label: "Go to Put-Away", onClick: () => navigate("/putaway-tasks") },
         duration: 8000,
       });
       await Promise.all([
@@ -7692,7 +7692,7 @@ export function SettingsPage() {
                   version: "1.1.8 Beta",
                   date: "June 2026",
                   changes: [
-                    "Putaway and Pick: shortened bay codes open the bay selector while full location scans still confirm directly",
+                    "Put-Away and Pick: shortened bay codes open the bay selector while full location scans still confirm directly",
                     "Bin Locations table: Warehouse and Zone now appear before Aisle, and Label appears before Max Pallets",
                     "Location labels: batch printing now matches the per-row beam label design on Avery 99 x 38 mm labels",
                     "Bay labels: shortened location codes without level numbers print on Avery 99 x 93 mm labels",
@@ -7721,7 +7721,7 @@ export function SettingsPage() {
                   changes: [
                     "Pick Lists: product selector now only shows items with available quantity assigned to a location — zero-qty and unlocated stock are hidden",
                     "Inventory Search: removed the secondary location/zone scan filter bar (warehouse filter remains)",
-                    "Dashboard: putaway count now matches what managers see on the Putaway page; all roles see tasks correctly",
+                    "Dashboard: put-away count now matches what managers see on the Put-Away page; all roles see tasks correctly",
                     "Seeded task data (putaway, move tasks, cycle counts) cleaned up via migration",
                     "Password: all users can change their own password from the nav header; admin cannot change developer passwords",
                     "Developer and Warehouse Supervisor roles added; password RPCs extended to allow developer role",
@@ -7746,7 +7746,7 @@ export function SettingsPage() {
                     "Inventory Search: warehouse scope matching now includes live warehouse, zone, aisle, and location codes",
                     "Bin Locations: generated and migrated codes now preserve warehouse, zone, and location hierarchy",
                     "Location Labels: full hierarchy codes with QR output for complex location codes",
-                    "Putaway: clearer location confirmation fields and aligned desktop task confirmation",
+                    "Put-Away: clearer location confirmation fields and aligned desktop task confirmation",
                     "Tables: editable and detail rows now require double-click or double-tap before opening",
                   ],
                 },
@@ -7832,7 +7832,7 @@ export function SettingsPage() {
                 ["Products", "SKU master with rotation method, temperature class, and lot tracking"],
                 ["Packaging Profiles", "Unit, carton, pallet pack forms with dimensions and barcodes"],
                 ["Receiving", "Manual, PO, and transfer inbound with lot/expiry capture and putaway queuing"],
-                ["Putaway", "Directed putaway with temperature, capacity, and height validation"],
+                ["Put-Away", "Directed put-away with temperature, capacity, and height validation"],
                 ["Inventory Search", "Live pallet lookup by SKU, barcode, lot, location, or pallet code"],
                 ["Pick Lists", "Rotation-aware pick wave creation with shortage capture"],
                 ["Transfers", "Inter-warehouse moves with pallet identity preservation and driver sign-off"],

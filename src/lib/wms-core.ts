@@ -263,7 +263,7 @@ export type ModuleKey =
 export const NAVIGATION: Array<{ label: string; to: AppRoute; roles: RoleCode[]; moduleKey?: ModuleKey }> = [
   { label: "Dashboard", to: "/dashboard", roles: ["developer", "admin", "warehouse_manager", "warehouse_supervisor", "inventory_clerk", "warehouse_operator", "dispatch_driver"] },
   { label: "Receiving", to: "/receiving", roles: ["developer", "admin", "warehouse_manager", "warehouse_supervisor", "inventory_clerk"], moduleKey: "receiving" },
-  { label: "Putaway", to: "/putaway-tasks", roles: ["developer", "admin", "warehouse_manager", "warehouse_supervisor", "inventory_clerk", "warehouse_operator"], moduleKey: "putaway" },
+  { label: "Put-Away", to: "/putaway-tasks", roles: ["developer", "admin", "warehouse_manager", "warehouse_supervisor", "inventory_clerk", "warehouse_operator"], moduleKey: "putaway" },
   { label: "Inventory", to: "/inventory-search", roles: ["developer", "admin", "warehouse_manager", "warehouse_supervisor", "inventory_clerk", "warehouse_operator"], moduleKey: "inventory" },
   { label: "Pick Lists", to: "/pick-lists", roles: ["developer", "admin", "warehouse_manager", "warehouse_supervisor", "warehouse_operator"], moduleKey: "pick-lists" },
   { label: "Location Moves", to: "/location-moves", roles: ["developer", "admin", "warehouse_manager", "warehouse_supervisor", "inventory_clerk", "warehouse_operator"], moduleKey: "location-moves" },
@@ -395,7 +395,7 @@ export const RESOURCE_DEFINITIONS: Record<string, ResourceDefinition> = {
       { name: "temperature_class", label: "Temperature", type: "select", options: tempOptions, required: true },
       { name: "max_pallets", label: "Max pallets", type: "number", required: true },
       { name: "pick_sequence", label: "Pick seq", type: "number" },
-      { name: "putaway_sequence", label: "Putaway seq", type: "number" },
+      { name: "putaway_sequence", label: "Put-Away seq", type: "number" },
       { name: "mixed_sku_allowed", label: "Mixed SKU", type: "boolean" },
       { name: "mixed_lot_allowed", label: "Mixed lot", type: "boolean" },
       { name: "max_height", label: "Max height (cm)", type: "number", description: "Leave blank for no height restriction. Set for bays near roof beams." },
@@ -1618,7 +1618,7 @@ export async function confirmPutaway(
 
   if (taskError) throw taskError;
   if (!["queued", "assigned", "in_progress", "exception"].includes(task.status)) {
-    throw new Error("Putaway task is already closed or no longer available.");
+    throw new Error("Put-Away task is already closed or no longer available.");
   }
 
   const pallet = task.pallets as any;
@@ -1672,7 +1672,7 @@ export async function confirmPutaway(
     .select("id")
     .maybeSingle();
   if (claimError) throw claimError;
-  if (!claimedTask) throw new Error("Putaway task was completed by another user. Refresh the queue.");
+  if (!claimedTask) throw new Error("Put-Away task was completed by another user. Refresh the queue.");
 
   await Promise.all([
     db("pallets")

@@ -75,7 +75,7 @@ const RELEASE_HISTORY = [
     version: "1.1.8 Beta",
     date: "June 2026",
     changes: [
-      "Putaway and pick: shortened bay codes open the bay selector while full location scans still confirm directly",
+      "Put-Away and pick: shortened bay codes open the bay selector while full location scans still confirm directly",
       "Bin Locations: table columns now show Warehouse and Zone before Aisle, with Label before Max Pallets",
       "Location labels: batch sheets match the per-row beam label design on Avery 99 x 38 mm labels",
       "Bay and zone labels: batch sheets print shortened bay/zone aisle codes on Avery 99 x 93 mm labels",
@@ -116,7 +116,7 @@ const RELEASE_HISTORY = [
       "Inventory Search: warehouse scope matching now includes live warehouse, zone, aisle, and location codes",
       "Locations: generated and migrated codes now preserve warehouse, zone, and location hierarchy",
       "Location Labels: full hierarchy codes with QR output for complex location codes",
-      "Putaway: clearer location confirmation fields and aligned desktop task confirmation",
+      "Put-Away: clearer location confirmation fields and aligned desktop task confirmation",
       "Tables: editable and detail rows now require double-click or double-tap before opening",
     ],
   },
@@ -125,7 +125,7 @@ const RELEASE_HISTORY = [
     date: "May 2026",
     changes: [
       "Inventory Search: barcode-aware searching and warehouse scope filtering",
-      "Putaway: pallet confirmation, draft return prompts, and saved draft guidance",
+      "Put-Away: pallet confirmation, draft return prompts, and saved draft guidance",
       "Pick Lists: searchable pick list contents with scan support",
       "Inventory Detail: pallet barcode and full-page pallet label preview",
       "Mobile: configurable bottom toolbar and responsive table scrolling",

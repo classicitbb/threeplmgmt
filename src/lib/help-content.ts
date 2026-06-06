@@ -26,7 +26,7 @@ export const setupWizardSteps: SetupWizardStepDetail[] = [
     title: "Define zones inside each facility",
     summary: "Group locations by purpose and temperature class.",
     details: [
-      "Create zones such as Receiving, Putaway, Picking, Cool, Quarantine, or Bulk for each warehouse.",
+      "Create zones such as Receiving, Put-Away, Picking, Cool, Quarantine, or Bulk for each warehouse.",
       "Set the temperature class (ambient, cool, frozen) so directed putaway can match products to compatible zones.",
       "Mark zones that should not accept normal stock (for example Quarantine or Damaged) so suggestions skip them.",
     ],
@@ -165,8 +165,8 @@ const routeHelpDefinitions: Record<string, RouteHelpDefinition> = {
   },
   putaway: {
     id: "putaway",
-    title: "Putaway",
-    summary: "Putaway confirms pallet and location scans before stock becomes stored and available.",
+    title: "Put-Away",
+    summary: "Put-Away confirms pallet and location scans before stock becomes stored and available.",
     keyActions: ["Scan pallet", "Scan a full location or shortened bay code", "Select an available bay cell when prompted", "Complete directed putaway with audit logging"],
     commonMistakes: ["Scanning the wrong location", "Treating a bay code as a final location", "Trying to store cool stock in ambient locations"],
     permissions: "Used by admins, managers, clerks, and operators.",
@@ -370,12 +370,12 @@ export const helpArticles: HelpArticle[] = [
   },
   {
     id: "putaway-flow",
-    title: "Directed Putaway",
+    title: "Directed Put-Away",
     module: "putaway",
     audience: "Operators and supervisors",
     keywords: ["putaway", "scan", "location", "temperature", "store"],
     sections: [
-      { title: "How It Works", content: ["Putaway is complete only after the pallet barcode and location barcode are both confirmed.", "A full location code fills the confirmation field directly. A shortened bay code opens the bay selector so the operator can tap the exact available slot.", "Successful confirmation moves stock into stored and available status."] },
+      { title: "How It Works", content: ["Put-Away is complete only after the pallet barcode and location barcode are both confirmed.", "A full location code fills the confirmation field directly. A shortened bay code opens the bay selector so the operator can tap the exact available slot.", "Successful confirmation moves stock into stored and available status."] },
       { title: "Common Exceptions", content: ["A location that is inactive, full, or temperature-incompatible will block the move.", "Scan mismatches should be corrected before retrying."] },
     ],
   },
