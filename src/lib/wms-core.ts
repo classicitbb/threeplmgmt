@@ -270,7 +270,7 @@ export const NAVIGATION: Array<{ label: string; to: AppRoute; roles: RoleCode[];
   { label: "Transfers", to: "/transfers", roles: ["developer", "admin", "warehouse_manager", "warehouse_supervisor", "inventory_clerk", "dispatch_driver"], moduleKey: "transfers" },
   { label: "Warehouses", to: "/warehouses", roles: ["developer", "admin", "warehouse_manager"], moduleKey: "warehouses" },
   { label: "Zones", to: "/zones", roles: ["developer", "admin", "warehouse_manager"], moduleKey: "zones" },
-  { label: "Locations", to: "/locations", roles: ["developer", "admin", "warehouse_manager"], moduleKey: "locations" },
+  { label: "Bin Locations", to: "/locations", roles: ["developer", "admin", "warehouse_manager"], moduleKey: "locations" },
   { label: "Products", to: "/products", roles: ["developer", "admin", "warehouse_manager", "warehouse_supervisor", "inventory_clerk"], moduleKey: "products" },
   { label: "Clients", to: "/clients", roles: ["developer", "admin", "warehouse_manager"], moduleKey: "clients" },
   { label: "Settings", to: "/settings", roles: ["developer", "admin", "warehouse_manager", "warehouse_supervisor"], moduleKey: "settings" },
@@ -367,7 +367,7 @@ export const RESOURCE_DEFINITIONS: Record<string, ResourceDefinition> = {
   },
   locations: {
     table: "locations",
-    title: "Locations",
+    title: "Bin Locations",
     description: "Rack, staging, and quarantine locations with capacity and sequencing.",
     singular: "location",
     helpId: "locations",

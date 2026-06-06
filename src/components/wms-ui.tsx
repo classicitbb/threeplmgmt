@@ -7827,7 +7827,7 @@ export function SettingsPage() {
               {[
                 ["Warehouses", "Multi-facility master data with cool zone flags"],
                 ["Zones", "Temperature-classed storage and workflow zones per warehouse"],
-                ["Locations", "Rack, staging, dispatch, quarantine, and floor slots with capacity rules"],
+                ["Bin Locations", "Rack, staging, dispatch, quarantine, and floor slots with capacity rules"],
                 ["Clients", "3PL customer master with stock-sharing and expiry policies"],
                 ["Products", "SKU master with rotation method, temperature class, and lot tracking"],
                 ["Packaging Profiles", "Unit, carton, pallet pack forms with dimensions and barcodes"],
