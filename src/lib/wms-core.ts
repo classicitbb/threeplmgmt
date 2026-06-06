@@ -1221,6 +1221,55 @@ export async function runWarehouseSetup(setupPayload: WarehouseSetupPayload, see
   return data;
 }
 
+export type LocationRangeInput = {
+  prefix: string;
+  startBay: number;
+  endBay: number;
+  positionsPerLevel: number;
+  levels: number;
+  depth: number;
+};
+
+export type ExpandedLocationRow = {
+  aisle: string;
+  bay: string;
+  level: number;
+  position: number;
+  depth: number;
+  maxPallets: number;
+  localCode: string;
+};
+
+/**
+ * Expand a rack range into one row per physical slot.
+ * Total = (endBay - startBay + 1) * levels * positionsPerLevel.
+ * Each slot's capacity = depth (1-5 pallets deep).
+ */
+export function expandLocationRange(input: LocationRangeInput): ExpandedLocationRow[] {
+  const rows: ExpandedLocationRow[] = [];
+  const startBay = Math.max(1, Math.floor(input.startBay));
+  const endBay = Math.max(startBay, Math.floor(input.endBay));
+  const levels = Math.max(1, Math.min(6, Math.floor(input.levels)));
+  const positions = Math.max(1, Math.min(3, Math.floor(input.positionsPerLevel)));
+  const depth = Math.max(1, Math.min(5, Math.floor(input.depth)));
+  for (let bay = startBay; bay <= endBay; bay += 1) {
+    for (let level = 1; level <= levels; level += 1) {
+      for (let position = 1; position <= positions; position += 1) {
+        rows.push({
+          aisle: input.prefix,
+          bay: String(bay).padStart(2, "0"),
+          level,
+          position,
+          depth,
+          maxPallets: depth,
+          localCode: `${input.prefix}-${String(bay).padStart(2, "0")}-L${String(level).padStart(2, "0")}-P${position}`,
+        });
+      }
+    }
+  }
+  return rows;
+}
+
 function buildPalletCode(prefix: string) {
   const time = Date.now().toString().slice(-8);
   const rand = Math.random().toString(36).slice(2, 6).toUpperCase();
