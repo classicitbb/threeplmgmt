@@ -842,16 +842,10 @@ export async function adminUpdateUserPin(profileId: string, pin: string) {
   const client = supabase as unknown as {
     rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: unknown }>;
   };
-  let { error } = await client.rpc("admin_update_user_pin", {
+  const { error } = await client.rpc("admin_update_user_pin", {
     in_user_id: profileId,
     in_pin: pin,
   });
-  if (error && String((error as any).message ?? "").includes("schema cache")) {
-    ({ error } = await client.rpc("admin_update_user_pin", {
-      in_pin: pin,
-      in_user_id: profileId,
-    }));
-  }
   if (error) throw new Error((error as any).message ?? "Badge PIN update failed");
   await logUserActivity("user_access_change", "profiles", profileId, {
     fields: ["badge_pin"],
@@ -859,23 +853,12 @@ export async function adminUpdateUserPin(profileId: string, pin: string) {
 }
 
 export async function refreshUserDeviceTrust(deviceId: string) {
-  const desktop = isDesktopClient();
-  const functionResult = await supabase.functions.invoke("trust-device", {
-    body: {
-      deviceId,
-      isDesktop: desktop,
-    },
-  });
-  if (!functionResult.error) return;
-
   const client = supabase as unknown as {
     rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: unknown }>;
   };
   const { error } = await client.rpc("refresh_user_device_trust", {
     in_device_id: deviceId,
     in_user_agent: typeof navigator === "undefined" ? null : navigator.userAgent,
-    in_last_known_ip: null,
-    in_is_desktop: desktop,
   });
   if (error) throw new Error((error as any).message ?? "Device trust update failed");
 }

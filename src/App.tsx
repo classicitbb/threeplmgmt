@@ -14,10 +14,28 @@ import { FeatureFlagContext, useFeatureFlagState } from "@/hooks/use-feature-fla
 import { enqueueOfflineWork, isLikelyNetworkError } from "@/lib/offline-queue";
 import { supabase } from "@/integrations/supabase/client";
 import { createAppQueryClient } from "@/lib/query-client";
-import { cn } from "@/lib/utils";
 
-import { confirmPickTask, formatDate, formatNumber, getBayOccupancy, getInventoryDetail, getPickExecution, loginSchema, recordUserSignIn, refreshUserDeviceTrust, RESOURCE_DEFINITIONS } from "@/lib/wms-core";
-import { clearTrustedDeviceShortcut, getOrCreateDeviceId, hasTrustedDeviceShortcut, isDesktopClient, markTrustedDeviceShortcut } from "@/lib/device-identity";
+import { confirmPickTask, formatDate, formatNumber, getInventoryDetail, getPickExecution, loginSchema, recordUserSignIn, refreshUserDeviceTrust, signUpSchema, RESOURCE_DEFINITIONS } from "@/lib/wms-core";
+import { getOrCreateDeviceId } from "@/lib/device-identity";
+import {
+  AppShell,
+  DashboardPage,
+  InventorySearchPage,
+  MobileActionBar,
+  PickListsPage,
+  PutawayTasksPage,
+  ReceivingPage,
+  ReportsPage,
+  ResourcePage,
+  SettingsPage,
+  StatusPage,
+  SystemLogPage,
+  EmailLogPage,
+  TransfersPage,
+  UsersRolesPage,
+  CycleCountsPage,
+  LocationMovesPage,
+} from "@/components/wms-ui";
 
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
@@ -742,20 +760,21 @@ function LoginPage() {
     defaultValues: { password: "" },
   });
 
+  const signUpForm = useForm({
+    resolver: zodResolver(signUpSchema),
+    defaultValues: { fullName: "", email: "", phone: "", password: "" },
+  });
+
   const loginMutation = useMutation({
     mutationFn: async (values: { email: string; password: string }) => {
       const identifier = values.email.trim();
-      const isEmail = identifier.includes("@");
-      const isPin = /^\d{4,7}$/.test(values.password.trim());
-      const method = identifier.toUpperCase().startsWith("BADGE-") ? "badge" : isEmail ? "email" : "code";
-      const shouldUsePinLogin = method === "badge" || (!isEmail && isPin);
-      if (shouldUsePinLogin) {
+      const method = identifier.toUpperCase().startsWith("BADGE-") ? "badge" : identifier.includes("@") ? "email" : "code";
+      if (method === "badge") {
         const { data, error } = await supabase.functions.invoke("badge-login", {
           body: {
             badgeCode: identifier,
             pin: values.password,
             deviceId: getOrCreateDeviceId(),
-            isDesktop: isDesktopClient(),
           },
         });
         if (error) throw error;
@@ -768,20 +787,7 @@ function LoginPage() {
         if (verifyError) throw verifyError;
       } else {
         await auth.signIn(identifier, values.password);
-        const deviceId = getOrCreateDeviceId();
-        try {
-          await refreshUserDeviceTrust(deviceId);
-          if (!isDesktopClient()) {
-            markTrustedDeviceShortcut(deviceId);
-            setBadgeShortcutAvailable(true);
-          } else {
-            clearTrustedDeviceShortcut();
-            setBadgeShortcutAvailable(false);
-          }
-        } catch {
-          clearTrustedDeviceShortcut();
-          setBadgeShortcutAvailable(false);
-        }
+        await refreshUserDeviceTrust(getOrCreateDeviceId());
       }
       await recordUserSignIn(method);
     },
