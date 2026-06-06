@@ -33,7 +33,7 @@ if (!isInIframe && !isPreviewHost) {
     onNeedRefresh() {
       toast("Update available", {
         description: "A new version of Warehouse Wizard is ready.",
-        duration: Infinity,
+        duration: 15_000,
         action: {
           label: "Reload",
           onClick: () => updateSW(true),

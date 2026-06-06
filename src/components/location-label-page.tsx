@@ -55,8 +55,8 @@ function escapeHtml(value: unknown) {
     .replace(/'/g, "&#39;");
 }
 
-function MachineCodePreview({ code }: { code: string }) {
-  return <QRCodeSVG value={code} size={132} level="M" />;
+function MachineCodePreview({ code, size = 132 }: { code: string; size?: number }) {
+  return <QRCodeSVG value={code} size={size} level="M" />;
 }
 
 export function LocationLabelPage(props: LocationLabelPageProps) {
@@ -83,8 +83,6 @@ export function LocationLabelPage(props: LocationLabelPageProps) {
   const fullCode = fullCodePrefix && !code.toUpperCase().startsWith(fullCodePrefix.toUpperCase())
     ? `${fullCodePrefix}${code}`
     : code;
-  const useQr = true;
-
   const locationParts = [
     aisle ? `Aisle ${aisle}` : null,
     bay ? `Bay ${bay}` : null,
@@ -95,7 +93,7 @@ export function LocationLabelPage(props: LocationLabelPageProps) {
     const machineEl = document.getElementById(`__loc-machine-${code}`);
     const machineMarkup = machineEl?.innerHTML ?? "";
 
-    const win = window.open("", "_blank", "width=560,height=380");
+    const win = window.open("", "_blank", "width=640,height=360");
     if (!win) return;
 
     win.document.write(`<!DOCTYPE html>
@@ -104,49 +102,40 @@ export function LocationLabelPage(props: LocationLabelPageProps) {
   <title>Location Label — ${escapeHtml(fullCode)}</title>
   <meta charset="utf-8" />
   <style>
-    @page { size: 101.6mm 63.5mm landscape; margin: 0; }
+    @page { size: 114.3mm 50.8mm landscape; margin: 0; }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      width: 101.6mm;
-      height: 63.5mm;
+      width: 114.3mm;
+      height: 50.8mm;
       background: #fff;
       font-family: system-ui, -apple-system, sans-serif;
-      display: flex;
-      flex-direction: column;
-      padding: 4mm 5mm 3mm;
+      display: grid;
+      grid-template-columns: 1fr 31mm;
+      gap: 3mm;
+      padding: 4mm;
     }
-    .accent-bar { width: 100%; height: 5px; background: ${accentColor}; border-radius: 2px; margin-bottom: 3mm; }
-    .header { display: flex; align-items: flex-start; justify-content: space-between; gap: 3mm; margin-bottom: 2mm; }
-    .location-code { font-size: 22pt; font-weight: 800; letter-spacing: 0.01em; color: #000; line-height: 1; }
-    .badges { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
-    .badge { font-size: 7pt; font-weight: 600; padding: 1px 6px; border-radius: 999px; white-space: nowrap; }
+    .meta { min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 2mm; border-left: 2mm solid ${accentColor}; padding-left: 3mm; }
+    .location-code { font-size: 19pt; font-weight: 900; letter-spacing: 0.01em; color: #000; line-height: 1.04; word-break: break-word; }
+    .badges { display: flex; align-items: center; gap: 2mm; flex-wrap: wrap; }
+    .badge { font-size: 7pt; font-weight: 700; padding: 1px 6px; border-radius: 999px; white-space: nowrap; }
     .temp-badge { background: ${accentColor}; color: #fff; }
     .type-badge { border: 1.5px solid ${accentColor}; color: ${accentColor}; }
-    .sub { font-size: 8.5pt; color: #555; margin-bottom: 2mm; }
-    .barcode-wrap { display: flex; justify-content: center; flex: 1; align-items: center; }
-    .barcode-wrap svg { width: 100%; max-height: 18mm; }
-    .qr-wrap { display: flex; justify-content: center; flex: 1; align-items: center; }
+    .sub { font-size: 8pt; color: #333; line-height: 1.2; }
+    .qr-wrap { display: flex; justify-content: center; align-items: center; }
     .qr-wrap svg { width: 30mm; height: 30mm; }
-    .footer { display: flex; justify-content: space-between; align-items: center; margin-top: 2mm; }
-    .footer-text { font-size: 7pt; color: #aaa; }
   </style>
 </head>
 <body>
-  <div class="accent-bar"></div>
-  <div class="header">
+  <div class="meta">
     <span class="location-code">${escapeHtml(fullCode)}</span>
     <div class="badges">
       <span class="badge temp-badge">${escapeHtml(tempLabel)}</span>
       ${typeLabel ? `<span class="badge type-badge">${escapeHtml(typeLabel)}</span>` : ""}
     </div>
+    ${locationParts ? `<p class="sub">${escapeHtml(locationParts)}</p>` : ""}
+    ${zoneName ? `<p class="sub">Zone: ${escapeHtml(zoneName)}${warehouseName ? ` · ${escapeHtml(warehouseName)}` : ""}</p>` : (warehouseName ? `<p class="sub">${escapeHtml(warehouseName)}</p>` : "")}
   </div>
-  ${locationParts ? `<p class="sub">${escapeHtml(locationParts)}</p>` : ""}
-  ${zoneName ? `<p class="sub">Zone: ${escapeHtml(zoneName)}${warehouseName ? ` · ${escapeHtml(warehouseName)}` : ""}</p>` : (warehouseName ? `<p class="sub">${escapeHtml(warehouseName)}</p>` : "")}
-  <div class="${useQr ? "qr-wrap" : "barcode-wrap"}">${machineMarkup}</div>
-  <div class="footer">
-    <span class="footer-text">3PL Management</span>
-    <span class="footer-text">${escapeHtml(new Date().toLocaleDateString())}</span>
-  </div>
+  <div class="qr-wrap">${machineMarkup}</div>
   <script>window.onload=()=>{window.print();window.close();}<\/script>
 </body>
 </html>`);
@@ -175,44 +164,33 @@ export function LocationLabelPage(props: LocationLabelPageProps) {
 
         {/* Preview */}
         <div
-          className="rounded-lg border border-border bg-white p-4 text-black flex flex-col gap-2"
-          style={{ fontFamily: "system-ui, sans-serif" }}
+          className="grid rounded-lg border border-border bg-white p-3 text-black"
+          style={{ fontFamily: "system-ui, sans-serif", aspectRatio: "2.25 / 1", gridTemplateColumns: "minmax(0, 1fr) 30%" }}
         >
-          <div className="w-full h-1.5 rounded" style={{ background: accentColor }} />
-
-          <div className="flex items-start justify-between gap-2">
-            <span className="break-words text-2xl font-extrabold leading-tight tracking-tight">{fullCode}</span>
-            <div className="flex flex-col items-end gap-1">
-              <span
-                className="rounded-full px-2 py-0.5 text-[10px] font-semibold text-white whitespace-nowrap"
-                style={{ background: accentColor }}
-              >
+          <div className="flex min-w-0 flex-col justify-center gap-2 border-l-8 pl-3" style={{ borderColor: accentColor }}>
+            <span className="break-words text-xl font-extrabold leading-tight tracking-tight">{fullCode}</span>
+            <div className="flex flex-wrap items-center gap-1">
+              <span className="rounded-full px-2 py-0.5 text-[10px] font-semibold text-white whitespace-nowrap" style={{ background: accentColor }}>
                 {tempLabel}
               </span>
-              {typeLabel && (
+              {typeLabel ? (
                 <span
                   className="rounded-full border px-2 py-0.5 text-[10px] font-semibold whitespace-nowrap"
                   style={{ borderColor: accentColor, color: accentColor }}
                 >
                   {typeLabel}
                 </span>
-              )}
+              ) : null}
             </div>
-          </div>
-
-          {locationParts && (
-            <p className="text-xs text-gray-500">{locationParts}</p>
-          )}
-          {(zoneName || warehouseName) && (
-            <p className="text-xs text-gray-500">
+            {locationParts ? <p className="text-xs text-gray-600">{locationParts}</p> : null}
+            {(zoneName || warehouseName) ? <p className="text-xs text-gray-600">
               {zoneName ? `Zone: ${zoneName}` : ""}
               {zoneName && warehouseName ? " · " : ""}
               {warehouseName ?? ""}
-            </p>
-          )}
-
-          <div className="flex justify-center py-1">
-            <MachineCodePreview code={fullCode} />
+            </p> : null}
+          </div>
+          <div className="flex items-center justify-center">
+            <MachineCodePreview code={fullCode} size={128} />
           </div>
         </div>
 

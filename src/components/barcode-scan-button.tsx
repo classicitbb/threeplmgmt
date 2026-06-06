@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Camera } from "lucide-react";
+import { Camera, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
@@ -7,6 +7,9 @@ interface BarcodeScanButtonProps {
   onScan: (value: string) => void;
   title?: string;
   className?: string;
+  enableTextRecognition?: boolean;
+  /** After scan is accepted, simulate Enter keydown on this input to advance focus. */
+  inputRef?: React.RefObject<HTMLInputElement | null>;
 }
 
 const BARCODE_FORMATS = [
@@ -15,15 +18,20 @@ const BARCODE_FORMATS = [
   "data_matrix", "pdf417", "aztec",
 ];
 
-export function BarcodeScanButton({ onScan, title = "Scan barcode", className }: BarcodeScanButtonProps) {
+export function BarcodeScanButton({ onScan, title = "Scan barcode", className, enableTextRecognition = false, inputRef }: BarcodeScanButtonProps) {
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [detected, setDetected] = useState<string | null>(null);
+  const [pendingOcr, setPendingOcr] = useState<string | null>(null);
+  const pendingOcrRef = useRef<string | null>(null);
+  const acceptTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const rafRef = useRef<number | null>(null);
   const detectorRef = useRef<any>(null);
+  const textDetectorRef = useRef<any>(null);
+  const lastTextScanRef = useRef(0);
 
   const stopStream = useCallback(() => {
     if (rafRef.current != null) {
@@ -33,21 +41,46 @@ export function BarcodeScanButton({ onScan, title = "Scan barcode", className }:
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
     detectorRef.current = null;
+    textDetectorRef.current = null;
   }, []);
+
+  const acceptScan = useCallback((value: string) => {
+    setDetected(value);
+    stopStream();
+    setTimeout(() => {
+      onScan(value);
+      setOpen(false);
+      // Simulate Enter on the associated input to advance focus
+      if (inputRef?.current) {
+        inputRef.current.focus();
+        inputRef.current.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true, cancelable: true }));
+      }
+    }, 400);
+  }, [inputRef, onScan, stopStream]);
 
   useEffect(() => {
     if (!open) {
       stopStream();
       setError(null);
       setDetected(null);
+      setPendingOcr(null);
+      pendingOcrRef.current = null;
+      if (acceptTimerRef.current != null) {
+        clearTimeout(acceptTimerRef.current);
+        acceptTimerRef.current = null;
+      }
       return;
     }
 
     let cancelled = false;
 
     async function start() {
-      if (!("BarcodeDetector" in window)) {
-        setError("Live scanning requires Chrome on Android or Safari 17+. Type the code manually instead.");
+      const supportsBarcode = "BarcodeDetector" in window;
+      const supportsText = enableTextRecognition && "TextDetector" in window;
+      if (!supportsBarcode && !supportsText) {
+        setError(enableTextRecognition
+          ? "Live scanning or text recognition is not available on this device. Type the code manually instead."
+          : "Live scanning requires Chrome on Android or Safari 17+. Type the code manually instead.");
         return;
       }
       try {
@@ -62,35 +95,51 @@ export function BarcodeScanButton({ onScan, title = "Scan barcode", className }:
           await videoRef.current.play();
         }
 
-        // Use formats that the device supports (BarcodeDetector.getSupportedFormats exists in spec)
-        let formats = BARCODE_FORMATS;
-        try {
-          const supported: string[] = await (window as any).BarcodeDetector.getSupportedFormats();
-          formats = BARCODE_FORMATS.filter((f) => supported.includes(f));
-        } catch {
-          // getSupportedFormats not available — use all; constructor will ignore unknowns
+        if (supportsBarcode) {
+          // Use formats that the device supports (BarcodeDetector.getSupportedFormats exists in spec)
+          let formats = BARCODE_FORMATS;
+          try {
+            const supported: string[] = await (window as any).BarcodeDetector.getSupportedFormats();
+            formats = BARCODE_FORMATS.filter((f) => supported.includes(f));
+          } catch {
+            // getSupportedFormats not available — use all; constructor will ignore unknowns
+          }
+
+          detectorRef.current = new (window as any).BarcodeDetector({ formats: formats.length ? formats : BARCODE_FORMATS });
+        }
+        if (supportsText) {
+          textDetectorRef.current = new (window as any).TextDetector();
         }
 
-        const detector = new (window as any).BarcodeDetector({ formats: formats.length ? formats : BARCODE_FORMATS });
-        detectorRef.current = detector;
-
         const scan = async () => {
-          if (cancelled || !videoRef.current || !detectorRef.current) return;
+          if (cancelled || !videoRef.current) return;
           try {
-            const codes: Array<{ rawValue: string }> = await detectorRef.current.detect(videoRef.current);
+            const codes: Array<{ rawValue: string }> = detectorRef.current
+              ? await detectorRef.current.detect(videoRef.current)
+              : [];
             if (codes.length > 0) {
-              const value = codes[0].rawValue;
               if (cancelled) return;
-              setDetected(value);
-              stopStream();
-              // Brief green flash before closing
-              setTimeout(() => {
-                if (!cancelled) {
-                  onScan(value);
-                  setOpen(false);
-                }
-              }, 500);
+              acceptScan(codes[0].rawValue);
               return;
+            }
+            const now = Date.now();
+            if (textDetectorRef.current && now - lastTextScanRef.current > 750) {
+              lastTextScanRef.current = now;
+              const detectedText: Array<{ rawValue?: string; text?: string }> = await textDetectorRef.current.detect(videoRef.current);
+              const ocrValue = detectedText.map((item) => item.rawValue ?? item.text ?? "").filter(Boolean).join(" ");
+              if (ocrValue && !cancelled) {
+                // For OCR text: show a snap-confirm card and auto-accept after 1.5s
+                if (pendingOcrRef.current !== ocrValue) {
+                  pendingOcrRef.current = ocrValue;
+                  setPendingOcr(ocrValue);
+                  if (acceptTimerRef.current != null) clearTimeout(acceptTimerRef.current);
+                  acceptTimerRef.current = setTimeout(() => {
+                    if (!cancelled && pendingOcrRef.current === ocrValue) {
+                      acceptScan(ocrValue);
+                    }
+                  }, 1500);
+                }
+              }
             }
           } catch {
             // Frame not ready yet — keep scanning
@@ -112,8 +161,12 @@ export function BarcodeScanButton({ onScan, title = "Scan barcode", className }:
     return () => {
       cancelled = true;
       stopStream();
+      if (acceptTimerRef.current != null) {
+        clearTimeout(acceptTimerRef.current);
+        acceptTimerRef.current = null;
+      }
     };
-  }, [open, onScan, stopStream]);
+  }, [enableTextRecognition, open, acceptScan, stopStream]);
 
   return (
     <>
@@ -164,11 +217,30 @@ export function BarcodeScanButton({ onScan, title = "Scan barcode", className }:
                   <div className="absolute right-0 bottom-0 h-6 w-6 border-r-2 border-b-2 border-white rounded-br" />
                 </div>
               </div>
+              {/* OCR snap-confirm overlay */}
+              {pendingOcr && (
+                <div className="absolute bottom-0 left-0 right-0 flex items-center gap-2 bg-black/70 px-3 py-2">
+                  <p className="flex-1 font-mono text-sm font-semibold text-white break-all">{pendingOcr}</p>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="default"
+                    className="shrink-0 h-8 gap-1.5 bg-green-600 hover:bg-green-700 text-white"
+                    onClick={() => {
+                      if (acceptTimerRef.current != null) { clearTimeout(acceptTimerRef.current); acceptTimerRef.current = null; }
+                      acceptScan(pendingOcr);
+                    }}
+                  >
+                    <Check className="h-3.5 w-3.5" />
+                    Use
+                  </Button>
+                </div>
+              )}
             </div>
           )}
 
           <p className="text-center text-xs text-muted-foreground">
-            {detected ? "Loading…" : "Point your camera at a barcode or QR code"}
+            {detected ? "Loading…" : enableTextRecognition ? "Point your camera at a QR code, barcode, or container number" : "Point your camera at a barcode or QR code"}
           </p>
         </DialogContent>
       </Dialog>
