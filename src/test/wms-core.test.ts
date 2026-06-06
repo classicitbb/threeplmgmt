@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildBayOccupancyGrid,
   createBlankLocationTemplate,
   createBlankWarehouse,
   createBlankZone,
@@ -103,5 +104,44 @@ describe("expandLocationRange", () => {
     });
     expect(rows).toHaveLength(6 * 3);
     expect(rows[0].depth).toBe(5);
+  });
+});
+
+describe("buildBayOccupancyGrid", () => {
+  it("orders levels bottom-up physically with P1/P2/P3 left to right", () => {
+    const cells = [
+      "ST3-A-1-01-L01-P3",
+      "ST3-A-1-01-L03-P2",
+      "ST3-A-1-01-L04-P1",
+      "ST3-A-1-01-L02-P3",
+      "ST3-A-1-01-L01-P1",
+      "ST3-A-1-01-L04-P3",
+      "ST3-A-1-01-L02-P1",
+      "ST3-A-1-01-L03-P1",
+      "ST3-A-1-01-L04-P2",
+      "ST3-A-1-01-L01-P2",
+      "ST3-A-1-01-L02-P2",
+      "ST3-A-1-01-L03-P3",
+    ].map((locationCode, index) => ({
+      locationId: `loc-${index}`,
+      locationCode,
+      level: locationCode.match(/L(\d+)/)?.[1] ?? null,
+      position: null,
+      depth: 4,
+      maxPallets: 4,
+      occupiedPallets: 0,
+      status: "active",
+      isFull: false,
+    }));
+
+    const grid = buildBayOccupancyGrid(cells);
+    const renderedCodes = grid.map((row) => row.map((slot) => slot.cell?.locationCode ?? null));
+
+    expect(renderedCodes).toEqual([
+      ["ST3-A-1-01-L04-P1", "ST3-A-1-01-L04-P2", "ST3-A-1-01-L04-P3"],
+      ["ST3-A-1-01-L03-P1", "ST3-A-1-01-L03-P2", "ST3-A-1-01-L03-P3"],
+      ["ST3-A-1-01-L02-P1", "ST3-A-1-01-L02-P2", "ST3-A-1-01-L02-P3"],
+      ["ST3-A-1-01-L01-P1", "ST3-A-1-01-L01-P2", "ST3-A-1-01-L01-P3"],
+    ]);
   });
 });

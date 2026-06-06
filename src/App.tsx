@@ -15,7 +15,7 @@ import { enqueueOfflineWork, isLikelyNetworkError } from "@/lib/offline-queue";
 import { supabase } from "@/integrations/supabase/client";
 import { createAppQueryClient } from "@/lib/query-client";
 
-import { confirmPickTask, formatDate, formatNumber, getBayOccupancy, getInventoryDetail, getPickExecution, loginSchema, recordUserSignIn, refreshUserDeviceTrust, signUpSchema, RESOURCE_DEFINITIONS } from "@/lib/wms-core";
+import { buildBayOccupancyGrid, confirmPickTask, formatDate, formatNumber, getBayOccupancy, getInventoryDetail, getPickExecution, loginSchema, recordUserSignIn, refreshUserDeviceTrust, signUpSchema, RESOURCE_DEFINITIONS } from "@/lib/wms-core";
 import { getOrCreateDeviceId, hasTrustedDeviceShortcut, isDesktopClient } from "@/lib/device-identity";
 import { cn } from "@/lib/utils";
 
@@ -1420,6 +1420,10 @@ function PickExecutionPage() {
         queryClient.invalidateQueries({ queryKey: ["pick-execution", pickListId] }),
         queryClient.invalidateQueries({ queryKey: ["pick-lists"] }),
         queryClient.invalidateQueries({ queryKey: ["inventory-search"] }),
+        queryClient.invalidateQueries({ queryKey: ["product-qty-totals"] }),
+        queryClient.invalidateQueries({ queryKey: ["pick-bay-occupancy"] }),
+        queryClient.invalidateQueries({ queryKey: ["bay-occupancy"] }),
+        queryClient.invalidateQueries({ queryKey: ["bin-occupancy"] }),
         queryClient.invalidateQueries({ queryKey: ["dashboard-metrics"] }),
       ]);
       setTimeout(() => focusNextOpen(variables.taskId), 300);
@@ -1556,31 +1560,50 @@ function PickBayGrid({
           Pick from <span className="font-mono font-semibold text-foreground">{assignedLocationCode || "assigned location"}</span>
         </span>
       </div>
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        {data.cells.map((cell: { locationId: string; locationCode: string; status: string; occupiedPallets: number; maxPallets: number }) => {
-          const isAssigned = cell.locationCode.toUpperCase() === assigned;
-          const canSelect = isAssigned && cell.status === "active";
-          return (
-            <button
-              key={cell.locationId}
-              type="button"
-              disabled={!canSelect}
-              onClick={() => onSelectAssigned(cell.locationCode)}
-              className={[
-                "min-h-16 rounded-md border px-2 py-2 text-left text-xs transition focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
-                isAssigned
-                  ? "animate-pulse border-cyan-400 bg-cyan-50 text-cyan-950 ring-2 ring-cyan-400 dark:bg-cyan-950/50 dark:text-cyan-50"
-                  : "cursor-not-allowed border-muted bg-muted text-muted-foreground opacity-70",
-              ].join(" ")}
-            >
-              <span className="block font-mono font-semibold">{cell.locationCode}</span>
-              <span className="mt-1 block">
-                {cell.occupiedPallets}/{cell.maxPallets} pallets
-              </span>
-              <span className="block">{isAssigned ? "Pallet location" : cell.status !== "active" ? cell.status : "Other bin"}</span>
-            </button>
-          );
-        })}
+      <div className="grid gap-2">
+        {buildBayOccupancyGrid(data.cells).map((row) => (
+          <div
+            key={`level-${row[0]?.level ?? "unknown"}`}
+            className="grid gap-2"
+            style={{ gridTemplateColumns: `repeat(${row.length}, minmax(0, 1fr))` }}
+          >
+            {row.map((slot) => {
+              const cell = slot.cell;
+              if (!cell) {
+                return (
+                  <div
+                    key={`empty-${slot.level}-${slot.position}`}
+                    aria-hidden="true"
+                    className="min-h-16 rounded-md border border-dashed border-border/60 bg-background/40"
+                  />
+                );
+              }
+
+              const isAssigned = cell.locationCode.toUpperCase() === assigned;
+              const canSelect = isAssigned && cell.status === "active";
+              return (
+                <button
+                  key={cell.locationId}
+                  type="button"
+                  disabled={!canSelect}
+                  onClick={() => onSelectAssigned(cell.locationCode)}
+                  className={[
+                    "min-h-16 rounded-md border px-2 py-2 text-left text-xs transition focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
+                    isAssigned
+                      ? "animate-pulse border-cyan-400 bg-cyan-50 text-cyan-950 ring-2 ring-cyan-400 dark:bg-cyan-950/50 dark:text-cyan-50"
+                      : "cursor-not-allowed border-muted bg-muted text-muted-foreground opacity-70",
+                  ].join(" ")}
+                >
+                  <span className="block font-mono font-semibold">{cell.locationCode}</span>
+                  <span className="mt-1 block">
+                    {cell.occupiedPallets}/{cell.maxPallets} pallets
+                  </span>
+                  <span className="block">{isAssigned ? "Pallet location" : cell.status !== "active" ? cell.status : "Other bin"}</span>
+                </button>
+              );
+            })}
+          </div>
+        ))}
       </div>
       {!hasAssignedLocation ? (
         <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300">

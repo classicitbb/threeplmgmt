@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const pickDb = vi.hoisted(() => ({
   selects: {} as Record<string, Array<{ data: any; error: any }>>,
   updates: [] as Array<{ table: string; payload: Record<string, unknown>; filters: Array<[string, unknown]> }>,
+  updateErrors: {} as Record<string, Error | undefined>,
   rpcs: [] as Array<{ name: string; args: Record<string, unknown> }>,
 }));
 
@@ -34,6 +35,7 @@ vi.mock("@/integrations/supabase/client", () => {
             pickDb.updates.push({ table, payload, filters: [...filters] });
             return chain;
           },
+          then: (resolve: (value: any) => unknown) => resolve({ data: null, error: pickDb.updateErrors[table] ?? null }),
         };
         return chain;
       },
@@ -90,6 +92,7 @@ describe("confirmPickTask", () => {
   beforeEach(() => {
     pickDb.selects = {};
     pickDb.updates = [];
+    pickDb.updateErrors = {};
     pickDb.rpcs = [];
   });
 
@@ -100,8 +103,8 @@ describe("confirmPickTask", () => {
 
     expect(pickDb.updates).toEqual(expect.arrayContaining([
       expect.objectContaining({ table: "pick_tasks", payload: expect.objectContaining({ status: "completed", confirmed_quantity: 10 }) }),
-      expect.objectContaining({ table: "pallets", payload: expect.objectContaining({ quantity: 0, available_quantity: 0, current_location_id: null, is_stored: false, status: "picked" }) }),
-      expect.objectContaining({ table: "inventory_balances", payload: expect.objectContaining({ quantity: 0, available_quantity: 0, location_id: null, zone_id: null, status: "picked" }) }),
+      expect.objectContaining({ table: "pallets", payload: expect.objectContaining({ quantity: 0, available_quantity: 0, current_location_id: null, is_stored: false, status: "shipped" }) }),
+      expect.objectContaining({ table: "inventory_balances", payload: expect.objectContaining({ quantity: 0, available_quantity: 0, location_id: null, zone_id: null, status: "shipped" }) }),
     ]));
     expect(pickDb.rpcs[0]).toMatchObject({
       name: "log_audit_event",
@@ -141,6 +144,16 @@ describe("confirmPickTask", () => {
 
     await expect(confirmPickTask("pick-task-1", "A-01-01", "PBC-1", 6)).rejects.toThrow("only 5 available");
     expect(pickDb.updates).toEqual([]);
+    expect(pickDb.rpcs).toEqual([]);
+  });
+
+  it("does not close the pick task if the pallet debit fails", async () => {
+    seedPick();
+    pickDb.updateErrors.pallets = new Error("pallet update denied");
+
+    await expect(confirmPickTask("pick-task-1", "A-01-01", "PBC-1", 10)).rejects.toThrow("pallet update denied");
+
+    expect(pickDb.updates.some((update) => update.table === "pick_tasks")).toBe(false);
     expect(pickDb.rpcs).toEqual([]);
   });
 });

@@ -24,6 +24,18 @@ export type InventoryStatus = string;
 export type TaskStatus = string;
 export type TemperatureClass = string;
 
+const PICK_COMPLETED_INVENTORY_STATUS: InventoryStatus = "shipped";
+const DB_RETIRED_INVENTORY_STATUS_FILTER = "(shipped,in_transit,missing)";
+const RETIRED_INVENTORY_STATUSES = new Set(["picked", "shipped", "in_transit", "missing"]);
+
+function isRetiredInventoryStatus(status: unknown): boolean {
+  return RETIRED_INVENTORY_STATUSES.has(String(status ?? "").toLowerCase());
+}
+
+function hasVisibleInventoryQuantity(row: Record<string, unknown>): boolean {
+  return Number(row.available_quantity ?? 0) > 0 || Number(row.quantity ?? 0) > 0;
+}
+
 export type AppRoute =
   | "/"
   | "/dashboard"
@@ -106,6 +118,10 @@ function formatSupabaseError(error: unknown, fallback: string) {
       .join(" ");
   }
   return String(error);
+}
+
+function throwIfSupabaseError(result: { error?: unknown } | null | undefined, fallback: string) {
+  if (result?.error) throw new Error(formatSupabaseError(result.error, fallback));
 }
 
 export type WarehouseSetupWarehouse = {
@@ -1270,6 +1286,90 @@ export function expandLocationRange(input: LocationRangeInput): ExpandedLocation
   return rows;
 }
 
+export type BayOccupancyCell = {
+  locationId: string;
+  locationCode: string;
+  level: number | string | null;
+  position?: number | string | null;
+  depth: number | string | null;
+  maxPallets: number;
+  occupiedPallets: number;
+  status: string;
+  isFull: boolean;
+};
+
+export type BayOccupancyGridSlot = {
+  level: number;
+  position: number;
+  cell: BayOccupancyCell | null;
+};
+
+const BAY_LEVEL_LIMIT = 6;
+const BAY_POSITION_LIMIT = 3;
+
+function readPositiveNumber(value: number | string | null | undefined): number | null {
+  const parsed = typeof value === "number" ? value : Number.parseInt(String(value ?? ""), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function readLevelFromCode(code: string): number | null {
+  return readPositiveNumber(code.match(/(?:^|-)L(\d+)(?:-|$)/i)?.[1]);
+}
+
+function readPositionFromCode(code: string): number | null {
+  return readPositiveNumber(code.match(/(?:^|-)P(\d+)$/i)?.[1]);
+}
+
+export function getBayCellLevel(cell: BayOccupancyCell): number | null {
+  return readPositiveNumber(cell.level) ?? readLevelFromCode(cell.locationCode);
+}
+
+export function getBayCellPosition(cell: BayOccupancyCell): number | null {
+  return readPositiveNumber(cell.position) ?? readPositionFromCode(cell.locationCode);
+}
+
+export function buildBayOccupancyGrid(cells: BayOccupancyCell[]): BayOccupancyGridSlot[][] {
+  const visibleCells = cells
+    .map((cell) => ({
+      cell,
+      level: getBayCellLevel(cell),
+      position: getBayCellPosition(cell),
+    }))
+    .filter((item): item is { cell: BayOccupancyCell; level: number; position: number } =>
+      item.level !== null &&
+      item.position !== null &&
+      item.level <= BAY_LEVEL_LIMIT &&
+      item.position <= BAY_POSITION_LIMIT,
+    );
+
+  const maxLevel = Math.min(
+    BAY_LEVEL_LIMIT,
+    Math.max(1, ...visibleCells.map((item) => item.level)),
+  );
+  const maxPosition = Math.min(
+    BAY_POSITION_LIMIT,
+    Math.max(1, ...visibleCells.map((item) => item.position)),
+  );
+  const cellsBySlot = new Map<string, BayOccupancyCell>();
+  for (const item of visibleCells) {
+    cellsBySlot.set(`${item.level}:${item.position}`, item.cell);
+  }
+
+  const rows: BayOccupancyGridSlot[][] = [];
+  for (let level = maxLevel; level >= 1; level -= 1) {
+    const row: BayOccupancyGridSlot[] = [];
+    for (let position = 1; position <= maxPosition; position += 1) {
+      row.push({
+        level,
+        position,
+        cell: cellsBySlot.get(`${level}:${position}`) ?? null,
+      });
+    }
+    rows.push(row);
+  }
+  return rows;
+}
+
 function buildPalletCode(prefix: string) {
   const time = Date.now().toString().slice(-8);
   const rand = Math.random().toString(36).slice(2, 6).toUpperCase();
@@ -1523,7 +1623,7 @@ export async function searchInventory(filters: {
   ageBucket?: InventoryAgeBucket | "";
   expiryWindow?: InventoryExpiryWindow | "";
 }) {
-  if (filters.status === "picked") return [];
+  if (filters.status && filters.status !== "all" && isRetiredInventoryStatus(filters.status)) return [];
   let query = db("inventory_search_view").select("*");
 
   if (filters.warehouseId) {
@@ -1532,13 +1632,11 @@ export async function searchInventory(filters: {
 
   if (filters.status && filters.status !== "all") {
     query = query.eq("status", filters.status);
-  } else {
-    query = query.neq("status", "picked");
   }
 
   const { data, error } = await query.order("received_at", { ascending: false });
   if (error) throw error;
-  let rows = (data ?? []) as any[];
+  let rows = ((data ?? []) as any[]).filter((row) => !isRetiredInventoryStatus(row.status) && hasVisibleInventoryQuantity(row));
   const searchTokens = (filters.search ?? "")
     .trim()
     .toLowerCase()
@@ -1696,17 +1794,14 @@ export async function confirmPutaway(
     .single();
   if (productError) throw productError;
 
-  const { count: occupiedCount } = await db("inventory_balances")
-    .select("*", { count: "exact", head: true })
-    .eq("location_id", location.id)
-    .neq("status", "picked");
+  const occupiedCount = await getStoredPalletCount(location.id);
 
   const ruleCheck = validatePutawayAssignment({
     productTemperature: product.temperature_requirement,
     locationTemperature: location.temperature_class,
     locationStatus: location.status,
     locationMaxPallets: location.max_pallets,
-    occupiedPallets: occupiedCount ?? 0,
+    occupiedPallets: occupiedCount,
     mixedSkuAllowed: location.mixed_sku_allowed,
     hasOtherSku: false,
   });
@@ -1963,57 +2058,60 @@ export async function confirmPickTask(taskId: string, scannedLocation: string, s
   }
 
   const nextAvailable = Math.max(balance.available_quantity - confirmedQuantity, 0);
-  const nextStatus: InventoryStatus = nextAvailable === 0 ? "picked" : "available";
+  const nextStatus: InventoryStatus = nextAvailable === 0 ? PICK_COMPLETED_INVENTORY_STATUS : "available";
   const fullyDepleted = nextAvailable === 0;
   const nextPalletQuantity = Math.max(Number(pallet.quantity ?? 0) - confirmedQuantity, 0);
   const nextBalanceQuantity = Math.max(Number(balance.quantity ?? 0) - confirmedQuantity, 0);
 
-  await Promise.all([
-    db("pick_tasks")
-      .update({
-        confirmed_quantity: confirmedQuantity,
-        short_reason: shortReason ?? null,
-        status: shortReason ? "exception" : "completed",
-        completed_at: new Date().toISOString(),
-      })
-      .eq("id", taskId),
-    db("pallets")
-      .update(
-        fullyDepleted
-          ? {
-              available_quantity: 0,
-              quantity: 0,
-              reserved_quantity: 0,
-              status: nextStatus,
-              current_location_id: null,
-              is_stored: false,
-            }
-          : {
-              available_quantity: nextAvailable,
-              quantity: nextPalletQuantity,
-              status: nextStatus,
-            },
-      )
-      .eq("id", pallet.id),
-    db("inventory_balances")
-      .update(
-        fullyDepleted
-          ? {
-              available_quantity: 0,
-              quantity: 0,
-              reserved_quantity: 0,
-              status: nextStatus,
-              location_id: null,
-              zone_id: null,
-            }
-          : {
-              available_quantity: nextAvailable,
-              quantity: nextBalanceQuantity,
-              status: nextStatus,
-            },
-      )
-      .eq("id", balance.id),
-  ]);
+  const palletUpdate = await db("pallets")
+    .update(
+      fullyDepleted
+        ? {
+            available_quantity: 0,
+            quantity: 0,
+            reserved_quantity: 0,
+            status: nextStatus,
+            current_location_id: null,
+            is_stored: false,
+          }
+        : {
+            available_quantity: nextAvailable,
+            quantity: nextPalletQuantity,
+            status: nextStatus,
+          },
+    )
+    .eq("id", pallet.id);
+  throwIfSupabaseError(palletUpdate, "Could not debit picked pallet.");
+
+  const balanceUpdate = await db("inventory_balances")
+    .update(
+      fullyDepleted
+        ? {
+            available_quantity: 0,
+            quantity: 0,
+            reserved_quantity: 0,
+            status: nextStatus,
+            location_id: null,
+            zone_id: null,
+          }
+        : {
+            available_quantity: nextAvailable,
+            quantity: nextBalanceQuantity,
+            status: nextStatus,
+          },
+    )
+    .eq("id", balance.id);
+  throwIfSupabaseError(balanceUpdate, "Could not debit picked inventory balance.");
+
+  const taskUpdate = await db("pick_tasks")
+    .update({
+      confirmed_quantity: confirmedQuantity,
+      short_reason: shortReason ?? null,
+      status: shortReason ? "exception" : "completed",
+      completed_at: new Date().toISOString(),
+    })
+    .eq("id", taskId);
+  throwIfSupabaseError(taskUpdate, "Could not close pick task after debiting inventory.");
 
   const pickAudit = await (supabase.rpc as any)("log_audit_event", {
     in_event_type: "pick",
@@ -2479,9 +2577,8 @@ export async function getDashboardMetrics(warehouseId?: string | null, enabledMo
 
   const allBalanceRows = balances.data ?? [];
   const balanceRows = warehouseId ? allBalanceRows.filter((row: any) => row.warehouse_id === warehouseId) : allBalanceRows;
-  const retiredStatuses = new Set(["picked", "shipped", "in_transit", "missing"]);
-  const liveAllBalanceRows = allBalanceRows.filter((row: any) => !retiredStatuses.has(row.status));
-  const liveBalanceRows = balanceRows.filter((row: any) => !retiredStatuses.has(row.status));
+  const liveAllBalanceRows = allBalanceRows.filter((row: any) => !isRetiredInventoryStatus(row.status));
+  const liveBalanceRows = balanceRows.filter((row: any) => !isRetiredInventoryStatus(row.status));
   const coolRows = liveBalanceRows.filter((row: any) => row.zone_id);
   const locationRows = locations.data ?? [];
   const totalPalletCapacity = locationRows.reduce((sum: number, row: any) => sum + Number(row.max_pallets ?? 0), 0);
@@ -3681,6 +3778,53 @@ export async function deleteDraftReceipt(draftId: string): Promise<void> {
 
 // ── Bin capacity helper ───────────────────────────────────────────────────────
 
+async function getStoredPalletCounts(locationIds: string[]): Promise<Map<string, number>> {
+  if (locationIds.length === 0) return new Map();
+
+  const [balanceResult, palletResult] = await Promise.all([
+    db("inventory_balances")
+      .select("location_id, status")
+      .in("location_id", locationIds)
+      .not("status", "in", DB_RETIRED_INVENTORY_STATUS_FILTER),
+    db("pallets")
+      .select("current_location_id, status")
+      .in("current_location_id", locationIds)
+      .not("status", "in", DB_RETIRED_INVENTORY_STATUS_FILTER),
+  ]);
+
+  const balanceCounts = new Map<string, number>();
+  if (!balanceResult.error) {
+    for (const row of balanceResult.data ?? []) {
+      if (isRetiredInventoryStatus(row.status)) continue;
+      const id = row.location_id;
+      if (id) balanceCounts.set(id, (balanceCounts.get(id) ?? 0) + 1);
+    }
+  } else {
+    console.warn("[getStoredPalletCounts] inventory balance count unavailable:", balanceResult.error);
+  }
+
+  const palletCounts = new Map<string, number>();
+  if (!palletResult.error) {
+    for (const row of palletResult.data ?? []) {
+      if (isRetiredInventoryStatus(row.status)) continue;
+      const id = row.current_location_id;
+      if (id) palletCounts.set(id, (palletCounts.get(id) ?? 0) + 1);
+    }
+  } else {
+    console.warn("[getStoredPalletCounts] pallet count unavailable:", palletResult.error);
+  }
+
+  const counts = new Map<string, number>();
+  for (const id of locationIds) {
+    counts.set(id, Math.max(balanceCounts.get(id) ?? 0, palletCounts.get(id) ?? 0));
+  }
+  return counts;
+}
+
+async function getStoredPalletCount(locationId: string): Promise<number> {
+  return (await getStoredPalletCounts([locationId])).get(locationId) ?? 0;
+}
+
 export async function getBinOccupancy(locationCode: string): Promise<{
   locationId: string;
   locationCode: string;
@@ -3694,16 +3838,13 @@ export async function getBinOccupancy(locationCode: string): Promise<{
     .maybeSingle();
   if (error || !location) return null;
 
-  const { count } = await db("inventory_balances")
-    .select("*", { count: "exact", head: true })
-    .eq("location_id", location.id)
-    .neq("status", "picked");
+  const occupiedPallets = await getStoredPalletCount(location.id);
 
   return {
     locationId: location.id,
     locationCode: location.code,
     maxPallets: location.max_pallets ?? 0,
-    occupiedPallets: count ?? 0,
+    occupiedPallets,
     status: location.status ?? "active",
   };
 }
@@ -3712,16 +3853,7 @@ export async function getBayOccupancy(locationCode: string): Promise<{
   anchorCode: string;
   aisle: string | null;
   bay: string | null;
-  cells: Array<{
-    locationId: string;
-    locationCode: string;
-    level: string | null;
-    depth: string | null;
-    maxPallets: number;
-    occupiedPallets: number;
-    status: string;
-    isFull: boolean;
-  }>;
+  cells: BayOccupancyCell[];
 } | null> {
   const normalizedCode = locationCode.trim();
   let anchor: any = null;
@@ -3763,64 +3895,75 @@ export async function getBayOccupancy(locationCode: string): Promise<{
     if (data) {
       anchor = data;
     } else {
-      const prefix = normalizedCode.endsWith("-") ? normalizedCode : `${normalizedCode}-`;
-      const prefixResult = await db("locations")
-        .select("id, code, warehouse_id, zone_id, aisle, bay")
-        .eq("location_type", "rack")
-        .ilike("code", `${prefix}%`)
-        .order("level", { ascending: false })
-        .order("depth", { ascending: true })
-        .limit(1)
-        .maybeSingle();
-      if (prefixResult.error) throw prefixResult.error;
-      if (!prefixResult.data) return null;
-      anchor = { ...prefixResult.data, code: normalizedCode };
+      const prefixCandidates = [
+        normalizedCode.endsWith("-") ? normalizedCode : `${normalizedCode}-`,
+        normalizedCode,
+      ];
+      for (const prefix of prefixCandidates) {
+        const prefixResult = await db("locations")
+          .select("id, code, warehouse_id, zone_id, aisle, bay")
+          .eq("location_type", "rack")
+          .ilike("code", `${prefix}%`)
+          .order("level", { ascending: false })
+          .order("position", { ascending: true })
+          .order("code", { ascending: true })
+          .limit(1)
+          .maybeSingle();
+        if (prefixResult.error) throw prefixResult.error;
+        if (prefixResult.data) {
+          anchor = { ...prefixResult.data, code: normalizedCode };
+          break;
+        }
+      }
+      if (!anchor) return null;
     }
   }
 
   let locations: any[] = [];
   if (anchor.warehouse_id && anchor.zone_id) {
     let query = db("locations")
-      .select("id, code, aisle, bay, level, depth, max_pallets, status, location_type")
+      .select("id, code, aisle, bay, level, position, depth, max_pallets, status, location_type")
       .eq("warehouse_id", anchor.warehouse_id)
       .eq("zone_id", anchor.zone_id)
       .eq("location_type", "rack");
     if (anchor.aisle) query = query.eq("aisle", anchor.aisle);
     if (anchor.bay) query = query.eq("bay", anchor.bay);
-    const result = await query.order("level", { ascending: false }).order("depth", { ascending: true });
+    const result = await query
+      .order("level", { ascending: false })
+      .order("position", { ascending: true })
+      .order("code", { ascending: true });
     if (result.error) throw result.error;
     locations = result.data ?? [];
   }
 
   if ((locations ?? []).length === 0 && bayCodePrefix) {
     const fallback = await db("locations")
-      .select("id, code, aisle, bay, level, depth, max_pallets, status, location_type")
+      .select("id, code, aisle, bay, level, position, depth, max_pallets, status, location_type")
       .eq("location_type", "rack")
       .ilike("code", `${bayCodePrefix}%`)
       .order("level", { ascending: false })
-      .order("depth", { ascending: true });
+      .order("position", { ascending: true })
+      .order("code", { ascending: true });
     if (fallback.error) throw fallback.error;
     locations = fallback.data ?? [];
   }
 
-  const cells = await Promise.all((locations ?? []).map(async (location: any) => {
-    const { count } = await db("inventory_balances")
-      .select("*", { count: "exact", head: true })
-      .eq("location_id", location.id)
-      .not("status", "in", "(picked,shipped,in_transit,missing)");
-    const occupiedPallets = count ?? 0;
+  const storedPalletCounts = await getStoredPalletCounts((locations ?? []).map((location: any) => location.id));
+  const cells = (locations ?? []).map((location: any) => {
+    const occupiedPallets = storedPalletCounts.get(location.id) ?? 0;
     const maxPallets = Number(location.max_pallets ?? 0);
     return {
       locationId: location.id,
       locationCode: location.code,
       level: location.level ?? null,
+      position: location.position ?? null,
       depth: location.depth ?? null,
       maxPallets,
       occupiedPallets,
       status: location.status ?? "active",
       isFull: maxPallets > 0 && occupiedPallets >= maxPallets,
     };
-  }));
+  });
 
   return {
     anchorCode: anchor.code,
@@ -3997,7 +4140,7 @@ export async function completeDirectMove(palletBarcode: string, locationCode: st
   const { error: balanceUpdErr } = await db("inventory_balances")
     .update({ location_id: toLocation.id, zone_id: toLocation.zone_id ?? null } as any)
     .eq("pallet_id", pallet.id)
-    .neq("status", "picked");
+    .not("status", "in", DB_RETIRED_INVENTORY_STATUS_FILTER);
   if (balanceUpdErr) throw balanceUpdErr;
 
   await (supabase.rpc as any)("log_audit_event", {
@@ -4039,7 +4182,7 @@ export async function completeMoveTask(taskId: string, scannedPalletBarcode: str
   const { error: balanceUpdErr } = await db("inventory_balances")
     .update({ location_id: toLocation.id, zone_id: toLocation.zone_id ?? null } as any)
     .eq("pallet_id", pallet.id)
-    .neq("status", "picked");
+    .not("status", "in", DB_RETIRED_INVENTORY_STATUS_FILTER);
   if (balanceUpdErr) throw balanceUpdErr;
 
   const { error: taskUpdErr } = await db("move_tasks")

@@ -46,9 +46,11 @@ import {
   type FieldDefinition,
   type ResourceDefinition,
   type DraftReceipt,
+  type BayOccupancyCell,
   adminInviteUser,
   adminUpdateUserPin,
   adminUpdateUserPassword,
+  buildBayOccupancyGrid,
   updateOwnPassword,
   changePalletStatus,
   confirmPutaway,
@@ -1474,6 +1476,9 @@ export function ResourcePage({
     queryFn: async () => {
       const { data, error } = await (supabase.from as any)("inventory_balances")
         .select("product_id, available_quantity, quantity")
+        .eq("status", "available")
+        .gt("available_quantity", 0)
+        .not("location_id", "is", null)
         .limit(10000);
       if (error) throw error;
       return data as Array<{ product_id: string; available_quantity: number | null; quantity: number | null }>;
@@ -4438,7 +4443,7 @@ function BinCapacityBar({ locationCode }: { locationCode: string; taskId?: strin
     queryKey: ["bin-occupancy", locationCode],
     queryFn: () => getBinOccupancy(locationCode),
     enabled: locationCode.length >= 2,
-    staleTime: 10_000,
+    staleTime: 0,
   });
 
   if (!data || !locationCode) return null;
@@ -4483,23 +4488,34 @@ function BinCapacityBar({ locationCode }: { locationCode: string; taskId?: strin
 
 function BayOccupancyGrid({
   locationCode,
+  selectedLocationCode,
   onSelect,
 }: {
   locationCode: string;
+  selectedLocationCode?: string;
   onSelect: (locationCode: string) => void;
 }) {
   const isBayScan = isBaySelectorCode(locationCode);
-  const { data, isFetching } = useQuery({
+  const selectedLocation = selectedLocationCode?.trim().toUpperCase() ?? "";
+  const { data, error, isLoading } = useQuery({
     queryKey: ["bay-occupancy", locationCode],
     queryFn: () => getBayOccupancy(locationCode),
     enabled: locationCode.length >= 2,
-    staleTime: 10_000,
+    staleTime: 0,
   });
 
-  if (isFetching) {
+  if (isLoading && !data) {
     return (
       <div className="rounded-md border border-border bg-secondary/20 px-3 py-2 text-xs text-muted-foreground">
         Loading bay locations…
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+        Bay locations could not load. Scan again or refresh the page.
       </div>
     );
   }
@@ -4520,30 +4536,92 @@ function BayOccupancyGrid({
         <span>Bay {data.aisle ?? "?"}-{data.bay ?? "?"}</span>
         <span>{data.cells.filter((cell) => cell.status === "active" && !cell.isFull).length} open</span>
       </div>
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        {data.cells.map((cell) => {
-          const available = cell.status === "active" && !cell.isFull;
-          return (
-            <button
-              key={cell.locationId}
-              type="button"
-              disabled={!available}
-              onClick={() => onSelect(cell.locationCode)}
-              className={cn(
-                "min-h-16 rounded-md border px-2 py-2 text-left text-xs transition focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
-                available
-                  ? "border-green-500 bg-green-50 text-green-950 hover:bg-green-100 dark:bg-green-950/40 dark:text-green-100"
-                  : "cursor-not-allowed border-muted bg-muted text-muted-foreground opacity-70",
-              )}
-            >
-              <span className="block font-mono font-semibold">{cell.locationCode}</span>
-              <span className="mt-1 block">{cell.occupiedPallets}/{cell.maxPallets} pallets</span>
-              <span className="block">{available ? "Available" : cell.status !== "active" ? cell.status : "Full"}</span>
-            </button>
-          );
-        })}
+      <div className="grid gap-2">
+        {buildBayOccupancyGrid(data.cells).map((row) => (
+          <div
+            key={`level-${row[0]?.level ?? "unknown"}`}
+            className="grid gap-2"
+            style={{ gridTemplateColumns: `repeat(${row.length}, minmax(0, 1fr))` }}
+          >
+            {row.map((slot) => {
+              const cell = slot.cell;
+              if (!cell) {
+                return (
+                  <div
+                    key={`empty-${slot.level}-${slot.position}`}
+                    aria-hidden="true"
+                    className="min-h-16 rounded-md border border-dashed border-border/60 bg-background/40"
+                  />
+                );
+              }
+
+              const available = cell.status === "active" && !cell.isFull;
+              const selected = selectedLocation.length > 0 && cell.locationCode.toUpperCase() === selectedLocation;
+              return (
+                <button
+                  key={cell.locationId}
+                  type="button"
+                  disabled={!available}
+                  onClick={() => onSelect(cell.locationCode)}
+                  className={cn(
+                    "min-h-16 rounded-md border px-2 py-2 text-left text-xs transition focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
+                    selected
+                      ? "animate-pulse border-cyan-400 bg-cyan-50 text-cyan-950 ring-2 ring-cyan-400 dark:bg-cyan-950/50 dark:text-cyan-50"
+                      : available
+                      ? "border-green-500 bg-green-50 text-green-950 hover:bg-green-100 dark:bg-green-950/40 dark:text-green-100"
+                      : "cursor-not-allowed border-muted bg-muted text-muted-foreground opacity-70",
+                  )}
+                >
+                  <span className="block font-mono font-semibold">{cell.locationCode}</span>
+                  <span className="mt-1 block">{cell.occupiedPallets}/{cell.maxPallets} pallets</span>
+                  <span className="block">{selected && available ? "Selected" : available ? "Available" : cell.status !== "active" ? cell.status : "Full"}</span>
+                </button>
+              );
+            })}
+          </div>
+        ))}
       </div>
     </div>
+  );
+}
+
+function incrementOccupancy(occupiedPallets: number, maxPallets: number) {
+  return maxPallets > 0 ? Math.min(maxPallets, occupiedPallets + 1) : occupiedPallets + 1;
+}
+
+function markPutawayOccupancyCached(queryClient: ReturnType<typeof useQueryClient>, locationCode: string) {
+  const confirmedLocation = locationCode.trim().toUpperCase();
+  if (!confirmedLocation) return;
+
+  queryClient.setQueriesData(
+    { queryKey: ["bin-occupancy"] },
+    (current: Awaited<ReturnType<typeof getBinOccupancy>> | null | undefined) => {
+      if (!current || current.locationCode.toUpperCase() !== confirmedLocation) return current;
+      const occupiedPallets = incrementOccupancy(current.occupiedPallets, current.maxPallets);
+      return {
+        ...current,
+        occupiedPallets,
+      };
+    },
+  );
+
+  queryClient.setQueriesData(
+    { queryKey: ["bay-occupancy"] },
+    (current: Awaited<ReturnType<typeof getBayOccupancy>> | null | undefined) => {
+      if (!current) return current;
+      let changed = false;
+      const cells = current.cells.map((cell: BayOccupancyCell) => {
+        if (cell.locationCode.toUpperCase() !== confirmedLocation) return cell;
+        changed = true;
+        const occupiedPallets = incrementOccupancy(cell.occupiedPallets, cell.maxPallets);
+        return {
+          ...cell,
+          occupiedPallets,
+          isFull: cell.maxPallets > 0 && occupiedPallets >= cell.maxPallets,
+        };
+      });
+      return changed ? { ...current, cells } : current;
+    },
   );
 }
 
@@ -4641,6 +4719,7 @@ export function PutawayTasksPage() {
         duration: 7000,
         className: "border-emerald-400 bg-emerald-50 text-emerald-950 dark:border-emerald-500 dark:bg-emerald-950 dark:text-emerald-50",
       });
+      markPutawayOccupancyCached(queryClient, vars.location);
       setCompletedIds((prev) => new Set([...prev, vars.taskId]));
       setScanState((current) => {
         const next = { ...current };
@@ -4662,6 +4741,8 @@ export function PutawayTasksPage() {
         queryClient.invalidateQueries({ queryKey: ["putaway-task-history"] }),
         queryClient.invalidateQueries({ queryKey: ["inventory-search"] }),
         queryClient.invalidateQueries({ queryKey: ["dashboard-metrics"] }),
+        queryClient.invalidateQueries({ queryKey: ["bin-occupancy"] }),
+        queryClient.invalidateQueries({ queryKey: ["bay-occupancy"] }),
       ]);
     },
     onError: (error, vars) => {
@@ -4902,6 +4983,7 @@ export function PutawayTasksPage() {
                       )}
                       <BayOccupancyGrid
                         locationCode={bayScan || localState.location}
+                        selectedLocationCode={localState.location}
                         onSelect={(location) => {
                           setScanState((current) => ({ ...current, [task.id]: { ...localState, location } }));
                           setBayScanState((current) => {
