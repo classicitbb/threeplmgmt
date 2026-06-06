@@ -2471,7 +2471,7 @@ export function DashboardPage() {
   const snapshot = useMemo(() => buildEnterpriseDashboard(metrics, reports), [metrics, reports]);
   const summaryCardsById = useMemo(() => {
     const returnedMetricKeys = metrics?.dashboardMetricKeys ? new Set(metrics.dashboardMetricKeys) : null;
-    const cards = filterDashboardTileDefinitions(DEFAULT_DASHBOARD_CARDS, isEnabled)
+    const cards = (filterDashboardTileDefinitions(DEFAULT_DASHBOARD_CARDS, isEnabled) as DashboardCardConfig[])
       .filter((card) => !returnedMetricKeys || returnedMetricKeys.has(card.metricKey));
     return new Map(cards.map((card) => [card.id, card]));
   }, [isEnabled, metrics?.dashboardMetricKeys]);
