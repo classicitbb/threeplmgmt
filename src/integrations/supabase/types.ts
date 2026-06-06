@@ -954,6 +954,7 @@ export type Database = {
           mixed_sku_allowed: boolean
           notes: string | null
           pick_sequence: number | null
+          position: number | null
           putaway_sequence: number | null
           status: string
           temperature_class: Database["public"]["Enums"]["temperature_class"]
@@ -986,6 +987,7 @@ export type Database = {
           mixed_sku_allowed?: boolean
           notes?: string | null
           pick_sequence?: number | null
+          position?: number | null
           putaway_sequence?: number | null
           status?: string
           temperature_class?: Database["public"]["Enums"]["temperature_class"]
@@ -1018,6 +1020,7 @@ export type Database = {
           mixed_sku_allowed?: boolean
           notes?: string | null
           pick_sequence?: number | null
+          position?: number | null
           putaway_sequence?: number | null
           status?: string
           temperature_class?: Database["public"]["Enums"]["temperature_class"]
