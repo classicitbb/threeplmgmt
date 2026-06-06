@@ -1169,7 +1169,14 @@ export async function loadExistingSetupPayload(): Promise<WarehouseSetupPayload>
 export async function resetWmsData() {
   const { data, error } = await (supabase.rpc as any)("reset_wms_data");
   if (error) throw error;
-  return data as { status?: string; deleted_users?: number; kept_users?: number; message?: string };
+  return data as {
+    status?: string;
+    deleted_users?: number;
+    removed_users?: number;
+    kept_users?: number;
+    preserved_users?: number;
+    message?: string;
+  };
 }
 
 export type CascadeDeleteResult =
