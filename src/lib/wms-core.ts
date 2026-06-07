@@ -3,6 +3,7 @@ import { format } from "date-fns";
 
 import { supabase } from "@/integrations/supabase/client";
 import { validateIso6346ContainerNumber } from "@/lib/container-number";
+import { recordPalletQtyObservation, recordPlacementObservation } from "@/lib/ai-assist";
 // isDesktopClient reserved for future device-aware flows
 
 // Helper to bypass strict Supabase typing for tables not yet in the schema.
@@ -1666,6 +1667,11 @@ export async function createReceiptFlow(input: z.infer<typeof receivingSchema>) 
 
   await createLabelRecord("pallet", pallet.id, palletCode);
 
+  // AI assist: record pallet qty observation (fire-and-forget, never throws)
+  recordPalletQtyObservation(payload.product_id, payload.warehouse_id, payload.quantity).catch(
+    (err) => console.error("[ai-assist] pallet qty record failed:", err),
+  );
+
   return { receipt, receiptLine, pallet, putawayTask, topSuggestion };
 }
 
@@ -1917,6 +1923,16 @@ export async function confirmPutaway(
     } as any,
   });
   if (putawayAudit.error) console.error("[confirmPutaway] log_audit_event failed:", putawayAudit.error);
+
+  // AI assist: record placement observation (fire-and-forget, never throws)
+  const aiLocation = location as any;
+  recordPlacementObservation(
+    pallet.product_id,
+    location.warehouse_id,
+    location.id,
+    location.code,
+    aiLocation.zones?.name ?? aiLocation.zone_name ?? null,
+  ).catch((err) => console.error("[ai-assist] placement record failed:", err));
 }
 
 async function selectPickCandidates(productId: string, warehouseId: string, quantity: number) {

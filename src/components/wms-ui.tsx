@@ -2638,20 +2638,41 @@ function BarcodePrintDialog({ labelType, code, title }: { labelType: "warehouse"
 
   function handlePrint() {
     if (!printRef.current) return;
-    const printWindow = window.open("", "_blank", "width=420,height=480");
+    const qrSvg = printRef.current.innerHTML;
+    const eyebrow = labelType === "warehouse" ? "Warehouse" : labelType === "zone" ? "Zone" : "Location";
+    const teal = "#0f766e";
+    const printWindow = window.open("", "_blank", "width=794,height=1123");
     if (!printWindow) return;
-    printWindow.document.write(`<!DOCTYPE html><html><head><title>Label — ${escapeHtml(title)}</title><style>
-      @page { margin: 12mm; }
-      body { font-family: system-ui, sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; background: #fff; }
-      .label { text-align: center; border: 1px solid #ccc; padding: 16px; border-radius: 8px; display: inline-block; }
-      .label-type { font-size: 11px; text-transform: uppercase; color: #888; margin-top: 8px; letter-spacing: 0.08em; }
-      .label-code { font-size: 18px; font-weight: 700; margin-top: 4px; letter-spacing: 0.04em; }
-      .label-sub { font-size: 11px; color: #666; margin-top: 2px; }
-    </style></head><body><div class="label">${printRef.current.innerHTML}
-      <p class="label-type">${escapeHtml(labelType)}</p>
-      <p class="label-code">${escapeHtml(title)}</p>
-      <p class="label-sub">${escapeHtml(code)}</p>
-    </div><script>window.onload=()=>{window.print();window.close();}<\/script></body></html>`);
+    printWindow.document.write(`<!DOCTYPE html><html><head><title>${escapeHtml(eyebrow)} Label — ${escapeHtml(title)}</title>
+    <meta charset="utf-8" />
+    <style>
+      @page { size: A4 portrait; margin: 0; }
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body { background: #fff; font-family: system-ui, -apple-system, sans-serif; color: #000;
+        width: 210mm; min-height: 297mm; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 20mm; }
+      .card { width: 100%; max-width: 160mm; border: 1px solid #e2e8f0; border-radius: 6px; overflow: hidden; display: flex; }
+      .bar  { width: 4mm; background: ${teal}; flex-shrink: 0; }
+      .body { flex: 1; padding: 8mm; display: flex; flex-direction: column; gap: 4mm; }
+      .eyebrow { font-size: 10pt; font-weight: 800; text-transform: uppercase; color: ${teal}; letter-spacing: 0.08em; }
+      .name    { font-size: 28pt; font-weight: 900; line-height: 1.08; word-break: break-word; }
+      .code    { font-size: 14pt; font-weight: 700; color: #334155; }
+      .qr-wrap { display: flex; justify-content: center; padding-top: 4mm; }
+      .qr-wrap svg { width: 60mm; height: 60mm; }
+      .footer  { margin-top: 6mm; font-size: 9pt; color: #94a3b8; text-align: center; }
+    </style>
+    </head><body>
+      <div class="card">
+        <div class="bar"></div>
+        <div class="body">
+          <p class="eyebrow">${escapeHtml(eyebrow)}</p>
+          <p class="name">${escapeHtml(title)}</p>
+          <p class="code">${escapeHtml(code)}</p>
+          <div class="qr-wrap">${qrSvg}</div>
+        </div>
+      </div>
+      <p class="footer">Warehouse Wizard · Printed ${new Date().toLocaleDateString()}</p>
+      <script>window.onload=()=>{window.print();window.close();}<\/script>
+    </body></html>`);
     printWindow.document.close();
   }
 
@@ -8601,381 +8622,4 @@ function ClientVariablesPanel() {
                     <FormControl><SelectTrigger><SelectValue placeholder="Select client" /></SelectTrigger></FormControl>
                     <SelectContent>
                       {(options?.clients ?? []).map((c: any) => (
-                        <SelectItem key={c.id} value={c.id}>{c.code} · {c.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )} />
-              <FormField control={form.control} name="key" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Key</FormLabel>
-                  <FormControl><Input {...field} placeholder="e.g. handling_rate_per_pallet" className="font-mono" /></FormControl>
-                  <FormMessage />
-                </FormItem>
-              )} />
-              <FormField control={form.control} name="value" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Value</FormLabel>
-                  <FormControl><Input {...field} /></FormControl>
-                  <FormMessage />
-                </FormItem>
-              )} />
-              <FormField control={form.control} name="variable_type" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Type</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value ?? "text"}>
-                    <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
-                    <SelectContent>
-                      {["text", "number", "boolean", "date", "json"].map((t) => (
-                        <SelectItem key={t} value={t}>{t}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )} />
-              <FormField control={form.control} name="description" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Description (optional)</FormLabel>
-                  <FormControl><Input {...field} placeholder="What this variable controls" /></FormControl>
-                  <FormMessage />
-                </FormItem>
-              )} />
-              <Button type="submit" disabled={saveMutation.isPending}>
-                {saveMutation.isPending ? <Loader2 className="animate-spin" /> : null}
-                Save variable
-              </Button>
-            </form>
-          </Form>
-        </DialogContent>
-      </Dialog>
-    </div>
-  );
-}
-
-export function MobileActionBar() {
-  const { pathname } = useLocation();
-  const { roles } = useAuth();
-  const { isEnabled, toolbarModules } = useFeatureFlags();
-  const dashboard = NAVIGATION.find((item) => item.to === "/dashboard");
-  const pinnedItems = toolbarModules
-    .map((key) => NAVIGATION.find((item) => item.moduleKey === key))
-    .filter((item): item is (typeof NAVIGATION)[number] => Boolean(item));
-  const items = [dashboard, ...pinnedItems]
-    .filter((item): item is (typeof NAVIGATION)[number] => Boolean(item))
-    .filter(
-      (item) =>
-        item.roles.some((role) => roles.includes(role)) &&
-        (!item.moduleKey || isEnabled(item.moduleKey as ModuleKey)),
-    )
-    .slice(0, 5);
-
-  return (
-    <nav className="fixed bottom-0 left-0 right-0 z-50 flex h-14 items-center justify-around border-t border-teal-400 bg-teal-500 px-1 lg:landscape:hidden">
-      {items.map((item) => {
-        const Icon = navIcons[item.to] ?? LayoutDashboard;
-        const isActive = pathname === item.to;
-        return (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            className={cn(
-              "flex flex-1 flex-col items-center justify-center gap-0.5 rounded-md py-1 text-[10px] font-medium transition-colors",
-              isActive ? "bg-primary text-primary-foreground shadow-sm" : "text-slate-900/80 hover:bg-teal-400/70 hover:text-slate-950",
-            )}
-            aria-label={item.label}
-          >
-            <Icon className="h-5 w-5" />
-            <span className="truncate max-w-[56px]">{item.label}</span>
-          </NavLink>
-        );
-      })}
-    </nav>
-  );
-}
-
-export function SystemLogPage() {
-  const queryClient = useQueryClient();
-  const [logType, setLogType] = useState("all");
-  const [severity, setSeverity] = useState("all");
-  const [showResolved, setShowResolved] = useState(false);
-  const { data: logs = [], isLoading } = useQuery({
-    queryKey: ["system-logs", logType, severity, showResolved],
-    queryFn: () => listSystemLogs({ log_type: logType === "all" ? undefined : logType, severity: severity === "all" ? undefined : severity, resolved: showResolved ? undefined : false }),
-  });
-  const resolveMutation = useMutation({
-    mutationFn: resolveSystemLog,
-    onSuccess: () => { toast.success("Log entry resolved"); queryClient.invalidateQueries({ queryKey: ["system-logs"] }); },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to resolve"),
-  });
-  const snapshotMutation = useMutation({
-    mutationFn: snapshotRecordCounts,
-    onSuccess: (rows) => { toast.success(`Record count snapshot saved for ${rows.length} tables`); queryClient.invalidateQueries({ queryKey: ["system-logs"] }); },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Snapshot failed"),
-  });
-  const addMutation = useMutation({
-    mutationFn: (values: { log_type: string; severity: string; title: string; message: string }) =>
-      writeSystemLog({ log_type: values.log_type as Parameters<typeof writeSystemLog>[0]["log_type"], severity: values.severity as Parameters<typeof writeSystemLog>[0]["severity"], title: values.title, message: values.message, source: "manual" }),
-    onSuccess: () => { toast.success("Log entry created"); queryClient.invalidateQueries({ queryKey: ["system-logs"] }); },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Log failed"),
-  });
-  const [addOpen, setAddOpen] = useState(false);
-  const form = useForm({ defaultValues: { title: "", message: "", log_type: "system_change", severity: "info" } });
-  const severityVariant = (s: string): "default" | "secondary" | "destructive" | "outline" =>
-    s === "critical" || s === "error" ? "destructive" : s === "warning" ? "secondary" : "default";
-
-  return (
-    <div className="flex flex-col gap-6">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h2 className="text-2xl font-semibold">System Log</h2>
-          <p className="text-sm text-muted-foreground">Software errors, bugs, system changes, infrastructure events, and record count snapshots.</p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={() => snapshotMutation.mutate()} disabled={snapshotMutation.isPending}>
-            {snapshotMutation.isPending ? <Loader2 className="animate-spin" /> : <RotateCcw data-icon="inline-start" />}
-            Snapshot counts
-          </Button>
-          <Button onClick={() => setAddOpen(true)}>
-            <Plus data-icon="inline-start" />
-            Add entry
-          </Button>
-        </div>
-      </div>
-      <Card>
-        <CardContent className="grid gap-3 p-4 sm:grid-cols-[1fr_1fr_auto]">
-          <Select onValueChange={setLogType} value={logType}>
-            <SelectTrigger><SelectValue placeholder="All types" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All types</SelectItem>
-              {["error", "bug", "system_change", "infrastructure", "record_count", "info"].map((t) => (
-                <SelectItem key={t} value={t}>{t.replace("_", " ")}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select onValueChange={setSeverity} value={severity}>
-            <SelectTrigger><SelectValue placeholder="All severities" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All severities</SelectItem>
-              {["debug", "info", "warning", "error", "critical"].map((s) => (
-                <SelectItem key={s} value={s}>{s}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <div className="flex items-center gap-2">
-            <Checkbox checked={showResolved} onCheckedChange={(v) => setShowResolved(Boolean(v))} id="show-resolved" />
-            <label htmlFor="show-resolved" className="cursor-pointer text-sm">Show resolved</label>
-          </div>
-        </CardContent>
-      </Card>
-      <Card>
-        <CardContent className="p-0">
-          <TableFrame>
-            <Table>
-              <TableHeader className="sticky top-0 z-10 bg-card">
-                <TableRow>
-                  <TableHead className="w-32">Type</TableHead>
-                  <TableHead className="w-24">Severity</TableHead>
-                  <TableHead>Title</TableHead>
-                  <TableHead>Source</TableHead>
-                  <TableHead className="w-24">Table</TableHead>
-                  <TableHead className="w-24 text-right">Count</TableHead>
-                  <TableHead className="w-32">Date</TableHead>
-                  <TableHead className="w-20" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {isLoading ? (
-                  <TableRow><TableCell colSpan={8} className="h-24 text-center text-muted-foreground">Loading logs…</TableCell></TableRow>
-                ) : logs.length === 0 ? (
-                  <TableRow><TableCell colSpan={8} className="h-24 text-center text-muted-foreground">No log entries found.</TableCell></TableRow>
-                ) : logs.map((log: any) => (
-                  <TableRow key={log.id} className={cn("even:bg-muted/30", log.resolved ? "opacity-50" : "")}>
-                    <TableCell><Badge variant="outline">{log.log_type.replace("_", " ")}</Badge></TableCell>
-                    <TableCell><Badge variant={severityVariant(log.severity)}>{log.severity}</Badge></TableCell>
-                    <TableCell>
-                      <p className="font-medium leading-tight">{log.title}</p>
-                      {log.message ? <p className="text-xs text-muted-foreground">{log.message}</p> : null}
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{log.source ?? "—"}</TableCell>
-                    <TableCell className="font-mono text-sm">{log.table_name ?? "—"}</TableCell>
-                    <TableCell className="text-right font-mono text-sm">{log.record_count != null ? formatNumber(log.record_count) : "—"}</TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{formatDate(log.created_at)}</TableCell>
-                    <TableCell>
-                      {log.resolved ? (
-                        <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
-                      ) : (
-                        <Button size="sm" variant="ghost" onClick={() => resolveMutation.mutate(log.id)}>
-                          <CheckCircle2 className="h-4 w-4" />
-                        </Button>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </TableFrame>
-        </CardContent>
-      </Card>
-      <Dialog open={addOpen} onOpenChange={setAddOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Add log entry</DialogTitle>
-            <DialogDescription>Manually record a system change, bug, or infrastructure event.</DialogDescription>
-          </DialogHeader>
-          <Form {...form}>
-            <form className="grid gap-4" onSubmit={form.handleSubmit((values) => addMutation.mutate(values, { onSuccess: () => { form.reset(); setAddOpen(false); } }))}>
-              <FormField control={form.control} name="log_type" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Type</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value ?? "system_change"}>
-                    <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
-                    <SelectContent>
-                      {["error", "bug", "system_change", "infrastructure", "info"].map((t) => (
-                        <SelectItem key={t} value={t}>{t.replace("_", " ")}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )} />
-              <FormField control={form.control} name="severity" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Severity</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value ?? "info"}>
-                    <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
-                    <SelectContent>
-                      {["debug", "info", "warning", "error", "critical"].map((s) => (
-                        <SelectItem key={s} value={s}>{s}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )} />
-              <FormField control={form.control} name="title" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Title</FormLabel>
-                  <FormControl><Input {...field} placeholder="Brief summary of the event" /></FormControl>
-                  <FormMessage />
-                </FormItem>
-              )} />
-              <FormField control={form.control} name="message" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Details (optional)</FormLabel>
-                  <FormControl><Textarea {...field} rows={3} placeholder="Full description, steps to reproduce, or change notes" /></FormControl>
-                  <FormMessage />
-                </FormItem>
-              )} />
-              <Button type="submit" disabled={addMutation.isPending}>
-                {addMutation.isPending ? <Loader2 className="animate-spin" /> : null}
-                Save entry
-              </Button>
-            </form>
-          </Form>
-        </DialogContent>
-      </Dialog>
-    </div>
-  );
-}
-
-export function EmailLogPage() {
-  const [status, setStatus] = useState("all");
-  const [search, setSearch] = useState("");
-  const { data: rows = [], isLoading, refetch, isFetching } = useQuery({
-    queryKey: ["email-send-log"],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("email_send_log" as any).select("id,message_id,template_name,recipient_email,status,error_message,created_at").order("created_at", { ascending: false }).limit(500);
-      if (error) throw error;
-      return data ?? [];
-    },
-  });
-  const filtered = (rows as any[]).filter((row) => {
-    if (status !== "all" && row.status !== status) return false;
-    if (search.trim()) {
-      const q = search.trim().toLowerCase();
-      if (!row.recipient_email.toLowerCase().includes(q) && !row.template_name.toLowerCase().includes(q) && !(row.message_id ?? "").toLowerCase().includes(q) && !(row.error_message ?? "").toLowerCase().includes(q)) return false;
-    }
-    return true;
-  });
-  const counts = (rows as any[]).reduce((acc: any, row: any) => { acc.total += 1; acc[row.status] = (acc[row.status] ?? 0) + 1; return acc; }, { total: 0 });
-  const statusVariant = (s: string): "default" | "secondary" | "destructive" | "outline" =>
-    s === "sent" ? "default" : s === "failed" || s === "dlq" || s === "bounced" ? "destructive" : s === "pending" || s === "rate_limited" ? "secondary" : "outline";
-
-  return (
-    <div className="flex flex-col gap-6">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h2 className="text-2xl font-semibold">Email Log</h2>
-          <p className="text-sm text-muted-foreground">Recent email send attempts with statuses and error messages for troubleshooting.</p>
-        </div>
-        <Button variant="outline" onClick={() => refetch()} disabled={isFetching}>
-          {isFetching ? <Loader2 className="animate-spin" /> : <RotateCcw data-icon="inline-start" />}
-          Refresh
-        </Button>
-      </div>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-        {[{ label: "Total", value: counts.total ?? 0 }, { label: "Sent", value: counts.sent ?? 0 }, { label: "Pending", value: counts.pending ?? 0 }, { label: "Failed", value: (counts.failed ?? 0) + (counts.dlq ?? 0) }, { label: "Suppressed", value: counts.suppressed ?? 0 }].map((item) => (
-          <Card key={item.label}>
-            <CardContent className="p-4">
-              <p className="text-xs uppercase text-muted-foreground">{item.label}</p>
-              <p className="text-2xl font-semibold">{formatNumber(item.value)}</p>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-      <Card>
-        <CardContent className="grid gap-3 p-4 sm:grid-cols-[1fr_1fr]">
-          <Select onValueChange={setStatus} value={status}>
-            <SelectTrigger><SelectValue placeholder="All statuses" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All statuses</SelectItem>
-              {["pending", "sent", "failed", "dlq", "rate_limited", "suppressed", "bounced", "complained"].map((s) => (
-                <SelectItem key={s} value={s}>{s}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Input type="search" placeholder="Search recipient, template, message id, error…" value={search} onChange={(e) => setSearch(e.target.value)} />
-        </CardContent>
-      </Card>
-      <Card>
-        <CardContent className="p-0">
-          <TableFrame>
-            <Table>
-              <TableHeader className="sticky top-0 z-10 bg-card">
-                <TableRow>
-                  <TableHead className="w-32">Status</TableHead>
-                  <TableHead className="w-48">Template</TableHead>
-                  <TableHead>Recipient</TableHead>
-                  <TableHead>Error</TableHead>
-                  <TableHead className="w-40">Message ID</TableHead>
-                  <TableHead className="w-40">Date</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {isLoading ? (
-                  <TableRow><TableCell colSpan={6} className="h-24 text-center text-muted-foreground">Loading email log…</TableCell></TableRow>
-                ) : filtered.length === 0 ? (
-                  <TableRow><TableCell colSpan={6} className="h-24 text-center text-muted-foreground">No email log entries found.</TableCell></TableRow>
-                ) : filtered.map((row: any) => (
-                  <TableRow key={row.id} className="even:bg-muted/30 align-top">
-                    <TableCell><Badge variant={statusVariant(row.status)}>{row.status}</Badge></TableCell>
-                    <TableCell className="font-mono text-xs">{row.template_name}</TableCell>
-                    <TableCell className="text-sm">{row.recipient_email}</TableCell>
-                    <TableCell className="max-w-md text-xs text-destructive">
-                      {row.error_message ? <span title={row.error_message} className="block break-words">{row.error_message}</span> : <span className="text-muted-foreground">—</span>}
-                    </TableCell>
-                    <TableCell className="font-mono text-xs text-muted-foreground">{row.message_id ?? "—"}</TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{formatDate(row.created_at)}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </TableFrame>
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
+                        <
