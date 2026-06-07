@@ -3451,8 +3451,6 @@ export function ReceivingPage() {
   const perPalletRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const palletCountRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const expiryRefs = useRef<Record<string, HTMLInputElement | null>>({});
-  const [numberPad, setNumberPad] = useState<{ lineId: string; field: "total" | "perPallet" | "count" } | null>(null);
-  const [numberPadStarted, setNumberPadStarted] = useState(false);
   const [shipmentOpen, setShipmentOpen] = useState(false);
   const [showShipmentMore, setShowShipmentMore] = useState(false);
   const [draftSearch, setDraftSearch] = useState("");
@@ -3774,11 +3772,6 @@ export function ReceivingPage() {
     setTimeout(() => target?.focus(), 40);
   }
 
-  function openNumberPad(lineId: string, field: "total" | "perPallet" | "count") {
-    setNumberPad({ lineId, field });
-    setNumberPadStarted(false);
-  }
-
   function openDatePicker(input: HTMLInputElement | null) {
     if (!input) return;
     input.focus();
@@ -3790,54 +3783,10 @@ export function ReceivingPage() {
   }
 
   function moveToNextShipmentField(lineId: string, field: "product" | "total" | "perPallet" | "count") {
-    if (field === "product") {
-      if (isMobileEntry) {
-        openNumberPad(lineId, "total");
-      } else {
-        focusShipmentField(lineId, "total");
-      }
-      return;
-    }
-    if (field === "total") {
-      if (isMobileEntry) {
-        openNumberPad(lineId, "perPallet");
-      } else {
-        focusShipmentField(lineId, "perPallet");
-      }
-      return;
-    }
-    if (field === "perPallet") {
-      if (isMobileEntry) {
-        openNumberPad(lineId, "count");
-      } else {
-        focusShipmentField(lineId, "count");
-      }
-      return;
-    }
-    setNumberPad(null);
-    setNumberPadStarted(false);
+    if (field === "product") { focusShipmentField(lineId, "total"); return; }
+    if (field === "total") { focusShipmentField(lineId, "perPallet"); return; }
+    if (field === "perPallet") { focusShipmentField(lineId, "count"); return; }
     setTimeout(() => openDatePicker(expiryRefs.current[lineId]), 40);
-  }
-
-  const numberPadLine = numberPad ? shipmentForm.lines.find((line) => line.id === numberPad.lineId) : undefined;
-  const numberPadValue = numberPadLine && numberPad
-    ? String(numberPad.field === "total" ? numberPadLine.total_quantity : numberPad.field === "perPallet" ? numberPadLine.quantity_per_pallet : numberPadLine.pallet_count)
-    : "";
-  const numberPadLabel = numberPad?.field === "total" ? "Total received" : numberPad?.field === "perPallet" ? "Qty per pallet" : "Pallets";
-
-  function setNumberPadValue(value: string) {
-    if (!numberPad) return;
-    setNumberPadStarted(true);
-    const clean = value.replace(/\D/g, "");
-    const numeric = numberPad.field === "total" ? Number(clean || 0) : Math.max(1, Number(clean || 1));
-    if (numberPad.field === "total") updateLine(numberPad.lineId, { total_quantity: numeric }, "total");
-    if (numberPad.field === "perPallet") updateLine(numberPad.lineId, { quantity_per_pallet: numeric }, "perPallet");
-    if (numberPad.field === "count") updateLine(numberPad.lineId, { pallet_count: numeric }, "count");
-  }
-
-  function appendNumberPadDigit(digit: string) {
-    const base = !numberPadStarted || numberPadValue === "0" ? "" : numberPadValue;
-    setNumberPadValue(`${base}${digit}`);
   }
 
   const canAddSkuLine = shipmentForm.lines.every((line) => Boolean(line.product_id) && Number(line.total_quantity) > 0);
@@ -4018,7 +3967,7 @@ export function ReceivingPage() {
             <DialogTitle>{editingDraft ? "Edit Draft Pallet" : "New Shipment"}</DialogTitle>
             <DialogDescription className="text-xs sm:text-sm">Container and PO come first, then one or more SKU lines with expiry and pallet distribution.</DialogDescription>
           </DialogHeader>
-          <ScrollArea className={cn("max-h-[calc(100dvh-8.75rem)] px-3 py-3 sm:max-h-[calc(92vh-150px)] sm:px-4 sm:py-4", isMobileEntry && numberPad && "max-h-[calc(100dvh-27rem)]")}>
+          <ScrollArea className="max-h-[calc(100dvh-8.75rem)] px-3 py-3 sm:max-h-[calc(92vh-150px)] sm:px-4 sm:py-4">
             <div className="grid gap-3 sm:gap-4">
               <div className="grid grid-cols-2 gap-2 sm:gap-3 md:grid-cols-3">
                 <div className="grid gap-1.5">
@@ -4138,13 +4087,12 @@ export function ReceivingPage() {
                           <Input
                             ref={(node) => { totalRefs.current[line.id] = node; }}
                             className="h-9 sm:h-10"
-                            type={isMobileEntry ? "text" : "number"}
+                            type="number"
                             inputMode="numeric"
+                            pattern="[0-9]*"
                             min={0}
-                            readOnly={isMobileEntry}
                             value={line.total_quantity}
-                            onFocus={(e) => { if (isMobileEntry) openNumberPad(line.id, "total"); else e.currentTarget.select(); }}
-                            onClick={() => isMobileEntry && openNumberPad(line.id, "total")}
+                            onFocus={(e) => e.currentTarget.select()}
                             onKeyDown={(e) => { if (e.key === "Enter") moveToNextShipmentField(line.id, "total"); }}
                             onChange={(e) => updateLine(line.id, { total_quantity: e.currentTarget.valueAsNumber || Number(e.currentTarget.value) || 0 }, "total")}
                           />
@@ -4154,13 +4102,12 @@ export function ReceivingPage() {
                           <Input
                             ref={(node) => { perPalletRefs.current[line.id] = node; }}
                             className="h-9 sm:h-10"
-                            type={isMobileEntry ? "text" : "number"}
+                            type="number"
                             inputMode="numeric"
+                            pattern="[0-9]*"
                             min={1}
-                            readOnly={isMobileEntry}
                             value={line.quantity_per_pallet}
-                            onFocus={(e) => { if (isMobileEntry) openNumberPad(line.id, "perPallet"); else e.currentTarget.select(); }}
-                            onClick={() => isMobileEntry && openNumberPad(line.id, "perPallet")}
+                            onFocus={(e) => e.currentTarget.select()}
                             onKeyDown={(e) => { if (e.key === "Enter") moveToNextShipmentField(line.id, "perPallet"); }}
                             onChange={(e) => updateLine(line.id, { quantity_per_pallet: e.currentTarget.valueAsNumber || Number(e.currentTarget.value) || 1 }, "perPallet")}
                           />
@@ -4170,13 +4117,12 @@ export function ReceivingPage() {
                           <Input
                             ref={(node) => { palletCountRefs.current[line.id] = node; }}
                             className="h-9 sm:h-10"
-                            type={isMobileEntry ? "text" : "number"}
+                            type="number"
                             inputMode="numeric"
+                            pattern="[0-9]*"
                             min={1}
-                            readOnly={isMobileEntry}
                             value={line.pallet_count}
-                            onFocus={(e) => { if (isMobileEntry) openNumberPad(line.id, "count"); else e.currentTarget.select(); }}
-                            onClick={() => isMobileEntry && openNumberPad(line.id, "count")}
+                            onFocus={(e) => e.currentTarget.select()}
                             onKeyDown={(e) => { if (e.key === "Enter") moveToNextShipmentField(line.id, "count"); }}
                             onChange={(e) => updateLine(line.id, { pallet_count: e.currentTarget.valueAsNumber || Number(e.currentTarget.value) || 1 }, "count")}
                           />
@@ -4253,31 +4199,7 @@ export function ReceivingPage() {
               </div>
             </div>
           </ScrollArea>
-          {isMobileEntry && numberPad && numberPadLine && (
-            <div className="border-t border-border bg-popover p-3 text-popover-foreground">
-              <div className="mb-2 flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold">{numberPadLabel}</p>
-                  <p className="font-mono text-2xl font-bold tabular-nums">{numberPadValue || "0"}</p>
-                </div>
-                <Button type="button" size="sm" variant="ghost" onClick={() => setNumberPad(null)}>Done</Button>
-              </div>
-              <div className="grid grid-cols-3 gap-2">
-                {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((digit) => (
-                  <Button key={digit} type="button" variant="outline" className="h-11 text-lg" onClick={() => appendNumberPadDigit(digit)}>
-                    {digit}
-                  </Button>
-                ))}
-                <Button type="button" variant="outline" className="h-11" onClick={() => setNumberPadValue("")}>Clear</Button>
-                <Button type="button" variant="outline" className="h-11 text-lg" onClick={() => appendNumberPadDigit("0")}>0</Button>
-                <Button type="button" variant="outline" className="h-11" onClick={() => setNumberPadValue(numberPadValue.slice(0, -1))}>Back</Button>
-              </div>
-              <Button type="button" data-testid="shipment-number-next" className="mt-2 h-10 w-full" onClick={() => moveToNextShipmentField(numberPad.lineId, numberPad.field)}>
-                Next
-              </Button>
-            </div>
-          )}
-          <DialogFooter className={cn("flex-row flex-wrap justify-end gap-2 border-t border-border px-3 py-2 sm:px-4 sm:py-3", isMobileEntry && numberPad && "hidden")}>
+          <DialogFooter className="flex-row flex-wrap justify-end gap-2 border-t border-border px-3 py-2 sm:px-4 sm:py-3">
             {saveBlockedReason && (
               <p className="mr-auto w-full text-xs font-medium text-amber-500 sm:w-auto sm:self-center">{saveBlockedReason}</p>
             )}
