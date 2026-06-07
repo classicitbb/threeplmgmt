@@ -856,6 +856,19 @@ export async function adminUpdateUserPassword(profileId: string, password: strin
   });
 }
 
+export async function adminDeleteUser(profileId: string) {
+  const client = supabase as unknown as {
+    rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: unknown }>;
+  };
+  const { error } = await client.rpc("admin_delete_user", {
+    in_user_id: profileId,
+  });
+  if (error) throw new Error(formatSupabaseError(error, "User delete failed"));
+  await logUserActivity("user_deleted", "profiles", profileId, {
+    deleted: true,
+  });
+}
+
 export async function adminUpdateUserPin(profileId: string, pin: string) {
   const client = supabase as unknown as {
     rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: unknown }>;
@@ -883,14 +896,18 @@ export async function refreshUserDeviceTrust(deviceId: string) {
 
 export async function setUserRoleVisibility(userRoleId: string, hidden: boolean, reason?: string) {
   const { error } = await (supabase.from as any)("user_roles")
-    .update({
-      is_hidden: hidden,
-      hidden_at: hidden ? new Date().toISOString() : null,
-      hidden_reason: hidden ? reason ?? null : null,
-    })
+    .update({ is_hidden: hidden })
     .eq("id", userRoleId);
-  if (error) throw error;
+  if (error) throw new Error(formatSupabaseError(error, "Role update failed"));
   await logUserActivity("user_access_change", "user_roles", userRoleId, { hidden, reason: reason ?? null });
+}
+
+export async function removeUserRoleAssignment(userRoleId: string) {
+  const { error } = await (supabase.from as any)("user_roles").delete().eq("id", userRoleId);
+  if (error) throw new Error(formatSupabaseError(error, "Role unassign failed"));
+  await logUserActivity("user_access_change", "user_roles", userRoleId, {
+    removed: true,
+  });
 }
 
 export async function fetchOptions(includeHidden = false, scope?: WarehouseVisibilityScope) {
