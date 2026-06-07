@@ -49,12 +49,35 @@ if (!isInIframe && !isPreviewHost) {
   // and clear caches so the latest build is always served.
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.getRegistrations().then((regs) => {
+      const hadRegistrations = regs.length > 0;
       regs.forEach((r) => r.unregister());
+      if (hadRegistrations) {
+        // A SW was controlling this page — reload once after unregister
+        // so the freshly-fetched bundle (not the SW-cached one) is used.
+        const RELOAD_KEY = "__lovable_sw_reloaded__";
+        if (!sessionStorage.getItem(RELOAD_KEY)) {
+          sessionStorage.setItem(RELOAD_KEY, "1");
+          window.location.reload();
+        }
+      }
     });
     if ("caches" in window) {
       caches.keys().then((names) => {
         names.forEach((n) => caches.delete(n));
       });
     }
+  }
+
+  // Bust HTTP cache for the app shell on every preview load by appending
+  // a build/version query to the document URL when missing. This ensures
+  // any intermediate caches treat each preview session as a fresh fetch.
+  try {
+    const url = new URL(window.location.href);
+    if (!url.searchParams.has("v")) {
+      url.searchParams.set("v", String(__APP_VERSION__) + "-" + Date.now());
+      window.history.replaceState({}, "", url.toString());
+    }
+  } catch {
+    /* no-op */
   }
 }
