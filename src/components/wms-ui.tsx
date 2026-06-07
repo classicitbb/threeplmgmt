@@ -37,7 +37,7 @@ import {
   isLikelyNetworkError,
   useOfflineQueue,
   useDeadLetterQueue,
-  dismissDeadLetterItem,
+
   type FailedWorkItem,
 } from "@/lib/offline-queue";
 import { useBackgroundSync } from "@/hooks/use-background-sync";
@@ -126,10 +126,10 @@ import {
   completeMoveTask,
   cancelMoveTask,
   expandLocationRange,
-  parseRackLocationCode,
+
   buildRackLocationCode,
   suggestNextRackPosition,
-  type RackLocationParts,
+
   validateMoveDestination,
   type MoveValidationResult,
 } from "@/lib/wms-core";

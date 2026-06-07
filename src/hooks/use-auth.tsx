@@ -289,7 +289,25 @@ export function AuthProvider({ children }: PropsWithChildren) {
         // Only fall back to demo session if the Supabase instance is unreachable or
         // explicitly returns a schema-query error (local dev without migrations).
         if (authEmail) {
-          const { error } = await supabase.auth.signInWithPassword({ email: authEmail, password });
+          let { error } = await supabase.auth.signInWithPassword({ email: authEmail, password });
+
+          // Transparent retry for known transient Supabase auth errors
+          // ("Database error querying schema" / "unexpected_failure") that
+          // surface intermittently and otherwise lock real users out.
+          const isTransient = (err: typeof error) => {
+            if (!err) return false;
+            const m = (err.message ?? "").toLowerCase();
+            return (
+              m.includes("database error querying schema") ||
+              m.includes("unexpected_failure") ||
+              m.includes("unexpected failure")
+            );
+          };
+
+          for (let attempt = 0; attempt < 2 && isTransient(error); attempt++) {
+            await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+            ({ error } = await supabase.auth.signInWithPassword({ email: authEmail, password }));
+          }
           if (!error) return;
 
           const isDemoFallback =
