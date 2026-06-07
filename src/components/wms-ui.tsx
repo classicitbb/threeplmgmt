@@ -74,6 +74,8 @@ import {
   getPickExecution,
   getBinOccupancy,
   getBayOccupancy,
+  getWarehouseBayOccupancy,
+  type WarehouseBayGroup,
   logPutawayBaySelection,
   getPutawayTasks,
   getPutawayTaskHistory,
@@ -120,6 +122,10 @@ import {
   completeMoveTask,
   cancelMoveTask,
   expandLocationRange,
+  parseRackLocationCode,
+  buildRackLocationCode,
+  suggestNextRackPosition,
+  type RackLocationParts,
   validateMoveDestination,
   type MoveValidationResult,
 } from "@/lib/wms-core";
@@ -673,6 +679,162 @@ function renderField(
   );
 }
 
+function RackLocationCodeBuilder({
+  form,
+  options,
+}: {
+  form: ReturnType<typeof useForm<Record<string, unknown>>>;
+  options: Awaited<ReturnType<typeof fetchOptions>> | undefined;
+}) {
+  const [rack, setRack] = useState("A");
+  const [aisle, setAisle] = useState(1);
+  const [bay, setBay] = useState(1);
+  const [level, setLevel] = useState(1);
+  const [position, setPosition] = useState(1);
+  const [depth, setDepth] = useState(1);
+
+  const localCode = buildRackLocationCode({ rack, aisle, bay, level, position });
+  const prefixKey = `${rack.toUpperCase()}-${aisle}-${String(bay).padStart(2, "0")}-L${String(level).padStart(2, "0")}`;
+
+  const { data: existingAtPrefix = [] } = useQuery({
+    queryKey: ["locations-prefix", prefixKey],
+    queryFn: async () => {
+      const { data } = await supabase.from("locations").select("code").ilike("code", `%-${prefixKey}-%`);
+      return (data ?? []).map((r: any) => String(r.code));
+    },
+    enabled: Boolean(rack && aisle && bay && level),
+    staleTime: 10_000,
+  });
+
+  const isDuplicate = existingAtPrefix.some((c) => c.toUpperCase().includes(localCode.toUpperCase()));
+  const nextSuggestion = suggestNextRackPosition(existingAtPrefix, rack, aisle, bay, level);
+
+  const warehouseId = form.watch("warehouse_id") as string | undefined;
+  const zoneId = form.watch("zone_id") as string | undefined;
+  const fullCode = composeLocationCode(options, warehouseId, zoneId, localCode);
+
+  useEffect(() => {
+    form.setValue("code", localCode, { shouldValidate: true });
+    form.setValue("aisle", `${rack.toUpperCase()}-${aisle}`);
+    form.setValue("bay", String(bay).padStart(2, "0"));
+    form.setValue("level", level);
+    form.setValue("position", position);
+    form.setValue("depth", depth);
+    form.setValue("location_type", "rack");
+    if (isDuplicate) {
+      form.setError("code", { type: "manual", message: "This location already exists" });
+    } else {
+      form.clearErrors("code");
+    }
+  }, [rack, aisle, bay, level, position, depth, localCode, isDuplicate, form]);
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <FormItem>
+          <FormLabel>Rack</FormLabel>
+          <FormControl>
+            <Input
+              maxLength={1}
+              value={rack}
+              placeholder="A"
+              onChange={(e) => setRack(e.target.value.toUpperCase().replace(/[^A-Z]/g, "") || "A")}
+            />
+          </FormControl>
+          <p className="text-[11px] text-muted-foreground">A–Z, back to front</p>
+        </FormItem>
+        <FormItem>
+          <FormLabel>Aisle</FormLabel>
+          <FormControl>
+            <Input
+              type="number"
+              min={1}
+              value={aisle}
+              onChange={(e) => setAisle(Math.max(1, parseInt(e.target.value, 10) || 1))}
+            />
+          </FormControl>
+          <p className="text-[11px] text-muted-foreground">Floor in front of rack</p>
+        </FormItem>
+        <FormItem>
+          <FormLabel>Bay</FormLabel>
+          <FormControl>
+            <Input
+              type="number"
+              min={1}
+              max={99}
+              value={bay}
+              onChange={(e) => setBay(Math.max(1, Math.min(99, parseInt(e.target.value, 10) || 1)))}
+            />
+          </FormControl>
+          <p className="text-[11px] text-muted-foreground">01–13, left to right</p>
+        </FormItem>
+        <FormItem>
+          <FormLabel>Level</FormLabel>
+          <FormControl>
+            <Input
+              type="number"
+              min={1}
+              max={7}
+              value={level}
+              onChange={(e) => setLevel(Math.max(1, Math.min(7, parseInt(e.target.value, 10) || 1)))}
+            />
+          </FormControl>
+          <p className="text-[11px] text-muted-foreground">1 = floor, 2+ above</p>
+        </FormItem>
+        <FormItem>
+          <FormLabel>
+            Position
+            {nextSuggestion > position && (
+              <button
+                type="button"
+                className="ml-2 text-[10px] text-primary underline-offset-2 hover:underline"
+                onClick={() => setPosition(nextSuggestion)}
+              >
+                next: P{String(nextSuggestion).padStart(2, "0")}
+              </button>
+            )}
+          </FormLabel>
+          <FormControl>
+            <Input
+              type="number"
+              min={1}
+              max={9}
+              value={position}
+              onChange={(e) => setPosition(Math.max(1, Math.min(9, parseInt(e.target.value, 10) || 1)))}
+            />
+          </FormControl>
+          <p className="text-[11px] text-muted-foreground">Left to right within bay</p>
+        </FormItem>
+        <FormItem>
+          <FormLabel>Depth</FormLabel>
+          <FormControl>
+            <Input
+              type="number"
+              min={1}
+              max={5}
+              value={depth}
+              onChange={(e) => setDepth(Math.max(1, Math.min(5, parseInt(e.target.value, 10) || 1)))}
+            />
+          </FormControl>
+          <p className="text-[11px] text-muted-foreground">Pallets deep, 1–5</p>
+        </FormItem>
+      </div>
+      <div
+        className={cn(
+          "flex items-center gap-2 rounded-md border px-3 py-2 font-mono text-sm",
+          isDuplicate
+            ? "border-destructive bg-destructive/10 text-destructive"
+            : "border-border bg-muted/50 text-foreground",
+        )}
+      >
+        <span className="shrink-0 text-xs text-muted-foreground">Code:</span>
+        <span className="flex-1 truncate">{fullCode || localCode}</span>
+        {isDuplicate && <span className="shrink-0 text-xs font-medium text-destructive">already exists</span>}
+      </div>
+    </div>
+  );
+}
+
 function ResourceFormDialog({
   resource,
   trigger,
@@ -688,6 +850,11 @@ function ResourceFormDialog({
     queryKey: ["options", resource.table, restrictedToDefaultWarehouse, profile?.default_warehouse_id],
     queryFn: () => fetchOptions(false, { restrictToWarehouse: restrictedToDefaultWarehouse, warehouseId: profile?.default_warehouse_id }),
   });
+  const isZones = resource.table === "zones";
+  const isLocations = resource.table === "locations";
+  // Fields controlled by the location code builder — hidden from the generic loop
+  const builderControlledFields = new Set(["code", "aisle", "bay", "level", "position", "depth", "location_type"]);
+
   const form = useForm<Record<string, unknown>>({
     resolver: zodResolver(baseFormSchema),
     defaultValues: resource.fields.reduce<Record<string, unknown>>((accumulator, field) => {
@@ -695,6 +862,38 @@ function ResourceFormDialog({
       return accumulator;
     }, {}),
   });
+
+  // Auto-select warehouse when only one exists
+  useEffect(() => {
+    if (options?.warehouses?.length === 1) {
+      const onlyId = (options.warehouses[0] as any).id as string;
+      const current = form.getValues("warehouse_id");
+      if (!current) form.setValue("warehouse_id", onlyId, { shouldDirty: false });
+    }
+  }, [options?.warehouses, form]);
+
+  // Zone duplicate guard
+  const watchedWarehouseId = form.watch("warehouse_id");
+  const watchedCode = form.watch("code");
+  const watchedName = form.watch("name");
+  useEffect(() => {
+    if (!isZones) return;
+    const existing = (options?.zones ?? []).filter((z: any) => z.warehouse_id === watchedWarehouseId);
+    const rawCode = String(watchedCode ?? "").trim().toUpperCase();
+    const rawName = String(watchedName ?? "").trim().toLowerCase();
+    const codeExists = rawCode.length > 0 && existing.some((z: any) => String(z.code).toUpperCase() === rawCode);
+    const nameExists = rawName.length > 0 && existing.some((z: any) => String(z.name).toLowerCase() === rawName);
+    if (codeExists) {
+      form.setError("code", { type: "manual", message: "Zone code already exists in this warehouse" });
+    } else {
+      form.clearErrors("code");
+    }
+    if (nameExists) {
+      form.setError("name", { type: "manual", message: "Zone name already exists in this warehouse" });
+    } else {
+      form.clearErrors("name");
+    }
+  }, [isZones, watchedWarehouseId, watchedCode, watchedName, options?.zones, form]);
 
   const createMutation = useMutation({
     mutationFn: async (values: Record<string, unknown>) => upsertRecord(resource.table, normalizeResourceValues(resource, values, options)),
@@ -728,8 +927,12 @@ function ResourceFormDialog({
               className="flex flex-col gap-4"
               onSubmit={form.handleSubmit(async (values) => createMutation.mutate(values))}
             >
-              {resource.fields.map((field) => renderField(field, form, getResourceFieldOptions(field, options)))}
-              <Button type="submit" disabled={createMutation.isPending}>
+              {resource.fields.map((field) => {
+                if (isLocations && builderControlledFields.has(field.name)) return null;
+                return renderField(field, form, getResourceFieldOptions(field, options));
+              })}
+              {isLocations && <RackLocationCodeBuilder form={form} options={options} />}
+              <Button type="submit" disabled={createMutation.isPending || (isZones && (!!form.formState.errors.code || !!form.formState.errors.name)) || (isLocations && !!form.formState.errors.code)}>
                 {createMutation.isPending ? <Loader2 className="animate-spin" /> : null}
                 Save {resource.singular}
               </Button>
@@ -1078,6 +1281,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Warehouse switch failed"),
   });
+
+  // Auto-select the only warehouse when there is exactly one and none is selected yet
+  useEffect(() => {
+    if (headerWarehouses.length === 1 && !profile?.default_warehouse_id && !warehouseSwitchMutation.isPending) {
+      warehouseSwitchMutation.mutate((headerWarehouses[0] as any).id);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [headerWarehouses.length, profile?.default_warehouse_id]);
+
   const displayName = profile?.full_name?.trim() || user?.email || "Warehouse User";
   const initials = displayName
     .split(/\s+/)
@@ -1322,7 +1534,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
           <div
             className={cn(
-              "flex-1 min-h-0 min-w-0 px-4 py-5 sm:px-5 lg:px-6",
+              "flex-1 min-h-0 min-w-0 px-4 pt-5 pb-[4.75rem] sm:px-5 lg:px-6 lg:landscape:pb-5",
               pathname === "/inventory-search" ? "overflow-hidden" : "overflow-y-auto",
             )}
           >
@@ -2737,7 +2949,7 @@ export function DashboardPage() {
     <div
       ref={dashboardRef}
       className={cn(
-        "flex min-h-0 flex-col gap-6 overflow-y-auto overflow-x-hidden lg:h-full lg:gap-3",
+        "cc-grid-bg flex min-h-0 flex-col gap-6 overflow-y-auto overflow-x-hidden lg:h-full lg:gap-3",
         (isFullscreen || fitToScreen) && "h-screen overflow-auto bg-background p-4",
       )}
     >
@@ -2860,7 +3072,7 @@ function WarehouseFloorMode({
     <div className="grid gap-3">
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
         <SortableContext items={tiles.map((tile) => tile.id)} strategy={rectSortingStrategy}>
-          <div className="grid min-h-0 gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <div className="grid min-h-0 gap-3 grid-cols-[repeat(auto-fill,minmax(min(100%,15rem),1fr))]">
             {tiles.map((tile) => {
               const summaryTile = renderSummaryTile(tile, onResize, onHide);
               if (summaryTile) return summaryTile;
@@ -3014,7 +3226,7 @@ function DockHandoffBoard({
     <div className="grid gap-3">
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
         <SortableContext items={tiles.map((tile) => tile.id)} strategy={rectSortingStrategy}>
-          <div className="grid min-w-0 gap-4 sm:grid-cols-2 xl:grid-cols-5">
+          <div className="grid min-w-0 gap-4 grid-cols-[repeat(auto-fill,minmax(min(100%,13rem),1fr))]">
             {tiles.map((tile) => {
               const summaryTile = renderSummaryTile(tile, onResize, onHide);
               if (summaryTile) return summaryTile;
@@ -3098,7 +3310,7 @@ function OfficeMonitoringMode({
     <div className="grid gap-3">
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
         <SortableContext items={tiles.map((tile) => tile.id)} strategy={rectSortingStrategy}>
-          <div className="grid min-w-0 gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div className="grid min-w-0 gap-4 grid-cols-[repeat(auto-fill,minmax(min(100%,15rem),1fr))]">
             {tiles.map((tile) => {
               const summaryTile = renderSummaryTile(tile, onResize, onHide);
               if (summaryTile) return summaryTile;
@@ -4411,6 +4623,106 @@ function BinCapacityBar({ locationCode }: { locationCode: string; taskId?: strin
   );
 }
 
+function WarehouseBayBrowserDialog({
+  open,
+  warehouseId,
+  onSelectBay,
+  onClose,
+}: {
+  open: boolean;
+  warehouseId: string;
+  onSelectBay: (bayCode: string) => void;
+  onClose: () => void;
+}) {
+  const { data: bays = [], isLoading, error } = useQuery<WarehouseBayGroup[]>({
+    queryKey: ["warehouse-bay-occupancy", warehouseId],
+    queryFn: () => getWarehouseBayOccupancy(warehouseId),
+    staleTime: 30_000,
+    enabled: open && Boolean(warehouseId),
+  });
+
+  // Group by rack letter (parse "A" from "A-1", fall back to "" for plain aisle numbers)
+  const rackGroups = useMemo(() => {
+    const map = new Map<string, WarehouseBayGroup[]>();
+    for (const bay of bays) {
+      const firstPart = (bay.aisle ?? "").split("-")[0] ?? "";
+      const rack = /^[A-Z]$/i.test(firstPart) ? firstPart.toUpperCase() : "";
+      if (!map.has(rack)) map.set(rack, []);
+      map.get(rack)!.push(bay);
+    }
+    return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b));
+  }, [bays]);
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
+      <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Select a bay</DialogTitle>
+          <DialogDescription>Tap a bay to load its locations into the scan field.</DialogDescription>
+        </DialogHeader>
+        {isLoading && (
+          <div className="flex items-center justify-center py-8 text-sm text-muted-foreground">
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            Loading rack locations…
+          </div>
+        )}
+        {error && (
+          <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+            Could not load rack locations.
+          </div>
+        )}
+        {!isLoading && !error && bays.length === 0 && (
+          <p className="py-4 text-center text-sm text-muted-foreground">No rack locations configured for this warehouse.</p>
+        )}
+        {rackGroups.map(([rack, rackBays]) => (
+          <div key={rack || "_"} className="space-y-2">
+            {rack && (
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Rack {rack}</h3>
+            )}
+            <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(8rem, 1fr))" }}>
+              {rackBays.map((bay) => {
+                const pct = bay.totalCapacity > 0 ? bay.totalOccupied / bay.totalCapacity : 0;
+                const isFull = bay.totalCapacity > 0 && bay.totalOccupied >= bay.totalCapacity;
+                const isNearFull = pct >= 0.7;
+                return (
+                  <button
+                    key={bay.bayCode}
+                    type="button"
+                    disabled={isFull}
+                    onClick={() => { onSelectBay(bay.bayCode); onClose(); }}
+                    className={cn(
+                      "flex flex-col gap-1.5 rounded-md border p-3 text-left text-xs transition focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
+                      isFull
+                        ? "cursor-not-allowed border-muted bg-muted/40 opacity-60"
+                        : "border-border bg-card hover:bg-secondary/60",
+                    )}
+                  >
+                    <span className="font-mono font-semibold text-foreground">
+                      {bay.aisle}-{bay.bay}
+                    </span>
+                    <span className="text-muted-foreground">
+                      {bay.totalOccupied}/{bay.totalCapacity} pallets
+                    </span>
+                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                      <div
+                        className={cn(
+                          "h-full rounded-full transition-all",
+                          isFull ? "bg-red-500" : isNearFull ? "bg-amber-500" : "bg-green-500",
+                        )}
+                        style={{ width: `${Math.min(100, Math.round(pct * 100))}%` }}
+                      />
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function BayOccupancyGrid({
   locationCode,
   selectedLocationCode,
@@ -4452,8 +4764,6 @@ function BayOccupancyGrid({
       </div>
     ) : null;
   }
-
-  if (!isBayScan && data.cells.length <= 1) return null;
 
   return (
     <div className="grid gap-2 rounded-md border border-border bg-secondary/20 p-3">
@@ -4568,6 +4878,7 @@ export function PutawayTasksPage() {
   const [scanState, setScanState] = useState<Record<string, { pallet: string; location: string; override: boolean; reason: string }>>({});
   const [bayScanState, setBayScanState] = useState<Record<string, string>>({});
   const [violations, setViolations] = useState<Record<string, string>>({});
+  const [bayBrowserOpen, setBayBrowserOpen] = useState<Record<string, boolean>>({});
   const [taskSearch, setTaskSearch] = useState("");
   const palletRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const locationRefs = useRef<Record<string, HTMLInputElement | null>>({});
@@ -4795,8 +5106,6 @@ export function PutawayTasksPage() {
                     {(task.pallets as any)?.quantity ?? "?"} units
                     <br />
                     Pallet: <span className="font-mono">{palletBarcode || "No pallet assigned"}</span>
-                    <br />
-                    Suggested: <span className="font-mono">{(task.locations as any)?.code ?? "Request alternative"}</span>
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="flex flex-col gap-3">
@@ -4895,9 +5204,30 @@ export function PutawayTasksPage() {
                           title="Scan location barcode"
                           onScan={(v) => applyLocationScan(task, normalizeScannerText(v))}
                         />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="shrink-0 self-stretch"
+                          onClick={() => setBayBrowserOpen((s) => ({ ...s, [task.id]: true }))}
+                        >
+                          Browse bays
+                        </Button>
                       </div>
                     </div>
                   </div>
+                  <WarehouseBayBrowserDialog
+                    open={Boolean(bayBrowserOpen[task.id])}
+                    warehouseId={task.warehouse_id as string}
+                    onClose={() => setBayBrowserOpen((s) => ({ ...s, [task.id]: false }))}
+                    onSelectBay={(bayCode) => {
+                      setBayScanState((s) => ({ ...s, [task.id]: bayCode }));
+                      setScanState((s) => ({ ...s, [task.id]: { ...(s[task.id] ?? { pallet: "", location: "", override: false, reason: "" }), location: "" } }));
+                      void logPutawayBaySelection({ taskId: task.id, scannedCode: bayCode });
+                      setBayBrowserOpen((s) => ({ ...s, [task.id]: false }));
+                      flashInput(locationRefs.current[task.id], "orange");
+                    }}
+                  />
                   {bayOccupancy && (
                     <>
                       {binOccupancy && <BinCapacityBar locationCode={localState.location} taskId={task.id} />}
@@ -8319,7 +8649,7 @@ export function MobileActionBar() {
     .slice(0, 5);
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-50 flex h-14 items-center justify-around border-t border-teal-400 bg-teal-500 px-1 md:hidden">
+    <nav className="fixed bottom-0 left-0 right-0 z-50 flex h-14 items-center justify-around border-t border-teal-400 bg-teal-500 px-1 lg:landscape:hidden">
       {items.map((item) => {
         const Icon = navIcons[item.to] ?? LayoutDashboard;
         const isActive = pathname === item.to;
