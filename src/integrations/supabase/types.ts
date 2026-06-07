@@ -2965,6 +2965,7 @@ export type Database = {
     }
     Functions: {
       _delete_guard_check: { Args: never; Returns: boolean }
+      admin_delete_user: { Args: { in_user_id: string }; Returns: undefined }
       admin_invite_user: {
         Args: {
           in_email: string
