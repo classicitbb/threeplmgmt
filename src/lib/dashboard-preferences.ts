@@ -68,7 +68,8 @@ export async function loadDashboardTileVisibility(userId: string, mode: Dashboar
     .eq("user_id", userId)
     .eq("mode", mode);
   if (error) throw error;
-  return (data ?? []).reduce<DashboardVisibilityMap>((current: DashboardVisibilityMap, row: any) => {
+  const rows = (data ?? []) as Array<{ tile_id: string; visible: boolean }>;
+  return rows.reduce<DashboardVisibilityMap>((current, row) => {
     current[row.tile_id] = row.visible !== false;
     return current;
   }, {});

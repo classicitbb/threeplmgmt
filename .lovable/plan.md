@@ -1,49 +1,68 @@
-## Goal
+## Problem
 
-Audit and rework the Setup Wizard so it never seeds forms or invents zones/locations for a brand-new tenant. Forms must open empty and let the user type freely. Prefilled rows are only allowed when the wizard is being used to extend an already-configured environment.
+`importCsvToResource` in `src/lib/wms-core.ts` silently fails:
 
-## Current behavior (audit findings)
+1. `await db(table).upsert(row)` returns `{ error }` — it does NOT throw — so the `try/catch` never sees a failure and the function returns `[]`. The UI then shows "Products imported" even when 0 rows landed.
+2. Rows are upserted verbatim. CSV exports include `id`, `created_at`, `updated_at`, and FK columns like `client_owner_id` as raw UUIDs that don't exist in this environment — every insert is rejected by Postgres but the error is dropped.
+3. No preview — user can't see what's about to be imported or why rows would fail.
 
-- `createDefaultWarehouseSetupPayload()` (`src/lib/wms-core.ts:965`) hard-codes 3 warehouses (`MAIN`, `PORT`, `WLD`), 13 zones (`STG`/`DSP`/`QTN`/`AMB` per warehouse + `COOL`), and 16 location templates with aisles/bays/levels/maxPallets/temperature pre-filled.
-- `SetupWizardPage.tsx` initializes state from that default, so every "fresh" wizard run lands on Barbados warehouses and 4 suggested zones per facility.
-- "Add warehouse / Add zone / Add location template" buttons also inject made-up defaults ("New Warehouse", "Bridgetown", "New Zone", `STG`, aisleCount 1, etc.) instead of blank rows.
-- Step 4 always calls `runWarehouseSetup(payload)` with default `seedMode = "starter_ops"`, which on the backend (`run_warehouse_setup`) inserts demo clients, products, pallets, receipts, putaway tasks, transfers, and cycle counts. UI copy ("seed starter operational data so receiving, putaway, picking… can be tested immediately") promises this.
-- `wms-core.test.ts` asserts the 3-warehouse default and must be updated.
+## Fix
 
-## Plan
+### 1. Rewrite `importCsvToResource` (src/lib/wms-core.ts)
 
-### 1. `src/lib/wms-core.ts`
+Split into two functions so the UI can preview before committing:
 
-- Replace `createDefaultWarehouseSetupPayload()` with a true blank payload: `{ warehouses: [], zones: [], locationTemplates: [] }`.
-- Add a new helper `createBlankWarehouse() / createBlankZone(warehouseCode) / createBlankLocationTemplate(warehouseCode, zoneCode)` returning all-empty strings and zero counts (`aisleCount: 0`, `baysPerAisle: 0`, `levels: 0`, `maxPallets: 0`, `temperatureClass: "ambient"`, status `"active"`, toggles false). These are used by the "Add" buttons.
-- Add `loadExistingSetupPayload()` that reads current `warehouses`, `zones`, and a derived location-template summary (group by warehouse+zone+location_type) from Supabase so the wizard can hydrate when extending an existing environment.
-- Change `runWarehouseSetup` default `seedMode` to `"structure_only"` so the wizard does not seed demo operational data unless explicitly asked.
+- `parseCsvForResource(resource, file): Promise<ImportPreview>` — parses CSV, normalizes each row, runs validation, returns:
+  ```ts
+  {
+    headers: string[],
+    rows: Array<{
+      rowNumber: number,
+      raw: Record<string,string>,
+      normalized: Record<string, unknown> | null,
+      errors: string[],
+      warnings: string[],
+    }>,
+    summary: { total, valid, invalid, willCreate, willSkip }
+  }
+  ```
+- `commitImportRows(resource, rows): Promise<{inserted, failed, errors}>` — inserts only the valid rows and **captures `result.error`** from each Supabase call.
 
-### 2. `src/pages/SetupWizardPage.tsx`
+Per-resource normalization rules:
+- **Always strip**: `id`, `created_at`, `updated_at` (server generates fresh UUIDs).
+- **Booleans**: accept `true/false/1/0/yes/no/y/n` (case-insensitive).
+- **Numbers**: parse, blank → null.
+- **Enums** (e.g. `temperature_requirement`, `rotation_method`): validate against the field's `options`.
+- **FK lookups for products**: if `client_owner_id` is not a UUID, resolve by `clients.code` then `clients.name`; record an error if no match.
+- **Required fields**: enforced from `resource.fields[].required` after stripping `id`.
+- **Duplicate detection**: for products, check `sku` uniqueness against existing rows and within the file; flag as a warning ("will update existing") or error if we prefer insert-only. Default: insert-only — error on existing SKU.
 
-- On mount, query existing warehouses. 
-  - **Empty tenant (no warehouses):** start with the new blank payload. Show a banner: "Starting from scratch — add your first warehouse." All three steps render empty lists with only the "Add …" buttons.
-  - **Existing tenant:** call `loadExistingSetupPayload()` and prefill warehouses/zones/templates as read-only-by-default rows tagged `existing: true` for review/edit, plus a clear "Add new warehouse / zone / location rule" affordance for the new structure being layered in.
-- Update "Add warehouse / zone / location template" handlers to push blank rows from the new helpers (no Barbados, no `STG`, no aisle defaults).
-- Replace Step 4 copy: remove "seed starter operational data" language; describe only structure creation. Add a separate, clearly-labeled secondary action "Also load demo operational data" (only visible to developer role) that passes `seedMode: "starter_ops"` — default action stays structure-only.
-- Keep the existing accordion help, totals, and review tables; they continue to work against whatever the user actually entered.
+### 2. New preview dialog `ImportPreviewDialog` (src/components/wms-ui.tsx)
 
-### 3. Tests & docs
+Replaces the silent `handleImport` flow:
 
-- Update `src/test/wms-core.test.ts` `createDefaultWarehouseSetupPayload` block to assert the payload is empty and that `createBlankWarehouse()` returns blank strings / zeros.
-- Update `src/lib/help-content.ts` and the inline help text in `src/components/wms-ui.tsx:6325` to drop the "seed starter operational data" promise from the wizard description, and add a line noting demo data is opt-in for developers only.
-- Add a Change-log entry in `AGENTS.md` under section 5: user-approved change that the Setup Wizard starts blank and only prefills when extending an existing warehouse environment.
+1. User picks a CSV → call `parseCsvForResource`.
+2. Open a `Dialog` showing:
+   - Summary chips: Total / Valid / Invalid / Will create.
+   - A scrollable `Table` of every row: row #, key columns, status badge (OK / Error / Warning), error/warning messages inline.
+   - "Download errors CSV" button.
+   - Footer: **Cancel** and **Import N valid rows** (disabled when valid=0).
+3. On confirm → call `commitImportRows`, show progress, then a final toast with `inserted / failed` counts and an errors CSV download if any failed.
 
-### 4. Out of scope
+Keep the existing `Template` button untouched, but update the template generator to **omit** `id`, `created_at`, `updated_at` so users don't paste server-managed columns back in.
 
-- Backend `run_warehouse_setup` SQL stays as-is; we just stop calling it with `starter_ops` by default. No new migration required.
-- No changes to Reset All, role gating, or cascade-delete flows.
+### 3. Scope
 
-## Files touched
+- Wire `ImportPreviewDialog` into the existing `ImportButton` only (used by every resource). Behavior is identical for other resources because the normalization rules are field-type driven; product-specific FK resolution is gated on `resource.table === "products"`.
+- No DB migrations.
+- No changes to other workflows.
 
-- `src/lib/wms-core.ts`
-- `src/pages/SetupWizardPage.tsx`
-- `src/lib/help-content.ts`
-- `src/components/wms-ui.tsx` (one help paragraph)
-- `src/test/wms-core.test.ts`
-- `AGENTS.md` (change log entry)
+### 4. Verification
+
+- Run `bunx tsc --noEmit`.
+- Add a unit test in `src/test/wms-core.test.ts` covering: row with `id` stripped, boolean coercion, enum rejection, FK resolution by client code, missing-required-field error.
+
+## Out of scope
+
+- Updating existing products from CSV (insert-only for now; can be added later behind a checkbox).
+- Bulk import for receipts / orders / pallets.

@@ -7,6 +7,7 @@ import pkg from "./package.json" with { type: "json" };
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
+  cacheDir: "/tmp/vite-cache",
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
   },

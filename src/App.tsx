@@ -14,10 +14,10 @@ import { FeatureFlagContext, useFeatureFlagState } from "@/hooks/use-feature-fla
 import { enqueueOfflineWork, isLikelyNetworkError } from "@/lib/offline-queue";
 import { supabase } from "@/integrations/supabase/client";
 import { createAppQueryClient } from "@/lib/query-client";
-import { cn } from "@/lib/utils";
 
-import { confirmPickTask, formatDate, formatNumber, getBayOccupancy, getInventoryDetail, getPickExecution, loginSchema, recordUserSignIn, refreshUserDeviceTrust, RESOURCE_DEFINITIONS } from "@/lib/wms-core";
-import { clearTrustedDeviceShortcut, getOrCreateDeviceId, hasTrustedDeviceShortcut, isDesktopClient, markTrustedDeviceShortcut } from "@/lib/device-identity";
+import { buildBayOccupancyGrid, confirmPickTask, formatDate, formatNumber, getBayOccupancy, getInventoryDetail, getPickExecution, loginSchema, recordUserSignIn, refreshUserDeviceTrust, signUpSchema, RESOURCE_DEFINITIONS } from "@/lib/wms-core";
+import { getOrCreateDeviceId, hasTrustedDeviceShortcut, isDesktopClient } from "@/lib/device-identity";
+import { cn } from "@/lib/utils";
 
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
@@ -75,8 +75,8 @@ const RELEASE_HISTORY = [
     version: "1.1.8 Beta",
     date: "June 2026",
     changes: [
-      "Putaway and pick: shortened bay codes open the bay selector while full location scans still confirm directly",
-      "Locations: table columns now show Warehouse and Zone before Aisle, with Label before Max Pallets",
+      "Put-Away and pick: shortened bay codes open the bay selector while full location scans still confirm directly",
+      "Bin Locations: table columns now show Warehouse and Zone before Aisle, with Label before Max Pallets",
       "Location labels: batch sheets match the per-row beam label design on Avery 99 x 38 mm labels",
       "Bay and zone labels: batch sheets print shortened bay/zone aisle codes on Avery 99 x 93 mm labels",
       "Badge sign-in: trusted-device PIN shortcut is limited to previously authenticated mobile/tablet devices",
@@ -92,8 +92,8 @@ const RELEASE_HISTORY = [
       "Products: total on-hand quantity shown beside each product name (read-only)",
       "Navigation: desktop sidebar only mounts in landscape; portrait/tablets use the top slide-in nav. Help is always the last item",
       "Sidebar: squishy press feedback on nav buttons and tighter responsive width before the scrollbar kicks in",
-      "Locations: Edit Location now saves notes and max-height correctly (field-name mismatch fixed)",
-      "Locations & Zones: bulk label sheets — filter the table, then Print labels sheet (paper size, grid presets, start cell)",
+      "Bin Locations: Edit Location now saves notes and max-height correctly (field-name mismatch fixed)",
+      "Bin Locations & Zones: bulk label sheets — filter the table, then Print labels sheet (paper size, grid presets, start cell)",
       "Access requests: admins, supervisors, and managers see a full-screen prompt when pending users are awaiting approval, with a one-click jump to Users & Roles",
     ],
   },
@@ -116,7 +116,7 @@ const RELEASE_HISTORY = [
       "Inventory Search: warehouse scope matching now includes live warehouse, zone, aisle, and location codes",
       "Locations: generated and migrated codes now preserve warehouse, zone, and location hierarchy",
       "Location Labels: full hierarchy codes with QR output for complex location codes",
-      "Putaway: clearer location confirmation fields and aligned desktop task confirmation",
+      "Put-Away: clearer location confirmation fields and aligned desktop task confirmation",
       "Tables: editable and detail rows now require double-click or double-tap before opening",
     ],
   },
@@ -125,7 +125,7 @@ const RELEASE_HISTORY = [
     date: "May 2026",
     changes: [
       "Inventory Search: barcode-aware searching and warehouse scope filtering",
-      "Putaway: pallet confirmation, draft return prompts, and saved draft guidance",
+      "Put-Away: pallet confirmation, draft return prompts, and saved draft guidance",
       "Pick Lists: searchable pick list contents with scan support",
       "Inventory Detail: pallet barcode and full-page pallet label preview",
       "Mobile: configurable bottom toolbar and responsive table scrolling",
@@ -742,20 +742,22 @@ function LoginPage() {
     defaultValues: { password: "" },
   });
 
+  const _signUpForm = useForm({
+    resolver: zodResolver(signUpSchema),
+    defaultValues: { fullName: "", email: "", phone: "", password: "" },
+  });
+  void _signUpForm;
+
   const loginMutation = useMutation({
     mutationFn: async (values: { email: string; password: string }) => {
       const identifier = values.email.trim();
-      const isEmail = identifier.includes("@");
-      const isPin = /^\d{4,7}$/.test(values.password.trim());
-      const method = identifier.toUpperCase().startsWith("BADGE-") ? "badge" : isEmail ? "email" : "code";
-      const shouldUsePinLogin = method === "badge" || (!isEmail && isPin);
-      if (shouldUsePinLogin) {
+      const method = identifier.toUpperCase().startsWith("BADGE-") ? "badge" : identifier.includes("@") ? "email" : "code";
+      if (method === "badge") {
         const { data, error } = await supabase.functions.invoke("badge-login", {
           body: {
             badgeCode: identifier,
             pin: values.password,
             deviceId: getOrCreateDeviceId(),
-            isDesktop: isDesktopClient(),
           },
         });
         if (error) throw error;
@@ -768,20 +770,7 @@ function LoginPage() {
         if (verifyError) throw verifyError;
       } else {
         await auth.signIn(identifier, values.password);
-        const deviceId = getOrCreateDeviceId();
-        try {
-          await refreshUserDeviceTrust(deviceId);
-          if (!isDesktopClient()) {
-            markTrustedDeviceShortcut(deviceId);
-            setBadgeShortcutAvailable(true);
-          } else {
-            clearTrustedDeviceShortcut();
-            setBadgeShortcutAvailable(false);
-          }
-        } catch {
-          clearTrustedDeviceShortcut();
-          setBadgeShortcutAvailable(false);
-        }
+        await refreshUserDeviceTrust(getOrCreateDeviceId());
       }
       await recordUserSignIn(method);
     },
@@ -1431,6 +1420,10 @@ function PickExecutionPage() {
         queryClient.invalidateQueries({ queryKey: ["pick-execution", pickListId] }),
         queryClient.invalidateQueries({ queryKey: ["pick-lists"] }),
         queryClient.invalidateQueries({ queryKey: ["inventory-search"] }),
+        queryClient.invalidateQueries({ queryKey: ["product-qty-totals"] }),
+        queryClient.invalidateQueries({ queryKey: ["pick-bay-occupancy"] }),
+        queryClient.invalidateQueries({ queryKey: ["bay-occupancy"] }),
+        queryClient.invalidateQueries({ queryKey: ["bin-occupancy"] }),
         queryClient.invalidateQueries({ queryKey: ["dashboard-metrics"] }),
       ]);
       setTimeout(() => focusNextOpen(variables.taskId), 300);
@@ -1444,7 +1437,7 @@ function PickExecutionPage() {
         .from("pick_tasks")
         .select("id, status")
         .eq("pick_list_id", pickListId)
-        .in("status", Array.from(PICK_OPEN_STATUSES));
+      .in("status", Array.from(PICK_OPEN_STATUSES) as ("queued" | "assigned" | "in_progress")[]);
       if (openError) throw openError;
       if ((openTasks ?? []).length > 0) {
         throw new Error("Confirm every pick task before closing the pick list.");
@@ -1555,7 +1548,7 @@ function PickBayGrid({
     );
   }
 
-  const hasAssignedLocation = data.cells.some((cell) => cell.locationCode.toUpperCase() === assigned);
+  const hasAssignedLocation = data.cells.some((cell: { locationCode: string }) => cell.locationCode.toUpperCase() === assigned);
 
   return (
     <div className="lg:col-span-4 grid gap-2 rounded-md border border-border bg-secondary/20 p-3">
@@ -1567,31 +1560,50 @@ function PickBayGrid({
           Pick from <span className="font-mono font-semibold text-foreground">{assignedLocationCode || "assigned location"}</span>
         </span>
       </div>
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        {data.cells.map((cell) => {
-          const isAssigned = cell.locationCode.toUpperCase() === assigned;
-          const canSelect = isAssigned && cell.status === "active";
-          return (
-            <button
-              key={cell.locationId}
-              type="button"
-              disabled={!canSelect}
-              onClick={() => onSelectAssigned(cell.locationCode)}
-              className={[
-                "min-h-16 rounded-md border px-2 py-2 text-left text-xs transition focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
-                isAssigned
-                  ? "animate-pulse border-cyan-400 bg-cyan-50 text-cyan-950 ring-2 ring-cyan-400 dark:bg-cyan-950/50 dark:text-cyan-50"
-                  : "cursor-not-allowed border-muted bg-muted text-muted-foreground opacity-70",
-              ].join(" ")}
-            >
-              <span className="block font-mono font-semibold">{cell.locationCode}</span>
-              <span className="mt-1 block">
-                {cell.occupiedPallets}/{cell.maxPallets} pallets
-              </span>
-              <span className="block">{isAssigned ? "Pallet location" : cell.status !== "active" ? cell.status : "Other bin"}</span>
-            </button>
-          );
-        })}
+      <div className="grid gap-2">
+        {buildBayOccupancyGrid(data.cells).map((row) => (
+          <div
+            key={`level-${row[0]?.level ?? "unknown"}`}
+            className="grid gap-2"
+            style={{ gridTemplateColumns: `repeat(${row.length}, minmax(0, 1fr))` }}
+          >
+            {row.map((slot) => {
+              const cell = slot.cell;
+              if (!cell) {
+                return (
+                  <div
+                    key={`empty-${slot.level}-${slot.position}`}
+                    aria-hidden="true"
+                    className="min-h-16 rounded-md border border-dashed border-border/60 bg-background/40"
+                  />
+                );
+              }
+
+              const isAssigned = cell.locationCode.toUpperCase() === assigned;
+              const canSelect = isAssigned && cell.status === "active";
+              return (
+                <button
+                  key={cell.locationId}
+                  type="button"
+                  disabled={!canSelect}
+                  onClick={() => onSelectAssigned(cell.locationCode)}
+                  className={[
+                    "min-h-16 rounded-md border px-2 py-2 text-left text-xs transition focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
+                    isAssigned
+                      ? "animate-pulse border-cyan-400 bg-cyan-50 text-cyan-950 ring-2 ring-cyan-400 dark:bg-cyan-950/50 dark:text-cyan-50"
+                      : "cursor-not-allowed border-muted bg-muted text-muted-foreground opacity-70",
+                  ].join(" ")}
+                >
+                  <span className="block font-mono font-semibold">{cell.locationCode}</span>
+                  <span className="mt-1 block">
+                    {cell.occupiedPallets}/{cell.maxPallets} pallets
+                  </span>
+                  <span className="block">{isAssigned ? "Pallet location" : cell.status !== "active" ? cell.status : "Other bin"}</span>
+                </button>
+              );
+            })}
+          </div>
+        ))}
       </div>
       {!hasAssignedLocation ? (
         <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300">

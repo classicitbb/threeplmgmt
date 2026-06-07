@@ -110,7 +110,7 @@ export function PalletLabelPage(props: PalletLabelPageProps) {
   const tempLabel = TEMP_LABELS[temperatureClass] ?? temperatureClass;
   const safeBarcode = displayValue(barcode);
   const draftPosition = hasValue(draftSequence) && hasValue(draftCount) ? `${draftSequence}/${draftCount}` : draftSequence;
-  const fields = [
+  const fields = ([
     ["Pallet barcode", safeBarcode],
     ["Temperature", tempLabel],
     ["SKU", productSku],
@@ -127,7 +127,7 @@ export function PalletLabelPage(props: PalletLabelPageProps) {
     ["Receipt", receiptReference],
     ["Packaging", packaging],
     ["Draft", draftPosition],
-  ].filter(([label, value]) => label === "Pallet barcode" || hasValue(value));
+  ] as Array<[string, unknown]>).filter(([label, value]) => label === "Pallet barcode" || hasValue(value));
 
   function handlePrint() {
     const barcodeEl = document.getElementById(`__pl-bc-${barcode}`);

@@ -6,7 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm, type UseFormReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { supabase } from "@/integrations/supabase/client";
-import { Activity, AlertTriangle, ArrowLeftRight, BarChart3, Bot, Boxes, Building2, CheckCircle2, ChevronDown, ClipboardCheck, ClipboardList, CloudOff, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, HelpCircle, Home, Info, KeyRound, LayoutDashboard, Loader2, Lock, LockOpen, LogOut, Mail, Maximize2, MapPinned, Menu, Minimize2, Package, PackageX, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, QrCode, RadioTower, RefreshCw, RotateCcw, Search, Settings, ShieldCheck, Star, Tags, Trash2, Truck, Upload, UserPlus, Users } from "lucide-react";
+import { Activity, AlertTriangle, ArrowLeftRight, BarChart3, Bot, Boxes, Building2, CheckCircle2, ChevronDown, ClipboardCheck, ClipboardList, CloudOff, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, HelpCircle, Home, Info, KeyRound, LayoutDashboard, Loader2, Lock, LockOpen, LogOut, Mail, Maximize2, MapPinned, Menu, Minimize2, Network, Package, PackageX, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, QrCode, RadioTower, RefreshCw, RotateCcw, Search, Settings, ShieldCheck, Star, Tags, Trash2, Truck, Upload, UserPlus, Users } from "lucide-react";
 import {
   DndContext,
   KeyboardSensor,
@@ -46,16 +46,17 @@ import {
   type FieldDefinition,
   type ResourceDefinition,
   type DraftReceipt,
+  type BayOccupancyCell,
   adminInviteUser,
   adminUpdateUserPin,
   adminUpdateUserPassword,
+  buildBayOccupancyGrid,
   updateOwnPassword,
   changePalletStatus,
   confirmPutaway,
   createCycleCountFlow,
   createPickListFlow,
   getPickableStockSummary,
-  createReceiptFlow,
   createTransferFlow,
   cancelPickList,
   deleteClientVariable,
@@ -77,10 +78,11 @@ import {
   getPutawayTasks,
   getPutawayTaskHistory,
   getReportData,
-  importCsvToResource,
+  parseCsvForResource,
+  commitImportRows,
+  type ImportPreview,
   listClientVariables,
   listDraftReceipts,
-  saveDraftReceipt,
   saveShipmentDrafts,
   updateDraftReceipt,
   completeReceiptFromDraft,
@@ -117,6 +119,9 @@ import {
   completeDirectMove,
   completeMoveTask,
   cancelMoveTask,
+  expandLocationRange,
+  validateMoveDestination,
+  type MoveValidationResult,
 } from "@/lib/wms-core";
 import { ProductSearch } from "@/components/product-search";
 import { PalletLabelPage } from "@/components/pallet-label-page";
@@ -144,7 +149,6 @@ import {
 import {
   buildCsvReportRows,
   buildEnterpriseDashboard,
-  generateZplLabel,
   type DashboardMode,
   type DockHandoffLoad,
   type EnterpriseDashboardSnapshot,
@@ -154,6 +158,7 @@ import { HelpSidebar } from "@/components/help-sidebar";
 import { ZoneLabelPage } from "@/components/zone-label-page";
 import { LocationLabelPage } from "@/components/location-label-page";
 import { BayLocationCodesPrintDialog, LabelSheetPrintDialog, type LabelSheetItem } from "@/components/label-sheet-print";
+import { WarehouseStructureTab } from "@/components/warehouse-tree-view";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -208,7 +213,7 @@ const DEFAULT_DASHBOARD_CARDS: DashboardCardConfig[] = [
   { id: "totalPallets", label: "Total Pallets", metricKey: "totalPallets", size: "lg", moduleKey: "inventory" },
   { id: "warehousePallets", label: "This Warehouse", metricKey: "warehousePallets", size: "lg", moduleKey: "inventory" },
   { id: "openReceipts", label: "Open Receipts", metricKey: "openReceipts", size: "sm", moduleKey: "receiving" },
-  { id: "openPutawayTasks", label: "Open Putaway", metricKey: "openPutawayTasks", size: "sm", moduleKey: "putaway" },
+  { id: "openPutawayTasks", label: "Open Put-Away", metricKey: "openPutawayTasks", size: "sm", moduleKey: "putaway" },
   { id: "openPickLists", label: "Open Pick Lists", metricKey: "openPickLists", size: "sm", moduleKey: "pick-lists" },
   { id: "openMoveTasks", label: "Open Moves", metricKey: "openMoveTasks", size: "sm", moduleKey: "location-moves" },
   { id: "expiryWarning30", label: "Expiry 30 Days", metricKey: "expiryWarning30", size: "sm", moduleKey: "inventory" },
@@ -255,7 +260,7 @@ function dashboardMetricLink(metricKey: DashboardMetricKey) {
 }
 const DEFAULT_FLOOR_TILES: DashboardTileDefinition<ModuleKey>[] = [
   { id: "Inbound", label: "Inbound", size: "lg", moduleKey: "receiving" },
-  { id: "Putaway", label: "Putaway", size: "lg", moduleKey: "putaway" },
+  { id: "Putaway", label: "Put-Away", size: "lg", moduleKey: "putaway" },
   { id: "Warehouse Intelligence", label: "Warehouse Intelligence", size: "lg" },
   { id: "Outbound", label: "Outbound", size: "lg", moduleKey: "pick-lists" },
   { id: "Moves & Counts", label: "Moves & Counts", size: "lg", moduleKey: "location-moves" },
@@ -849,9 +854,9 @@ const locationWizardSchema = z
     prefix: z.string().trim().min(1, "Prefix required").max(8, "Max 8 chars"),
     start_bay: z.coerce.number().int().min(1),
     end_bay: z.coerce.number().int().min(1),
-    levels: z.coerce.number().int().min(1).max(20),
+    levels: z.coerce.number().int().min(1).max(6),
+    positions_per_level: z.coerce.number().int().min(1).max(3),
     depth: z.coerce.number().int().min(1).max(5),
-    max_pallets: z.coerce.number().int().min(1),
     location_type: z.enum(["rack", "staging", "quarantine", "dispatch", "receiving", "floor", "returns"]),
     temperature_class: z.enum(["ambient", "cool", "frozen"]),
     mixed_sku_allowed: z.boolean(),
@@ -1474,6 +1479,9 @@ export function ResourcePage({
     queryFn: async () => {
       const { data, error } = await (supabase.from as any)("inventory_balances")
         .select("product_id, available_quantity, quantity")
+        .eq("status", "available")
+        .gt("available_quantity", 0)
+        .not("location_id", "is", null)
         .limit(10000);
       if (error) throw error;
       return data as Array<{ product_id: string; available_quantity: number | null; quantity: number | null }>;
@@ -2057,6 +2065,11 @@ export function ResourcePage({
 }
 
 function ImportButton({ resource, asMenuItems = false }: { resource: ResourceDefinition; asMenuItems?: boolean }) {
+  const queryClient = useQueryClient();
+  const [preview, setPreview] = useState<ImportPreview | null>(null);
+  const [parsing, setParsing] = useState(false);
+  const [committing, setCommitting] = useState(false);
+
   function handleImport() {
     const input = document.createElement("input");
     input.type = "file";
@@ -2064,15 +2077,37 @@ function ImportButton({ resource, asMenuItems = false }: { resource: ResourceDef
     input.onchange = async () => {
       const file = input.files?.[0];
       if (!file) return;
-      const errors = await importCsvToResource(resource, file);
-      if (errors.length > 0) {
-        downloadCsv(`${resource.table}-errors.csv`, errors);
-        toast.error(`Imported with ${errors.length} row errors`);
-      } else {
-        toast.success(`${resource.title} imported`);
+      setParsing(true);
+      try {
+        const p = await parseCsvForResource(resource, file);
+        setPreview(p);
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Could not parse CSV");
+      } finally {
+        setParsing(false);
       }
     };
     input.click();
+  }
+
+  async function handleConfirm() {
+    if (!preview) return;
+    setCommitting(true);
+    try {
+      const result = await commitImportRows(resource, preview);
+      if (result.failed > 0) {
+        downloadCsv(`${resource.table}-errors.csv`, result.errors);
+        toast.error(`Imported ${result.inserted}, failed ${result.failed} — error report downloaded`);
+      } else {
+        toast.success(`Imported ${result.inserted} ${resource.title.toLowerCase()}`);
+      }
+      setPreview(null);
+      await queryClient.invalidateQueries({ queryKey: ["records", resource.table] });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Import failed");
+    } finally {
+      setCommitting(false);
+    }
   }
 
   if (asMenuItems) {
@@ -2082,10 +2117,17 @@ function ImportButton({ resource, asMenuItems = false }: { resource: ResourceDef
           <FileDown className="mr-2 h-4 w-4" />
           Template
         </DropdownMenuItem>
-        <DropdownMenuItem onSelect={(event) => { event.preventDefault(); handleImport(); }}>
+        <DropdownMenuItem onSelect={(event) => { event.preventDefault(); handleImport(); }} disabled={parsing}>
           <Upload className="mr-2 h-4 w-4" />
-          Import CSV
+          {parsing ? "Parsing…" : "Import CSV"}
         </DropdownMenuItem>
+        <ImportPreviewDialog
+          resource={resource}
+          preview={preview}
+          onCancel={() => setPreview(null)}
+          onConfirm={handleConfirm}
+          committing={committing}
+        />
       </>
     );
   }
@@ -2099,11 +2141,93 @@ function ImportButton({ resource, asMenuItems = false }: { resource: ResourceDef
       <Button
         variant="outline"
         onClick={handleImport}
+        disabled={parsing}
       >
         <Upload data-icon="inline-start" />
-        Import CSV
+        {parsing ? "Parsing…" : "Import CSV"}
       </Button>
+      <ImportPreviewDialog
+        resource={resource}
+        preview={preview}
+        onCancel={() => setPreview(null)}
+        onConfirm={handleConfirm}
+        committing={committing}
+      />
     </>
+  );
+}
+
+function ImportPreviewDialog({
+  resource,
+  preview,
+  onCancel,
+  onConfirm,
+  committing,
+}: {
+  resource: ResourceDefinition;
+  preview: ImportPreview | null;
+  onCancel: () => void;
+  onConfirm: () => void;
+  committing: boolean;
+}) {
+  const open = preview !== null;
+  const summary = preview?.summary ?? { total: 0, valid: 0, invalid: 0 };
+  const previewCols = resource.fields.slice(0, 5).map((f) => f.name);
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o && !committing) onCancel(); }}>
+      <DialogContent className="max-w-5xl">
+        <DialogHeader>
+          <DialogTitle>Review {resource.title} import</DialogTitle>
+          <DialogDescription>
+            Rows are validated before anything is written. IDs and timestamps from the file are ignored — new records get fresh IDs.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex flex-wrap gap-2 text-sm">
+          <Badge variant="secondary">Total {summary.total}</Badge>
+          <Badge className="bg-emerald-600 text-white hover:bg-emerald-600">Valid {summary.valid}</Badge>
+          <Badge variant="destructive">Errors {summary.invalid}</Badge>
+        </div>
+        <ScrollArea className="max-h-[55vh] rounded border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-12">#</TableHead>
+                <TableHead className="w-24">Status</TableHead>
+                {previewCols.map((c) => <TableHead key={c}>{c}</TableHead>)}
+                <TableHead>Issues</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {preview?.rows.map((r) => (
+                <TableRow key={r.rowNumber}>
+                  <TableCell className="font-mono text-xs">{r.rowNumber}</TableCell>
+                  <TableCell>
+                    {r.normalized
+                      ? <Badge className="bg-emerald-600 text-white hover:bg-emerald-600">OK</Badge>
+                      : <Badge variant="destructive">Error</Badge>}
+                  </TableCell>
+                  {previewCols.map((c) => (
+                    <TableCell key={c} className="text-xs">
+                      {String((r.normalized?.[c] ?? r.raw[c]) ?? "")}
+                    </TableCell>
+                  ))}
+                  <TableCell className="text-xs">
+                    {[...r.errors, ...r.warnings].join("; ")}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </ScrollArea>
+        <DialogFooter>
+          <Button variant="outline" onClick={onCancel} disabled={committing}>Cancel</Button>
+          <Button onClick={onConfirm} disabled={committing || summary.valid === 0}>
+            {committing ? <Loader2 className="animate-spin" /> : <Upload data-icon="inline-start" />}
+            Import {summary.valid} row{summary.valid === 1 ? "" : "s"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -2120,8 +2244,8 @@ function LocationWizardDialog({ trigger }: { trigger?: React.ReactNode }) {
       start_bay: 1,
       end_bay: 10,
       levels: 3,
+      positions_per_level: 1,
       depth: 1,
-      max_pallets: 1,
       location_type: "rack",
       temperature_class: "ambient",
       mixed_sku_allowed: false,
@@ -2142,32 +2266,35 @@ function LocationWizardDialog({ trigger }: { trigger?: React.ReactNode }) {
 
   const locationCount =
     Math.max((form.watch("end_bay") ?? 1) - (form.watch("start_bay") ?? 1) + 1, 0) *
-    Math.max(form.watch("levels") ?? 1, 1);
+    Math.max(form.watch("levels") ?? 1, 1) *
+    Math.max(form.watch("positions_per_level") ?? 1, 1);
 
   const mutation = useMutation({
     mutationFn: async (values: LocationWizardValues) => {
-      const locations = [];
-
-      for (let bay = values.start_bay; bay <= values.end_bay; bay += 1) {
-        for (let level = 1; level <= values.levels; level += 1) {
-          const localCode = `${values.prefix}-${String(bay).padStart(2, "0")}-L${String(level).padStart(2, "0")}`;
-          locations.push({
-            warehouse_id: values.warehouse_id,
-            zone_id: values.zone_id,
-            code: composeLocationCode(options, values.warehouse_id, values.zone_id, localCode),
-            aisle: values.prefix,
-            bay: String(bay).padStart(2, "0"),
-            level,
-            depth: values.depth,
-            max_pallets: values.max_pallets,
-            location_type: values.location_type,
-            temperature_class: values.temperature_class,
-            mixed_sku_allowed: values.mixed_sku_allowed,
-            mixed_lot_allowed: values.mixed_lot_allowed,
-            status: "active",
-          });
-        }
-      }
+      const expanded = expandLocationRange({
+        prefix: values.prefix,
+        startBay: values.start_bay,
+        endBay: values.end_bay,
+        positionsPerLevel: values.positions_per_level,
+        levels: values.levels,
+        depth: values.depth,
+      });
+      const locations = expanded.map((row) => ({
+        warehouse_id: values.warehouse_id,
+        zone_id: values.zone_id,
+        code: composeLocationCode(options, values.warehouse_id, values.zone_id, row.localCode),
+        aisle: row.aisle,
+        bay: row.bay,
+        level: row.level,
+        position: row.position,
+        depth: row.depth,
+        max_pallets: row.maxPallets,
+        location_type: values.location_type,
+        temperature_class: values.temperature_class,
+        mixed_sku_allowed: values.mixed_sku_allowed,
+        mixed_lot_allowed: values.mixed_lot_allowed,
+        status: "active",
+      }));
 
       for (const location of locations) {
         await upsertRecord("locations", location);
@@ -2194,7 +2321,7 @@ function LocationWizardDialog({ trigger }: { trigger?: React.ReactNode }) {
       <DialogContent className="max-h-[90vh] overflow-hidden sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Create locations by range</DialogTitle>
-          <DialogDescription>Generate repeated bay and level locations without typing every record.</DialogDescription>
+          <DialogDescription>Each bay-level splits into 1–3 side-by-side positions. Total = bays × levels × positions. Depth = pallet capacity per slot.</DialogDescription>
         </DialogHeader>
         <ScrollArea className="max-h-[72vh] pr-4">
           <Form {...form}>
@@ -2216,9 +2343,9 @@ function LocationWizardDialog({ trigger }: { trigger?: React.ReactNode }) {
               <TextField form={form} name="prefix" label="Aisle prefix" hint="Letter or short code, e.g. A or BR." />
               <TextField form={form} name="start_bay" label="Start bay" type="number" hint="First bay number in the range (≥ 1)." />
               <TextField form={form} name="end_bay" label="End bay" type="number" hint="Must be ≥ start bay." />
-              <TextField form={form} name="levels" label="Levels" type="number" hint="How many vertical levels per bay (1–20)." />
-              <TextField form={form} name="depth" label="Depth" type="number" hint="Pallet positions deep (1–5)." />
-              <TextField form={form} name="max_pallets" label="Max pallets" type="number" hint="Capacity per location." />
+              <TextField form={form} name="levels" label="Levels" type="number" hint="Vertical levels per bay (1–6)." />
+              <TextField form={form} name="positions_per_level" label="Positions per level" type="number" hint="Side-by-side slots in each bay-level (1–3)." />
+              <TextField form={form} name="depth" label="Depth (capacity)" type="number" hint="Pallets deep per slot = capacity (1–5)." />
               <SelectField form={form} name="location_type" label="Type" hint="Used by directed putaway rules." options={[
                 { label: "Rack", value: "rack" },
                 { label: "Staging", value: "staging" },
@@ -2474,7 +2601,7 @@ export function DashboardPage() {
   const snapshot = useMemo(() => buildEnterpriseDashboard(metrics, reports), [metrics, reports]);
   const summaryCardsById = useMemo(() => {
     const returnedMetricKeys = metrics?.dashboardMetricKeys ? new Set(metrics.dashboardMetricKeys) : null;
-    const cards = filterDashboardTileDefinitions(DEFAULT_DASHBOARD_CARDS, isEnabled)
+    const cards = (filterDashboardTileDefinitions(DEFAULT_DASHBOARD_CARDS, isEnabled) as DashboardCardConfig[])
       .filter((card) => !returnedMetricKeys || returnedMetricKeys.has(card.metricKey));
     return new Map(cards.map((card) => [card.id, card]));
   }, [isEnabled, metrics?.dashboardMetricKeys]);
@@ -3327,8 +3454,6 @@ export function ReceivingPage() {
   const perPalletRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const palletCountRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const expiryRefs = useRef<Record<string, HTMLInputElement | null>>({});
-  const [numberPad, setNumberPad] = useState<{ lineId: string; field: "total" | "perPallet" | "count" } | null>(null);
-  const [numberPadStarted, setNumberPadStarted] = useState(false);
   const [shipmentOpen, setShipmentOpen] = useState(false);
   const [showShipmentMore, setShowShipmentMore] = useState(false);
   const [draftSearch, setDraftSearch] = useState("");
@@ -3555,7 +3680,7 @@ export function ReceivingPage() {
     },
     onSuccess: async (results) => {
       const count = results.length;
-      toast.success(`${count} pallet label${count === 1 ? "" : "s"} printed and sent to Putaway.`);
+      toast.success(`${count} pallet label${count === 1 ? "" : "s"} printed and sent to Put-Away.`);
       setLastResult({
         barcode: count === 1 ? results[0]?.palletBarcode ?? "Pallet" : `${count} pallets`,
         taskNumber: count === 1 ? results[0]?.putawayTaskNumber ?? "queued" : "queued",
@@ -3650,11 +3775,6 @@ export function ReceivingPage() {
     setTimeout(() => target?.focus(), 40);
   }
 
-  function openNumberPad(lineId: string, field: "total" | "perPallet" | "count") {
-    setNumberPad({ lineId, field });
-    setNumberPadStarted(false);
-  }
-
   function openDatePicker(input: HTMLInputElement | null) {
     if (!input) return;
     input.focus();
@@ -3666,54 +3786,10 @@ export function ReceivingPage() {
   }
 
   function moveToNextShipmentField(lineId: string, field: "product" | "total" | "perPallet" | "count") {
-    if (field === "product") {
-      if (isMobileEntry) {
-        openNumberPad(lineId, "total");
-      } else {
-        focusShipmentField(lineId, "total");
-      }
-      return;
-    }
-    if (field === "total") {
-      if (isMobileEntry) {
-        openNumberPad(lineId, "perPallet");
-      } else {
-        focusShipmentField(lineId, "perPallet");
-      }
-      return;
-    }
-    if (field === "perPallet") {
-      if (isMobileEntry) {
-        openNumberPad(lineId, "count");
-      } else {
-        focusShipmentField(lineId, "count");
-      }
-      return;
-    }
-    setNumberPad(null);
-    setNumberPadStarted(false);
+    if (field === "product") { focusShipmentField(lineId, "total"); return; }
+    if (field === "total") { focusShipmentField(lineId, "perPallet"); return; }
+    if (field === "perPallet") { focusShipmentField(lineId, "count"); return; }
     setTimeout(() => openDatePicker(expiryRefs.current[lineId]), 40);
-  }
-
-  const numberPadLine = numberPad ? shipmentForm.lines.find((line) => line.id === numberPad.lineId) : undefined;
-  const numberPadValue = numberPadLine && numberPad
-    ? String(numberPad.field === "total" ? numberPadLine.total_quantity : numberPad.field === "perPallet" ? numberPadLine.quantity_per_pallet : numberPadLine.pallet_count)
-    : "";
-  const numberPadLabel = numberPad?.field === "total" ? "Total received" : numberPad?.field === "perPallet" ? "Qty per pallet" : "Pallets";
-
-  function setNumberPadValue(value: string) {
-    if (!numberPad) return;
-    setNumberPadStarted(true);
-    const clean = value.replace(/\D/g, "");
-    const numeric = numberPad.field === "total" ? Number(clean || 0) : Math.max(1, Number(clean || 1));
-    if (numberPad.field === "total") updateLine(numberPad.lineId, { total_quantity: numeric }, "total");
-    if (numberPad.field === "perPallet") updateLine(numberPad.lineId, { quantity_per_pallet: numeric }, "perPallet");
-    if (numberPad.field === "count") updateLine(numberPad.lineId, { pallet_count: numeric }, "count");
-  }
-
-  function appendNumberPadDigit(digit: string) {
-    const base = !numberPadStarted || numberPadValue === "0" ? "" : numberPadValue;
-    setNumberPadValue(`${base}${digit}`);
   }
 
   const canAddSkuLine = shipmentForm.lines.every((line) => Boolean(line.product_id) && Number(line.total_quantity) > 0);
@@ -3772,10 +3848,10 @@ export function ReceivingPage() {
         <div className="flex flex-col gap-2 rounded-lg border border-green-200 bg-green-50 p-4 dark:border-green-900 dark:bg-green-950/30 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-sm font-semibold text-green-800 dark:text-green-300">Pallet {lastResult.barcode} received · {lastResult.qty} units</p>
-            <p className="text-xs text-green-700 dark:text-green-400">Putaway task {lastResult.taskNumber} queued</p>
+            <p className="text-xs text-green-700 dark:text-green-400">Put-Away task {lastResult.taskNumber} queued</p>
           </div>
           <div className="flex gap-2">
-            <Button size="sm" onClick={() => navigate("/putaway-tasks")}>Go to Putaway</Button>
+            <Button size="sm" onClick={() => navigate("/putaway-tasks")}>Go to Put-Away</Button>
             <Button size="sm" variant="ghost" onClick={() => setLastResult(null)}>x</Button>
           </div>
         </div>
@@ -3872,7 +3948,7 @@ export function ReceivingPage() {
                     draftSequence={draft.draft_sequence}
                     draftCount={draft.draft_count}
                     temperatureClass={product?.temperature_requirement}
-                    onPrinted={() => receiveMutation.mutateAsync(draft)}
+                    onPrinted={async () => { await receiveMutation.mutateAsync(draft); }}
                     trigger={<Button size="sm" variant="outline" disabled={receiveMutation.isPending}><Printer data-icon="inline-start" />Print & Receive</Button>}
                   />
                   <Button size="sm" variant="outline" onClick={() => openEditDraft(draft)}><Pencil data-icon="inline-start" />Edit</Button>
@@ -3894,7 +3970,7 @@ export function ReceivingPage() {
             <DialogTitle>{editingDraft ? "Edit Draft Pallet" : "New Shipment"}</DialogTitle>
             <DialogDescription className="text-xs sm:text-sm">Container and PO come first, then one or more SKU lines with expiry and pallet distribution.</DialogDescription>
           </DialogHeader>
-          <ScrollArea className={cn("max-h-[calc(100dvh-8.75rem)] px-3 py-3 sm:max-h-[calc(92vh-150px)] sm:px-4 sm:py-4", isMobileEntry && numberPad && "max-h-[calc(100dvh-27rem)]")}>
+          <ScrollArea className="max-h-[calc(100dvh-8.75rem)] px-3 py-3 sm:max-h-[calc(92vh-150px)] sm:px-4 sm:py-4">
             <div className="grid gap-3 sm:gap-4">
               <div className="grid grid-cols-2 gap-2 sm:gap-3 md:grid-cols-3">
                 <div className="grid gap-1.5">
@@ -4014,13 +4090,12 @@ export function ReceivingPage() {
                           <Input
                             ref={(node) => { totalRefs.current[line.id] = node; }}
                             className="h-9 sm:h-10"
-                            type={isMobileEntry ? "text" : "number"}
+                            type="number"
                             inputMode="numeric"
+                            pattern="[0-9]*"
                             min={0}
-                            readOnly={isMobileEntry}
                             value={line.total_quantity}
-                            onFocus={(e) => { if (isMobileEntry) openNumberPad(line.id, "total"); else e.currentTarget.select(); }}
-                            onClick={() => isMobileEntry && openNumberPad(line.id, "total")}
+                            onFocus={(e) => e.currentTarget.select()}
                             onKeyDown={(e) => { if (e.key === "Enter") moveToNextShipmentField(line.id, "total"); }}
                             onChange={(e) => updateLine(line.id, { total_quantity: e.currentTarget.valueAsNumber || Number(e.currentTarget.value) || 0 }, "total")}
                           />
@@ -4030,13 +4105,12 @@ export function ReceivingPage() {
                           <Input
                             ref={(node) => { perPalletRefs.current[line.id] = node; }}
                             className="h-9 sm:h-10"
-                            type={isMobileEntry ? "text" : "number"}
+                            type="number"
                             inputMode="numeric"
+                            pattern="[0-9]*"
                             min={1}
-                            readOnly={isMobileEntry}
                             value={line.quantity_per_pallet}
-                            onFocus={(e) => { if (isMobileEntry) openNumberPad(line.id, "perPallet"); else e.currentTarget.select(); }}
-                            onClick={() => isMobileEntry && openNumberPad(line.id, "perPallet")}
+                            onFocus={(e) => e.currentTarget.select()}
                             onKeyDown={(e) => { if (e.key === "Enter") moveToNextShipmentField(line.id, "perPallet"); }}
                             onChange={(e) => updateLine(line.id, { quantity_per_pallet: e.currentTarget.valueAsNumber || Number(e.currentTarget.value) || 1 }, "perPallet")}
                           />
@@ -4046,13 +4120,12 @@ export function ReceivingPage() {
                           <Input
                             ref={(node) => { palletCountRefs.current[line.id] = node; }}
                             className="h-9 sm:h-10"
-                            type={isMobileEntry ? "text" : "number"}
+                            type="number"
                             inputMode="numeric"
+                            pattern="[0-9]*"
                             min={1}
-                            readOnly={isMobileEntry}
                             value={line.pallet_count}
-                            onFocus={(e) => { if (isMobileEntry) openNumberPad(line.id, "count"); else e.currentTarget.select(); }}
-                            onClick={() => isMobileEntry && openNumberPad(line.id, "count")}
+                            onFocus={(e) => e.currentTarget.select()}
                             onKeyDown={(e) => { if (e.key === "Enter") moveToNextShipmentField(line.id, "count"); }}
                             onChange={(e) => updateLine(line.id, { pallet_count: e.currentTarget.valueAsNumber || Number(e.currentTarget.value) || 1 }, "count")}
                           />
@@ -4129,31 +4202,7 @@ export function ReceivingPage() {
               </div>
             </div>
           </ScrollArea>
-          {isMobileEntry && numberPad && numberPadLine && (
-            <div className="border-t border-border bg-popover p-3 text-popover-foreground">
-              <div className="mb-2 flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold">{numberPadLabel}</p>
-                  <p className="font-mono text-2xl font-bold tabular-nums">{numberPadValue || "0"}</p>
-                </div>
-                <Button type="button" size="sm" variant="ghost" onClick={() => setNumberPad(null)}>Done</Button>
-              </div>
-              <div className="grid grid-cols-3 gap-2">
-                {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((digit) => (
-                  <Button key={digit} type="button" variant="outline" className="h-11 text-lg" onClick={() => appendNumberPadDigit(digit)}>
-                    {digit}
-                  </Button>
-                ))}
-                <Button type="button" variant="outline" className="h-11" onClick={() => setNumberPadValue("")}>Clear</Button>
-                <Button type="button" variant="outline" className="h-11 text-lg" onClick={() => appendNumberPadDigit("0")}>0</Button>
-                <Button type="button" variant="outline" className="h-11" onClick={() => setNumberPadValue(numberPadValue.slice(0, -1))}>Back</Button>
-              </div>
-              <Button type="button" data-testid="shipment-number-next" className="mt-2 h-10 w-full" onClick={() => moveToNextShipmentField(numberPad.lineId, numberPad.field)}>
-                Next
-              </Button>
-            </div>
-          )}
-          <DialogFooter className={cn("flex-row flex-wrap justify-end gap-2 border-t border-border px-3 py-2 sm:px-4 sm:py-3", isMobileEntry && numberPad && "hidden")}>
+          <DialogFooter className="flex-row flex-wrap justify-end gap-2 border-t border-border px-3 py-2 sm:px-4 sm:py-3">
             {saveBlockedReason && (
               <p className="mr-auto w-full text-xs font-medium text-amber-500 sm:w-auto sm:self-center">{saveBlockedReason}</p>
             )}
@@ -4232,7 +4281,7 @@ export function ReceivingPage() {
             <Button variant="outline" onClick={() => setSelectedDraftIds(new Set(printDrafts.map((draft) => draft.id)))}>Select all shown</Button>
             <Button disabled={batchReceiveMutation.isPending || selectedPrintDrafts.length === 0} onClick={() => printAndReceiveDrafts(selectedPrintDrafts)}>
               {batchReceiveMutation.isPending ? <Loader2 className="animate-spin" /> : <Printer data-icon="inline-start" />}
-              Print selected & send to Putaway
+              Print selected & send to Put-Away
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -4319,7 +4368,7 @@ function BinCapacityBar({ locationCode }: { locationCode: string; taskId?: strin
     queryKey: ["bin-occupancy", locationCode],
     queryFn: () => getBinOccupancy(locationCode),
     enabled: locationCode.length >= 2,
-    staleTime: 10_000,
+    staleTime: 0,
   });
 
   if (!data || !locationCode) return null;
@@ -4364,23 +4413,34 @@ function BinCapacityBar({ locationCode }: { locationCode: string; taskId?: strin
 
 function BayOccupancyGrid({
   locationCode,
+  selectedLocationCode,
   onSelect,
 }: {
   locationCode: string;
+  selectedLocationCode?: string;
   onSelect: (locationCode: string) => void;
 }) {
   const isBayScan = isBaySelectorCode(locationCode);
-  const { data, isFetching } = useQuery({
+  const selectedLocation = selectedLocationCode?.trim().toUpperCase() ?? "";
+  const { data, error, isLoading } = useQuery({
     queryKey: ["bay-occupancy", locationCode],
     queryFn: () => getBayOccupancy(locationCode),
     enabled: locationCode.length >= 2,
-    staleTime: 10_000,
+    staleTime: 0,
   });
 
-  if (isFetching) {
+  if (isLoading && !data) {
     return (
       <div className="rounded-md border border-border bg-secondary/20 px-3 py-2 text-xs text-muted-foreground">
         Loading bay locations…
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+        Bay locations could not load. Scan again or refresh the page.
       </div>
     );
   }
@@ -4401,30 +4461,92 @@ function BayOccupancyGrid({
         <span>Bay {data.aisle ?? "?"}-{data.bay ?? "?"}</span>
         <span>{data.cells.filter((cell) => cell.status === "active" && !cell.isFull).length} open</span>
       </div>
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        {data.cells.map((cell) => {
-          const available = cell.status === "active" && !cell.isFull;
-          return (
-            <button
-              key={cell.locationId}
-              type="button"
-              disabled={!available}
-              onClick={() => onSelect(cell.locationCode)}
-              className={cn(
-                "min-h-16 rounded-md border px-2 py-2 text-left text-xs transition focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
-                available
-                  ? "border-green-500 bg-green-50 text-green-950 hover:bg-green-100 dark:bg-green-950/40 dark:text-green-100"
-                  : "cursor-not-allowed border-muted bg-muted text-muted-foreground opacity-70",
-              )}
-            >
-              <span className="block font-mono font-semibold">{cell.locationCode}</span>
-              <span className="mt-1 block">{cell.occupiedPallets}/{cell.maxPallets} pallets</span>
-              <span className="block">{available ? "Available" : cell.status !== "active" ? cell.status : "Full"}</span>
-            </button>
-          );
-        })}
+      <div className="grid gap-2">
+        {buildBayOccupancyGrid(data.cells).map((row) => (
+          <div
+            key={`level-${row[0]?.level ?? "unknown"}`}
+            className="grid gap-2"
+            style={{ gridTemplateColumns: `repeat(${row.length}, minmax(0, 1fr))` }}
+          >
+            {row.map((slot) => {
+              const cell = slot.cell;
+              if (!cell) {
+                return (
+                  <div
+                    key={`empty-${slot.level}-${slot.position}`}
+                    aria-hidden="true"
+                    className="min-h-16 rounded-md border border-dashed border-border/60 bg-background/40"
+                  />
+                );
+              }
+
+              const available = cell.status === "active" && !cell.isFull;
+              const selected = selectedLocation.length > 0 && cell.locationCode.toUpperCase() === selectedLocation;
+              return (
+                <button
+                  key={cell.locationId}
+                  type="button"
+                  disabled={!available}
+                  onClick={() => onSelect(cell.locationCode)}
+                  className={cn(
+                    "min-h-16 rounded-md border px-2 py-2 text-left text-xs transition focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
+                    selected
+                      ? "animate-pulse border-cyan-400 bg-cyan-50 text-cyan-950 ring-2 ring-cyan-400 dark:bg-cyan-950/50 dark:text-cyan-50"
+                      : available
+                      ? "border-green-500 bg-green-50 text-green-950 hover:bg-green-100 dark:bg-green-950/40 dark:text-green-100"
+                      : "cursor-not-allowed border-muted bg-muted text-muted-foreground opacity-70",
+                  )}
+                >
+                  <span className="block font-mono font-semibold">{cell.locationCode}</span>
+                  <span className="mt-1 block">{cell.occupiedPallets}/{cell.maxPallets} pallets</span>
+                  <span className="block">{selected && available ? "Selected" : available ? "Available" : cell.status !== "active" ? cell.status : "Full"}</span>
+                </button>
+              );
+            })}
+          </div>
+        ))}
       </div>
     </div>
+  );
+}
+
+function incrementOccupancy(occupiedPallets: number, maxPallets: number) {
+  return maxPallets > 0 ? Math.min(maxPallets, occupiedPallets + 1) : occupiedPallets + 1;
+}
+
+function markPutawayOccupancyCached(queryClient: ReturnType<typeof useQueryClient>, locationCode: string) {
+  const confirmedLocation = locationCode.trim().toUpperCase();
+  if (!confirmedLocation) return;
+
+  queryClient.setQueriesData(
+    { queryKey: ["bin-occupancy"] },
+    (current: Awaited<ReturnType<typeof getBinOccupancy>> | null | undefined) => {
+      if (!current || current.locationCode.toUpperCase() !== confirmedLocation) return current;
+      const occupiedPallets = incrementOccupancy(current.occupiedPallets, current.maxPallets);
+      return {
+        ...current,
+        occupiedPallets,
+      };
+    },
+  );
+
+  queryClient.setQueriesData(
+    { queryKey: ["bay-occupancy"] },
+    (current: Awaited<ReturnType<typeof getBayOccupancy>> | null | undefined) => {
+      if (!current) return current;
+      let changed = false;
+      const cells = current.cells.map((cell: BayOccupancyCell) => {
+        if (cell.locationCode.toUpperCase() !== confirmedLocation) return cell;
+        changed = true;
+        const occupiedPallets = incrementOccupancy(cell.occupiedPallets, cell.maxPallets);
+        return {
+          ...cell,
+          occupiedPallets,
+          isFull: cell.maxPallets > 0 && occupiedPallets >= cell.maxPallets,
+        };
+      });
+      return changed ? { ...current, cells } : current;
+    },
   );
 }
 
@@ -4517,11 +4639,12 @@ export function PutawayTasksPage() {
         return;
       }
       playBarcodeBeep();
-      toast.success(vars.override ? "Putaway locked in with override" : "Putaway locked in", {
+      toast.success(vars.override ? "Put-Away locked in with override" : "Put-Away locked in", {
         description: `Pallet ${vars.pallet} stored at ${vars.location}.`,
         duration: 7000,
         className: "border-emerald-400 bg-emerald-50 text-emerald-950 dark:border-emerald-500 dark:bg-emerald-950 dark:text-emerald-50",
       });
+      markPutawayOccupancyCached(queryClient, vars.location);
       setCompletedIds((prev) => new Set([...prev, vars.taskId]));
       setScanState((current) => {
         const next = { ...current };
@@ -4543,6 +4666,8 @@ export function PutawayTasksPage() {
         queryClient.invalidateQueries({ queryKey: ["putaway-task-history"] }),
         queryClient.invalidateQueries({ queryKey: ["inventory-search"] }),
         queryClient.invalidateQueries({ queryKey: ["dashboard-metrics"] }),
+        queryClient.invalidateQueries({ queryKey: ["bin-occupancy"] }),
+        queryClient.invalidateQueries({ queryKey: ["bay-occupancy"] }),
       ]);
     },
     onError: (error, vars) => {
@@ -4552,7 +4677,7 @@ export function PutawayTasksPage() {
         setViolations((current) => ({ ...current, [vars.taskId]: reason }));
         toast.warning(`Location rule violation: ${reason}. Tick "Override" to put away anyway.`);
       } else {
-        toast.error(msg || "Putaway failed");
+        toast.error(msg || "Put-Away failed");
       }
     },
   });
@@ -4611,7 +4736,7 @@ export function PutawayTasksPage() {
     <div className="flex h-full min-h-0 flex-col gap-6 overflow-hidden">
       <div className="shrink-0 rounded-lg border border-border bg-background/95 p-4 shadow-sm backdrop-blur sm:flex sm:items-end sm:justify-between sm:gap-3">
         <div>
-          <h2 className="text-2xl font-semibold">Putaway Tasks</h2>
+          <h2 className="text-2xl font-semibold">Put-Away Tasks</h2>
           <p className="text-sm text-muted-foreground">Scan pallet barcode, then location barcode, and confirm.</p>
         </div>
         <div className="mt-3 flex min-w-0 flex-col gap-2 sm:mt-0 sm:min-w-80 sm:items-end">
@@ -4783,6 +4908,7 @@ export function PutawayTasksPage() {
                       )}
                       <BayOccupancyGrid
                         locationCode={bayScan || localState.location}
+                        selectedLocationCode={localState.location}
                         onSelect={(location) => {
                           setScanState((current) => ({ ...current, [task.id]: { ...localState, location } }));
                           setBayScanState((current) => {
@@ -4912,7 +5038,7 @@ export function PutawayTasksPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Return this task to Receiving?</AlertDialogTitle>
             <AlertDialogDescription>
-              This removes {returnTask?.task_number ?? "this task"} from Putaway Tasks and creates a Saved Draft in Receiving. To find it later, open Receiving and use the Draft Pallets list.
+              This removes {returnTask?.task_number ?? "this task"} from Put-Away Tasks and creates a Saved Draft in Receiving. To find it later, open Receiving and use the Draft Pallets list.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -5735,7 +5861,7 @@ export function TransfersPage() {
     mutationFn: async (transferId: string) => receiveTransfer(transferId),
     onSuccess: async () => {
       toast.success("Transfer received — putaway task created", {
-        action: { label: "Go to Putaway", onClick: () => navigate("/putaway-tasks") },
+        action: { label: "Go to Put-Away", onClick: () => navigate("/putaway-tasks") },
         duration: 8000,
       });
       await Promise.all([
@@ -6185,7 +6311,9 @@ export function LocationMovesPage() {
   const [newReason, setNewReason] = useState("");
   const newPalletRef = useRef<HTMLInputElement | null>(null);
   const newLocationRef = useRef<HTMLInputElement | null>(null);
-  const [scanState, setScanState] = useState<Record<string, { pallet: string; location: string }>>({});
+  const [scanState, setScanState] = useState<Record<string, { pallet: string; location: string; validation: MoveValidationResult | null; validating: boolean }>>({})
+  const [newValidation, setNewValidation] = useState<MoveValidationResult | null>(null);
+  const [newValidating, setNewValidating] = useState(false);;
   const [completedIds, setCompletedIds] = useState<Set<string>>(new Set());
   const [cancelledIds, setCancelledIds] = useState<Set<string>>(new Set());
 
@@ -6197,6 +6325,34 @@ export function LocationMovesPage() {
     ]);
   }, [queryClient]);
 
+  const runNewValidation = useCallback(async (pallet: string, location: string) => {
+    const p = pallet.trim();
+    const l = location.trim();
+    if (!p || !l || isBaySelectorCode(l)) { setNewValidation(null); return; }
+    setNewValidating(true);
+    try {
+      const result = await validateMoveDestination(p, l);
+      setNewValidation(result);
+    } catch { setNewValidation(null); }
+    finally { setNewValidating(false); }
+  }, []);
+
+  const runTaskValidation = useCallback(async (taskId: string, pallet: string, location: string) => {
+    const p = pallet.trim();
+    const l = location.trim();
+    if (!p || !l || isBaySelectorCode(l)) {
+      setScanState((s) => ({ ...s, [taskId]: { ...(s[taskId] ?? { pallet: p, location: l }), validation: null, validating: false } }));
+      return;
+    }
+    setScanState((s) => ({ ...s, [taskId]: { ...(s[taskId] ?? { pallet: p, location: l }), validating: true } }));
+    try {
+      const result = await validateMoveDestination(p, l);
+      setScanState((s) => ({ ...s, [taskId]: { ...(s[taskId] ?? { pallet: p, location: l }), validation: result, validating: false } }));
+    } catch {
+      setScanState((s) => ({ ...s, [taskId]: { ...(s[taskId] ?? { pallet: p, location: l }), validation: null, validating: false } }));
+    }
+  }, []);
+
   const { data: tasks = [], isLoading } = useQuery({
     queryKey: ["move-tasks"],
     queryFn: listMoveTasks,
@@ -6207,7 +6363,7 @@ export function LocationMovesPage() {
       completeDirectMove(pallet, location, reason),
     onSuccess: async () => {
       toast.success("Move confirmed — pallet relocated");
-      setNewPallet(""); setNewLocation(""); setNewReason("");
+      setNewPallet(""); setNewLocation(""); setNewReason(""); setNewValidation(null);
       await invalidateMoveData();
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Move failed"),
@@ -6248,6 +6404,7 @@ export function LocationMovesPage() {
   function applyNewPalletScan(value: unknown) {
     const pallet = normalizeScannerText(value);
     setNewPallet(pallet);
+    setNewValidation(null);
     playBarcodeBeep();
     flashInput(newPalletRef.current, "blue");
     setTimeout(() => newLocationRef.current?.focus(), 50);
@@ -6265,7 +6422,7 @@ export function LocationMovesPage() {
     playBarcodeBeep();
     flashInput(newLocationRef.current, isBaySelectorCode(location) ? "orange" : "blue");
     if (!isBaySelectorCode(location)) {
-      completeNewMove(newPallet, location);
+      void runNewValidation(newPallet, location);
     }
   }
 
@@ -6273,7 +6430,7 @@ export function LocationMovesPage() {
     setNewLocation(locationCode);
     playBarcodeBeep();
     flashInput(newLocationRef.current, "blue");
-    completeNewMove(newPallet, locationCode);
+    void runNewValidation(newPallet, locationCode);
   }
 
   const pending = (tasks as any[]).filter((t) => !completedIds.has(t.id) && !cancelledIds.has(t.id) && !["completed", "cancelled"].includes(t.status));
@@ -6314,11 +6471,24 @@ export function LocationMovesPage() {
               <Input
                 ref={newLocationRef}
                 className="flex-1"
-                placeholder="Target location (e.g. A-01-01)"
+                placeholder="Bay (e.g. A-01) or location (e.g. A-01-01)"
                 value={newLocation}
                 disabled={!newPallet.trim()}
-                onChange={(e) => setNewLocation(normalizeScannerText(e.target.value))}
-                onKeyDown={(e) => e.key === "Enter" && completeNewMove()}
+                onChange={(e) => {
+                  const val = normalizeScannerText(e.target.value);
+                  setNewLocation(val);
+                  setNewValidation(null);
+                  if (val.trim() && newPallet.trim() && !isBaySelectorCode(val)) {
+                    void runNewValidation(newPallet, val);
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    if (newValidation && !newValidation.valid) return; // block on hard error
+                    completeNewMove();
+                  }
+                }}
               />
               <BarcodeScanButton
                 title="Scan target location"
@@ -6329,6 +6499,37 @@ export function LocationMovesPage() {
           {newPallet.trim() && isBaySelectorCode(newLocation) ? (
             <BayOccupancyGrid locationCode={newLocation} onSelect={selectNewMoveLocation} />
           ) : null}
+          {/* Validation feedback */}
+          {newValidating && (
+            <div className="flex items-center gap-2 rounded-md border border-muted bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+              Checking location…
+            </div>
+          )}
+          {!newValidating && newValidation && !newValidation.valid && (
+            <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <div className="flex flex-col gap-0.5">
+                <span className="font-medium">Cannot move here</span>
+                <span>{newValidation.reason}</span>
+              </div>
+            </div>
+          )}
+          {!newValidating && newValidation?.valid && newValidation.warnings.length > 0 && (
+            <div className="flex items-start gap-2 rounded-md border border-amber-400/40 bg-amber-50 dark:bg-amber-950/20 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <div className="flex flex-col gap-0.5">
+                <span className="font-medium">Warning</span>
+                {newValidation.warnings.map((w, i) => <span key={i}>{w}</span>)}
+              </div>
+            </div>
+          )}
+          {!newValidating && newValidation?.valid && newValidation.warnings.length === 0 && newLocation.trim() && !isBaySelectorCode(newLocation) && (
+            <div className="flex items-center gap-2 rounded-md border border-green-400/40 bg-green-50 dark:bg-green-950/20 px-3 py-2 text-sm text-green-700 dark:text-green-400">
+              <CheckCircle2 className="h-4 w-4 shrink-0" />
+              Location OK — ready to move
+            </div>
+          )}
           <Input
             placeholder="Reason (optional — e.g. aisle blocked, consolidation)"
             value={newReason}
@@ -6336,11 +6537,11 @@ export function LocationMovesPage() {
           />
           <Button
             className="w-full"
-            disabled={directMoveMutation.isPending || !newPallet || !newLocation}
+            disabled={directMoveMutation.isPending || !newPallet || !newLocation || newValidating || (!!newValidation && !newValidation.valid)}
             onClick={() => completeNewMove()}
           >
             {directMoveMutation.isPending ? <Loader2 className="animate-spin mr-2 h-4 w-4" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
-            Complete Move
+            {newValidation && !newValidation.valid ? "Location Invalid" : "Complete Move"}
           </Button>
         </CardContent>
       </Card>
@@ -6359,7 +6560,7 @@ export function LocationMovesPage() {
       ) : (
         <div className="flex flex-col gap-4">
           {pending.map((task: any) => {
-            const local = scanState[task.id] ?? { pallet: "", location: "" };
+            const local = scanState[task.id] ?? { pallet: "", location: "", validation: null, validating: false };
             const fromLoc = (task.from_location as any)?.code ?? "—";
             const toLoc   = (task.to_location   as any)?.code ?? "—";
             const sku     = (task.pallets as any)?.products?.sku ?? "";
@@ -6390,33 +6591,95 @@ export function LocationMovesPage() {
                         className="min-h-12 flex-1 text-base"
                         placeholder={`Scan pallet (${pBarcode})`}
                         value={local.pallet}
-                        onChange={(e) => setScanState((s) => ({ ...s, [task.id]: { ...local, pallet: normalizeScannerText(e.target.value) } }))}
+                        onChange={(e) => {
+                          const p = normalizeScannerText(e.target.value);
+                          setScanState((s) => ({ ...s, [task.id]: { ...local, pallet: p, validation: null } }));
+                          if (p.trim() && local.location.trim() && !isBaySelectorCode(local.location)) {
+                            void runTaskValidation(task.id, p, local.location);
+                          }
+                        }}
                       />
                       <BarcodeScanButton
                         title="Scan pallet barcode"
-                        onScan={(v) => setScanState((s) => ({ ...s, [task.id]: { ...local, pallet: normalizeScannerText(v) } }))}
+                        onScan={(v) => {
+                          const p = normalizeScannerText(v);
+                          playBarcodeBeep();
+                          setScanState((s) => ({ ...s, [task.id]: { ...local, pallet: p, validation: null } }));
+                          if (local.location.trim() && !isBaySelectorCode(local.location)) {
+                            void runTaskValidation(task.id, p, local.location);
+                          }
+                        }}
                       />
                     </div>
                     <div className="flex gap-2">
                       <Input
                         className="min-h-12 flex-1 text-base"
-                        placeholder={`Scan target location (${toLoc})`}
+                        placeholder={`Any bay or location (suggested: ${toLoc})`}
                         value={local.location}
-                        onChange={(e) => setScanState((s) => ({ ...s, [task.id]: { ...local, location: normalizeScannerText(e.target.value) } }))}
+                        onChange={(e) => {
+                          const l = normalizeScannerText(e.target.value);
+                          setScanState((s) => ({ ...s, [task.id]: { ...local, location: l, validation: null } }));
+                          if (l.trim() && local.pallet.trim() && !isBaySelectorCode(l)) {
+                            void runTaskValidation(task.id, local.pallet, l);
+                          }
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && local.validation?.valid !== false) {
+                            completeMutation.mutate({ taskId: task.id, pallet: local.pallet, location: local.location });
+                          }
+                        }}
                       />
                       <BarcodeScanButton
                         title="Scan target location"
-                        onScan={(v) => setScanState((s) => ({ ...s, [task.id]: { ...local, location: normalizeScannerText(v) } }))}
+                        onScan={(v) => {
+                          const l = normalizeScannerText(v);
+                          playBarcodeBeep();
+                          setScanState((s) => ({ ...s, [task.id]: { ...local, location: l, validation: null } }));
+                          if (local.pallet.trim() && !isBaySelectorCode(l)) {
+                            void runTaskValidation(task.id, local.pallet, l);
+                          }
+                        }}
                       />
                     </div>
                   </div>
+                  {/* Validation feedback for task */}
+                  {local.validating && (
+                    <div className="flex items-center gap-2 rounded-md border border-muted bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+                      Checking location…
+                    </div>
+                  )}
+                  {!local.validating && local.validation && !local.validation.valid && (
+                    <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                      <div className="flex flex-col gap-0.5">
+                        <span className="font-medium">Cannot move here</span>
+                        <span>{local.validation.reason}</span>
+                      </div>
+                    </div>
+                  )}
+                  {!local.validating && local.validation?.valid && local.validation.warnings.length > 0 && (
+                    <div className="flex items-start gap-2 rounded-md border border-amber-400/40 bg-amber-50 dark:bg-amber-950/20 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
+                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                      <div className="flex flex-col gap-0.5">
+                        <span className="font-medium">Warning</span>
+                        {local.validation.warnings.map((w: string, i: number) => <span key={i}>{w}</span>)}
+                      </div>
+                    </div>
+                  )}
+                  {!local.validating && local.validation?.valid && local.validation.warnings.length === 0 && local.location.trim() && !isBaySelectorCode(local.location) && (
+                    <div className="flex items-center gap-2 rounded-md border border-green-400/40 bg-green-50 dark:bg-green-950/20 px-3 py-2 text-sm text-green-700 dark:text-green-400">
+                      <CheckCircle2 className="h-4 w-4 shrink-0" />
+                      Location OK — ready to move
+                    </div>
+                  )}
                   <Button
                     className="min-h-12 w-full text-base"
-                    disabled={completeMutation.isPending || !local.pallet || !local.location}
+                    disabled={completeMutation.isPending || !local.pallet || !local.location || local.validating || (!!local.validation && !local.validation.valid)}
                     onClick={() => completeMutation.mutate({ taskId: task.id, pallet: local.pallet, location: local.location })}
                   >
                     {completeMutation.isPending ? <Loader2 className="animate-spin" /> : <ArrowLeftRight data-icon="inline-start" />}
-                    Confirm Move
+                    {local.validation && !local.validation.valid ? "Location Invalid" : "Confirm Move"}
                   </Button>
                   {["queued", "in_progress"].includes(task.status) && (
                     <AlertDialog>
@@ -7567,7 +7830,10 @@ export function SettingsPage() {
   const resetMutation = useMutation({
     mutationFn: resetWmsData,
     onSuccess: async (result) => {
-      const removed = (result as { deleted_users?: number } | null)?.deleted_users ?? 0;
+      const removed =
+        (result as { deleted_users?: number; removed_users?: number } | null)?.removed_users ??
+        (result as { deleted_users?: number; removed_users?: number } | null)?.deleted_users ??
+        0;
       toast.success(`Reset complete. Removed ${removed} user account${removed === 1 ? "" : "s"}.`);
       await invalidateWarehouseData(queryClient);
       navigate("/setup-wizard");
@@ -7594,6 +7860,7 @@ export function SettingsPage() {
           {isEnabled("clients") && (
             <TabsTrigger value="client-vars" className="min-h-9 flex-1 sm:flex-none">Client Variables</TabsTrigger>
           )}
+          <TabsTrigger value="warehouse-structure" className="min-h-9 flex-1 gap-1.5 sm:flex-none"><Network className="h-3.5 w-3.5" />Warehouse Structure</TabsTrigger>
           <TabsTrigger value="about" className="min-h-9 flex-1 gap-1.5 sm:flex-none"><Info className="h-3.5 w-3.5" />About</TabsTrigger>
         </TabsList>
 
@@ -7673,6 +7940,10 @@ export function SettingsPage() {
           </TabsContent>
         )}
 
+        <TabsContent value="warehouse-structure" className="mt-4">
+          <WarehouseStructureTab />
+        </TabsContent>
+
         <TabsContent value="about" className="mt-4 grid gap-6 xl:grid-cols-2">
           <Card>
             <CardHeader>
@@ -7692,8 +7963,8 @@ export function SettingsPage() {
                   version: "1.1.8 Beta",
                   date: "June 2026",
                   changes: [
-                    "Putaway and Pick: shortened bay codes open the bay selector while full location scans still confirm directly",
-                    "Locations table: Warehouse and Zone now appear before Aisle, and Label appears before Max Pallets",
+                    "Put-Away and Pick: shortened bay codes open the bay selector while full location scans still confirm directly",
+                    "Bin Locations table: Warehouse and Zone now appear before Aisle, and Label appears before Max Pallets",
                     "Location labels: batch printing now matches the per-row beam label design on Avery 99 x 38 mm labels",
                     "Bay labels: shortened location codes without level numbers print on Avery 99 x 93 mm labels",
                     "Zone labels: warehouse-zone-aisle codes print on Avery 99 x 93 mm labels",
@@ -7710,8 +7981,8 @@ export function SettingsPage() {
                     "Products: total on-hand quantity shown beside each product name (read-only)",
                     "Navigation: desktop sidebar only mounts in landscape; portrait and tablets use the top slide-in nav. Help is always the last item",
                     "Sidebar: squishy press feedback on nav buttons and tighter responsive width before the scrollbar kicks in",
-                    "Locations: Edit Location now saves Notes and Max height correctly (field-name mismatch fixed)",
-                    "Locations & Zones: bulk label sheets — filter the table, then Print labels sheet (paper size, grid, start cell)",
+                    "Bin Locations: Edit Location now saves Notes and Max height correctly (field-name mismatch fixed)",
+                    "Bin Locations & Zones: bulk label sheets — filter the table, then Print labels sheet (paper size, grid, start cell)",
                     "Access requests: admins, supervisors, and managers see a full-screen prompt when pending users are awaiting approval, with a one-click jump to Users & Roles",
                   ],
                 },
@@ -7721,7 +7992,7 @@ export function SettingsPage() {
                   changes: [
                     "Pick Lists: product selector now only shows items with available quantity assigned to a location — zero-qty and unlocated stock are hidden",
                     "Inventory Search: removed the secondary location/zone scan filter bar (warehouse filter remains)",
-                    "Dashboard: putaway count now matches what managers see on the Putaway page; all roles see tasks correctly",
+                    "Dashboard: put-away count now matches what managers see on the Put-Away page; all roles see tasks correctly",
                     "Seeded task data (putaway, move tasks, cycle counts) cleaned up via migration",
                     "Password: all users can change their own password from the nav header; admin cannot change developer passwords",
                     "Developer and Warehouse Supervisor roles added; password RPCs extended to allow developer role",
@@ -7744,9 +8015,9 @@ export function SettingsPage() {
                   changes: [
                     "Inventory Search: fixed header and filter shell with row-only result scrolling",
                     "Inventory Search: warehouse scope matching now includes live warehouse, zone, aisle, and location codes",
-                    "Locations: generated and migrated codes now preserve warehouse, zone, and location hierarchy",
+                    "Bin Locations: generated and migrated codes now preserve warehouse, zone, and location hierarchy",
                     "Location Labels: full hierarchy codes with QR output for complex location codes",
-                    "Putaway: clearer location confirmation fields and aligned desktop task confirmation",
+                    "Put-Away: clearer location confirmation fields and aligned desktop task confirmation",
                     "Tables: editable and detail rows now require double-click or double-tap before opening",
                   ],
                 },
@@ -7771,7 +8042,7 @@ export function SettingsPage() {
                     "Compact table rows with alternating shading on all data tables",
                     "Sticky table headers — column headers remain visible while scrolling",
                     "Full horizontal overflow scrolling on wide tables",
-                    "Locations table: operational columns (Code, Aisle, Bay, Type, Status) promoted to front; Warehouse/Zone moved to overflow",
+                    "Bin Locations table: operational columns (Code, Aisle, Bay, Type, Status) promoted to front; Warehouse/Zone moved to overflow",
                     "Mobile menu: nav item click now dismisses the menu automatically",
                     "Mobile menu: sign-out button moved to its own row, no longer clashes with the close control",
                     "Back button on Inventory Detail and Pick Execution pages",
@@ -7782,7 +8053,7 @@ export function SettingsPage() {
                   version: "1.0.0",
                   date: "May 2026",
                   changes: [
-                    "Full warehouse master data — Warehouses, Zones, Locations (bulk wizard), Clients, Products, Packaging Profiles",
+                    "Full warehouse master data — Warehouses, Zones, Bin Locations (bulk wizard), Clients, Products, Packaging Profiles",
                     "Receiving workflow — manual, purchase order, and transfer receipt types with lot/expiry capture",
                     "Directed putaway with temperature and capacity validation",
                     "Inventory search and pallet-level detail with full movement history",
@@ -7827,12 +8098,12 @@ export function SettingsPage() {
               {[
                 ["Warehouses", "Multi-facility master data with cool zone flags"],
                 ["Zones", "Temperature-classed storage and workflow zones per warehouse"],
-                ["Locations", "Rack, staging, dispatch, quarantine, and floor slots with capacity rules"],
+                ["Bin Locations", "Rack, staging, dispatch, quarantine, and floor slots with capacity rules"],
                 ["Clients", "3PL customer master with stock-sharing and expiry policies"],
                 ["Products", "SKU master with rotation method, temperature class, and lot tracking"],
                 ["Packaging Profiles", "Unit, carton, pallet pack forms with dimensions and barcodes"],
                 ["Receiving", "Manual, PO, and transfer inbound with lot/expiry capture and putaway queuing"],
-                ["Putaway", "Directed putaway with temperature, capacity, and height validation"],
+                ["Put-Away", "Directed put-away with temperature, capacity, and height validation"],
                 ["Inventory Search", "Live pallet lookup by SKU, barcode, lot, location, or pallet code"],
                 ["Pick Lists", "Rotation-aware pick wave creation with shortage capture"],
                 ["Transfers", "Inter-warehouse moves with pallet identity preservation and driver sign-off"],

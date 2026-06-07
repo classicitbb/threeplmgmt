@@ -364,7 +364,7 @@ export function BayLocationCodesPrintDialog({
         <DialogHeader>
           <DialogTitle>Print Bay Location Codes</DialogTitle>
           <DialogDescription>
-            {items.length} bay code{items.length === 1 ? "" : "s"} from the current Locations search. Avery 99 × 93 mm, 6 labels per sheet.
+            {items.length} bay code{items.length === 1 ? "" : "s"} from the current Bin Locations search. Avery 99 × 93 mm, 6 labels per sheet.
           </DialogDescription>
         </DialogHeader>
         <div className="max-h-64 overflow-auto rounded-md border border-border">
