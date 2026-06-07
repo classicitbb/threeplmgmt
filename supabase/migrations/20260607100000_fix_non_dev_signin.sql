@@ -144,12 +144,42 @@ $$;
 GRANT EXECUTE ON FUNCTION public.admin_invite_user(text, text, text, text, uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.admin_invite_user(text, text, text, text, uuid) TO service_role;
 
+-- ── 3. Allow developers to approve users ──────────────────────────────────────
+--
+-- admin_invite_user (migration 20260606173146) was updated to allow developers to
+-- create users, but the prevent_self_approval trigger still only allowed admins to
+-- change the approved status.  Extend the check to cover developers so a developer
+-- who calls admin_invite_user can fully on-board the user in one step.
+
+CREATE OR REPLACE FUNCTION public.prevent_self_approval()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF NEW.approved IS DISTINCT FROM OLD.approved
+     AND NOT EXISTS (
+       SELECT 1 FROM public.user_roles ur
+       JOIN public.roles r ON r.id = ur.role_id
+       WHERE ur.user_id = auth.uid()
+         AND r.code IN ('admin', 'developer')
+     )
+  THEN
+    RAISE EXCEPTION 'Only admins and developers can change the approved status';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
 -- ── 2. Backfill missing auth.identities for already-invited users ──────────
 --
 -- Users created before this fix have no identity row and cannot sign in.
 -- Insert the missing rows now so existing accounts immediately work.
 
 DO $$
+DECLARE
+  rows_inserted integer;
 BEGIN
   INSERT INTO auth.identities (
     provider_id,
@@ -176,9 +206,9 @@ BEGIN
       FROM   auth.identities i
       WHERE  i.user_id  = u.id
         AND  i.provider = 'email'
-    );
-EXCEPTION WHEN OTHERS THEN
-  -- If auth.identities has a schema difference in this Supabase version,
-  -- log and skip rather than failing the entire migration.
-  RAISE WARNING 'auth.identities backfill skipped: %', SQLERRM;
+    )
+  ON CONFLICT DO NOTHING;
+
+  GET DIAGNOSTICS rows_inserted = ROW_COUNT;
+  RAISE NOTICE 'auth.identities backfill: % row(s) inserted', rows_inserted;
 END $$;
