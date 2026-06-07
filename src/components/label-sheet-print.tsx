@@ -268,6 +268,7 @@ export function BayLocationCodesPrintDialog({
   const [open, setOpen] = useState(false);
   const cellsPerSheet = 6;
   const totalSheets = Math.max(1, Math.ceil(items.length / cellsPerSheet));
+  const previewItem = items[0] ?? null;
 
   function handlePrint() {
     if (items.length === 0) return;
@@ -367,6 +368,21 @@ export function BayLocationCodesPrintDialog({
             {items.length} bay code{items.length === 1 ? "" : "s"} from the current Bin Locations search. Avery 99 × 93 mm, 6 labels per sheet.
           </DialogDescription>
         </DialogHeader>
+        {previewItem ? (
+          <div className="rounded-md border border-primary bg-white p-4 text-black">
+            <div className="grid min-h-48 gap-4 rounded-sm border-l-4 border-teal-700 pl-4 sm:grid-cols-[1fr_120px] sm:items-center">
+              <div className="min-w-0 space-y-2">
+                <p className="text-xs font-extrabold uppercase tracking-wide text-teal-700">Bay code</p>
+                <p className="break-words font-mono text-2xl font-black leading-tight">{previewItem.code}</p>
+                {previewItem.title ? <p className="text-sm font-semibold">{previewItem.title}</p> : null}
+                {previewItem.subtitle ? <p className="text-xs text-slate-700">{previewItem.subtitle}</p> : null}
+              </div>
+              <div className="flex justify-center">
+                <QRCodeSVG value={previewItem.code} size={112} bgColor="#ffffff" fgColor="#000000" level="M" />
+              </div>
+            </div>
+          </div>
+        ) : null}
         <div className="max-h-64 overflow-auto rounded-md border border-border">
           {items.length === 0 ? (
             <p className="p-3 text-sm text-muted-foreground">No bay codes matched the current table search.</p>

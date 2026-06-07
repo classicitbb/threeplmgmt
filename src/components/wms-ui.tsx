@@ -1641,6 +1641,7 @@ export function ResourcePage({
 }: {
   resource: ResourceDefinition;
 }) {
+  const navigate = useNavigate();
   const { roles: viewerRoles } = useAuth();
   const canHardDelete = viewerRoles.some((r) => ["admin", "developer"].includes(r));
   const cascadeSupported = ["warehouses", "zones", "locations", "products", "clients"].includes(resource.table);
@@ -1669,6 +1670,7 @@ export function ResourcePage({
     onError: (e) => toast.error(e instanceof Error ? e.message : "Delete failed"),
   });
   const useGearActions = ["warehouses", "zones", "locations", "products"].includes(resource.table);
+  const hasWarehouseStructureShortcut = ["warehouses", "zones", "locations"].includes(resource.table);
   const { data = [], isLoading } = useQuery({
     queryKey: [resource.table, includeHidden],
     queryFn: () => listRecords(resource.table, resource.select ?? "*", resource.orderBy, {
@@ -1958,6 +1960,15 @@ export function ResourcePage({
                       </DropdownMenuItem>
                     }
                   />
+                ) : null}
+                {hasWarehouseStructureShortcut ? (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => navigate("/settings?tab=warehouse-structure")}>
+                      <Network className="mr-2 h-4 w-4" />
+                      Warehouse Structure
+                    </DropdownMenuItem>
+                  </>
                 ) : null}
                 <ResourceFormDialog
                   resource={resource}
@@ -8153,9 +8164,22 @@ export function SettingsPage() {
   const { roles } = useAuth();
   const { isEnabled } = useFeatureFlags();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const canViewUsersRoles = roles.some((r) => ["developer", "admin", "warehouse_manager", "warehouse_supervisor"].includes(r));
   const isDeveloperOrAdmin = roles.some((r) => ["developer", "admin"].includes(r));
   const queryClient = useQueryClient();
+  const requestedTab = searchParams.get("tab");
+  const availableSettingsTabs = [
+    ...(canViewUsersRoles ? ["users-roles"] : []),
+    "modules",
+    "environment",
+    ...(isEnabled("clients") ? ["client-vars"] : []),
+    "warehouse-structure",
+    "about",
+  ];
+  const defaultSettingsTab = requestedTab && availableSettingsTabs.includes(requestedTab)
+    ? requestedTab
+    : canViewUsersRoles ? "users-roles" : "modules";
 
   const resetMutation = useMutation({
     mutationFn: resetWmsData,
@@ -8180,7 +8204,7 @@ export function SettingsPage() {
         <h2 className="text-2xl font-semibold">Settings</h2>
         <p className="text-sm text-muted-foreground">Warehouse environment, client configuration, and system management.</p>
       </div>
-      <Tabs defaultValue={canViewUsersRoles ? "users-roles" : "modules"}>
+      <Tabs defaultValue={defaultSettingsTab}>
         <TabsList className="flex h-auto w-full flex-wrap items-stretch justify-start gap-1 sm:w-fit">
           {canViewUsersRoles && (
             <TabsTrigger value="users-roles" className="min-h-9 flex-1 gap-1.5 sm:flex-none"><Users className="h-3.5 w-3.5" />Users & Roles</TabsTrigger>
