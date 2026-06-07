@@ -5198,7 +5198,7 @@ export function PutawayTasksPage() {
               <Card key={task.id} className="border-2">
                 <CardHeader className="pb-3">
                   <CardTitle className="flex items-center justify-between gap-4 text-base">
-                    <span className="font-mono">{task.task_number}</span>
+                    <span className="font-mono">{palletBarcode || "No pallet assigned"}</span>
                     <Badge>{task.status}</Badge>
                   </CardTitle>
                   <CardDescription>
@@ -5208,7 +5208,7 @@ export function PutawayTasksPage() {
                     {" — "}
                     {(task.pallets as any)?.quantity ?? "?"} units
                     <br />
-                    Pallet: <span className="font-mono">{palletBarcode || "No pallet assigned"}</span>
+                    Task: <span className="font-mono">{task.task_number}</span>
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="flex flex-col gap-3">
