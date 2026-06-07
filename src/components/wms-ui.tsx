@@ -7934,6 +7934,7 @@ function UserProfileRow({
   warehouses,
   userRoles,
   onSave,
+  onDelete,
   onToggleActive,
 }: {
   profile: ProfileRow;
@@ -7943,6 +7944,7 @@ function UserProfileRow({
     values: Parameters<typeof updateProfileDetails>[0],
     credentials?: { newPassword?: string; badgePin?: string },
   ) => void;
+  onDelete: () => void;
   onToggleActive: () => void;
 }) {
   const { roles: viewerRoles } = useAuth();
@@ -8060,6 +8062,16 @@ function UserProfileRow({
           >
             {profile.active ? "Disable" : "Enable"}
           </Button>
+          {!profile.active ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-8 text-xs text-destructive"
+              onClick={onDelete}
+            >
+              Delete
+            </Button>
+          ) : null}
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
               <Button size="sm" variant="outline" className="h-8 text-xs">Edit</Button>
