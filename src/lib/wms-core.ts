@@ -822,19 +822,31 @@ export type AdminInviteUserInput = {
 };
 
 export async function adminInviteUser(input: AdminInviteUserInput): Promise<string> {
-  const { data, error } = await (supabase.rpc as any)("admin_invite_user", {
-    in_email: input.email.toLowerCase().trim(),
-    in_full_name: input.full_name.trim(),
-    in_password: input.password,
-    in_role_code: input.role_code ?? null,
-    in_warehouse_id: input.warehouse_id ?? null,
+  // Use the invite-user edge function which calls auth.admin.createUser().
+  // Unlike the admin_invite_user RPC (which inserts directly into auth.users),
+  // the admin API properly creates auth.identities — required by GoTrue for
+  // email/password sign-in.
+  const { data, error } = await supabase.functions.invoke("invite-user", {
+    body: {
+      email: input.email,
+      fullName: input.full_name,
+      password: input.password,
+      roleCode: input.role_code ?? null,
+      warehouseId: input.warehouse_id ?? null,
+    },
   });
+
   if (error) throw error;
-  await logUserActivity("user_invited", "profiles", data, {
+
+  const result = data as { id?: string; error?: string } | null;
+  if (result?.error) throw new Error(result.error);
+  if (!result?.id) throw new Error("User creation failed");
+
+  await logUserActivity("user_invited", "profiles", result.id, {
     email: input.email,
     role: input.role_code ?? null,
   });
-  return data as string;
+  return result.id;
 }
 
 export async function updateOwnPassword(password: string) {
