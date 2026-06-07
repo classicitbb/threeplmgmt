@@ -6,7 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm, type UseFormReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { supabase } from "@/integrations/supabase/client";
-import { Activity, AlertTriangle, ArrowLeftRight, BarChart3, Bot, Boxes, Building2, CheckCircle2, ChevronDown, ClipboardCheck, ClipboardList, CloudOff, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, HelpCircle, Home, Info, KeyRound, LayoutDashboard, Loader2, Lock, LockOpen, LogOut, Mail, Maximize2, MapPinned, Menu, Minimize2, Network, Package, PackageX, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, QrCode, RadioTower, RefreshCw, RotateCcw, Search, Settings, ShieldCheck, Star, Tags, Trash2, Truck, Upload, UserPlus, Users } from "lucide-react";
+import { Activity, AlertCircle, AlertTriangle, ArrowLeftRight, BarChart3, Bot, Boxes, Building2, CheckCircle2, ChevronDown, ClipboardCheck, ClipboardList, CloudOff, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, HelpCircle, Home, Info, KeyRound, LayoutDashboard, Loader2, Lock, LockOpen, LogOut, Mail, Maximize2, MapPinned, Menu, Minimize2, Network, Package, PackageX, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, QrCode, RadioTower, RefreshCw, RotateCcw, Search, Settings, ShieldCheck, Star, Tags, Trash2, Truck, Upload, UserPlus, Users } from "lucide-react";
 import {
   DndContext,
   KeyboardSensor,
@@ -36,7 +36,11 @@ import {
   installOfflineAutoReplay,
   isLikelyNetworkError,
   useOfflineQueue,
+  useDeadLetterQueue,
+
+  type FailedWorkItem,
 } from "@/lib/offline-queue";
+import { useBackgroundSync } from "@/hooks/use-background-sync";
 import {
   NAVIGATION,
   ROLE_LABELS,
@@ -48,6 +52,7 @@ import {
   type DraftReceipt,
   type BayOccupancyCell,
   adminInviteUser,
+  adminDeleteUser,
   adminUpdateUserPin,
   adminUpdateUserPassword,
   buildBayOccupancyGrid,
@@ -64,6 +69,7 @@ import {
   dispatchTransfer,
   cycleCountSchema,
   resetWmsData,
+  removeUserRoleAssignment,
   downloadCsv,
   downloadCsvTemplate,
   fetchOptions,
@@ -107,7 +113,6 @@ import {
   updateProfileDefaultWarehouse,
   statusChangeSchema,
   setResourceVisibility,
-  setUserRoleVisibility,
   submitCycleCountLine,
   transferSchema,
   updateRecord,
@@ -122,10 +127,10 @@ import {
   completeMoveTask,
   cancelMoveTask,
   expandLocationRange,
-  parseRackLocationCode,
+
   buildRackLocationCode,
   suggestNextRackPosition,
-  type RackLocationParts,
+
   validateMoveDestination,
   type MoveValidationResult,
 } from "@/lib/wms-core";
@@ -1241,6 +1246,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     installOfflineAutoReplay();
   }, []);
+  useBackgroundSync(queryClient);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const networkStatusSeenRef = useRef(false);
@@ -1543,7 +1549,93 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </main>
       </div>
       <AccessRequestsBanner />
+      <FailedTasksReminder />
     </div>
+  );
+}
+
+function FailedTasksReminder() {
+  const { items, dismiss, dismissAll } = useDeadLetterQueue();
+  const [activeIndex, setActiveIndex] = useState(0);
+
+  // Reset index when items change (e.g. after dismissal)
+  useEffect(() => {
+    setActiveIndex(0);
+  }, [items.length]);
+
+  if (items.length === 0) return null;
+
+  const item = items[Math.min(activeIndex, items.length - 1)];
+  if (!item) return null;
+
+  function describeItem(it: FailedWorkItem) {
+    if (it.kind === "putaway") {
+      const p = it.payload as { pallet: string; location: string; taskNumber?: string };
+      return `Putaway${p.taskNumber ? ` #${p.taskNumber}` : ""} — pallet ${p.pallet} → ${p.location}`;
+    }
+    if (it.kind === "pick") {
+      const p = it.payload as { palletBarcode: string; locationCode: string };
+      return `Pick — pallet ${p.palletBarcode} at ${p.locationCode}`;
+    }
+    return it.kind;
+  }
+
+  const timestamp = new Date(item.failedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+  return (
+    <Dialog open>
+      <DialogContent
+        className="sm:max-w-md"
+        onPointerDownOutside={(e) => e.preventDefault()}
+        onEscapeKeyDown={(e) => e.preventDefault()}
+      >
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-destructive">
+            <AlertCircle className="h-5 w-5 shrink-0" />
+            {items.length === 1 ? "Offline task needs attention" : `${items.length} offline tasks need attention`}
+          </DialogTitle>
+          <DialogDescription>
+            {items.length > 1
+              ? `One or more actions saved while offline could not be submitted when you reconnected. Review each one and confirm whether the work is done.`
+              : `An action saved while offline could not be submitted when you reconnected. Confirm whether the work is done.`}
+          </DialogDescription>
+        </DialogHeader>
+
+        {items.length > 1 && (
+          <div className="flex items-center justify-between text-xs text-muted-foreground">
+            <span>Item {activeIndex + 1} of {items.length}</span>
+            <div className="flex gap-1">
+              <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" disabled={activeIndex === 0} onClick={() => setActiveIndex((i) => i - 1)}>←</Button>
+              <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" disabled={activeIndex >= items.length - 1} onClick={() => setActiveIndex((i) => i + 1)}>→</Button>
+            </div>
+          </div>
+        )}
+
+        <div className="rounded-md border border-border bg-muted/40 p-3 text-sm space-y-1.5">
+          <p className="font-medium">{describeItem(item)}</p>
+          <p className="text-xs text-muted-foreground">Failed at {timestamp} · {item.attempts} attempt{item.attempts === 1 ? "" : "s"}</p>
+          <p className="text-xs text-destructive/80 break-words">{item.error}</p>
+        </div>
+
+        <DialogFooter className="flex-col gap-2 sm:flex-row">
+          {items.length > 1 && (
+            <Button
+              variant="ghost"
+              className="text-muted-foreground sm:mr-auto"
+              onClick={() => void dismissAll()}
+            >
+              Mark all resolved
+            </Button>
+          )}
+          <Button variant="outline" onClick={() => void dismiss(item.id)}>
+            Will re-do manually
+          </Button>
+          <Button onClick={() => void dismiss(item.id)}>
+            Task is done
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -5127,7 +5219,7 @@ export function PutawayTasksPage() {
               <Card key={task.id} className="border-2">
                 <CardHeader className="pb-3">
                   <CardTitle className="flex items-center justify-between gap-4 text-base">
-                    <span className="font-mono">{task.task_number}</span>
+                    <span className="font-mono">{palletBarcode || "No pallet assigned"}</span>
                     <Badge>{task.status}</Badge>
                   </CardTitle>
                   <CardDescription>
@@ -5137,7 +5229,7 @@ export function PutawayTasksPage() {
                     {" — "}
                     {(task.pallets as any)?.quantity ?? "?"} units
                     <br />
-                    Pallet: <span className="font-mono">{palletBarcode || "No pallet assigned"}</span>
+                    Task: <span className="font-mono">{task.task_number}</span>
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="flex flex-col gap-3">
@@ -7472,13 +7564,13 @@ export function UsersRolesPage() {
     onError: (error) => toast.error(error instanceof Error ? error.message : "Failed to assign role"),
   });
 
-  const visibilityMutation = useMutation({
-    mutationFn: async ({ userRoleId, hidden }: { userRoleId: string; hidden: boolean }) =>
-      setUserRoleVisibility(userRoleId, hidden, hidden ? "Access hidden from user management" : undefined),
-    onSuccess: async (_, variables) => {
-      toast.success(variables.hidden ? "Role assignment hidden" : "Role assignment restored");
+  const unassignRoleMutation = useMutation({
+    mutationFn: async (userRoleId: string) => removeUserRoleAssignment(userRoleId),
+    onSuccess: async () => {
+      toast.success("Role unassigned");
       await invalidateOptions();
     },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Failed to unassign role"),
   });
 
   const profileMutation = useMutation({
@@ -7512,6 +7604,15 @@ export function UsersRolesPage() {
       await invalidateOptions();
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Update failed"),
+  });
+
+  const deleteProfileMutation = useMutation({
+    mutationFn: async (profileId: string) => adminDeleteUser(profileId),
+    onSuccess: async () => {
+      toast.success("User deleted");
+      await invalidateOptions();
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Delete failed"),
   });
 
   const profiles = (options?.profiles ?? []) as ProfileRow[];
@@ -7571,6 +7672,7 @@ export function UsersRolesPage() {
                 warehouses={(options?.warehouses ?? []) as WarehouseOption[]}
                 userRoles={(options?.userRoles ?? []).filter((ur: any) => ur.user_id === profile.id)}
                 onSave={(values, credentials) => profileEditMutation.mutate({ values, ...credentials })}
+                onDelete={() => deleteProfileMutation.mutate(profile.id)}
                 onToggleActive={() =>
                   profileMutation.mutate({ profileId: profile.id, active: !(profile.active ?? true) })
                 }
@@ -7656,9 +7758,9 @@ export function UsersRolesPage() {
                               size="sm"
                               variant="ghost"
                               className="h-7 text-xs"
-                              onClick={() => visibilityMutation.mutate({ userRoleId: userRole.id, hidden: !userRole.is_hidden })}
+                              onClick={() => unassignRoleMutation.mutate(userRole.id)}
                             >
-                              {userRole.is_hidden ? "Restore" : "Revoke"}
+                              Unassign
                             </Button>
                           )}
                         </div>
@@ -7853,6 +7955,7 @@ function UserProfileRow({
   warehouses,
   userRoles,
   onSave,
+  onDelete,
   onToggleActive,
 }: {
   profile: ProfileRow;
@@ -7862,6 +7965,7 @@ function UserProfileRow({
     values: Parameters<typeof updateProfileDetails>[0],
     credentials?: { newPassword?: string; badgePin?: string },
   ) => void;
+  onDelete: () => void;
   onToggleActive: () => void;
 }) {
   const { roles: viewerRoles } = useAuth();
@@ -7979,6 +8083,16 @@ function UserProfileRow({
           >
             {profile.active ? "Disable" : "Enable"}
           </Button>
+          {!profile.active ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-8 text-xs text-destructive"
+              onClick={onDelete}
+            >
+              Delete
+            </Button>
+          ) : null}
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
               <Button size="sm" variant="outline" className="h-8 text-xs">Edit</Button>

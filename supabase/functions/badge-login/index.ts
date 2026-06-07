@@ -48,10 +48,17 @@ Deno.serve(async (req) => {
     auth: { persistSession: false, autoRefreshToken: false },
   })
 
+  // Use the 5-arg overload. The 3-arg form (migration 20260605191800) is a
+  // stub that always raises; the real logic lives in the 5-arg version.
+  // Pass in_current_ip=null: refresh_user_device_trust stores null last_known_ip
+  // by default, so the IP equality check in start_badge_device_login resolves to
+  // coalesce(null,'') = coalesce(null,'') → true for all existing trust records.
   const { data: loginRows, error: loginError } = await admin.rpc('start_badge_device_login', {
     in_badge_code: badgeCode,
     in_pin: pin,
     in_device_id: deviceId,
+    in_current_ip: null,
+    in_is_desktop: false,
   })
 
   if (loginError) {
