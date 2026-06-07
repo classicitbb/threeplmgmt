@@ -7543,13 +7543,13 @@ export function UsersRolesPage() {
     onError: (error) => toast.error(error instanceof Error ? error.message : "Failed to assign role"),
   });
 
-  const visibilityMutation = useMutation({
-    mutationFn: async ({ userRoleId, hidden }: { userRoleId: string; hidden: boolean }) =>
-      setUserRoleVisibility(userRoleId, hidden, hidden ? "Access hidden from user management" : undefined),
-    onSuccess: async (_, variables) => {
-      toast.success(variables.hidden ? "Role assignment hidden" : "Role assignment restored");
+  const unassignRoleMutation = useMutation({
+    mutationFn: async (userRoleId: string) => removeUserRoleAssignment(userRoleId),
+    onSuccess: async () => {
+      toast.success("Role unassigned");
       await invalidateOptions();
     },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Failed to unassign role"),
   });
 
   const profileMutation = useMutation({
@@ -7583,6 +7583,15 @@ export function UsersRolesPage() {
       await invalidateOptions();
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Update failed"),
+  });
+
+  const deleteProfileMutation = useMutation({
+    mutationFn: async (profileId: string) => adminDeleteUser(profileId),
+    onSuccess: async () => {
+      toast.success("User deleted");
+      await invalidateOptions();
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Delete failed"),
   });
 
   const profiles = (options?.profiles ?? []) as ProfileRow[];
@@ -7642,6 +7651,7 @@ export function UsersRolesPage() {
                 warehouses={(options?.warehouses ?? []) as WarehouseOption[]}
                 userRoles={(options?.userRoles ?? []).filter((ur: any) => ur.user_id === profile.id)}
                 onSave={(values, credentials) => profileEditMutation.mutate({ values, ...credentials })}
+                onDelete={() => deleteProfileMutation.mutate(profile.id)}
                 onToggleActive={() =>
                   profileMutation.mutate({ profileId: profile.id, active: !(profile.active ?? true) })
                 }
@@ -7727,9 +7737,9 @@ export function UsersRolesPage() {
                               size="sm"
                               variant="ghost"
                               className="h-7 text-xs"
-                              onClick={() => visibilityMutation.mutate({ userRoleId: userRole.id, hidden: !userRole.is_hidden })}
+                              onClick={() => unassignRoleMutation.mutate(userRole.id)}
                             >
-                              {userRole.is_hidden ? "Restore" : "Revoke"}
+                              Unassign
                             </Button>
                           )}
                         </div>
