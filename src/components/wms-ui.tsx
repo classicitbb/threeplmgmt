@@ -52,6 +52,7 @@ import {
   type DraftReceipt,
   type BayOccupancyCell,
   adminInviteUser,
+  adminDeleteUser,
   adminUpdateUserPin,
   adminUpdateUserPassword,
   buildBayOccupancyGrid,
@@ -68,6 +69,7 @@ import {
   dispatchTransfer,
   cycleCountSchema,
   resetWmsData,
+  removeUserRoleAssignment,
   downloadCsv,
   downloadCsvTemplate,
   fetchOptions,
@@ -111,7 +113,6 @@ import {
   updateProfileDefaultWarehouse,
   statusChangeSchema,
   setResourceVisibility,
-  setUserRoleVisibility,
   submitCycleCountLine,
   transferSchema,
   updateRecord,
@@ -7542,13 +7543,13 @@ export function UsersRolesPage() {
     onError: (error) => toast.error(error instanceof Error ? error.message : "Failed to assign role"),
   });
 
-  const visibilityMutation = useMutation({
-    mutationFn: async ({ userRoleId, hidden }: { userRoleId: string; hidden: boolean }) =>
-      setUserRoleVisibility(userRoleId, hidden, hidden ? "Access hidden from user management" : undefined),
-    onSuccess: async (_, variables) => {
-      toast.success(variables.hidden ? "Role assignment hidden" : "Role assignment restored");
+  const unassignRoleMutation = useMutation({
+    mutationFn: async (userRoleId: string) => removeUserRoleAssignment(userRoleId),
+    onSuccess: async () => {
+      toast.success("Role unassigned");
       await invalidateOptions();
     },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Failed to unassign role"),
   });
 
   const profileMutation = useMutation({
@@ -7582,6 +7583,15 @@ export function UsersRolesPage() {
       await invalidateOptions();
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Update failed"),
+  });
+
+  const deleteProfileMutation = useMutation({
+    mutationFn: async (profileId: string) => adminDeleteUser(profileId),
+    onSuccess: async () => {
+      toast.success("User deleted");
+      await invalidateOptions();
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Delete failed"),
   });
 
   const profiles = (options?.profiles ?? []) as ProfileRow[];
@@ -7641,6 +7651,7 @@ export function UsersRolesPage() {
                 warehouses={(options?.warehouses ?? []) as WarehouseOption[]}
                 userRoles={(options?.userRoles ?? []).filter((ur: any) => ur.user_id === profile.id)}
                 onSave={(values, credentials) => profileEditMutation.mutate({ values, ...credentials })}
+                onDelete={() => deleteProfileMutation.mutate(profile.id)}
                 onToggleActive={() =>
                   profileMutation.mutate({ profileId: profile.id, active: !(profile.active ?? true) })
                 }
@@ -7726,9 +7737,9 @@ export function UsersRolesPage() {
                               size="sm"
                               variant="ghost"
                               className="h-7 text-xs"
-                              onClick={() => visibilityMutation.mutate({ userRoleId: userRole.id, hidden: !userRole.is_hidden })}
+                              onClick={() => unassignRoleMutation.mutate(userRole.id)}
                             >
-                              {userRole.is_hidden ? "Restore" : "Revoke"}
+                              Unassign
                             </Button>
                           )}
                         </div>
@@ -7923,6 +7934,7 @@ function UserProfileRow({
   warehouses,
   userRoles,
   onSave,
+  onDelete,
   onToggleActive,
 }: {
   profile: ProfileRow;
@@ -7932,6 +7944,7 @@ function UserProfileRow({
     values: Parameters<typeof updateProfileDetails>[0],
     credentials?: { newPassword?: string; badgePin?: string },
   ) => void;
+  onDelete: () => void;
   onToggleActive: () => void;
 }) {
   const { roles: viewerRoles } = useAuth();
@@ -8049,6 +8062,16 @@ function UserProfileRow({
           >
             {profile.active ? "Disable" : "Enable"}
           </Button>
+          {!profile.active ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-8 text-xs text-destructive"
+              onClick={onDelete}
+            >
+              Delete
+            </Button>
+          ) : null}
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
               <Button size="sm" variant="outline" className="h-8 text-xs">Edit</Button>
