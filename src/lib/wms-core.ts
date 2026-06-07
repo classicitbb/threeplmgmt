@@ -399,6 +399,7 @@ export const RESOURCE_DEFINITIONS: Record<string, ResourceDefinition> = {
       { name: "aisle", label: "Aisle", type: "text" },
       { name: "bay", label: "Bay", type: "text" },
       { name: "level", label: "Level", type: "number" },
+      { name: "position", label: "Position", type: "number" },
       { name: "depth", label: "Depth", type: "number", required: true },
       { name: "location_type", label: "Type", type: "select", options: [
         { label: "Rack", value: "rack" },
@@ -1278,12 +1279,67 @@ export function expandLocationRange(input: LocationRangeInput): ExpandedLocation
           position,
           depth,
           maxPallets: depth,
-          localCode: `${input.prefix}-${String(bay).padStart(2, "0")}-L${String(level).padStart(2, "0")}-P${position}`,
+          localCode: `${input.prefix}-${String(bay).padStart(2, "0")}-L${String(level).padStart(2, "0")}-P${String(position).padStart(2, "0")}`,
         });
       }
     }
   }
   return rows;
+}
+
+export interface RackLocationParts {
+  rack: string;
+  aisle: number;
+  bay: number;
+  level: number;
+  position: number;
+}
+
+/** Parse the local (non-prefixed) part of a rack location code, e.g. "A-1-01-L01-P01". */
+export function parseRackLocationCode(localCode: string): RackLocationParts | null {
+  const m = /^([A-Z])-(\d+)-(\d{1,2})-L(\d{1,2})-P(\d{1,2})$/i.exec(localCode.trim());
+  if (!m) return null;
+  return {
+    rack: m[1].toUpperCase(),
+    aisle: parseInt(m[2], 10),
+    bay: parseInt(m[3], 10),
+    level: parseInt(m[4], 10),
+    position: parseInt(m[5], 10),
+  };
+}
+
+/** Build the local (non-prefixed) rack location code from its parts. */
+export function buildRackLocationCode(parts: RackLocationParts): string {
+  return `${parts.rack.toUpperCase()}-${parts.aisle}-${String(parts.bay).padStart(2, "0")}-L${String(parts.level).padStart(2, "0")}-P${String(parts.position).padStart(2, "0")}`;
+}
+
+/**
+ * Given existing full location codes and a rack/aisle/bay/level, return the next unused position number.
+ * Strips the warehouse-zone prefix from each code before parsing.
+ */
+export function suggestNextRackPosition(
+  existingCodes: string[],
+  rack: string,
+  aisle: number,
+  bay: number,
+  level: number,
+): number {
+  const used = existingCodes
+    .map((c) => {
+      const parts = c.split("-");
+      const local = parts.length >= 5 ? parts.slice(-5).join("-") : c;
+      return parseRackLocationCode(local);
+    })
+    .filter(
+      (p): p is RackLocationParts =>
+        p !== null &&
+        p.rack === rack.toUpperCase() &&
+        p.aisle === aisle &&
+        p.bay === bay &&
+        p.level === level,
+    )
+    .map((p) => p.position);
+  return used.length > 0 ? Math.max(...used) + 1 : 1;
 }
 
 export type BayOccupancyCell = {
@@ -1304,7 +1360,7 @@ export type BayOccupancyGridSlot = {
   cell: BayOccupancyCell | null;
 };
 
-const BAY_LEVEL_LIMIT = 6;
+const BAY_LEVEL_LIMIT = 7;
 const BAY_POSITION_LIMIT = 3;
 
 function readPositiveNumber(value: number | string | null | undefined): number | null {
@@ -1346,10 +1402,7 @@ export function buildBayOccupancyGrid(cells: BayOccupancyCell[]): BayOccupancyGr
     BAY_LEVEL_LIMIT,
     Math.max(1, ...visibleCells.map((item) => item.level)),
   );
-  const maxPosition = Math.min(
-    BAY_POSITION_LIMIT,
-    Math.max(1, ...visibleCells.map((item) => item.position)),
-  );
+  const maxPosition = BAY_POSITION_LIMIT;
   const cellsBySlot = new Map<string, BayOccupancyCell>();
   for (const item of visibleCells) {
     cellsBySlot.set(`${item.level}:${item.position}`, item.cell);
@@ -1784,9 +1837,10 @@ export async function confirmPutaway(
 
   const { data: location, error: locationError } = await db("locations")
     .select("*")
-    .eq("code", scannedLocationCode)
-    .single();
+    .eq("code", scannedLocationCode.toUpperCase())
+    .maybeSingle();
   if (locationError) throw locationError;
+  if (!location) throw new Error(`Location not found: ${scannedLocationCode}`);
 
   const { data: product, error: productError } = await db("products")
     .select("*")
@@ -3889,7 +3943,7 @@ export async function getBayOccupancy(locationCode: string): Promise<{
   } else {
     const { data, error } = await db("locations")
       .select("id, code, warehouse_id, zone_id, aisle, bay")
-      .eq("code", normalizedCode)
+      .eq("code", normalizedCode.toUpperCase())
       .maybeSingle();
     if (error) throw error;
     if (data) {
@@ -3971,6 +4025,56 @@ export async function getBayOccupancy(locationCode: string): Promise<{
     bay: anchor.bay ?? null,
     cells,
   };
+}
+
+export type WarehouseBayGroup = {
+  aisle: string;
+  bay: string;
+  bayCode: string;
+  totalCapacity: number;
+  totalOccupied: number;
+  cells: BayOccupancyCell[];
+};
+
+export async function getWarehouseBayOccupancy(warehouseId: string): Promise<WarehouseBayGroup[]> {
+  const { data: locations, error } = await db("locations")
+    .select("id, code, aisle, bay, level, position, depth, max_pallets, status, location_type")
+    .eq("warehouse_id", warehouseId)
+    .eq("location_type", "rack")
+    .order("aisle")
+    .order("bay")
+    .order("level", { ascending: false })
+    .order("position");
+  if (error) throw error;
+  if (!locations?.length) return [];
+
+  const counts = await getStoredPalletCounts(locations.map((l: any) => l.id));
+  const bayMap = new Map<string, BayOccupancyCell[]>();
+  for (const loc of locations as any[]) {
+    const key = `${loc.aisle ?? ""}|${loc.bay ?? ""}`;
+    if (!bayMap.has(key)) bayMap.set(key, []);
+    const maxPallets = Number(loc.max_pallets ?? 0);
+    const occupiedPallets = counts.get(loc.id) ?? 0;
+    bayMap.get(key)!.push({
+      locationId: loc.id,
+      locationCode: loc.code,
+      level: loc.level ?? null,
+      position: loc.position ?? null,
+      depth: loc.depth ?? null,
+      maxPallets,
+      occupiedPallets,
+      status: loc.status ?? "active",
+      isFull: maxPallets > 0 && occupiedPallets >= maxPallets,
+    });
+  }
+
+  return Array.from(bayMap.entries()).map(([key, cells]) => {
+    const [aisle, bay] = key.split("|");
+    const bayCode = cells[0]?.locationCode.replace(/-L\d+.*$/i, "") ?? "";
+    const totalCapacity = cells.reduce((sum, c) => sum + c.maxPallets, 0);
+    const totalOccupied = cells.reduce((sum, c) => sum + c.occupiedPallets, 0);
+    return { aisle, bay, bayCode, totalCapacity, totalOccupied, cells };
+  });
 }
 
 export async function logPutawayBaySelection(input: {
