@@ -6,7 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm, type UseFormReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { supabase } from "@/integrations/supabase/client";
-import { Activity, AlertTriangle, ArrowLeftRight, BarChart3, Bot, Boxes, Building2, CheckCircle2, ChevronDown, ClipboardCheck, ClipboardList, CloudOff, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, HelpCircle, Home, Info, KeyRound, LayoutDashboard, Loader2, Lock, LockOpen, LogOut, Mail, Maximize2, MapPinned, Menu, Minimize2, Network, Package, PackageX, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, QrCode, RadioTower, RefreshCw, RotateCcw, Search, Settings, ShieldCheck, Star, Tags, Trash2, Truck, Upload, UserPlus, Users } from "lucide-react";
+import { Activity, AlertCircle, AlertTriangle, ArrowLeftRight, BarChart3, Bot, Boxes, Building2, CheckCircle2, ChevronDown, ClipboardCheck, ClipboardList, CloudOff, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, HelpCircle, Home, Info, KeyRound, LayoutDashboard, Loader2, Lock, LockOpen, LogOut, Mail, Maximize2, MapPinned, Menu, Minimize2, Network, Package, PackageX, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, QrCode, RadioTower, RefreshCw, RotateCcw, Search, Settings, ShieldCheck, Star, Tags, Trash2, Truck, Upload, UserPlus, Users } from "lucide-react";
 import {
   DndContext,
   KeyboardSensor,
@@ -36,7 +36,11 @@ import {
   installOfflineAutoReplay,
   isLikelyNetworkError,
   useOfflineQueue,
+  useDeadLetterQueue,
+  dismissDeadLetterItem,
+  type FailedWorkItem,
 } from "@/lib/offline-queue";
+import { useBackgroundSync } from "@/hooks/use-background-sync";
 import {
   NAVIGATION,
   ROLE_LABELS,
@@ -1241,6 +1245,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     installOfflineAutoReplay();
   }, []);
+  useBackgroundSync(queryClient);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const networkStatusSeenRef = useRef(false);
@@ -1543,7 +1548,93 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </main>
       </div>
       <AccessRequestsBanner />
+      <FailedTasksReminder />
     </div>
+  );
+}
+
+function FailedTasksReminder() {
+  const { items, dismiss, dismissAll } = useDeadLetterQueue();
+  const [activeIndex, setActiveIndex] = useState(0);
+
+  // Reset index when items change (e.g. after dismissal)
+  useEffect(() => {
+    setActiveIndex(0);
+  }, [items.length]);
+
+  if (items.length === 0) return null;
+
+  const item = items[Math.min(activeIndex, items.length - 1)];
+  if (!item) return null;
+
+  function describeItem(it: FailedWorkItem) {
+    if (it.kind === "putaway") {
+      const p = it.payload as { pallet: string; location: string; taskNumber?: string };
+      return `Putaway${p.taskNumber ? ` #${p.taskNumber}` : ""} — pallet ${p.pallet} → ${p.location}`;
+    }
+    if (it.kind === "pick") {
+      const p = it.payload as { palletBarcode: string; locationCode: string };
+      return `Pick — pallet ${p.palletBarcode} at ${p.locationCode}`;
+    }
+    return it.kind;
+  }
+
+  const timestamp = new Date(item.failedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+  return (
+    <Dialog open>
+      <DialogContent
+        className="sm:max-w-md"
+        onPointerDownOutside={(e) => e.preventDefault()}
+        onEscapeKeyDown={(e) => e.preventDefault()}
+      >
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-destructive">
+            <AlertCircle className="h-5 w-5 shrink-0" />
+            {items.length === 1 ? "Offline task needs attention" : `${items.length} offline tasks need attention`}
+          </DialogTitle>
+          <DialogDescription>
+            {items.length > 1
+              ? `One or more actions saved while offline could not be submitted when you reconnected. Review each one and confirm whether the work is done.`
+              : `An action saved while offline could not be submitted when you reconnected. Confirm whether the work is done.`}
+          </DialogDescription>
+        </DialogHeader>
+
+        {items.length > 1 && (
+          <div className="flex items-center justify-between text-xs text-muted-foreground">
+            <span>Item {activeIndex + 1} of {items.length}</span>
+            <div className="flex gap-1">
+              <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" disabled={activeIndex === 0} onClick={() => setActiveIndex((i) => i - 1)}>←</Button>
+              <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" disabled={activeIndex >= items.length - 1} onClick={() => setActiveIndex((i) => i + 1)}>→</Button>
+            </div>
+          </div>
+        )}
+
+        <div className="rounded-md border border-border bg-muted/40 p-3 text-sm space-y-1.5">
+          <p className="font-medium">{describeItem(item)}</p>
+          <p className="text-xs text-muted-foreground">Failed at {timestamp} · {item.attempts} attempt{item.attempts === 1 ? "" : "s"}</p>
+          <p className="text-xs text-destructive/80 break-words">{item.error}</p>
+        </div>
+
+        <DialogFooter className="flex-col gap-2 sm:flex-row">
+          {items.length > 1 && (
+            <Button
+              variant="ghost"
+              className="text-muted-foreground sm:mr-auto"
+              onClick={() => void dismissAll()}
+            >
+              Mark all resolved
+            </Button>
+          )}
+          <Button variant="outline" onClick={() => void dismiss(item.id)}>
+            Will re-do manually
+          </Button>
+          <Button onClick={() => void dismiss(item.id)}>
+            Task is done
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

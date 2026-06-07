@@ -25,18 +25,35 @@ if (!isInIframe && !isPreviewHost) {
   const updateSW = registerSW({
     onRegisteredSW(_swUrl, registration) {
       if (!registration) return;
-      // Poll for updates every hour
+      // Poll for updates every 30 minutes
       setInterval(() => {
         registration.update().catch(() => {});
-      }, 60 * 60 * 1000);
+      }, 30 * 60 * 1000);
     },
     onNeedRefresh() {
+      // If the tab is already in the background, apply silently — no disruption.
+      if (document.hidden) {
+        updateSW(true);
+        return;
+      }
+      // Show a non-intrusive toast. Also auto-apply the next time the user
+      // backgrounds the tab (e.g. locks their device between scan cycles).
+      const applyWhenHidden = () => {
+        if (document.hidden) {
+          document.removeEventListener("visibilitychange", applyWhenHidden);
+          updateSW(true);
+        }
+      };
+      document.addEventListener("visibilitychange", applyWhenHidden);
       toast("Update available", {
-        description: "A new version of Warehouse Wizard is ready.",
-        duration: 15_000,
+        description: "A new version of Warehouse Wizard is ready. It will apply automatically in the background.",
+        duration: 20_000,
         action: {
-          label: "Reload",
-          onClick: () => updateSW(true),
+          label: "Reload now",
+          onClick: () => {
+            document.removeEventListener("visibilitychange", applyWhenHidden);
+            updateSW(true);
+          },
         },
       });
     },
