@@ -4107,6 +4107,141 @@ export async function createMoveTask(palletBarcode: string, toLocationCode: stri
   });
 }
 
+
+// ── Move destination preflight validation ────────────────────────────────────
+
+export type MoveValidationResult =
+  | { valid: true; warnings: string[] }
+  | { valid: false; reason: string; warnings: string[] };
+
+/**
+ * Pre-flight check before moving a pallet to a location.
+ * Returns `valid: true` (possibly with soft warnings) or `valid: false` with a
+ * human-readable `reason` the UI can display to the operator.
+ */
+export async function validateMoveDestination(
+  palletBarcode: string,
+  locationCode: string,
+): Promise<MoveValidationResult> {
+  const warnings: string[] = [];
+
+  // ── Fetch pallet ──────────────────────────────────────────────────────────
+  const { data: pallet, error: palletErr } = await db("pallets")
+    .select("id, product_id, warehouse_id, current_location_id, status")
+    .eq("pallet_barcode", palletBarcode)
+    .maybeSingle();
+  if (palletErr || !pallet) {
+    return { valid: false, reason: `Pallet "${palletBarcode}" not found`, warnings };
+  }
+  if (["shipped", "cancelled", "retired"].includes(pallet.status ?? "")) {
+    return { valid: false, reason: `Pallet is ${pallet.status} and cannot be moved`, warnings };
+  }
+
+  // ── Fetch location ────────────────────────────────────────────────────────
+  const { data: location, error: locErr } = await db("locations")
+    .select(
+      "id, code, status, max_pallets, temperature_class, mixed_sku_allowed, mixed_lot_allowed, max_pallet_height_cm, zone_id, warehouse_id",
+    )
+    .eq("code", locationCode.toUpperCase())
+    .maybeSingle();
+  if (locErr || !location) {
+    return { valid: false, reason: `Location "${locationCode.toUpperCase()}" does not exist`, warnings };
+  }
+  if (location.status !== "active") {
+    return {
+      valid: false,
+      reason: `Location ${locationCode.toUpperCase()} is ${location.status ?? "inactive"} — moves are not permitted`,
+      warnings,
+    };
+  }
+
+  // ── Warehouse boundary ────────────────────────────────────────────────────
+  if (location.warehouse_id && pallet.warehouse_id && location.warehouse_id !== pallet.warehouse_id) {
+    return {
+      valid: false,
+      reason: "Destination location belongs to a different warehouse than the pallet",
+      warnings,
+    };
+  }
+
+  // ── Capacity ──────────────────────────────────────────────────────────────
+  const maxPallets = Number(location.max_pallets ?? 0);
+  if (maxPallets > 0) {
+    const occupied = await getStoredPalletCount(location.id);
+    // Check whether this pallet is already at the location (would be a no-op but not a capacity problem)
+    const alreadyHere = pallet.current_location_id === location.id;
+    if (!alreadyHere && occupied >= maxPallets) {
+      return {
+        valid: false,
+        reason: `Location ${locationCode.toUpperCase()} is full (${occupied}/${maxPallets} pallets)`,
+        warnings,
+      };
+    }
+    if (!alreadyHere && occupied >= maxPallets - 1 && maxPallets > 1) {
+      warnings.push(`Location will be at capacity after this move (${occupied + 1}/${maxPallets})`);
+    }
+  }
+
+  // ── Temperature ───────────────────────────────────────────────────────────
+  if (pallet.product_id) {
+    const { data: product } = await db("products")
+      .select("temperature_class, sku, pallet_height_cm")
+      .eq("id", pallet.product_id)
+      .maybeSingle();
+    if (product) {
+      const productTemp = (product.temperature_class ?? "ambient") as TemperatureClass;
+      const locTemp = (location.temperature_class ?? "ambient") as TemperatureClass;
+      if (productTemp === "cool" && locTemp !== "cool") {
+        return {
+          valid: false,
+          reason: `Cool-chain product (${product.sku}) cannot be placed in an ambient location`,
+          warnings,
+        };
+      }
+      if (productTemp === "ambient" && locTemp === "cool") {
+        warnings.push(`Moving an ambient product into a cool-chain location — verify this is intentional`);
+      }
+
+      // ── Height ─────────────────────────────────────────────────────────────
+      const palletH = Number(product.pallet_height_cm ?? 0);
+      const locH = Number(location.max_pallet_height_cm ?? 0);
+      if (palletH > 0 && locH > 0 && palletH > locH) {
+        return {
+          valid: false,
+          reason: `Pallet height ${palletH} cm exceeds location ceiling of ${locH} cm`,
+          warnings,
+        };
+      }
+
+      // ── Mixed SKU ──────────────────────────────────────────────────────────
+      if (location.mixed_sku_allowed === false) {
+        // Check if there's already a different SKU in this location
+        const { data: existingBalances } = await db("inventory_balances")
+          .select("pallets:pallet_id(product_id)")
+          .eq("location_id", location.id)
+          .not("pallet_id", "eq", pallet.id)
+          .not("status", "in", DB_RETIRED_INVENTORY_STATUS_FILTER)
+          .limit(1);
+        const otherProductId = (existingBalances as any[])?.[0]?.pallets?.product_id;
+        if (otherProductId && otherProductId !== pallet.product_id) {
+          return {
+            valid: false,
+            reason: `Location ${locationCode.toUpperCase()} does not allow mixed-SKU storage`,
+            warnings,
+          };
+        }
+      }
+    }
+  }
+
+  // ── Same location (no-op warning) ─────────────────────────────────────────
+  if (pallet.current_location_id === location.id) {
+    warnings.push("Pallet is already at this location — move will record but not change anything");
+  }
+
+  return { valid: true, warnings };
+}
+
 export async function completeDirectMove(palletBarcode: string, locationCode: string, reason?: string): Promise<void> {
   const { data: pallet, error: palletErr } = await db("pallets")
     .select("id, current_location_id, warehouse_id")
