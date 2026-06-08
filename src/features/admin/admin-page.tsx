@@ -334,6 +334,16 @@ function AddUserDialog({
 }
 
 export function UsersRolesPage() {
+  return UsersRolesPageImpl();
+}
+
+export function MobileActionBar() {
+  // Stub: original implementation was lost during the core/ui split.
+  // Kept as a no-op so the App shell's <mod.MobileActionBar /> render is valid.
+  return null;
+}
+
+function UsersRolesPageImpl() {
   const queryClient = useQueryClient();
   const { roles } = useAuth();
   const canOperateRoles = roles.some((r) => ["developer", "admin"].includes(r));

@@ -191,7 +191,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 
-import { FailedTasksReminder, AccessRequestsBanner } from "@/features/shared/ui-shared";
+import { FailedTasksReminder, AccessRequestsBanner, navIcons, appTitle, ChangeOwnPasswordDialog } from "@/features/shared/ui-shared";
 
 function ProfileMenu({ initials, displayName, onSignOut }: { initials: string; displayName: string; onSignOut: () => void }) {
   const [pwOpen, setPwOpen] = useState(false);

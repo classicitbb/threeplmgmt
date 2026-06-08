@@ -191,7 +191,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 const baseFormSchema = z.record(z.any());
-const appTitle = "Warehouse Wizard Enterprise WMS";
+export const appTitle = "Warehouse Wizard Enterprise WMS";
 
 type DashboardMetricKey =
   | "totalPallets"
@@ -584,7 +584,7 @@ type UserActivityRow = {
   profiles?: { full_name?: string | null; email?: string | null } | null;
 };
 
-const navIcons: Record<AppRoute, typeof LayoutDashboard> = {
+export const navIcons: Record<AppRoute, typeof LayoutDashboard> = {
   "/": Home,
   "/dashboard": LayoutDashboard,
   "/warehouses": Building2,
@@ -1073,7 +1073,7 @@ const locationWizardSchema = z
 
 export type LocationWizardValues = z.infer<typeof locationWizardSchema>;
 
-function ChangeOwnPasswordDialog({
+export function ChangeOwnPasswordDialog({
   onClose,
   open: openProp,
   onOpenChange,
@@ -1553,7 +1553,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   );
 }
 
-function FailedTasksReminder() {
+export function FailedTasksReminder() {
   const { items, dismiss, dismissAll } = useDeadLetterQueue();
   const [activeIndex, setActiveIndex] = useState(0);
 
@@ -1634,7 +1634,7 @@ function FailedTasksReminder() {
   );
 }
 
-function AccessRequestsBanner() {
+export function AccessRequestsBanner() {
   const { roles } = useAuth();
   const navigate = useNavigate();
   const canSee = roles.some((r) => ["admin", "warehouse_manager", "warehouse_supervisor", "developer"].includes(r));
@@ -2854,7 +2854,7 @@ function getResourceFieldOptions(field: FieldDefinition, options?: Awaited<Retur
   return [];
 }
 
-function shouldRestrictToDefaultWarehouse(roles: string[]) {
+export function shouldRestrictToDefaultWarehouse(roles: string[]) {
   return roles.some((role) => ["inventory_clerk", "warehouse_operator", "dispatch_driver"].includes(role)) &&
     !roles.some((role) => ["admin", "warehouse_manager"].includes(role));
 }
@@ -3531,7 +3531,7 @@ function toneBorder(tone: "success" | "warning" | "critical" | "info") {
   return "border-l-success";
 }
 
-type ReceivingShipmentLineState = {
+export type ReceivingShipmentLineState = {
   id: string;
   product_id: string;
   total_quantity: number;
@@ -3544,7 +3544,7 @@ type ReceivingShipmentLineState = {
   remainder_action: "waive" | "manual" | "special" | "";
 };
 
-type ReceivingShipmentFormState = {
+export type ReceivingShipmentFormState = {
   receipt_type: "po" | "transfer" | "other";
   warehouse_id: string;
   client_id: string;
@@ -3554,7 +3554,7 @@ type ReceivingShipmentFormState = {
   lines: ReceivingShipmentLineState[];
 };
 
-function newShipmentLine(productId = ""): ReceivingShipmentLineState {
+export function newShipmentLine(productId = ""): ReceivingShipmentLineState {
   return {
     id: typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `line-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     product_id: productId,
@@ -3588,7 +3588,7 @@ export function distributeShipmentLine(line: ReceivingShipmentLineState, changed
   };
 }
 
-function parseDraftMeta(notes: string | null | undefined): Record<string, any> {
+export function parseDraftMeta(notes: string | null | undefined): Record<string, any> {
   if (!notes) return {};
   try {
     const parsed = JSON.parse(notes);
@@ -3598,15 +3598,15 @@ function parseDraftMeta(notes: string | null | undefined): Record<string, any> {
   }
 }
 
-function remainderForLine(line: ReceivingShipmentLineState) {
+export function remainderForLine(line: ReceivingShipmentLineState) {
   return Math.max(0, Number(line.total_quantity || 0) - (Number(line.quantity_per_pallet || 0) * Number(line.pallet_count || 0)));
 }
 
-function ShipmentFieldLabel({ children }: { children: ReactNode }) {
+export function ShipmentFieldLabel({ children }: { children: ReactNode }) {
   return <label className="text-sm font-medium leading-none text-foreground">{children}</label>;
 }
 
-function useIsMobileEntry() {
+export function useIsMobileEntry() {
   const [isMobileEntry, setIsMobileEntry] = useState(false);
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -3619,17 +3619,17 @@ function useIsMobileEntry() {
   return isMobileEntry;
 }
 
-function productRequiresExpiry(product?: { expiry_tracked?: boolean } | null) {
+export function productRequiresExpiry(product?: { expiry_tracked?: boolean } | null) {
   return Boolean(product?.expiry_tracked);
 }
 
-function defaultExpiryDate() {
+export function defaultExpiryDate() {
   const date = new Date();
   date.setDate(date.getDate() + 30);
   return date.toISOString().slice(0, 10);
 }
 
-function draftToReceivingValues(draft: DraftReceipt): z.infer<typeof receivingSchema> {
+export function draftToReceivingValues(draft: DraftReceipt): z.infer<typeof receivingSchema> {
   const meta = parseDraftMeta(draft.notes);
   return {
     receipt_type: "other",
@@ -3663,7 +3663,7 @@ function labelHasValue(value: unknown) {
   return value != null && String(value).trim() !== "";
 }
 
-function printDraftLabels(
+export function printDraftLabels(
   drafts: DraftReceipt[],
   products: Array<{ id: string; sku: string; name: string; temperature_requirement?: string | null }>,
   clients: Array<{ id: string; name: string }>,
