@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
@@ -7,6 +7,7 @@ import { QRCodeSVG } from "qrcode.react";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/use-auth";
 import {
   AlignLeft, Building2, Boxes, ChevronRight, ChevronsDownUp,
   Layers, LayoutGrid, Loader2, MapPin, MoreHorizontal,
@@ -1050,7 +1051,19 @@ function ConfirmDeleteDialog({
 
 export function WarehouseStructureTab() {
   const navigate = useNavigate();
-  const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
+  const { profile } = useAuth();
+
+  const LS_KEY = "wms-tree-expanded";
+  const activeWarehouseId = profile?.default_warehouse_id;
+
+  const [expandedNodes, setExpandedNodes] = useState<Set<string>>(() => {
+    try {
+      const raw = localStorage.getItem(LS_KEY);
+      if (raw) return new Set(JSON.parse(raw) as string[]);
+    } catch { /* ignore */ }
+    return new Set<string>();
+  });
+
   const [filter, setFilter] = useState("");
   const [dialog, setDialog] = useState<ActiveDialog>(null);
 
@@ -1058,6 +1071,7 @@ export function WarehouseStructureTab() {
     setExpandedNodes((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key); else next.add(key);
+      try { localStorage.setItem(LS_KEY, JSON.stringify([...next])); } catch { /* ignore */ }
       return next;
     });
   }, []);
@@ -1086,6 +1100,22 @@ export function WarehouseStructureTab() {
       return (data ?? []) as ZoneRow[];
     },
   });
+
+  // Expand the header-selected active warehouse on first load (and keep localStorage state)
+  const hasAutoExpandedRef = useRef(false);
+  useEffect(() => {
+    if (hasAutoExpandedRef.current) return;
+    if (!activeWarehouseId || warehouses.length === 0) return;
+    const key = `w${activeWarehouseId}`;
+    setExpandedNodes((prev) => {
+      if (prev.has(key)) return prev;
+      const next = new Set(prev);
+      next.add(key);
+      try { localStorage.setItem(LS_KEY, JSON.stringify([...next])); } catch { /* ignore */ }
+      return next;
+    });
+    hasAutoExpandedRef.current = true;
+  }, [activeWarehouseId, warehouses]);
 
   const isLoading = wLoading || zLoading;
 
