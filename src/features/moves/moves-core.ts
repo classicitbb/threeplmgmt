@@ -61,13 +61,26 @@ export async function validateMoveDestination(
 ): Promise<MoveValidationResult> {
   const warnings: string[] = [];
 
+  const palletKey = String(palletBarcode ?? "").trim();
+  const locationKey = String(locationCode ?? "").trim().toUpperCase();
+  if (!palletKey) {
+    return { valid: false, reason: "Scan a pallet barcode first", warnings };
+  }
+  if (!locationKey) {
+    return { valid: false, reason: "Scan a destination location", warnings };
+  }
+
   // ── Fetch pallet ──────────────────────────────────────────────────────────
   const { data: pallet, error: palletErr } = await db("pallets")
     .select("id, product_id, warehouse_id, current_location_id, status")
-    .eq("pallet_barcode", palletBarcode)
+    .eq("pallet_barcode", palletKey)
     .maybeSingle();
-  if (palletErr || !pallet) {
-    return { valid: false, reason: `Pallet "${palletBarcode}" not found`, warnings };
+  if (palletErr) {
+    console.error("[validateMoveDestination] pallet lookup failed", palletErr);
+    return { valid: false, reason: `Pallet lookup failed: ${(palletErr as any)?.message ?? "unknown error"}`, warnings };
+  }
+  if (!pallet) {
+    return { valid: false, reason: `Pallet "${palletKey}" not found`, warnings };
   }
   if (["shipped", "cancelled", "retired"].includes(pallet.status ?? "")) {
     return { valid: false, reason: `Pallet is ${pallet.status} and cannot be moved`, warnings };
@@ -78,10 +91,10 @@ export async function validateMoveDestination(
     .select(
       "id, code, status, max_pallets, temperature_class, mixed_sku_allowed, mixed_lot_allowed, max_pallet_height_cm, zone_id, warehouse_id",
     )
-    .eq("code", locationCode.toUpperCase())
+    .eq("code", locationKey)
     .maybeSingle();
   if (locErr || !location) {
-    return { valid: false, reason: `Location "${locationCode.toUpperCase()}" does not exist`, warnings };
+    return { valid: false, reason: `Location "${locationKey}" does not exist`, warnings };
   }
   if (location.status !== "active") {
     return {
