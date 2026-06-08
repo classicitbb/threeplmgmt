@@ -65,7 +65,7 @@ export type AppRoute =
   | "/setup-wizard";
 
 type FieldType = "text" | "textarea" | "number" | "select" | "boolean" | "date";
-type ArchiveField = "active" | "is_hidden";
+export type ArchiveField = "active" | "is_hidden";
 
 export type FieldDefinition = {
   name: string;
