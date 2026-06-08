@@ -205,6 +205,8 @@ import {
   remainderForLine,
   shouldRestrictToDefaultWarehouse,
   useIsMobileEntry,
+  resolveContainerScanValue,
+  normalizeScannerText,
 } from "@/features/shared/ui-shared";
 
 export function ReceivingPage() {
