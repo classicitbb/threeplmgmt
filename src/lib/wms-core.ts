@@ -4430,9 +4430,14 @@ export async function completeDirectMove(palletBarcode: string, locationCode: st
   await (supabase.rpc as any)("log_audit_event", {
     in_event_type: "move_task_completed",
     in_entity_table: "move_tasks",
-    in_entity_id: task.id,
+    in_entity_id: (task as any).id,
     in_warehouse_id: pallet.warehouse_id,
-    in_metadata: { pallet_barcode: palletBarcode, to_location: locationCode, direct_move: true },
+    in_metadata: {
+      task_number: (task as any).task_number,
+      pallet_barcode: palletBarcode,
+      to_location_code: locationCode,
+      reason: reason ?? null,
+    },
   });
 }
 
@@ -4511,7 +4516,6 @@ export async function moveToPickingArea(palletBarcode: string): Promise<void> {
     .single();
   if (palletErr) throw new Error(`Pallet not found: ${palletBarcode}`);
 
-  // Find or create a staging/picking location in the same warehouse
   const { data: stagingLoc, error: locErr } = await db("locations")
     .select("id")
     .eq("warehouse_id", pallet.warehouse_id)

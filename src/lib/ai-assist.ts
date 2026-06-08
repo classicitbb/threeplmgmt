@@ -313,21 +313,8 @@ export async function getProductVelocityHint(
     return { class: v.class, picksLast90d: v.picks_last_90d, avgPicksPerDay: v.avg_picks_per_day };
   }
 
-  // Compute from audit_events
   const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
-  const { data: events, error } = await db("audit_events")
-    .select("id")
-    .eq("warehouse_id", warehouseId)
-    .eq("event_type", "pick")
-    .gte("created_at", cutoff);
 
-  if (error) {
-    console.error("[ai-assist] getProductVelocityHint audit query failed:", error);
-    return null;
-  }
-
-  // audit_events doesn't directly expose product_id; proxy via pallet join
-  // Use a simpler approach: count pick events where pallet has this product_id
   const { data: palletEvents, error: palletError } = await (supabase.from as any)("audit_events")
     .select("id, pallets!inner(product_id)")
     .eq("warehouse_id", warehouseId)
