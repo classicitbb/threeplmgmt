@@ -203,10 +203,19 @@ const routeHelpDefinitions: Record<string, RouteHelpDefinition> = {
     id: "location-moves",
     title: "Location Moves",
     summary: "Location moves relocate stored pallets inside a warehouse while preserving pallet identity and audit history.",
-    keyActions: ["Look up the pallet", "Confirm the destination location", "Complete the scan-confirmed move"],
-    commonMistakes: ["Moving stock to a disabled or full location", "Using transfers when the pallet is staying in the same warehouse"],
+    keyActions: [
+      "Scan or enter the pallet barcode",
+      "Scan, type, or Browse bays to pick the destination location",
+      "Confirm the destination and complete the scan-confirmed move",
+      "Cancel queued or in-progress moves from the task list when plans change",
+    ],
+    commonMistakes: [
+      "Moving stock to a disabled, full, or temperature-incompatible location",
+      "Using transfers when the pallet is staying in the same warehouse",
+      "Confirming a bay code as a final location instead of selecting an exact bin from the bay grid",
+    ],
     permissions: "Used by admins, managers, inventory clerks, and operators.",
-    wikiArticleIds: ["location-move-flow", "inventory-search", "location-generation"],
+    wikiArticleIds: ["location-move-flow", "warehouse-structure-tool", "inventory-search", "location-generation"],
   },
   "cycle-counts": {
     id: "cycle-counts",
@@ -265,11 +274,20 @@ const routeHelpDefinitions: Record<string, RouteHelpDefinition> = {
   settings: {
     id: "settings",
     title: "Settings",
-    summary: "Settings now houses environment guidance, full reset controls, and the setup wizard entry point.",
-    keyActions: ["Review setup guidance", "Launch the warehouse setup wizard", "Run Reset All with confirmation"],
-    commonMistakes: ["Running reset without understanding that warehouse/setup data will be rebuilt", "Skipping the wizard after reset"],
+    summary: "Settings houses environment guidance, the Warehouse Structure tool, user management, the setup wizard, and reset controls.",
+    keyActions: [
+      "Manage users, roles, badges, PINs, and the Role Matrix in the Users & Roles tab",
+      "Open the Warehouse Structure tab for a live tree view of warehouses, zones, aisles, bays, and locations",
+      "Launch the warehouse setup wizard or rebuild after a Reset All",
+      "Run Reset All with the typed challenge when the environment must be rebuilt",
+    ],
+    commonMistakes: [
+      "Running reset without understanding that warehouse/setup data will be rebuilt",
+      "Skipping the wizard after reset",
+      "Editing structure without re-printing physical rack/zone labels to match",
+    ],
     permissions: "Visible to admins and warehouse managers. Reset is admin-only.",
-    wikiArticleIds: ["settings-reset", "warehouse-setup", "netsuite-integration", "label-printing"],
+    wikiArticleIds: ["settings-reset", "warehouse-setup", "warehouse-structure-tool", "user-management", "netsuite-integration", "label-printing"],
   },
   help: {
     id: "help",
@@ -627,6 +645,38 @@ export const helpArticles: HelpArticle[] = [
     sections: [
       { title: "What It Shows", content: ["The Email Log shows outbound message attempts by template, recipient, status, time, and error detail.", "Use it to verify invitations, password recovery messages, and other system-generated emails before escalating to users or IT."] },
       { title: "Failure Handling", content: ["Check the recipient address, template, and error message before retrying or asking the user to check their mailbox.", "Repeated failures usually indicate provider configuration, DNS, suppression, or invalid address issues."] },
+    ],
+  },
+  {
+    id: "warehouse-structure-tool",
+    title: "Warehouse Structure Tool",
+    module: "settings",
+    audience: "Admins, managers, and supervisors",
+    keywords: ["warehouse structure", "tree", "hierarchy", "zones", "aisles", "bays", "locations", "browser"],
+    sections: [
+      {
+        title: "What It Is",
+        content: [
+          "The Warehouse Structure tool is a live tree view of the physical hierarchy: Warehouse > Zone > Aisle > Bay > Level > Depth.",
+          "It is available as a tab from operational pages (Dashboard, Receiving, Put-Away, Inventory, Moves, Pick Lists, Transfers, Cycle Counts, Resources) and from Settings.",
+        ],
+      },
+      {
+        title: "When to Use It",
+        content: [
+          "Use it to verify that warehouses, zones, aisles, bays, and bin locations match the floor before printing labels or starting directed work.",
+          "Use it during onboarding so new supervisors can see the full naming convention without opening each resource table.",
+          "Use it to confirm capacity and occupancy expectations before approving a setup wizard run or a bulk import.",
+        ],
+      },
+      {
+        title: "Best Practice",
+        content: [
+          "Expand a single zone at a time so the structure stays readable on tablets.",
+          "If a node looks wrong, edit it in the matching resource table (Warehouses, Zones, Locations) rather than re-running the setup wizard.",
+          "Re-print the affected beam/bay/zone labels whenever a code changes so scanners stay in sync with the tree.",
+        ],
+      },
     ],
   },
 ];

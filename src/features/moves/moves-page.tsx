@@ -197,6 +197,7 @@ import {
   normalizeScannerText,
   playBarcodeBeep,
   flashInput,
+  WarehouseBayBrowserDialog,
 } from "@/features/shared/ui-shared";
 
 export function LocationMovesPage() {
@@ -211,6 +212,19 @@ export function LocationMovesPage() {
   const [newValidating, setNewValidating] = useState(false);;
   const [completedIds, setCompletedIds] = useState<Set<string>>(new Set());
   const [cancelledIds, setCancelledIds] = useState<Set<string>>(new Set());
+  const [bayBrowserOpen, setBayBrowserOpen] = useState(false);
+  const [bayBrowserWarehouseId, setBayBrowserWarehouseId] = useState<string | null>(null);
+
+  const { data: warehousesForBrowse = [] } = useQuery<Array<{ id: string; code: string; name: string }>>({
+    queryKey: ["warehouses", "moves-bay-browser"],
+    queryFn: () => listRecords("warehouses", "id, code, name") as any,
+    staleTime: 60_000,
+  });
+
+  function openBayBrowser(warehouseId: string) {
+    setBayBrowserWarehouseId(warehouseId);
+    setBayBrowserOpen(true);
+  }
 
   const invalidateMoveData = useCallback(async () => {
     await Promise.all([
@@ -389,8 +403,52 @@ export function LocationMovesPage() {
                 title="Scan target location"
                 onScan={applyNewLocationScan}
               />
+              {warehousesForBrowse.length <= 1 ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0 self-stretch"
+                  disabled={!newPallet.trim() || warehousesForBrowse.length === 0}
+                  onClick={() => openBayBrowser(warehousesForBrowse[0]?.id ?? "")}
+                >
+                  Browse bays
+                </Button>
+              ) : (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="shrink-0 self-stretch"
+                      disabled={!newPallet.trim()}
+                    >
+                      Browse bays
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    {warehousesForBrowse.map((wh) => (
+                      <DropdownMenuItem key={wh.id} onClick={() => openBayBrowser(wh.id)}>
+                        {wh.code} — {wh.name}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
             </div>
           </div>
+          <WarehouseBayBrowserDialog
+            open={bayBrowserOpen && Boolean(bayBrowserWarehouseId)}
+            warehouseId={bayBrowserWarehouseId ?? ""}
+            onClose={() => setBayBrowserOpen(false)}
+            onSelectBay={(bayCode) => {
+              setBayBrowserOpen(false);
+              setNewLocation(bayCode);
+              flashInput(newLocationRef.current, "orange");
+              setNewValidation(null);
+            }}
+          />
           {newPallet.trim() && newLocation.trim().length >= 2 && isBaySelectorCode(newLocation) ? (
             <BayOccupancyGrid locationCode={newLocation} onSelect={selectNewMoveLocation} />
           ) : newPallet.trim() && newLocation.trim().length >= 2 && !newValidation?.valid ? (
