@@ -6,9 +6,7 @@ import {
   type WarehouseSetupWarehouse,
   type WarehouseSetupZone,
   type WarehouseLocationTemplate,
-  type CascadeDeleteResult,
-  type LocationRangeInput,
-  type ExpandedLocationRow,
+  type TemperatureClass,
 } from "@/features/shared/core-types";
 
 export function createDefaultWarehouseSetupPayload(): WarehouseSetupPayload {

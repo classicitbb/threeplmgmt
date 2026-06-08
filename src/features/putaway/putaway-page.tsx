@@ -192,11 +192,12 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 
 
 import {
-  BayOccupancyGrid,
-  incrementOccupancy,
   isBaySelectorCode,
-  markPutawayOccupancyCached,
   normalizeScannerText,
+  playBarcodeBeep,
+  flashInput,
+  statusBadgeVariant,
+  BinCapacityBar,
 } from "@/features/shared/ui-shared";
 
 function WarehouseBayBrowserDialog({

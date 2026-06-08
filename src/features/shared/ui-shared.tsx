@@ -215,11 +215,11 @@ type DashboardMetricKey =
   | "stockAge6Months"
   | "stockAge12Months";
 
-type DashboardCardConfig = DashboardTileDefinition<ModuleKey> & {
+export type DashboardCardConfig = DashboardTileDefinition<ModuleKey> & {
   metricKey: DashboardMetricKey;
 };
 
-const DEFAULT_DASHBOARD_CARDS: DashboardCardConfig[] = [
+export const DEFAULT_DASHBOARD_CARDS: DashboardCardConfig[] = [
   { id: "totalPallets", label: "Total Pallets", metricKey: "totalPallets", size: "lg", moduleKey: "inventory" },
   { id: "warehousePallets", label: "This Warehouse", metricKey: "warehousePallets", size: "lg", moduleKey: "inventory" },
   { id: "openReceipts", label: "Open Receipts", metricKey: "openReceipts", size: "sm", moduleKey: "receiving" },
@@ -233,9 +233,9 @@ const DEFAULT_DASHBOARD_CARDS: DashboardCardConfig[] = [
   { id: "stockAge12Months", label: "Aging 12+ Mo", metricKey: "stockAge12Months", size: "sm", moduleKey: "inventory" },
 ];
 
-const DASHBOARD_FLOOR_LAYOUT_KEY = "wms.dashboard.floor.surface.layout.v1";
-const DASHBOARD_DOCK_LAYOUT_KEY = "wms.dashboard.dock.surface.layout.v1";
-const DASHBOARD_OFFICE_LAYOUT_KEY = "wms.dashboard.office.surface.layout.v1";
+export const DASHBOARD_FLOOR_LAYOUT_KEY = "wms.dashboard.floor.surface.layout.v1";
+export const DASHBOARD_DOCK_LAYOUT_KEY = "wms.dashboard.dock.surface.layout.v1";
+export const DASHBOARD_OFFICE_LAYOUT_KEY = "wms.dashboard.office.surface.layout.v1";
 const DASHBOARD_DIAL_METRICS = new Set<DashboardMetricKey>(["totalPallets", "warehousePallets"]);
 const DASHBOARD_METRIC_ROUTES: Record<DashboardMetricKey, AppRoute> = {
   totalPallets: "/inventory-search",
@@ -295,11 +295,11 @@ const DEFAULT_OFFICE_TILES: DashboardTileDefinition<ModuleKey>[] = [
   { id: "warehouse-brain", label: "Warehouse Brain", size: "lg" },
 ];
 
-const DEFAULT_FLOOR_LAYOUT: DashboardTileDefinition<ModuleKey>[] = [...DEFAULT_DASHBOARD_CARDS, ...DEFAULT_FLOOR_TILES];
-const DEFAULT_DOCK_LAYOUT: DashboardTileDefinition<ModuleKey>[] = [...DEFAULT_DASHBOARD_CARDS, ...DEFAULT_DOCK_TILES];
-const DEFAULT_OFFICE_LAYOUT: DashboardTileDefinition<ModuleKey>[] = [...DEFAULT_DASHBOARD_CARDS, ...DEFAULT_OFFICE_TILES];
+export const DEFAULT_FLOOR_LAYOUT: DashboardTileDefinition<ModuleKey>[] = [...DEFAULT_DASHBOARD_CARDS, ...DEFAULT_FLOOR_TILES];
+export const DEFAULT_DOCK_LAYOUT: DashboardTileDefinition<ModuleKey>[] = [...DEFAULT_DASHBOARD_CARDS, ...DEFAULT_DOCK_TILES];
+export const DEFAULT_OFFICE_LAYOUT: DashboardTileDefinition<ModuleKey>[] = [...DEFAULT_DASHBOARD_CARDS, ...DEFAULT_OFFICE_TILES];
 
-function tileConfigsFromDefinitions(definitions: DashboardTileDefinition<ModuleKey>[]): DashboardTileConfig[] {
+export function tileConfigsFromDefinitions(definitions: DashboardTileDefinition<ModuleKey>[]): DashboardTileConfig[] {
   return definitions.map((tile) => ({ id: tile.id, size: tile.size }));
 }
 
@@ -308,7 +308,7 @@ function tileConfigsFromDefinitions(definitions: DashboardTileDefinition<ModuleK
 // ---------------------------------------------------------------------------
 
 /** Play a short, pleasant confirmation beep via Web Audio API (works on iOS/Android too). */
-function playBarcodeBeep() {
+export function playBarcodeBeep() {
   try {
     const ctx = new (window.AudioContext ?? (window as any).webkitAudioContext)();
     const osc = ctx.createOscillator();
@@ -332,7 +332,7 @@ function playBarcodeBeep() {
  * Flash an input element with a colour highlight for scanner feedback.
  * colour: "orange" = next-field cue, "blue" = confirmed-field cue.
  */
-function flashInput(el: HTMLElement | null, colour: "orange" | "blue") {
+export function flashInput(el: HTMLElement | null, colour: "orange" | "blue") {
   if (!el) return;
   const cls = colour === "orange"
     ? ["ring-2", "ring-orange-400", "ring-offset-1"]
@@ -341,7 +341,7 @@ function flashInput(el: HTMLElement | null, colour: "orange" | "blue") {
   setTimeout(() => el.classList.remove(...cls), 700);
 }
 
-function loadFallbackTileLayout(key: string, defaults: DashboardTileConfig[]) {
+export function loadFallbackTileLayout(key: string, defaults: DashboardTileConfig[]) {
   if (typeof window === "undefined") return defaults;
   try {
     const raw = window.localStorage.getItem(key);
@@ -352,11 +352,11 @@ function loadFallbackTileLayout(key: string, defaults: DashboardTileConfig[]) {
   }
 }
 
-function fallbackLayoutKey(key: string, profileId?: string | null, deviceId?: string | null) {
+export function fallbackLayoutKey(key: string, profileId?: string | null, deviceId?: string | null) {
   return [key, profileId ?? "anonymous", deviceId ?? "device"].join(".");
 }
 
-function loadFallbackVisibility(key: string): DashboardVisibilityMap {
+export function loadFallbackVisibility(key: string): DashboardVisibilityMap {
   if (typeof window === "undefined") return {};
   try {
     const raw = window.localStorage.getItem(key);
@@ -366,11 +366,11 @@ function loadFallbackVisibility(key: string): DashboardVisibilityMap {
   }
 }
 
-function fallbackVisibilityKey(profileId: string | null | undefined, mode: DashboardMode) {
+export function fallbackVisibilityKey(profileId: string | null | undefined, mode: DashboardMode) {
   return `wms.dashboard.visibility.v1.${profileId ?? "anonymous"}.${mode}`;
 }
 
-function saveFallbackJson(key: string, value: unknown) {
+export function saveFallbackJson(key: string, value: unknown) {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(key, JSON.stringify(value));
@@ -472,7 +472,7 @@ function SortableMetricCard({
   );
 }
 
-function SortableSummaryCard({
+export function SortableSummaryCard({
   card,
   metrics,
   isLoading,
@@ -558,7 +558,7 @@ function PalletDialCard({
   );
 }
 
-type ProfileRow = {
+export type ProfileRow = {
   id: string;
   email?: string | null;
   full_name?: string | null;
@@ -570,12 +570,12 @@ type ProfileRow = {
   badge_code?: string | null;
 };
 
-type WarehouseOption = {
+export type WarehouseOption = {
   id: string;
   name: string;
 };
 
-type UserActivityRow = {
+export type UserActivityRow = {
   id: string;
   event_type: string;
   entity_table: string;
@@ -626,7 +626,7 @@ export function TableFrame({
   );
 }
 
-function renderField(
+export function renderField(
   field: FieldDefinition,
   form: ReturnType<typeof useForm<Record<string, unknown>>>,
   options: Array<{ label: string; value: string }> = field.options ?? [],
@@ -839,7 +839,7 @@ function RackLocationCodeBuilder({
   );
 }
 
-function ResourceFormDialog({
+export function ResourceFormDialog({
   resource,
   trigger,
 }: {
@@ -948,7 +948,7 @@ function ResourceFormDialog({
   );
 }
 
-function ResourceEditDialog({
+export function ResourceEditDialog({
   resource,
   editRecord,
   onClose,
@@ -2374,7 +2374,7 @@ export function ResourcePage({
   );
 }
 
-function ImportButton({ resource, asMenuItems = false }: { resource: ResourceDefinition; asMenuItems?: boolean }) {
+export function ImportButton({ resource, asMenuItems = false }: { resource: ResourceDefinition; asMenuItems?: boolean }) {
   const queryClient = useQueryClient();
   const [preview, setPreview] = useState<ImportPreview | null>(null);
   const [parsing, setParsing] = useState(false);
@@ -2541,7 +2541,7 @@ function ImportPreviewDialog({
   );
 }
 
-function LocationWizardDialog({ trigger }: { trigger?: React.ReactNode }) {
+export function LocationWizardDialog({ trigger }: { trigger?: React.ReactNode }) {
   const queryClient = useQueryClient();
   const { data: options } = useQuery({ queryKey: ["options", "location-wizard"], queryFn: () => fetchOptions() });
   const [open, setOpen] = useState(false);
@@ -2705,7 +2705,7 @@ function LocationWizardDialog({ trigger }: { trigger?: React.ReactNode }) {
   );
 }
 
-function BarcodePrintDialog({ labelType, code, title }: { labelType: "warehouse" | "zone" | "location"; code: string; title: string }) {
+export function BarcodePrintDialog({ labelType, code, title }: { labelType: "warehouse" | "zone" | "location"; code: string; title: string }) {
   const printRef = useRef<HTMLDivElement>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
@@ -2798,7 +2798,7 @@ function BarcodePrintDialog({ labelType, code, title }: { labelType: "warehouse"
   );
 }
 
-function defaultFieldValue(field: FieldDefinition) {
+export function defaultFieldValue(field: FieldDefinition) {
   if (field.type === "boolean") return field.name === "active" || field.name === "lot_tracked";
   if (field.type === "number") return "";
   if (field.name === "temperature_class" || field.name === "temperature_requirement") return "ambient";
@@ -2807,7 +2807,7 @@ function defaultFieldValue(field: FieldDefinition) {
   return "";
 }
 
-function composeLocationCode(
+export function composeLocationCode(
   options: Awaited<ReturnType<typeof fetchOptions>> | undefined,
   warehouseId: unknown,
   zoneId: unknown,
@@ -2824,7 +2824,7 @@ function composeLocationCode(
   return rawCode.toUpperCase().startsWith(prefix.toUpperCase()) ? rawCode : `${prefix}${rawCode}`;
 }
 
-function normalizeResourceValues(
+export function normalizeResourceValues(
   resource: ResourceDefinition,
   values: Record<string, unknown>,
   options?: Awaited<ReturnType<typeof fetchOptions>>,
@@ -2845,7 +2845,7 @@ function normalizeResourceValues(
   return payload;
 }
 
-function getResourceFieldOptions(field: FieldDefinition, options?: Awaited<ReturnType<typeof fetchOptions>>) {
+export function getResourceFieldOptions(field: FieldDefinition, options?: Awaited<ReturnType<typeof fetchOptions>>) {
   if (field.options) return field.options;
   if (field.name === "warehouse_id") return (options?.warehouses ?? []).map((warehouse: any) => ({ label: `${warehouse.code} - ${warehouse.name}`, value: warehouse.id }));
   if (field.name === "zone_id") return (options?.zones ?? []).map((zone: any) => ({ label: `${zone.code} - ${zone.name}`, value: zone.id }));
@@ -3139,7 +3139,7 @@ export function DashboardPage() {
   );
 }
 
-function WarehouseFloorMode({
+export function WarehouseFloorMode({
   snapshot,
   sensors,
   tiles,
@@ -3230,11 +3230,11 @@ function WarehouseFloorMode({
   );
 }
 
-function normalizeScannerText(value: unknown) {
+export function normalizeScannerText(value: unknown) {
   return String(value ?? "").trim().toUpperCase();
 }
 
-function resolveContainerScanValue(value: unknown) {
+export function resolveContainerScanValue(value: unknown) {
   const result = extractIso6346ContainerNumber(value);
   if (result.valid) return { value: result.normalized, valid: true, message: result.message, candidate: result.candidate };
   return {
@@ -3245,7 +3245,7 @@ function resolveContainerScanValue(value: unknown) {
   };
 }
 
-function isBaySelectorCode(value: string) {
+export function isBaySelectorCode(value: string) {
   const normalized = normalizeScannerText(value);
   if (normalized.startsWith("BAY:")) return true;
   const parts = normalized.split("-").filter(Boolean);
@@ -3293,7 +3293,7 @@ function WarehouseIntelligenceCard({ snapshot }: { snapshot: EnterpriseDashboard
   );
 }
 
-function DockHandoffBoard({
+export function DockHandoffBoard({
   loads,
   recommendations,
   sensors,
@@ -3377,7 +3377,7 @@ function DockHandoffBoard({
   );
 }
 
-function OfficeMonitoringMode({
+export function OfficeMonitoringMode({
   snapshot,
   sensors,
   tiles,
@@ -3472,7 +3472,7 @@ function OfficeMonitoringMode({
   );
 }
 
-function HiddenDashboardTilesPanel({
+export function HiddenDashboardTilesPanel({
   editMode,
   tiles,
   definitionsById,
@@ -3501,7 +3501,7 @@ function HiddenDashboardTilesPanel({
   );
 }
 
-function WarehouseBrainPanel({ recommendations }: { recommendations: WarehouseBrainRecommendation[] }) {
+export function WarehouseBrainPanel({ recommendations }: { recommendations: WarehouseBrainRecommendation[] }) {
   return (
     <Card className="h-full">
       <CardHeader className="pr-20">
@@ -4631,7 +4631,7 @@ export function TextField({
   );
 }
 
-function SelectField({
+export function SelectField({
   form,
   name,
   label,
@@ -4673,7 +4673,7 @@ function SelectField({
   );
 }
 
-function BinCapacityBar({ locationCode }: { locationCode: string; taskId?: string }) {
+export function BinCapacityBar({ locationCode }: { locationCode: string; taskId?: string }) {
   const { data } = useQuery({
     queryKey: ["bin-occupancy", locationCode],
     queryFn: () => getBinOccupancy(locationCode),
@@ -4876,7 +4876,7 @@ function WarehouseBayBrowserDialog({
   );
 }
 
-function BayOccupancyGrid({
+export function BayOccupancyGrid({
   locationCode,
   selectedLocationCode,
   onSelect,
@@ -4973,11 +4973,11 @@ function BayOccupancyGrid({
   );
 }
 
-function incrementOccupancy(occupiedPallets: number, maxPallets: number) {
+export function incrementOccupancy(occupiedPallets: number, maxPallets: number) {
   return maxPallets > 0 ? Math.min(maxPallets, occupiedPallets + 1) : occupiedPallets + 1;
 }
 
-function markPutawayOccupancyCached(queryClient: ReturnType<typeof useQueryClient>, locationCode: string) {
+export function markPutawayOccupancyCached(queryClient: ReturnType<typeof useQueryClient>, locationCode: string) {
   const confirmedLocation = locationCode.trim().toUpperCase();
   if (!confirmedLocation) return;
 
@@ -5011,4 +5011,18 @@ function markPutawayOccupancyCached(queryClient: ReturnType<typeof useQueryClien
       return changed ? { ...current, cells } : current;
     },
   );
+}
+
+export function statusBadgeVariant(status: string): "default" | "secondary" | "destructive" | "outline" {
+  if (status === "completed") return "default";
+  if (status === "exception" || status === "cancelled") return "destructive";
+  if (status === "in_progress" || status === "queued") return "secondary";
+  return "outline";
+}
+
+// Alias kept for compatibility — Dock mode currently reuses the handoff board.
+export { DockHandoffBoard as WarehouseDockMode };
+
+function escapeHtml(value: unknown): string {
+  return String(value ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c] as string));
 }

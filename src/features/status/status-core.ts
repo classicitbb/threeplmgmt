@@ -1,9 +1,11 @@
+import { upsertRecord } from "@/features/admin/admin-core";
 import { z } from "zod";
 import { supabase } from "@/integrations/supabase/client";
 import {
   db,
   statusChangeSchema,
   DB_RETIRED_INVENTORY_STATUS_FILTER,
+  buildPalletCode,
 } from "@/features/shared/core-types";
 import { writeSystemLog } from "@/features/system/system-core";
 

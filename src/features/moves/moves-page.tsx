@@ -195,6 +195,8 @@ import {
   BayOccupancyGrid,
   isBaySelectorCode,
   normalizeScannerText,
+  playBarcodeBeep,
+  flashInput,
 } from "@/features/shared/ui-shared";
 
 export function LocationMovesPage() {

@@ -205,6 +205,14 @@ import {
   fallbackLayoutKey,
   fallbackVisibilityKey,
   shouldRestrictToDefaultWarehouse,
+  DEFAULT_FLOOR_LAYOUT,
+  DEFAULT_DOCK_LAYOUT,
+  DEFAULT_OFFICE_LAYOUT,
+  DASHBOARD_FLOOR_LAYOUT_KEY,
+  DASHBOARD_DOCK_LAYOUT_KEY,
+  DASHBOARD_OFFICE_LAYOUT_KEY,
+  DEFAULT_DASHBOARD_CARDS,
+  DashboardCardConfig,
 } from "@/features/shared/ui-shared";
 
 export function DashboardPage() {

@@ -191,7 +191,21 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 
-import { TableFrame, renderField, ResourceFormDialog, ResourceEditDialog, ImportButton, BarcodePrintDialog, LocationWizardDialog, defaultFieldValue, composeLocationCode, normalizeResourceValues, getResourceFieldOptions, shouldRestrictToDefaultWarehouse } from "@/features/shared/ui-shared";
+import {
+  TableFrame,
+  renderField,
+  ResourceFormDialog,
+  ResourceEditDialog,
+  ImportButton,
+  BarcodePrintDialog,
+  LocationWizardDialog,
+  defaultFieldValue,
+  composeLocationCode,
+  normalizeResourceValues,
+  getResourceFieldOptions,
+  shouldRestrictToDefaultWarehouse,
+  normalizeScannerText,
+} from "@/features/shared/ui-shared";
 
 export function ResourcePage({
   resource,
