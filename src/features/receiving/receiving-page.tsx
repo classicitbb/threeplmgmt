@@ -1,0 +1,1073 @@
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { QRCodeSVG } from "qrcode.react";
+import { Link, NavLink, useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useForm, type UseFormReturn } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { supabase } from "@/integrations/supabase/client";
+import { Activity, AlertCircle, AlertTriangle, ArrowLeftRight, BarChart3, Bot, Boxes, Building2, CheckCircle2, ChevronDown, ClipboardCheck, ClipboardList, CloudOff, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, HelpCircle, Home, Info, KeyRound, LayoutDashboard, Loader2, Lock, LockOpen, LogOut, Mail, Maximize2, MapPinned, Menu, Minimize2, Network, Package, PackageX, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, QrCode, RadioTower, RefreshCw, RotateCcw, Search, Settings, ShieldCheck, Star, Tags, Trash2, Truck, Upload, UserPlus, Users } from "lucide-react";
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  rectSortingStrategy,
+  sortableKeyboardCoordinates,
+  useSortable,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { toast } from "sonner";
+import { z } from "zod";
+
+import { useAuth } from "@/hooks/use-auth";
+import { useFeatureFlags, MODULE_LABELS, STARTER_MODULES, type ModuleKey } from "@/hooks/use-feature-flags";
+import { assertOnline, useNetworkStatus } from "@/hooks/use-network-status";
+import {
+  enqueueOfflineWork,
+  flushOfflineQueue,
+  installOfflineAutoReplay,
+  isLikelyNetworkError,
+  useOfflineQueue,
+  useDeadLetterQueue,
+
+  type FailedWorkItem,
+} from "@/lib/offline-queue";
+import { useBackgroundSync } from "@/hooks/use-background-sync";
+import {
+  NAVIGATION,
+  ROLE_LABELS,
+  ROLE_DESCRIPTIONS,
+  type AdminInviteUserInput,
+  type AppRoute,
+  type FieldDefinition,
+  type ResourceDefinition,
+  type DraftReceipt,
+  type BayOccupancyCell,
+  adminInviteUser,
+  adminDeleteUser,
+  adminUpdateUserPin,
+  adminUpdateUserPassword,
+  buildBayOccupancyGrid,
+  updateOwnPassword,
+  changePalletStatus,
+  confirmPutaway,
+  createCycleCountFlow,
+  createPickListFlow,
+  getPickableStockSummary,
+  createTransferFlow,
+  cancelPickList,
+  deleteClientVariable,
+  deleteResourceCascade,
+  dispatchTransfer,
+  cycleCountSchema,
+  resetWmsData,
+  removeUserRoleAssignment,
+  downloadCsv,
+  downloadCsvTemplate,
+  fetchOptions,
+  formatDate,
+  formatNumber,
+  getDashboardMetrics,
+  getInventoryDetail,
+  getPickExecution,
+  getBinOccupancy,
+  getBayOccupancy,
+  getWarehouseBayOccupancy,
+  type WarehouseBayGroup,
+  logPutawayBaySelection,
+  getPutawayTasks,
+  getPutawayTaskHistory,
+  getReportData,
+  parseCsvForResource,
+  commitImportRows,
+  type ImportPreview,
+  listClientVariables,
+  listDraftReceipts,
+  saveShipmentDrafts,
+  updateDraftReceipt,
+  completeReceiptFromDraft,
+  deleteDraftReceipt,
+  listSystemLogs,
+  listUserActivities,
+  listCycleCounts,
+  listPickLists,
+  listRecords,
+  listStatusPallets,
+  listTransfers,
+  pickListSchema,
+  receivingSchema,
+  receiveTransfer,
+  resolveSystemLog,
+  searchInventory,
+  setProfileActive,
+  snapshotRecordCounts,
+  updateProfileDetails,
+  updateProfileDefaultWarehouse,
+  statusChangeSchema,
+  setResourceVisibility,
+  setUserRoleVisibility,
+  submitCycleCountLine,
+  transferSchema,
+  updateRecord,
+  upsertClientVariable,
+  upsertRecord,
+  writeSystemLog,
+  cancelTransfer,
+  flagCountLineException,
+  revertPutawayToDraft,
+  listMoveTasks,
+  completeDirectMove,
+  completeMoveTask,
+  cancelMoveTask,
+  expandLocationRange,
+  buildRackLocationCode,
+  suggestNextRackPosition,
+  validateMoveDestination,
+  type MoveValidationResult,
+} from "@/lib/wms-core";
+import { ProductSearch } from "@/components/product-search";
+import { PalletLabelPage } from "@/components/pallet-label-page";
+import { BarcodeScanButton } from "@/components/barcode-scan-button";
+import { type ProductSearchHandle } from "@/components/product-search";
+
+import { cn } from "@/lib/utils";
+import { extractIso6346ContainerNumber, normalizeContainerNumber, validateIso6346ContainerNumber } from "@/lib/container-number";
+import { getOrCreateDeviceId } from "@/lib/device-identity";
+import { invalidateWarehouseData } from "@/lib/query-invalidation";
+import {
+  filterDashboardTileDefinitions,
+  hiddenDashboardTiles,
+  loadDashboardDeviceLayout,
+  loadDashboardTileVisibility,
+  sanitizeDashboardLayout,
+  saveDashboardDeviceLayout,
+  saveDashboardTileVisibility,
+  visibleDashboardTiles,
+  type DashboardCardSize,
+  type DashboardTileConfig,
+  type DashboardTileDefinition,
+  type DashboardVisibilityMap,
+} from "@/lib/dashboard-preferences";
+import {
+  buildCsvReportRows,
+  buildEnterpriseDashboard,
+  type DashboardMode,
+  type DockHandoffLoad,
+  type EnterpriseDashboardSnapshot,
+  type WarehouseBrainRecommendation,
+} from "@/lib/enterprise-wms";
+import { HelpSidebar } from "@/components/help-sidebar";
+import { ZoneLabelPage } from "@/components/zone-label-page";
+import { LocationLabelPage } from "@/components/location-label-page";
+import { BayLocationCodesPrintDialog, LabelSheetPrintDialog, type LabelSheetItem } from "@/components/label-sheet-print";
+import { WarehouseStructureTab } from "@/components/warehouse-tree-view";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+// removed unused dropdown-menu and drawer imports
+import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Input } from "@/components/ui/input";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Switch } from "@/components/ui/switch";
+import { Progress } from "@/components/ui/progress";
+import { Textarea } from "@/components/ui/textarea";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+
+
+import {
+  ReceivingShipmentLineState,
+  ReceivingShipmentFormState,
+  ShipmentFieldLabel,
+  defaultExpiryDate,
+  distributeShipmentLine,
+  draftToReceivingValues,
+  newShipmentLine,
+  parseDraftMeta,
+  printDraftLabels,
+  productRequiresExpiry,
+  remainderForLine,
+  shouldRestrictToDefaultWarehouse,
+  useIsMobileEntry,
+} from "@/features/shared/ui-shared";
+
+export function ReceivingPage() {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const online = useNetworkStatus();
+  const { roles, profile } = useAuth();
+  const restrictedToDefaultWarehouse = shouldRestrictToDefaultWarehouse(roles);
+  const { data: options } = useQuery({
+    queryKey: ["options", "receiving", restrictedToDefaultWarehouse, profile?.default_warehouse_id],
+    queryFn: () => fetchOptions(false, { restrictToWarehouse: restrictedToDefaultWarehouse, warehouseId: profile?.default_warehouse_id }),
+  });
+
+  const defaultWarehouseId = profile?.default_warehouse_id ?? "";
+  const warehouses = options?.warehouses ?? [];
+  const clients = options?.clients ?? [];
+  const productOptions = (options?.products ?? []).map((p: any) => ({
+    id: p.id,
+    sku: p.sku,
+    name: p.name,
+    barcode: p.barcode,
+    expiry_tracked: Boolean(p.expiry_tracked),
+    temperature_requirement: p.temperature_requirement,
+  }));
+  const packagingProfiles = options?.packagingProfiles ?? [];
+  const isMobileEntry = useIsMobileEntry();
+  const productRefs = useRef<Record<string, ProductSearchHandle | null>>({});
+  const totalRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const perPalletRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const palletCountRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const expiryRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const [shipmentOpen, setShipmentOpen] = useState(false);
+  const [showShipmentMore, setShowShipmentMore] = useState(false);
+  const [draftSearch, setDraftSearch] = useState("");
+  const [printOpen, setPrintOpen] = useState(false);
+  const [printContainer, setPrintContainer] = useState("");
+  const [printContainerWarning, setPrintContainerWarning] = useState<string | null>(null);
+  const [shipmentContainerTouched, setShipmentContainerTouched] = useState(false);
+  const [shipmentContainerScanWarning, setShipmentContainerScanWarning] = useState<string | null>(null);
+  const shipmentContainerInputRef = useRef<HTMLInputElement>(null);
+  const shipmentPoInputRef = useRef<HTMLInputElement>(null);
+  const [selectedDraftIds, setSelectedDraftIds] = useState<Set<string>>(new Set());
+  const [editingDraft, setEditingDraft] = useState<DraftReceipt | null>(null);
+  const [lastResult, setLastResult] = useState<{ barcode: string; taskNumber: string; qty: number } | null>(null);
+  const [printAfterSaveIds, setPrintAfterSaveIds] = useState<string[]>([]);
+  const [shipmentForm, setShipmentForm] = useState<ReceivingShipmentFormState>({
+    receipt_type: "po",
+    warehouse_id: defaultWarehouseId,
+    client_id: clients.length === 1 ? clients[0].id : "",
+    container_number: "",
+    po_number: "",
+    reference_number: "",
+    lines: [newShipmentLine()],
+  });
+
+  useEffect(() => {
+    setShipmentForm((current) => {
+      if (current.warehouse_id) return current;
+      const fill = defaultWarehouseId || (warehouses.length === 1 ? warehouses[0].id : "");
+      return fill ? { ...current, warehouse_id: fill } : current;
+    });
+  }, [defaultWarehouseId, warehouses]);
+
+  useEffect(() => {
+    setShipmentForm((current) => clients.length === 1 && !current.client_id ? { ...current, client_id: clients[0].id } : current);
+  }, [clients]);
+
+  const currentWarehouseId = shipmentForm.warehouse_id || defaultWarehouseId || (warehouses.length === 1 ? warehouses[0].id : "");
+  const { data: drafts = [], refetch: refetchDrafts } = useQuery({
+    queryKey: ["draft-receipts", currentWarehouseId],
+    queryFn: () => listDraftReceipts(currentWarehouseId),
+    enabled: Boolean(currentWarehouseId),
+  });
+
+  const draftSearchTerm = draftSearch.trim().toLowerCase();
+  const visibleDrafts = useMemo(() => {
+    if (!draftSearchTerm) return drafts;
+    return drafts.filter((draft) => {
+      const meta = parseDraftMeta(draft.notes);
+      const product = productOptions.find((p) => p.id === (draft.product_id ?? meta.product_id));
+      return [
+        draft.receipt_number,
+        draft.reference_number,
+        draft.container_number,
+        draft.po_number,
+        draft.draft_pallet_barcode,
+        draft.source_label,
+        draft.quantity,
+        product?.sku,
+        product?.name,
+        product?.barcode,
+      ].some((value) => String(value ?? "").toLowerCase().includes(draftSearchTerm));
+    });
+  }, [draftSearchTerm, drafts, productOptions]);
+
+  const printDrafts = useMemo(() => {
+    const term = printContainer.trim().toLowerCase();
+    return term ? drafts.filter((draft) => String(draft.container_number ?? "").toLowerCase().includes(term)) : drafts;
+  }, [drafts, printContainer]);
+
+  const selectedPrintDrafts = printDrafts.filter((draft) => selectedDraftIds.has(draft.id));
+  const shipmentContainerValidation = useMemo(
+    () => validateIso6346ContainerNumber(shipmentForm.container_number),
+    [shipmentForm.container_number],
+  );
+  const shipmentContainerHasValue = shipmentForm.container_number.trim().length > 0;
+  const shipmentContainerInvalid = shipmentContainerHasValue && !shipmentContainerValidation.valid;
+  const shipmentContainerValid = shipmentContainerHasValue && shipmentContainerValidation.valid;
+  const shipmentContainerMessage = shipmentContainerScanWarning ?? (shipmentContainerHasValue
+    ? shipmentContainerValidation.message
+    : "Enter a valid ISO 6346 container number. Example: MSKU1234565.");
+  useEffect(() => {
+    if (!printOpen || selectedDraftIds.size > 0) return;
+    setSelectedDraftIds(new Set(printDrafts.map((draft) => draft.id)));
+  }, [printDrafts, printOpen, selectedDraftIds.size]);
+
+  useEffect(() => {
+    if (!printOpen || printAfterSaveIds.length === 0) return;
+    const availableIds = new Set(drafts.map((draft) => draft.id));
+    const readyIds = printAfterSaveIds.filter((id) => availableIds.has(id));
+    if (readyIds.length > 0) {
+      setSelectedDraftIds(new Set(readyIds));
+      setPrintAfterSaveIds([]);
+    }
+  }, [drafts, printAfterSaveIds, printOpen]);
+  const incompleteLine = shipmentForm.lines.find((line) => {
+    const remainder = remainderForLine(line);
+    return !line.product_id ||
+      Number(line.total_quantity) <= 0 ||
+      Number(line.quantity_per_pallet) <= 0 ||
+      Number(line.pallet_count) <= 0 ||
+      (remainder > 0 && !line.remainder_action);
+  });
+  const saveBlockedReason = !shipmentForm.container_number.trim()
+    ? "Enter a container number before saving."
+    : !shipmentContainerValidation.valid
+      ? shipmentContainerValidation.message
+    : !shipmentForm.warehouse_id
+      ? "Select a warehouse before saving."
+      : incompleteLine
+        ? remainderForLine(incompleteLine) > 0 && !incompleteLine.remainder_action
+          ? "Choose how to handle the leftover quantity before saving."
+          : "Enter a SKU and valid quantities before saving."
+        : "";
+  const canSaveShipment = !saveBlockedReason;
+
+  const saveShipmentMutation = useMutation({
+    mutationFn: async (mode: "receive" | "new") => {
+      const lines = shipmentForm.lines.map((line) => ({
+        product_id: line.product_id,
+        client_id: shipmentForm.client_id || undefined,
+        packaging_profile_id: line.packaging_profile_id || undefined,
+        total_quantity: Number(line.total_quantity),
+        quantity_per_pallet: Number(line.quantity_per_pallet),
+        pallet_count: Number(line.pallet_count),
+        expiry_date: line.expiry_date || (productRequiresExpiry(productOptions.find((item) => item.id === line.product_id)) ? defaultExpiryDate() : undefined),
+        lot_number: line.lot_number || undefined,
+        batch_number: line.batch_number || undefined,
+        remainder_quantity: remainderForLine(line),
+        remainder_action: line.remainder_action || undefined,
+        create_special_pallet: line.remainder_action === "special",
+      }));
+      const missingExpiry = shipmentForm.lines.find((line) => {
+        const product = productOptions.find((item) => item.id === line.product_id);
+        const computedExpiry = line.expiry_date || (productRequiresExpiry(product) ? defaultExpiryDate() : "");
+        return productRequiresExpiry(product) && !computedExpiry;
+      });
+      if (missingExpiry) {
+        const product = productOptions.find((item) => item.id === missingExpiry.product_id);
+        throw new Error(`${product?.sku ?? "Selected product"} requires an expiry date.`);
+      }
+      if (editingDraft) {
+        const line = shipmentForm.lines[0];
+        await updateDraftReceipt(editingDraft.id, {
+          receipt_type: shipmentForm.receipt_type,
+          reference_number: shipmentForm.reference_number || shipmentForm.po_number,
+          container_number: shipmentForm.container_number,
+          po_number: shipmentForm.po_number,
+          warehouse_id: shipmentForm.warehouse_id,
+          client_id: shipmentForm.client_id,
+          product_id: line.product_id,
+          packaging_profile_id: line.packaging_profile_id,
+          quantity: Number(line.total_quantity),
+          lot_number: line.lot_number,
+          batch_number: line.batch_number,
+          expiry_date: line.expiry_date,
+          pallet_barcode: editingDraft.draft_pallet_barcode ?? undefined,
+          draft_group_id: editingDraft.draft_group_id ?? undefined,
+          draft_sequence: editingDraft.draft_sequence ?? undefined,
+          draft_count: editingDraft.draft_count ?? undefined,
+        });
+        return { mode, count: 1, edited: true, draftIds: [editingDraft.id], containerNumber: shipmentForm.container_number };
+      }
+      const result = await saveShipmentDrafts({
+        receipt_type: shipmentForm.receipt_type,
+        warehouse_id: shipmentForm.warehouse_id,
+        client_id: shipmentForm.client_id || undefined,
+        container_number: shipmentForm.container_number,
+        po_number: shipmentForm.po_number,
+        reference_number: shipmentForm.reference_number,
+        lines,
+      });
+      return { mode, count: result.count, edited: false, draftIds: result.draftIds, containerNumber: shipmentForm.container_number };
+    },
+    onSuccess: async (result) => {
+      toast.success(result.edited ? "Draft updated" : `${result.count} pallet draft${result.count === 1 ? "" : "s"} saved`);
+      await queryClient.invalidateQueries({ queryKey: ["draft-receipts"] });
+      await queryClient.invalidateQueries({ queryKey: ["dashboard-metrics"] });
+      setEditingDraft(null);
+      if (result.mode === "receive" && !result.edited) {
+        setShipmentOpen(false);
+        setPrintContainer(result.containerNumber);
+        setSelectedDraftIds(new Set(result.draftIds));
+        setPrintAfterSaveIds(result.draftIds);
+        setPrintOpen(true);
+      } else if (result.mode === "new" && !result.edited) {
+        setShipmentContainerTouched(false);
+        setShipmentContainerScanWarning(null);
+        setShipmentForm((current) => ({
+          ...current,
+          container_number: "",
+          po_number: "",
+          reference_number: "",
+          lines: [newShipmentLine()],
+        }));
+      } else {
+        setShipmentOpen(false);
+      }
+    },
+    onError: (error: any) => toast.error(error?.message ?? error?.details ?? "Shipment draft save failed"),
+  });
+
+  const receiveMutation = useMutation({
+    mutationFn: (draft: DraftReceipt) => completeReceiptFromDraft(draft.id, draftToReceivingValues(draft)),
+    onSuccess: async (result, draft) => {
+      toast.success(`Pallet ${result.palletBarcode} ready — putaway task ${result.putawayTaskNumber} queued.`);
+      setLastResult({ barcode: result.palletBarcode, taskNumber: result.putawayTaskNumber, qty: Number(draft.quantity ?? 0) });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["dashboard-metrics"] }),
+        queryClient.invalidateQueries({ queryKey: ["putaway-tasks"] }),
+        queryClient.invalidateQueries({ queryKey: ["inventory-search"] }),
+        queryClient.invalidateQueries({ queryKey: ["draft-receipts"] }),
+      ]);
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Receiving failed"),
+  });
+
+  const batchReceiveMutation = useMutation({
+    mutationFn: async (draftsToReceive: DraftReceipt[]) => {
+      const results = [];
+      for (const draft of draftsToReceive) {
+        results.push(await completeReceiptFromDraft(draft.id, draftToReceivingValues(draft)));
+      }
+      return results;
+    },
+    onSuccess: async (results) => {
+      const count = results.length;
+      toast.success(`${count} pallet label${count === 1 ? "" : "s"} printed and sent to Put-Away.`);
+      setLastResult({
+        barcode: count === 1 ? results[0]?.palletBarcode ?? "Pallet" : `${count} pallets`,
+        taskNumber: count === 1 ? results[0]?.putawayTaskNumber ?? "queued" : "queued",
+        qty: count,
+      });
+      setPrintOpen(false);
+      setSelectedDraftIds(new Set());
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["dashboard-metrics"] }),
+        queryClient.invalidateQueries({ queryKey: ["putaway-tasks"] }),
+        queryClient.invalidateQueries({ queryKey: ["inventory-search"] }),
+        queryClient.invalidateQueries({ queryKey: ["draft-receipts"] }),
+      ]);
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Receiving failed"),
+  });
+
+  function printAndReceiveDrafts(draftsToReceive: DraftReceipt[]) {
+    printDraftLabels(draftsToReceive, productOptions, clients, warehouses, packagingProfiles, () => {
+      batchReceiveMutation.mutate(draftsToReceive);
+    });
+  }
+
+  const deleteDraftMutation = useMutation({
+    mutationFn: deleteDraftReceipt,
+    onSuccess: async () => {
+      toast.success("Draft cancelled");
+      await queryClient.invalidateQueries({ queryKey: ["draft-receipts"] });
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Draft cancel failed"),
+  });
+
+  function openNewShipment() {
+    setEditingDraft(null);
+    setShipmentContainerTouched(false);
+    setShipmentContainerScanWarning(null);
+    setShipmentForm({
+      receipt_type: "po",
+      warehouse_id: currentWarehouseId,
+      client_id: clients.length === 1 ? clients[0].id : "",
+      container_number: "",
+      po_number: "",
+      reference_number: "",
+      lines: [newShipmentLine()],
+    });
+    setShipmentOpen(true);
+  }
+
+  function openEditDraft(draft: DraftReceipt) {
+    const values = draftToReceivingValues(draft);
+    setEditingDraft(draft);
+    setShipmentContainerTouched(Boolean(values.container_number));
+    setShipmentContainerScanWarning(null);
+    setShipmentForm({
+      receipt_type: values.receipt_type,
+      warehouse_id: values.warehouse_id,
+      client_id: values.client_id ?? "",
+      container_number: values.container_number ?? "",
+      po_number: values.po_number ?? "",
+      reference_number: values.reference_number ?? "",
+      lines: [{
+        ...newShipmentLine(values.product_id),
+        total_quantity: Number(values.quantity),
+        quantity_per_pallet: Number(values.quantity),
+        pallet_count: 1,
+        expiry_date: values.expiry_date ?? "",
+        lot_number: values.lot_number ?? "",
+        batch_number: values.batch_number ?? "",
+        packaging_profile_id: values.packaging_profile_id ?? "",
+      }],
+    });
+    setShipmentOpen(true);
+  }
+
+  function updateLine(id: string, patch: Partial<ReceivingShipmentLineState>, changed?: "total" | "perPallet" | "count") {
+    setShipmentForm((current) => ({
+      ...current,
+      lines: current.lines.map((line) => {
+        if (line.id !== id) return line;
+        const next = { ...line, ...patch };
+        return changed ? distributeShipmentLine(next, changed) : next;
+      }),
+    }));
+  }
+
+  function focusShipmentField(lineId: string, field: "total" | "perPallet" | "count" | "expiry") {
+    const target =
+      field === "total" ? totalRefs.current[lineId] :
+      field === "perPallet" ? perPalletRefs.current[lineId] :
+      field === "count" ? palletCountRefs.current[lineId] :
+      expiryRefs.current[lineId];
+    setTimeout(() => target?.focus(), 40);
+  }
+
+  function openDatePicker(input: HTMLInputElement | null) {
+    if (!input) return;
+    input.focus();
+    try {
+      input.showPicker?.();
+    } catch {
+      // Some browsers only allow showPicker from direct user gestures.
+    }
+  }
+
+  function moveToNextShipmentField(lineId: string, field: "product" | "total" | "perPallet" | "count") {
+    if (field === "product") { focusShipmentField(lineId, "total"); return; }
+    if (field === "total") { focusShipmentField(lineId, "perPallet"); return; }
+    if (field === "perPallet") { focusShipmentField(lineId, "count"); return; }
+    setTimeout(() => openDatePicker(expiryRefs.current[lineId]), 40);
+  }
+
+  const canAddSkuLine = shipmentForm.lines.every((line) => Boolean(line.product_id) && Number(line.total_quantity) > 0);
+
+  function saveShipment(mode: "receive" | "new") {
+    if (!canSaveShipment) {
+      toast.error(saveBlockedReason);
+      return;
+    }
+    saveShipmentMutation.mutate(mode);
+  }
+
+  function setShipmentContainer(value: unknown) {
+    setShipmentContainerTouched(true);
+    setShipmentContainerScanWarning(null);
+    setShipmentForm((cur) => ({ ...cur, container_number: normalizeContainerNumber(value) }));
+  }
+
+  function applyShipmentContainerScan(value: unknown) {
+    const result = resolveContainerScanValue(value);
+    setShipmentContainerTouched(true);
+    setShipmentContainerScanWarning(result.valid ? null : result.message);
+    setShipmentForm((cur) => ({ ...cur, container_number: result.value }));
+    if (!result.valid) toast.warning(result.message);
+  }
+
+  function applyDraftSearchScan(value: unknown) {
+    const result = resolveContainerScanValue(value);
+    if (result.valid) {
+      setDraftSearch(result.value);
+      return;
+    }
+    if (result.candidate) {
+      toast.warning(result.message);
+      setDraftSearch(result.value);
+      return;
+    }
+    setDraftSearch(normalizeScannerText(value));
+  }
+
+  function applyPrintContainerScan(value: unknown) {
+    const result = resolveContainerScanValue(value);
+    setPrintContainer(result.value);
+    setPrintContainerWarning(result.valid ? null : result.message);
+    if (!result.valid) toast.warning(result.message);
+  }
+
+  return (
+    <div className="flex min-h-full flex-col gap-6">
+      {!online && (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
+          Connection is unstable. Finish scan work already in progress, then move to better signal and use Sync/Refresh before starting new receiving batches.
+        </div>
+      )}
+      {lastResult && (
+        <div className="flex flex-col gap-2 rounded-lg border border-green-200 bg-green-50 p-4 dark:border-green-900 dark:bg-green-950/30 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm font-semibold text-green-800 dark:text-green-300">Pallet {lastResult.barcode} received · {lastResult.qty} units</p>
+            <p className="text-xs text-green-700 dark:text-green-400">Put-Away task {lastResult.taskNumber} queued</p>
+          </div>
+          <div className="flex gap-2">
+            <Button size="sm" onClick={() => navigate("/putaway-tasks")}>Go to Put-Away</Button>
+            <Button size="sm" variant="ghost" onClick={() => setLastResult(null)}>x</Button>
+          </div>
+        </div>
+      )}
+
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h2 className="text-2xl font-semibold">Receiving</h2>
+          <p className="text-sm text-muted-foreground">Create shipment drafts by container, print labels, then receive selected pallets.</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={() => { refetchDrafts(); void flushOfflineQueue(); }}>
+            <RefreshCw data-icon="inline-start" />
+            Sync / Refresh
+          </Button>
+          <Button variant="outline" onClick={() => {
+            setPrintContainer(draftSearch);
+            setSelectedDraftIds(new Set(visibleDrafts.map((draft) => draft.id)));
+            setPrintOpen(true);
+          }}>
+            <Printer data-icon="inline-start" />
+            Print drafts
+          </Button>
+          <Button onClick={openNewShipment}>
+            <Plus data-icon="inline-start" />
+            New shipment
+          </Button>
+        </div>
+      </div>
+
+      <Card>
+        <CardContent className="grid gap-3 p-4">
+          <div className="flex min-w-0 gap-2">
+            <div className="relative min-w-0 flex-1">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                type="search"
+                className="pl-9"
+                value={draftSearch}
+                onChange={(event) => setDraftSearch(event.target.value)}
+                placeholder="Search container, PO, pallet, SKU, product, receipt"
+              />
+            </div>
+            <BarcodeScanButton title="Scan container, PO, or pallet" enableTextRecognition onScan={applyDraftSearchScan} />
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="min-h-0">
+        <CardHeader>
+          <CardTitle className="text-base">Draft Pallets {drafts.length > 0 && <Badge variant="secondary">{drafts.length}</Badge>}</CardTitle>
+          <CardDescription>Use Print for labels, Edit for quantity/date corrections, and Receive when the physical pallet is confirmed.</CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-3">
+          {visibleDrafts.length === 0 ? (
+            <p className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+              {drafts.length === 0 ? "No draft pallets yet." : `No drafts matched "${draftSearch}".`}
+            </p>
+          ) : visibleDrafts.map((draft) => {
+            const meta = parseDraftMeta(draft.notes);
+            const product = productOptions.find((p) => p.id === (draft.product_id ?? meta.product_id));
+            const client = clients.find((item) => item.id === draft.client_id);
+            const warehouse = warehouses.find((item) => item.id === draft.warehouse_id);
+            const packaging = packagingProfiles.find((item: any) => item.id === meta.packaging_profile_id);
+            const barcode = draft.draft_pallet_barcode ?? meta.draft_pallet_barcode ?? draft.receipt_number;
+            return (
+              <div key={draft.id} className="grid gap-3 rounded-lg border border-border px-4 py-3 lg:grid-cols-[1fr_auto] lg:items-center">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="truncate text-sm font-medium">{product ? `${product.sku} · ${product.name}` : "Unknown product"}</p>
+                    <Badge variant="outline" className="font-mono">{barcode}</Badge>
+                    {draft.draft_sequence && draft.draft_count ? <Badge variant="secondary">{draft.draft_sequence}/{draft.draft_count}</Badge> : null}
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Container {draft.container_number ?? "—"} · PO {draft.po_number ?? draft.reference_number ?? "—"} · Qty {draft.quantity ?? "?"} · Exp {draft.expiry_date ? formatDate(draft.expiry_date) : "—"}
+                  </p>
+                  {draft.source_label && <p className="text-xs font-medium text-amber-700 dark:text-amber-300">Returned from {draft.source_label}</p>}
+                </div>
+                <div className="flex flex-wrap gap-2 lg:justify-end">
+                  <PalletLabelPage
+                    barcode={barcode}
+                    quantity={Number(draft.quantity ?? meta.quantity ?? 1)}
+                    productSku={product?.sku}
+                    productName={product?.name}
+                    lotNumber={draft.lot_number ?? meta.lot_number}
+                    batchNumber={draft.batch_number ?? meta.batch_number}
+                    expiryDate={draft.expiry_date ?? meta.expiry_date}
+                    containerNumber={draft.container_number ?? meta.container_number}
+                    poNumber={draft.po_number ?? meta.po_number}
+                    clientName={client?.name}
+                    warehouseName={warehouse ? `${warehouse.code ? `${warehouse.code} - ` : ""}${warehouse.name}` : undefined}
+                    receiptReference={draft.reference_number ?? draft.receipt_number}
+                    packaging={packaging?.name ?? packaging?.unit_name ?? packaging?.unit_of_measure}
+                    draftSequence={draft.draft_sequence}
+                    draftCount={draft.draft_count}
+                    temperatureClass={product?.temperature_requirement}
+                    onPrinted={async () => { await receiveMutation.mutateAsync(draft); }}
+                    trigger={<Button size="sm" variant="outline" disabled={receiveMutation.isPending}><Printer data-icon="inline-start" />Print & Receive</Button>}
+                  />
+                  <Button size="sm" variant="outline" onClick={() => openEditDraft(draft)}><Pencil data-icon="inline-start" />Edit</Button>
+                  {draft.status === "draft" && (
+                    <Button size="sm" variant="ghost" onClick={() => deleteDraftMutation.mutate(draft.id)} disabled={deleteDraftMutation.isPending}>
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </CardContent>
+      </Card>
+
+      <Dialog open={shipmentOpen} onOpenChange={(open) => { setShipmentOpen(open); if (!open) setEditingDraft(null); }}>
+        <DialogContent className="h-[calc(100dvh-0.75rem)] max-h-[calc(100dvh-0.75rem)] w-[calc(100vw-0.75rem)] overflow-hidden bg-card p-0 text-card-foreground sm:h-auto sm:max-h-[92vh] sm:max-w-[min(72rem,96vw)]">
+          <DialogHeader className="border-b border-border px-3 py-2 sm:px-4 sm:py-3">
+            <DialogTitle>{editingDraft ? "Edit Draft Pallet" : "New Shipment"}</DialogTitle>
+            <DialogDescription className="text-xs sm:text-sm">Container and PO come first, then one or more SKU lines with expiry and pallet distribution.</DialogDescription>
+          </DialogHeader>
+          <ScrollArea className="max-h-[calc(100dvh-8.75rem)] px-3 py-3 sm:max-h-[calc(92vh-150px)] sm:px-4 sm:py-4">
+            <div className="grid gap-3 sm:gap-4">
+              <div className="grid grid-cols-2 gap-2 sm:gap-3 md:grid-cols-3">
+                <div className="grid gap-1.5">
+                  <ShipmentFieldLabel>Container number</ShipmentFieldLabel>
+                  <div className="flex gap-2">
+                    <Input
+                      ref={shipmentContainerInputRef}
+                      className={cn(
+                        "h-9 sm:h-10",
+                        shipmentContainerTouched && shipmentContainerInvalid && "border-destructive focus-visible:ring-destructive",
+                        shipmentContainerValid && "border-green-500 focus-visible:ring-green-500",
+                      )}
+                      autoFocus
+                      value={shipmentForm.container_number}
+                      onBlur={() => setShipmentContainerTouched(true)}
+                      onChange={(e) => setShipmentContainer(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); shipmentPoInputRef.current?.focus(); } }}
+                      aria-invalid={shipmentContainerInvalid}
+                      aria-describedby="container-number-help"
+                    />
+                    <BarcodeScanButton title="Scan container number" enableTextRecognition inputRef={shipmentContainerInputRef} onScan={applyShipmentContainerScan} />
+                  </div>
+                  <p
+                    id="container-number-help"
+                    className={cn(
+                      "text-xs",
+                      shipmentContainerTouched && shipmentContainerInvalid ? "text-destructive" : shipmentContainerValid ? "text-green-500" : "text-muted-foreground",
+                    )}
+                  >
+                    {shipmentContainerMessage}
+                  </p>
+                </div>
+                <div className="grid gap-1.5">
+                  <ShipmentFieldLabel>PO number</ShipmentFieldLabel>
+                  <Input ref={shipmentPoInputRef} className="h-9 sm:h-10" value={shipmentForm.po_number} onChange={(e) => setShipmentForm((cur) => ({ ...cur, po_number: e.target.value.toUpperCase(), reference_number: e.target.value.toUpperCase() }))} />
+                </div>
+                <div className="col-span-2 grid gap-1.5 md:col-span-1">
+                  <ShipmentFieldLabel>Warehouse</ShipmentFieldLabel>
+                  <Select value={shipmentForm.warehouse_id || undefined} onValueChange={(value) => setShipmentForm((cur) => ({ ...cur, warehouse_id: value }))}>
+                    <SelectTrigger className="h-9 sm:h-10"><SelectValue placeholder="Select warehouse" /></SelectTrigger>
+                    <SelectContent>
+                      {warehouses.length === 0 ? <SelectItem value="__loading_warehouses" disabled>Loading warehouses...</SelectItem> : null}
+                      {warehouses.filter((w: any) => Boolean(w.id)).map((w: any) => <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <button type="button" className="w-fit text-sm font-medium text-primary underline-offset-2 hover:underline" onClick={() => setShowShipmentMore((v) => !v)}>
+                {showShipmentMore ? "Hide" : "Show"} shipment options
+              </button>
+              {showShipmentMore && (
+                <div className="grid gap-3 rounded-lg border border-border bg-secondary/20 p-3 md:grid-cols-3">
+                  <div className="grid gap-1.5">
+                    <ShipmentFieldLabel>Receipt type</ShipmentFieldLabel>
+                    <Select value={shipmentForm.receipt_type} onValueChange={(value) => setShipmentForm((cur) => ({ ...cur, receipt_type: value as ReceivingShipmentFormState["receipt_type"] }))}>
+                      <SelectTrigger className="h-9 sm:h-10"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="po">Purchase Order</SelectItem>
+                        <SelectItem value="transfer">Transfer</SelectItem>
+                        <SelectItem value="other">Manual / Other</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid gap-1.5">
+                    <ShipmentFieldLabel>Client</ShipmentFieldLabel>
+                    <Select value={shipmentForm.client_id || undefined} onValueChange={(value) => setShipmentForm((cur) => ({ ...cur, client_id: value }))}>
+                      <SelectTrigger className="h-9 sm:h-10"><SelectValue placeholder="Select client" /></SelectTrigger>
+                      <SelectContent>
+                        {clients.length === 0 ? <SelectItem value="__no_clients" disabled>No clients available</SelectItem> : null}
+                        {clients.filter((client: any) => Boolean(client.id)).map((client: any) => <SelectItem key={client.id} value={client.id}>{client.code} · {client.name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid gap-1.5">
+                    <ShipmentFieldLabel>Reference</ShipmentFieldLabel>
+                    <Input className="h-9 sm:h-10" value={shipmentForm.reference_number} onChange={(e) => setShipmentForm((cur) => ({ ...cur, reference_number: normalizeScannerText(e.target.value) }))} />
+                  </div>
+                </div>
+              )}
+
+              <div className="grid gap-3">
+                {shipmentForm.lines.map((line, index) => {
+                  const remainder = remainderForLine(line);
+                  const selectedProduct = productOptions.find((product) => product.id === line.product_id);
+                  const expiryRequired = productRequiresExpiry(selectedProduct);
+                  const allocatedQuantity = Math.max(0, Number(line.quantity_per_pallet || 0) * Number(line.pallet_count || 0));
+                  return (
+                    <div key={line.id} className="grid gap-2 rounded-lg border border-border p-2 sm:gap-3 sm:p-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="font-medium">SKU line {index + 1}</p>
+                        {!editingDraft && shipmentForm.lines.length > 1 && (
+                          <Button size="sm" variant="ghost" onClick={() => setShipmentForm((cur) => ({ ...cur, lines: cur.lines.filter((item) => item.id !== line.id) }))}>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 lg:grid-cols-[2fr_repeat(3,1fr)] lg:gap-3">
+                        <div className="col-span-3 grid gap-1.5 lg:col-span-1">
+                          <ShipmentFieldLabel>Product</ShipmentFieldLabel>
+                          <ProductSearch
+                            ref={(node) => { productRefs.current[line.id] = node; }}
+                            value={line.product_id}
+                            options={productOptions}
+                            placeholder="Select SKU"
+                            onChange={(value) => {
+                              const product = productOptions.find((item) => item.id === value);
+                              updateLine(line.id, {
+                                product_id: value,
+                                expiry_date: productRequiresExpiry(product) && !line.expiry_date ? defaultExpiryDate() : line.expiry_date,
+                              });
+                            }}
+                            onSelectComplete={() => moveToNextShipmentField(line.id, "product")}
+                          />
+                        </div>
+                        <div className="grid gap-1.5">
+                          <ShipmentFieldLabel>Total received</ShipmentFieldLabel>
+                          <Input
+                            ref={(node) => { totalRefs.current[line.id] = node; }}
+                            className="h-9 sm:h-10"
+                            type="number"
+                            inputMode="numeric"
+                            pattern="[0-9]*"
+                            min={0}
+                            value={line.total_quantity}
+                            onFocus={(e) => e.currentTarget.select()}
+                            onKeyDown={(e) => { if (e.key === "Enter") moveToNextShipmentField(line.id, "total"); }}
+                            onChange={(e) => updateLine(line.id, { total_quantity: e.currentTarget.valueAsNumber || Number(e.currentTarget.value) || 0 }, "total")}
+                          />
+                        </div>
+                        <div className="grid gap-1.5">
+                          <ShipmentFieldLabel>Qty per pallet</ShipmentFieldLabel>
+                          <Input
+                            ref={(node) => { perPalletRefs.current[line.id] = node; }}
+                            className="h-9 sm:h-10"
+                            type="number"
+                            inputMode="numeric"
+                            pattern="[0-9]*"
+                            min={1}
+                            value={line.quantity_per_pallet}
+                            onFocus={(e) => e.currentTarget.select()}
+                            onKeyDown={(e) => { if (e.key === "Enter") moveToNextShipmentField(line.id, "perPallet"); }}
+                            onChange={(e) => updateLine(line.id, { quantity_per_pallet: e.currentTarget.valueAsNumber || Number(e.currentTarget.value) || 1 }, "perPallet")}
+                          />
+                        </div>
+                        <div className="grid gap-1.5">
+                          <ShipmentFieldLabel>Pallets</ShipmentFieldLabel>
+                          <Input
+                            ref={(node) => { palletCountRefs.current[line.id] = node; }}
+                            className="h-9 sm:h-10"
+                            type="number"
+                            inputMode="numeric"
+                            pattern="[0-9]*"
+                            min={1}
+                            value={line.pallet_count}
+                            onFocus={(e) => e.currentTarget.select()}
+                            onKeyDown={(e) => { if (e.key === "Enter") moveToNextShipmentField(line.id, "count"); }}
+                            onChange={(e) => updateLine(line.id, { pallet_count: e.currentTarget.valueAsNumber || Number(e.currentTarget.value) || 1 }, "count")}
+                          />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 md:grid-cols-4 md:gap-3">
+                        <div className="grid gap-1.5">
+                          <ShipmentFieldLabel>Expiry{expiryRequired ? " *" : ""}</ShipmentFieldLabel>
+                          <Input
+                            ref={(node) => { expiryRefs.current[line.id] = node; }}
+                            className={cn("h-9 sm:h-10", expiryRequired && !line.expiry_date && "border-amber-500")}
+                            type="date"
+                            required={expiryRequired}
+                            aria-invalid={expiryRequired && !line.expiry_date}
+                            value={line.expiry_date}
+                            onClick={(e) => openDatePicker(e.currentTarget)}
+                            onFocus={(e) => isMobileEntry && openDatePicker(e.currentTarget)}
+                            onChange={(e) => updateLine(line.id, { expiry_date: e.target.value })}
+                          />
+                        </div>
+                        <div className="grid gap-1.5">
+                          <ShipmentFieldLabel>Lot</ShipmentFieldLabel>
+                          <Input className="h-9 sm:h-10" value={line.lot_number} onChange={(e) => updateLine(line.id, { lot_number: normalizeScannerText(e.target.value) })} />
+                        </div>
+                        <div className="grid gap-1.5">
+                          <ShipmentFieldLabel>Batch</ShipmentFieldLabel>
+                          <Input className="h-9 sm:h-10" value={line.batch_number} onChange={(e) => updateLine(line.id, { batch_number: normalizeScannerText(e.target.value) })} />
+                        </div>
+                        <div className="col-span-2 grid gap-1.5 md:col-span-1">
+                          <ShipmentFieldLabel>Packaging</ShipmentFieldLabel>
+                          <Select value={line.packaging_profile_id || undefined} onValueChange={(value) => updateLine(line.id, { packaging_profile_id: value })}>
+                            <SelectTrigger className="h-9 sm:h-10"><SelectValue placeholder="Optional" /></SelectTrigger>
+                            <SelectContent>
+                              {packagingProfiles.length === 0 ? <SelectItem value="__no_packaging" disabled>No packaging profiles</SelectItem> : null}
+                              {packagingProfiles.filter((profile: any) => Boolean(profile.id)).map((profile: any) => <SelectItem key={profile.id} value={profile.id}>{profile.profile_name}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                      {remainder > 0 && (
+                        <div className="grid gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
+                          <p className="font-medium">{remainder} unit{remainder === 1 ? "" : "s"} will be left after creating {line.pallet_count} pallet{Number(line.pallet_count) === 1 ? "" : "s"} of {line.quantity_per_pallet}.</p>
+                          <p className="text-xs">Allocated in WMS: {allocatedQuantity}. Total received: {line.total_quantity}.</p>
+                          <div className="grid gap-2 sm:grid-cols-3">
+                            {[
+                              ["waive", "Waive remainder"],
+                              ["manual", "Manage outside WMS"],
+                              ["special", "Create special pallet"],
+                            ].map(([value, label]) => (
+                              <label key={value} className="flex items-center gap-2 rounded-md border border-amber-300 bg-background px-3 py-2">
+                                <input type="radio" name={`remainder-${line.id}`} checked={line.remainder_action === value} onChange={() => updateLine(line.id, { remainder_action: value as ReceivingShipmentLineState["remainder_action"] })} />
+                                {label}
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+                {!editingDraft && (
+                  <Button
+                    className="h-9 sm:h-10"
+                    type="button"
+                    variant="outline"
+                    disabled={!canAddSkuLine}
+                    title={canAddSkuLine ? "Add SKU line" : "Enter a SKU and quantity before adding another line"}
+                    onClick={() => setShipmentForm((cur) => ({ ...cur, lines: [...cur.lines, newShipmentLine()] }))}
+                  >
+                    <Plus data-icon="inline-start" />
+                    Add SKU line
+                  </Button>
+                )}
+              </div>
+            </div>
+          </ScrollArea>
+          <DialogFooter className="flex-row flex-wrap justify-end gap-2 border-t border-border px-3 py-2 sm:px-4 sm:py-3">
+            {saveBlockedReason && (
+              <p className="mr-auto w-full text-xs font-medium text-amber-500 sm:w-auto sm:self-center">{saveBlockedReason}</p>
+            )}
+            <Button variant="outline" onClick={() => setShipmentOpen(false)}>Cancel</Button>
+            {!editingDraft && (
+              <Button variant="outline" disabled={saveShipmentMutation.isPending || !canSaveShipment} onClick={() => saveShipment("new")}>
+                {saveShipmentMutation.isPending ? <Loader2 className="animate-spin" /> : null}
+                Save & New
+              </Button>
+            )}
+            <Button disabled={saveShipmentMutation.isPending || !canSaveShipment} onClick={() => saveShipment("receive")}>
+              {saveShipmentMutation.isPending ? <Loader2 className="animate-spin" /> : null}
+              {editingDraft ? "Save Draft" : "Save & Receive"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={printOpen} onOpenChange={setPrintOpen}>
+        <DialogContent className="max-h-[90vh] overflow-hidden sm:max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Print Draft Labels</DialogTitle>
+            <DialogDescription>Filter by container, select draft pallets, then print the selected labels together.</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3">
+            <div className="grid gap-1.5">
+              <div className="flex gap-2">
+                <Input
+                  value={printContainer}
+                  onChange={(e) => {
+                    const next = normalizeContainerNumber(e.target.value);
+                    setPrintContainer(next);
+                    if (next.length >= 11) {
+                      const validation = validateIso6346ContainerNumber(next);
+                      setPrintContainerWarning(validation.valid ? null : validation.message);
+                    } else {
+                      setPrintContainerWarning(null);
+                    }
+                  }}
+                  className={cn(printContainerWarning && "border-destructive focus-visible:ring-destructive")}
+                  placeholder="Filter by container number"
+                  aria-invalid={Boolean(printContainerWarning)}
+                />
+                <BarcodeScanButton title="Scan container number" enableTextRecognition onScan={applyPrintContainerScan} />
+              </div>
+              <p className={cn("text-xs", printContainerWarning ? "text-destructive" : "text-muted-foreground")}>
+                {printContainerWarning ?? "Enter or scan an ISO 6346 container number to narrow this label batch."}
+              </p>
+            </div>
+            <ScrollArea className="max-h-[50vh] pr-3">
+              <div className="grid gap-2">
+                {printDrafts.map((draft) => {
+                  const meta = parseDraftMeta(draft.notes);
+                  const product = productOptions.find((p) => p.id === (draft.product_id ?? meta.product_id));
+                  const checked = selectedDraftIds.has(draft.id);
+                  return (
+                    <label key={draft.id} className="flex cursor-pointer items-center gap-3 rounded-md border border-border px-3 py-2">
+                      <Checkbox checked={checked} onCheckedChange={(value) => {
+                        setSelectedDraftIds((current) => {
+                          const next = new Set(current);
+                          if (value) next.add(draft.id); else next.delete(draft.id);
+                          return next;
+                        });
+                      }} />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-medium">{draft.draft_pallet_barcode ?? draft.receipt_number} · {product?.sku ?? "Unknown SKU"}</span>
+                        <span className="block text-xs text-muted-foreground">Container {draft.container_number ?? "—"} · Qty {draft.quantity ?? "?"}</span>
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            </ScrollArea>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSelectedDraftIds(new Set(printDrafts.map((draft) => draft.id)))}>Select all shown</Button>
+            <Button disabled={batchReceiveMutation.isPending || selectedPrintDrafts.length === 0} onClick={() => printAndReceiveDrafts(selectedPrintDrafts)}>
+              {batchReceiveMutation.isPending ? <Loader2 className="animate-spin" /> : <Printer data-icon="inline-start" />}
+              Print selected & send to Put-Away
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

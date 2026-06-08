@@ -1,0 +1,512 @@
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { QRCodeSVG } from "qrcode.react";
+import { Link, NavLink, useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useForm, type UseFormReturn } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { supabase } from "@/integrations/supabase/client";
+import { Activity, AlertCircle, AlertTriangle, ArrowLeftRight, BarChart3, Bot, Boxes, Building2, CheckCircle2, ChevronDown, ClipboardCheck, ClipboardList, CloudOff, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, HelpCircle, Home, Info, KeyRound, LayoutDashboard, Loader2, Lock, LockOpen, LogOut, Mail, Maximize2, MapPinned, Menu, Minimize2, Network, Package, PackageX, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, QrCode, RadioTower, RefreshCw, RotateCcw, Search, Settings, ShieldCheck, Star, Tags, Trash2, Truck, Upload, UserPlus, Users } from "lucide-react";
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  rectSortingStrategy,
+  sortableKeyboardCoordinates,
+  useSortable,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { toast } from "sonner";
+import { z } from "zod";
+
+import { useAuth } from "@/hooks/use-auth";
+import { useFeatureFlags, MODULE_LABELS, STARTER_MODULES, type ModuleKey } from "@/hooks/use-feature-flags";
+import { assertOnline, useNetworkStatus } from "@/hooks/use-network-status";
+import {
+  enqueueOfflineWork,
+  flushOfflineQueue,
+  installOfflineAutoReplay,
+  isLikelyNetworkError,
+  useOfflineQueue,
+  useDeadLetterQueue,
+
+  type FailedWorkItem,
+} from "@/lib/offline-queue";
+import { useBackgroundSync } from "@/hooks/use-background-sync";
+import {
+  NAVIGATION,
+  ROLE_LABELS,
+  ROLE_DESCRIPTIONS,
+  type AdminInviteUserInput,
+  type AppRoute,
+  type FieldDefinition,
+  type ResourceDefinition,
+  type DraftReceipt,
+  type BayOccupancyCell,
+  adminInviteUser,
+  adminDeleteUser,
+  adminUpdateUserPin,
+  adminUpdateUserPassword,
+  buildBayOccupancyGrid,
+  updateOwnPassword,
+  changePalletStatus,
+  confirmPutaway,
+  createCycleCountFlow,
+  createPickListFlow,
+  getPickableStockSummary,
+  createTransferFlow,
+  cancelPickList,
+  deleteClientVariable,
+  deleteResourceCascade,
+  dispatchTransfer,
+  cycleCountSchema,
+  resetWmsData,
+  removeUserRoleAssignment,
+  downloadCsv,
+  downloadCsvTemplate,
+  fetchOptions,
+  formatDate,
+  formatNumber,
+  getDashboardMetrics,
+  getInventoryDetail,
+  getPickExecution,
+  getBinOccupancy,
+  getBayOccupancy,
+  getWarehouseBayOccupancy,
+  type WarehouseBayGroup,
+  logPutawayBaySelection,
+  getPutawayTasks,
+  getPutawayTaskHistory,
+  getReportData,
+  parseCsvForResource,
+  commitImportRows,
+  type ImportPreview,
+  listClientVariables,
+  listDraftReceipts,
+  saveShipmentDrafts,
+  updateDraftReceipt,
+  completeReceiptFromDraft,
+  deleteDraftReceipt,
+  listSystemLogs,
+  listUserActivities,
+  listCycleCounts,
+  listPickLists,
+  listRecords,
+  listStatusPallets,
+  listTransfers,
+  pickListSchema,
+  receivingSchema,
+  receiveTransfer,
+  resolveSystemLog,
+  searchInventory,
+  setProfileActive,
+  snapshotRecordCounts,
+  updateProfileDetails,
+  updateProfileDefaultWarehouse,
+  statusChangeSchema,
+  setResourceVisibility,
+  setUserRoleVisibility,
+  submitCycleCountLine,
+  transferSchema,
+  updateRecord,
+  upsertClientVariable,
+  upsertRecord,
+  writeSystemLog,
+  cancelTransfer,
+  flagCountLineException,
+  revertPutawayToDraft,
+  listMoveTasks,
+  completeDirectMove,
+  completeMoveTask,
+  cancelMoveTask,
+  expandLocationRange,
+  buildRackLocationCode,
+  suggestNextRackPosition,
+  validateMoveDestination,
+  type MoveValidationResult,
+} from "@/lib/wms-core";
+import { ProductSearch } from "@/components/product-search";
+import { PalletLabelPage } from "@/components/pallet-label-page";
+import { BarcodeScanButton } from "@/components/barcode-scan-button";
+import { type ProductSearchHandle } from "@/components/product-search";
+
+import { cn } from "@/lib/utils";
+import { extractIso6346ContainerNumber, normalizeContainerNumber, validateIso6346ContainerNumber } from "@/lib/container-number";
+import { getOrCreateDeviceId } from "@/lib/device-identity";
+import { invalidateWarehouseData } from "@/lib/query-invalidation";
+import {
+  filterDashboardTileDefinitions,
+  hiddenDashboardTiles,
+  loadDashboardDeviceLayout,
+  loadDashboardTileVisibility,
+  sanitizeDashboardLayout,
+  saveDashboardDeviceLayout,
+  saveDashboardTileVisibility,
+  visibleDashboardTiles,
+  type DashboardCardSize,
+  type DashboardTileConfig,
+  type DashboardTileDefinition,
+  type DashboardVisibilityMap,
+} from "@/lib/dashboard-preferences";
+import {
+  buildCsvReportRows,
+  buildEnterpriseDashboard,
+  type DashboardMode,
+  type DockHandoffLoad,
+  type EnterpriseDashboardSnapshot,
+  type WarehouseBrainRecommendation,
+} from "@/lib/enterprise-wms";
+import { HelpSidebar } from "@/components/help-sidebar";
+import { ZoneLabelPage } from "@/components/zone-label-page";
+import { LocationLabelPage } from "@/components/location-label-page";
+import { BayLocationCodesPrintDialog, LabelSheetPrintDialog, type LabelSheetItem } from "@/components/label-sheet-print";
+import { WarehouseStructureTab } from "@/components/warehouse-tree-view";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+// removed unused dropdown-menu and drawer imports
+import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Input } from "@/components/ui/input";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Switch } from "@/components/ui/switch";
+import { Progress } from "@/components/ui/progress";
+import { Textarea } from "@/components/ui/textarea";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+
+
+import { FailedTasksReminder, AccessRequestsBanner } from "@/features/shared/ui-shared";
+
+export function AppShell({ children }: { children: React.ReactNode }) {
+  const { pathname } = useLocation();
+  const { profile, roles, signOut, user, refreshProfile } = useAuth();
+  const queryClient = useQueryClient();
+  const { isEnabled } = useFeatureFlags();
+  const { online } = useNetworkStatus();
+  useEffect(() => {
+    installOfflineAutoReplay();
+  }, []);
+  useBackgroundSync(queryClient);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const networkStatusSeenRef = useRef(false);
+  const items = NAVIGATION
+    .filter(
+      (item) =>
+        item.roles.some((role) => roles.includes(role)) &&
+        (!item.moduleKey || isEnabled(item.moduleKey as ModuleKey)),
+    )
+    // Help is always pinned as the last sidebar entry, regardless of module order.
+    .sort((a, b) => (a.to === "/help" ? 1 : 0) - (b.to === "/help" ? 1 : 0));
+  const canSwitchWarehouses = roles.some((role) => ["admin", "warehouse_manager"].includes(role));
+  const { data: headerOptions } = useQuery({
+    queryKey: ["header-warehouse-options", canSwitchWarehouses],
+    queryFn: () => fetchOptions(false),
+    enabled: canSwitchWarehouses,
+  });
+  const headerWarehouses = useMemo(() => {
+    const warehouses = headerOptions?.warehouses ?? [];
+    if (roles.includes("admin")) return warehouses;
+
+    const assignedWarehouseIds = new Set(
+      (headerOptions?.userRoles ?? [])
+        .filter((userRole: any) => userRole.user_id === profile?.id && userRole.warehouse_id)
+        .map((userRole: any) => userRole.warehouse_id),
+    );
+
+    return assignedWarehouseIds.size > 0
+      ? warehouses.filter((warehouse: any) => assignedWarehouseIds.has(warehouse.id))
+      : warehouses;
+  }, [headerOptions, profile?.id, roles]);
+  const warehouseSwitchMutation = useMutation({
+    mutationFn: (warehouseId: string) => updateProfileDefaultWarehouse(profile?.id ?? "", warehouseId),
+    onSuccess: async () => {
+      await refreshProfile();
+      await queryClient.invalidateQueries({ queryKey: ["dashboard-metrics"] });
+      toast.success("Warehouse switched");
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Warehouse switch failed"),
+  });
+
+  // Auto-select the only warehouse when there is exactly one and none is selected yet
+  useEffect(() => {
+    if (headerWarehouses.length === 1 && !profile?.default_warehouse_id && !warehouseSwitchMutation.isPending) {
+      warehouseSwitchMutation.mutate((headerWarehouses[0] as any).id);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [headerWarehouses.length, profile?.default_warehouse_id]);
+
+  const displayName = profile?.full_name?.trim() || user?.email || "Warehouse User";
+  const initials = displayName
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("") || "WU";
+
+  useEffect(() => {
+    if (!networkStatusSeenRef.current) {
+      networkStatusSeenRef.current = true;
+      return;
+    }
+    if (online) {
+      toast.success("Connection restored. Refreshing live data.");
+      void flushOfflineQueue({ silent: true }).finally(() => {
+        void queryClient.invalidateQueries();
+      });
+      return;
+    }
+    toast.message("Connection lost. Keep finishing scan work already open; it will sync when signal returns.", {
+      duration: 6000,
+    });
+  }, [online, queryClient]);
+
+  const prefetchRouteData = useCallback((route: AppRoute) => {
+    const warehouseId = profile?.default_warehouse_id;
+    if (route === "/dashboard") {
+      void queryClient.prefetchQuery({
+        queryKey: ["dashboard-metrics", warehouseId],
+        queryFn: () => getDashboardMetrics(warehouseId),
+      });
+      return;
+    }
+    if (route === "/receiving") {
+      void queryClient.prefetchQuery({
+        queryKey: ["options", "receiving", shouldRestrictToDefaultWarehouse(roles), warehouseId],
+        queryFn: () => fetchOptions(false, { restrictToWarehouse: shouldRestrictToDefaultWarehouse(roles), warehouseId }),
+      });
+      return;
+    }
+    if (route === "/putaway-tasks") {
+      const canSeeAll = roles.some((r) => ["developer", "admin", "warehouse_manager", "warehouse_supervisor"].includes(r));
+      const prefetchUserId = canSeeAll ? undefined : user?.id;
+      void queryClient.prefetchQuery({
+        queryKey: ["putaway-tasks", prefetchUserId],
+        queryFn: () => getPutawayTasks(prefetchUserId),
+      });
+      return;
+    }
+    if (route === "/inventory-search") {
+      void queryClient.prefetchQuery({
+        queryKey: ["inventory-search", "", "all", ""],
+        queryFn: () => searchInventory({ status: "all" }),
+      });
+      return;
+    }
+    if (route === "/pick-lists") {
+      void queryClient.prefetchQuery({
+        queryKey: ["pick-lists"],
+        queryFn: listPickLists,
+      });
+    }
+  }, [profile?.default_warehouse_id, queryClient, roles, user?.id]);
+
+  const navigation = (
+    <div
+      className={cn(
+        "flex h-full flex-col overflow-hidden bg-sidebar",
+        sidebarCollapsed ? "items-center px-1.5 py-3 bg-teal-500" : "px-3 py-3"
+      )}
+    >
+      {/* Logo area */}
+      <div className={cn(
+        "mb-4 flex items-center gap-3 px-2",
+        sidebarCollapsed && "justify-center px-0"
+      )}>
+        <img src="/logo.png" alt="Warehouse Wizard" className="h-8 w-8 shrink-0 rounded-lg object-fill" />
+        {!sidebarCollapsed && (
+          <span className="truncate text-sm font-semibold text-foreground">Warehouse Wizard</span>
+        )}
+      </div>
+
+      <nav className="flex-1 overflow-y-auto">
+        <div className="flex flex-col gap-0.5">
+          {items.map((item) => {
+            const Icon = navIcons[item.to] ?? LayoutDashboard;
+            const isActive = pathname === item.to;
+            const showSeparator = !sidebarCollapsed && item.to === "/warehouses";
+            const link = (
+              <NavLink
+                key={item.to}
+                className={({ isActive: navActive }) =>
+                  cn(
+                    "group flex min-h-[3.375rem] items-center gap-2.5 rounded-md px-2.5 text-sm font-medium transition-all duration-100 active:scale-[0.96] active:transition-transform",
+                    sidebarCollapsed && "h-[3.375rem] w-11 justify-center p-0",
+                    navActive || isActive
+                      ? "bg-primary text-primary-foreground shadow-sm"
+                      : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                  )
+                }
+                to={item.to}
+                aria-label={item.label}
+                onMouseEnter={() => prefetchRouteData(item.to)}
+                onFocus={() => prefetchRouteData(item.to)}
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                <Icon className={cn("shrink-0", sidebarCollapsed ? "h-5 w-5" : "h-4 w-4")} />
+                {sidebarCollapsed ? null : <span className="truncate">{item.label}</span>}
+              </NavLink>
+            );
+
+            const node = sidebarCollapsed ? (
+              <Tooltip key={item.to}>
+                <TooltipTrigger asChild>{link}</TooltipTrigger>
+                <TooltipContent side="right">{item.label}</TooltipContent>
+              </Tooltip>
+            ) : link;
+
+            if (showSeparator) {
+              return (
+                <Fragment key={item.to}>
+                  <div className="my-1 border-t border-sidebar-border" />
+                  {node}
+                </Fragment>
+              );
+            }
+            return node;
+          })}
+        </div>
+      </nav>
+
+      {/* Collapse/expand toggle at bottom — landscape desktop only */}
+      <div className={cn("mt-2 hidden border-t border-sidebar-border pt-2 lg:landscape:flex", sidebarCollapsed ? "justify-center" : "justify-end")}>
+        <Button
+          className="h-8 w-8 shrink-0"
+          size="icon"
+          variant="ghost"
+          onClick={() => setSidebarCollapsed((c) => !c)}
+          aria-label={sidebarCollapsed ? "Expand navigation" : "Collapse navigation"}
+        >
+          {sidebarCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+        </Button>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="h-screen overflow-hidden bg-background">
+      <div
+        className={cn(
+          // Mobile + portrait-desktop: top header + content. Landscape-desktop: sidebar + content.
+          "grid h-full w-full grid-cols-1 grid-rows-[auto_minmax(0,1fr)] overflow-hidden",
+          "lg:landscape:grid-rows-1 lg:landscape:grid-cols-[minmax(11rem,max-content)_minmax(0,1fr)]",
+          sidebarCollapsed && "lg:landscape:grid-cols-[64px_minmax(0,1fr)]",
+        )}
+      >
+        {/* Mobile header */}
+        <header className="col-span-full flex items-center justify-between border-b border-border bg-background/95 px-4 py-3 backdrop-blur lg:landscape:hidden">
+          <div className="flex items-center gap-2">
+            <img src="/logo.png" alt="Warehouse Wizard" className="h-7 w-7 shrink-0 rounded-md object-fill" />
+            <span className="text-sm font-semibold">{appTitle}</span>
+            <span className="hidden text-[10px] font-medium text-muted-foreground sm:inline">v{__APP_VERSION__}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 rounded-md border border-border bg-card/80 px-1.5 py-1">
+              <Avatar className="h-6 w-6">
+                <AvatarFallback className="bg-primary/10 text-[10px] font-semibold text-primary">{initials}</AvatarFallback>
+              </Avatar>
+              <span className="hidden max-w-[120px] truncate text-xs font-medium sm:inline">{displayName}</span>
+            </div>
+            <OfflineQueueBadge compact />
+            <HelpSidebar pathname={pathname} />
+            <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
+              <SheetTrigger asChild>
+                <Button className="h-9 w-9" size="icon" variant="outline">
+                  <Menu className="h-4 w-4" />
+                </Button>
+              </SheetTrigger>
+              <SheetContent side="top" className="flex max-h-svh w-screen max-w-full flex-col p-0">
+                <SheetHeader className="sr-only">
+                  <SheetTitle>Navigation</SheetTitle>
+                </SheetHeader>
+                <div className="flex flex-col border-b border-border bg-card/80 px-4 py-3 gap-2">
+                  <div className="flex items-center gap-3">
+                    <Avatar className="h-9 w-9">
+                      <AvatarFallback className="bg-primary/10 text-xs font-semibold text-primary">{initials}</AvatarFallback>
+                    </Avatar>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium">{displayName}</p>
+                      <p className="truncate text-[11px] text-muted-foreground">v{__APP_VERSION__}</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <ChangeOwnPasswordDialog onClose={() => setMobileMenuOpen(false)} />
+                    <Button className="h-8 flex-1 text-xs justify-start" variant="outline" size="sm" onClick={() => { setMobileMenuOpen(false); void signOut(); }}>
+                      <LogOut className="mr-2 h-3 w-3" />
+                      Sign out
+                    </Button>
+                  </div>
+                </div>
+                <div className="flex-1 overflow-y-auto">{navigation}</div>
+              </SheetContent>
+            </Sheet>
+          </div>
+        </header>
+
+        <aside className="hidden h-full overflow-hidden border-r border-border lg:landscape:block">{navigation}</aside>
+
+        <main className="flex min-h-0 min-w-0 flex-col overflow-hidden">
+          {/* Desktop top bar — landscape only */}
+          <div className="hidden items-center justify-between gap-3 border-b border-border bg-background/95 px-5 py-2.5 backdrop-blur lg:landscape:flex">
+            <div className="min-w-0">
+              <p className="flex items-center gap-2 truncate text-xs text-muted-foreground">
+                <span className="truncate">{items.find((item) => item.to === pathname)?.label ?? "Warehouse Wizard Enterprise WMS"}</span>
+                <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium">v{__APP_VERSION__}</span>
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              {canSwitchWarehouses ? (
+                <Select
+                  value={profile?.default_warehouse_id ?? ""}
+                  onValueChange={(value) => warehouseSwitchMutation.mutate(value)}
+                  disabled={warehouseSwitchMutation.isPending}
+                >
+                  <SelectTrigger className="h-9 w-[13rem]">
+                    <SelectValue placeholder="Select warehouse" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {headerWarehouses.map((warehouse: any) => (
+                      <SelectItem key={warehouse.id} value={warehouse.id}>
+                        {warehouse.code ? `${warehouse.code} - ${warehouse.name}` : warehouse.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : null}
+              <HelpSidebar pathname={pathname} />
+              <OfflineQueueBadge />
+              <ProfileMenu initials={initials} displayName={displayName} onSignOut={() => void signOut()} />
+            </div>
+          </div>
+          <div
+            className={cn(
+              "flex-1 min-h-0 min-w-0 px-4 pt-5 pb-[4.75rem] sm:px-5 lg:px-6 lg:landscape:pb-5",
+              pathname === "/inventory-search" ? "overflow-hidden" : "overflow-y-auto",
+            )}
+          >
+            {children}
+          </div>
+        </main>
+      </div>
+      <AccessRequestsBanner />
+      <FailedTasksReminder />
+    </div>
+  );
+}
+
