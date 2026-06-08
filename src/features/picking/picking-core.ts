@@ -343,5 +343,3 @@ export async function cancelPickList(pickListId: string, reason?: string) {
   });
   if (cancelAudit.error) console.error("[cancelPickList] log_audit_event failed:", cancelAudit.error);
 }
-
-export async function createTransferFlow(input: z.infer<typeof transferSchema>) {
