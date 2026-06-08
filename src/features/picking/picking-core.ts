@@ -4,6 +4,7 @@ import {
   db,
   buildPalletCode,
   formatSupabaseError,
+  throwIfSupabaseError,
   pickListSchema,
   DB_RETIRED_INVENTORY_STATUS_FILTER,
   PICK_COMPLETED_INVENTORY_STATUS,
