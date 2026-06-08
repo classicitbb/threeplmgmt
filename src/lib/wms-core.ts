@@ -2130,8 +2130,11 @@ export async function confirmPickTask(taskId: string, scannedLocation: string, s
   if (["completed", "cancelled"].includes(task.status)) {
     throw new Error("Pick task is already closed. Refresh the pick list.");
   }
-  if (!Number.isFinite(Number(confirmedQuantity)) || Number(confirmedQuantity) <= 0) {
-    throw new Error("Confirmed pick quantity must be greater than zero.");
+  if (!Number.isFinite(Number(confirmedQuantity)) || Number(confirmedQuantity) < 0) {
+    throw new Error("Confirmed pick quantity must be zero or greater.");
+  }
+  if (Number(confirmedQuantity) === 0 && !shortReason) {
+    throw new Error("A short reason is required when confirming zero quantity.");
   }
 
   const [{ data: pallet, error: palletError }, { data: balance, error: balanceError }] = await Promise.all([
@@ -2152,55 +2155,61 @@ export async function confirmPickTask(taskId: string, scannedLocation: string, s
   if (location.data && location.data.code !== scannedLocation) {
     throw new Error("Scanned location does not match the suggested pick location.");
   }
-  if (Number(confirmedQuantity) > Number(balance.available_quantity ?? 0)) {
-    throw new Error(`Cannot pick ${confirmedQuantity}; only ${balance.available_quantity ?? 0} available on this pallet.`);
+
+  let nextBalanceQuantity = Number(balance.quantity ?? 0);
+  let fullyDepleted = false;
+
+  if (Number(confirmedQuantity) > 0) {
+    if (Number(confirmedQuantity) > Number(balance.available_quantity ?? 0)) {
+      throw new Error(`Cannot pick ${confirmedQuantity}; only ${balance.available_quantity ?? 0} available on this pallet.`);
+    }
+
+    const nextAvailable = Math.max(balance.available_quantity - confirmedQuantity, 0);
+    const nextStatus: InventoryStatus = nextAvailable === 0 ? PICK_COMPLETED_INVENTORY_STATUS : "available";
+    fullyDepleted = nextAvailable === 0;
+    const nextPalletQuantity = Math.max(Number(pallet.quantity ?? 0) - confirmedQuantity, 0);
+    nextBalanceQuantity = Math.max(Number(balance.quantity ?? 0) - confirmedQuantity, 0);
+
+    const palletUpdate = await db("pallets")
+      .update(
+        fullyDepleted
+          ? {
+              available_quantity: 0,
+              quantity: 0,
+              reserved_quantity: 0,
+              status: nextStatus,
+              current_location_id: null,
+              is_stored: false,
+            }
+          : {
+              available_quantity: nextAvailable,
+              quantity: nextPalletQuantity,
+              status: nextStatus,
+            },
+      )
+      .eq("id", pallet.id);
+    throwIfSupabaseError(palletUpdate, "Could not debit picked pallet.");
+
+    const balanceUpdate = await db("inventory_balances")
+      .update(
+        fullyDepleted
+          ? {
+              available_quantity: 0,
+              quantity: 0,
+              reserved_quantity: 0,
+              status: nextStatus,
+              location_id: null,
+              zone_id: null,
+            }
+          : {
+              available_quantity: nextAvailable,
+              quantity: nextBalanceQuantity,
+              status: nextStatus,
+            },
+      )
+      .eq("id", balance.id);
+    throwIfSupabaseError(balanceUpdate, "Could not debit picked inventory balance.");
   }
-
-  const nextAvailable = Math.max(balance.available_quantity - confirmedQuantity, 0);
-  const nextStatus: InventoryStatus = nextAvailable === 0 ? PICK_COMPLETED_INVENTORY_STATUS : "available";
-  const fullyDepleted = nextAvailable === 0;
-  const nextPalletQuantity = Math.max(Number(pallet.quantity ?? 0) - confirmedQuantity, 0);
-  const nextBalanceQuantity = Math.max(Number(balance.quantity ?? 0) - confirmedQuantity, 0);
-
-  const palletUpdate = await db("pallets")
-    .update(
-      fullyDepleted
-        ? {
-            available_quantity: 0,
-            quantity: 0,
-            reserved_quantity: 0,
-            status: nextStatus,
-            current_location_id: null,
-            is_stored: false,
-          }
-        : {
-            available_quantity: nextAvailable,
-            quantity: nextPalletQuantity,
-            status: nextStatus,
-          },
-    )
-    .eq("id", pallet.id);
-  throwIfSupabaseError(palletUpdate, "Could not debit picked pallet.");
-
-  const balanceUpdate = await db("inventory_balances")
-    .update(
-      fullyDepleted
-        ? {
-            available_quantity: 0,
-            quantity: 0,
-            reserved_quantity: 0,
-            status: nextStatus,
-            location_id: null,
-            zone_id: null,
-          }
-        : {
-            available_quantity: nextAvailable,
-            quantity: nextBalanceQuantity,
-            status: nextStatus,
-          },
-    )
-    .eq("id", balance.id);
-  throwIfSupabaseError(balanceUpdate, "Could not debit picked inventory balance.");
 
   const taskUpdate = await db("pick_tasks")
     .update({

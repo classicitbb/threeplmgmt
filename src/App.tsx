@@ -1692,7 +1692,7 @@ function PickTaskCard({
   const handleSubmit = form.handleSubmit((values) => {
     const qty = Number(values.quantity);
     const requested = Number(task.requested_quantity);
-    if (!Number.isFinite(qty) || qty <= 0) {
+    if (!Number.isFinite(qty) || qty < 0) {
       toast.error("Enter a confirmed quantity.");
       return;
     }
