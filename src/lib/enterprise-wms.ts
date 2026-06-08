@@ -300,8 +300,8 @@ export function buildWarehouseBrainRecommendations(
   reportData: EnterpriseReportData | undefined,
 ): WarehouseBrainRecommendation[] {
   const inventory = reportData?.inventory ?? [];
-  const expiring60 = metrics?.expiryWarning60 ?? countExpiringSoon(inventory, 60);
-  const expiring30 = metrics?.expiryWarning30 ?? countExpiringSoon(inventory, 30);
+  const expiring60 = metrics?.expiryWarning60 || countExpiringSoon(inventory, 60);
+  const expiring30 = metrics?.expiryWarning30 || countExpiringSoon(inventory, 30);
   const lowStock = inventory.filter((row) => (row.available_quantity ?? 0) > 0 && (row.available_quantity ?? 0) <= 10).length;
   const controlled = (metrics?.holdStock ?? 0) + (metrics?.quarantineStock ?? 0);
   const openWork = (metrics?.openPutawayTasks ?? 0) + (metrics?.openPickLists ?? 0);

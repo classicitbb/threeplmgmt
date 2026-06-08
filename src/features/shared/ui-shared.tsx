@@ -191,7 +191,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 const baseFormSchema = z.record(z.any());
-const appTitle = "Warehouse Wizard Enterprise WMS";
+export const appTitle = "Warehouse Wizard Enterprise WMS";
 
 type DashboardMetricKey =
   | "totalPallets"
@@ -3606,7 +3606,7 @@ function ShipmentFieldLabel({ children }: { children: ReactNode }) {
   return <label className="text-sm font-medium leading-none text-foreground">{children}</label>;
 }
 
-function useIsMobileEntry() {
+export function useIsMobileEntry() {
   const [isMobileEntry, setIsMobileEntry] = useState(false);
   useEffect(() => {
     if (typeof window === "undefined") return;
