@@ -391,7 +391,9 @@ export function LocationMovesPage() {
               />
             </div>
           </div>
-          {newPallet.trim() && isBaySelectorCode(newLocation) ? (
+          {newPallet.trim() && newLocation.trim().length >= 2 && isBaySelectorCode(newLocation) ? (
+            <BayOccupancyGrid locationCode={newLocation} onSelect={selectNewMoveLocation} />
+          ) : newPallet.trim() && newLocation.trim().length >= 2 && !newValidation?.valid ? (
             <BayOccupancyGrid locationCode={newLocation} onSelect={selectNewMoveLocation} />
           ) : null}
           {/* Validation feedback */}
