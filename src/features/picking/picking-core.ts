@@ -8,8 +8,10 @@ import {
   pickListSchema,
   DB_RETIRED_INVENTORY_STATUS_FILTER,
   PICK_COMPLETED_INVENTORY_STATUS,
+  type InventoryStatus,
 } from "@/features/shared/core-types";
 import { upsertRecord } from "@/features/admin/admin-core";
+import { createLabelRecord } from "@/features/receiving/receiving-core";
 
 async function selectPickCandidates(productId: string, warehouseId: string, quantity: number) {
   const { data: product } = await db("products").select("*").eq("id", productId).single();
