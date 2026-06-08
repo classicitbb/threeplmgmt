@@ -197,6 +197,7 @@ import {
   normalizeScannerText,
   playBarcodeBeep,
   flashInput,
+  WarehouseBayBrowserDialog,
 } from "@/features/shared/ui-shared";
 
 export function LocationMovesPage() {
@@ -211,6 +212,19 @@ export function LocationMovesPage() {
   const [newValidating, setNewValidating] = useState(false);;
   const [completedIds, setCompletedIds] = useState<Set<string>>(new Set());
   const [cancelledIds, setCancelledIds] = useState<Set<string>>(new Set());
+  const [bayBrowserOpen, setBayBrowserOpen] = useState(false);
+  const [bayBrowserWarehouseId, setBayBrowserWarehouseId] = useState<string | null>(null);
+
+  const { data: warehousesForBrowse = [] } = useQuery<Array<{ id: string; code: string; name: string }>>({
+    queryKey: ["warehouses", "moves-bay-browser"],
+    queryFn: () => listRecords("warehouses", "id, code, name") as any,
+    staleTime: 60_000,
+  });
+
+  function openBayBrowser(warehouseId: string) {
+    setBayBrowserWarehouseId(warehouseId);
+    setBayBrowserOpen(true);
+  }
 
   const invalidateMoveData = useCallback(async () => {
     await Promise.all([
