@@ -209,8 +209,8 @@ export function buildEnterpriseDashboard(
   const inventory = reportData?.inventory ?? [];
   const occupancy = reportData?.occupancy ?? [];
   const cycleCounts = reportData?.cycleCounts ?? [];
-  const expiring60 = metrics?.expiryWarning60 ?? countExpiringSoon(inventory, 60);
-  const expiring30 = metrics?.expiryWarning30 ?? countExpiringSoon(inventory, 30);
+  const expiring60 = metrics?.expiryWarning60 || countExpiringSoon(inventory, 60);
+  const expiring30 = metrics?.expiryWarning30 || countExpiringSoon(inventory, 30);
   const lowStock = inventory.filter((row) => (row.available_quantity ?? 0) > 0 && (row.available_quantity ?? 0) <= 10).length;
   const controlled = (metrics?.holdStock ?? 0) + (metrics?.quarantineStock ?? 0);
   const fullLocations = occupancy.filter((row) => row.is_full).length;

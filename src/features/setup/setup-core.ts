@@ -227,7 +227,7 @@ export function expandLocationRange(input: LocationRangeInput): ExpandedLocation
           position,
           depth,
           maxPallets: depth,
-          localCode: `${input.prefix}-${String(bay).padStart(2, "0")}-L${String(level).padStart(2, "0")}-P${String(position).padStart(2, "0")}`,
+          localCode: `${input.prefix}-${String(bay).padStart(2, "0")}-L${String(level).padStart(2, "0")}-P${position}`,
         });
       }
     }
