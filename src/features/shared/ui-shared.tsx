@@ -612,7 +612,7 @@ export const navIcons: Record<AppRoute, typeof LayoutDashboard> = {
   "/setup-wizard": Settings,
 };
 
-function TableFrame({
+export function TableFrame({
   children,
   className,
 }: {
@@ -3524,7 +3524,7 @@ function WarehouseBrainPanel({ recommendations }: { recommendations: WarehouseBr
   );
 }
 
-function toneBorder(tone: "success" | "warning" | "critical" | "info") {
+export function toneBorder(tone: "success" | "warning" | "critical" | "info") {
   if (tone === "critical") return "border-l-destructive";
   if (tone === "warning") return "border-l-warning";
   if (tone === "info") return "border-l-info";
@@ -4600,7 +4600,7 @@ export function ReceivingPage() {
   );
 }
 
-function TextField({
+export function TextField({
   form,
   name,
   label,
