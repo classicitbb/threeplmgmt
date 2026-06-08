@@ -1051,7 +1051,19 @@ function ConfirmDeleteDialog({
 
 export function WarehouseStructureTab() {
   const navigate = useNavigate();
-  const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
+  const { profile } = useAuth();
+
+  const LS_KEY = "wms-tree-expanded";
+  const activeWarehouseId = profile?.default_warehouse_id;
+
+  const [expandedNodes, setExpandedNodes] = useState<Set<string>>(() => {
+    try {
+      const raw = localStorage.getItem(LS_KEY);
+      if (raw) return new Set(JSON.parse(raw) as string[]);
+    } catch { /* ignore */ }
+    return new Set<string>();
+  });
+
   const [filter, setFilter] = useState("");
   const [dialog, setDialog] = useState<ActiveDialog>(null);
 
@@ -1059,6 +1071,7 @@ export function WarehouseStructureTab() {
     setExpandedNodes((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key); else next.add(key);
+      try { localStorage.setItem(LS_KEY, JSON.stringify([...next])); } catch { /* ignore */ }
       return next;
     });
   }, []);
