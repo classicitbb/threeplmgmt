@@ -3531,7 +3531,7 @@ function toneBorder(tone: "success" | "warning" | "critical" | "info") {
   return "border-l-success";
 }
 
-type ReceivingShipmentLineState = {
+export type ReceivingShipmentLineState = {
   id: string;
   product_id: string;
   total_quantity: number;
@@ -3544,7 +3544,7 @@ type ReceivingShipmentLineState = {
   remainder_action: "waive" | "manual" | "special" | "";
 };
 
-type ReceivingShipmentFormState = {
+export type ReceivingShipmentFormState = {
   receipt_type: "po" | "transfer" | "other";
   warehouse_id: string;
   client_id: string;
@@ -3588,7 +3588,7 @@ export function distributeShipmentLine(line: ReceivingShipmentLineState, changed
   };
 }
 
-function parseDraftMeta(notes: string | null | undefined): Record<string, any> {
+export function parseDraftMeta(notes: string | null | undefined): Record<string, any> {
   if (!notes) return {};
   try {
     const parsed = JSON.parse(notes);
@@ -3598,11 +3598,11 @@ function parseDraftMeta(notes: string | null | undefined): Record<string, any> {
   }
 }
 
-function remainderForLine(line: ReceivingShipmentLineState) {
+export function remainderForLine(line: ReceivingShipmentLineState) {
   return Math.max(0, Number(line.total_quantity || 0) - (Number(line.quantity_per_pallet || 0) * Number(line.pallet_count || 0)));
 }
 
-function ShipmentFieldLabel({ children }: { children: ReactNode }) {
+export function ShipmentFieldLabel({ children }: { children: ReactNode }) {
   return <label className="text-sm font-medium leading-none text-foreground">{children}</label>;
 }
 
@@ -3619,17 +3619,17 @@ export function useIsMobileEntry() {
   return isMobileEntry;
 }
 
-function productRequiresExpiry(product?: { expiry_tracked?: boolean } | null) {
+export function productRequiresExpiry(product?: { expiry_tracked?: boolean } | null) {
   return Boolean(product?.expiry_tracked);
 }
 
-function defaultExpiryDate() {
+export function defaultExpiryDate() {
   const date = new Date();
   date.setDate(date.getDate() + 30);
   return date.toISOString().slice(0, 10);
 }
 
-function draftToReceivingValues(draft: DraftReceipt): z.infer<typeof receivingSchema> {
+export function draftToReceivingValues(draft: DraftReceipt): z.infer<typeof receivingSchema> {
   const meta = parseDraftMeta(draft.notes);
   return {
     receipt_type: "other",
@@ -3663,7 +3663,7 @@ function labelHasValue(value: unknown) {
   return value != null && String(value).trim() !== "";
 }
 
-function printDraftLabels(
+export function printDraftLabels(
   drafts: DraftReceipt[],
   products: Array<{ id: string; sku: string; name: string; temperature_requirement?: string | null }>,
   clients: Array<{ id: string; name: string }>,
