@@ -1,157 +1,19 @@
 import { z } from "zod";
-
 import { supabase } from "@/integrations/supabase/client";
 import {
   db,
   formatSupabaseError,
   throwIfSupabaseError,
-  type FieldDefinition,
-  type ResourceDefinition,
-  type WarehouseVisibilityScope,
+  applyArchiveFilter,
+  receivingSchema,
+  pickListSchema,
+  transferSchema,
+  cycleCountSchema,
+  statusChangeSchema,
   type ArchiveField,
-  type RoleCode,
+  type WarehouseVisibilityScope,
+  type ProfileUpdateInput,
 } from "@/features/shared/core-types";
-
-// Re-export ArchiveField for local use (it's not exported from core-types directly)
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-type _ArchiveField = ArchiveField;
-
-export function formatDate(value: string | null | undefined) {
-  if (!value) return "—";
-  return format(new Date(value), "dd MMM yyyy");
-}
-
-export function formatNumber(value: number | null | undefined) {
-  if (value == null) return "0";
-  return new Intl.NumberFormat().format(value);
-}
-
-export function downloadCsv(filename: string, rows: Array<Record<string, unknown>>) {
-  const headers = Array.from(new Set(rows.flatMap((row) => Object.keys(row))));
-  const csv = [
-    headers.join(","),
-    ...rows.map((row) =>
-      headers
-        .map((header) => JSON.stringify(row[header] ?? ""))
-        .join(","),
-    ),
-  ].join("\n");
-
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-  const link = document.createElement("a");
-  link.href = URL.createObjectURL(blob);
-  link.download = filename;
-  link.click();
-  URL.revokeObjectURL(link.href);
-}
-
-export function downloadCsvTemplate(resource: ResourceDefinition) {
-  const rows = [
-    resource.fields.map((field) => field.name),
-    resource.fields.map((field) => field.label),
-    resource.fields.map((field) => templateExampleValue(resource.table, field)),
-    resource.fields.map((field) => (field.required ? "required" : "optional")),
-  ];
-  const csv = rows.map((row) => row.map((value) => JSON.stringify(value ?? "")).join(",")).join("\n");
-
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-  const link = document.createElement("a");
-  link.href = URL.createObjectURL(blob);
-  link.download = `${resource.table}-import-template.csv`;
-  link.click();
-  URL.revokeObjectURL(link.href);
-}
-
-export function templateExampleValue(resourceTable: string, field: FieldDefinition) {
-  if (field.name.endsWith("_id")) return `replace-with-${field.name}`;
-  if (field.type === "boolean") return "true";
-  if (field.type === "number") return field.name.includes("sequence") ? "10" : "1";
-  if (field.type === "select") return field.options?.[0]?.value ?? "";
-
-  const examples: Record<string, Record<string, string>> = {
-    locations: {
-      code: "MAIN-STG-A-01-L01",
-      aisle: "A",
-      bay: "01",
-      status: "active",
-    },
-    products: {
-      sku: "SKU-EXAMPLE-001",
-      barcode: "0123456789012",
-      name: "Example Product",
-      description: "Imported product master record",
-      product_family: "Ambient",
-      rotation_method: "fifo",
-    },
-  };
-
-  return examples[resourceTable]?.[field.name] ?? "";
-}
-
-export function parseCsv(text: string) {
-  const [headerLine, ...lines] = text.split(/\r?\n/).filter(Boolean);
-  const headers = headerLine.split(",").map((value) => value.trim());
-
-  return lines.map((line) => {
-    const values = line.split(",").map((value) => value.replace(/^"|"$/g, "").trim());
-    return headers.reduce<Record<string, string>>((accumulator, header, index) => {
-      accumulator[header] = values[index] ?? "";
-      return accumulator;
-    }, {});
-  });
-}
-
-export function validatePutawayAssignment(input: {
-  productTemperature: TemperatureClass;
-  locationTemperature: TemperatureClass;
-  locationStatus: string;
-  locationMaxPallets: number;
-  occupiedPallets: number;
-  mixedSkuAllowed: boolean;
-  hasOtherSku: boolean;
-  palletHeightCm?: number | null;
-  locationMaxPalletHeightCm?: number | null;
-}) {
-  if (input.locationStatus !== "active") {
-    return { valid: false, reason: "Location is not active" };
-  }
-  if (input.productTemperature === "cool" && input.locationTemperature !== "cool") {
-    return { valid: false, reason: "Cool-chain pallet cannot be placed in a non-cool location" };
-  }
-  if (input.occupiedPallets >= input.locationMaxPallets) {
-    return { valid: false, reason: "Location is full" };
-  }
-  if (input.hasOtherSku && !input.mixedSkuAllowed) {
-    return { valid: false, reason: "Location blocks mixed SKU storage" };
-  }
-  if (
-    input.locationMaxPalletHeightCm != null &&
-    input.palletHeightCm != null &&
-    input.palletHeightCm > input.locationMaxPalletHeightCm
-  ) {
-    return {
-      valid: false,
-      reason: `Pallet height ${input.palletHeightCm} cm exceeds location ceiling of ${input.locationMaxPalletHeightCm} cm`,
-    };
-  }
-  return { valid: true, reason: "Assignment valid" };
-}
-
-export function applyArchiveFilter(
-  query: any,
-  archiveField?: ArchiveField,
-  includeHidden = false,
-) {
-  if (includeHidden || !archiveField) {
-    return query;
-  }
-
-  if (archiveField === "active") {
-    return query.eq("active", true);
-  }
-
-  return query.eq("is_hidden", false);
-}
 
 export async function listRecords(
   table: string,
@@ -543,4 +405,3 @@ async function logUserActivity(
   });
   if (auditR.error) console.error("[logUserActivity] log_audit_event failed:", auditR.error);
 }
-

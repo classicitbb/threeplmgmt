@@ -1,14 +1,11 @@
-import { z } from "zod";
 import { supabase } from "@/integrations/supabase/client";
+import { recordPlacementObservation } from "@/lib/ai-assist";
 import {
   db,
-  buildPalletCode,
   getStoredPalletCount,
-  throwIfSupabaseError,
-  type BayOccupancyGridSlot,
+  validatePutawayAssignment,
+  formatSupabaseError,
 } from "@/features/shared/core-types";
-import { upsertRecord } from "@/features/admin/admin-core";
-import { createReturnedPalletDraft } from "@/features/receiving/receiving-core";
 
 export async function getPutawayTasks(userId?: string) {
   let query = db("putaway_tasks")
@@ -145,36 +142,6 @@ export async function confirmPutaway(
   ).catch((err) => console.error("[ai-assist] placement record failed:", err));
 }
 
-async function selectPickCandidates(productId: string, warehouseId: string, quantity: number) {
-  const { data: product } = await db("products").select("*").eq("id", productId).single();
-
-  const { data, error } = await db("inventory_balances")
-    .select("pallet_id, location_id, available_quantity, expiry_date, received_at")
-    .eq("product_id", productId)
-    .eq("warehouse_id", warehouseId)
-    .eq("status", "available")
-    .gt("available_quantity", 0);
-  if (error) throw error;
-
-  const candidates = [...(data ?? [])].sort((left, right) => {
-    if (product?.rotation_method === "fefo") {
-      return (left.expiry_date ?? "9999-12-31").localeCompare(right.expiry_date ?? "9999-12-31");
-    }
-    return String(left.received_at ?? "").localeCompare(String(right.received_at ?? ""));
-  });
-
-  const chosen: any[] = [];
-  let remaining = quantity;
-  for (const candidate of candidates) {
-    if (remaining <= 0) break;
-    chosen.push(candidate);
-    remaining -= candidate.available_quantity;
-  }
-
-  return { candidates: chosen, short: remaining > 0 ? remaining : 0 };
-}
-
-
 export async function getPutawayTaskHistory(userId?: string) {
   let query = db("putaway_tasks")
     .select("*, pallets(*, products(*)), locations: suggested_location_id(*)")
@@ -191,7 +158,6 @@ export async function getPutawayTaskHistory(userId?: string) {
   if (error) throw error;
   return data ?? [];
 }
-
 
 export async function revertPutawayToDraft(taskId: string): Promise<void> {
   const { data: task, error } = await db("putaway_tasks").select("*, pallets(pallet_barcode)").eq("id", taskId).single();
@@ -232,4 +198,3 @@ export async function revertPutawayToDraft(taskId: string): Promise<void> {
     in_metadata: { previous_status: task.status },
   });
 }
-

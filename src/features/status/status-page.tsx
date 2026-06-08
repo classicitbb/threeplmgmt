@@ -384,12 +384,3 @@ export function ReportsPage() {
     </div>
   );
 }
-
-const inviteUserSchema = z.object({
-  email: z.string().email("Valid email required"),
-  full_name: z.string().min(2, "Name required"),
-  password: z.string().min(8, "Min 8 characters"),
-  role_code: z.string().optional(),
-  warehouse_id: z.string().optional(),
-});
-

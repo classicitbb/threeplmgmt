@@ -3,13 +3,12 @@ import { supabase } from "@/integrations/supabase/client";
 import {
   db,
   buildPalletCode,
-  DB_RETIRED_INVENTORY_STATUS_FILTER,
-  throwIfSupabaseError,
+  formatSupabaseError,
   pickListSchema,
-  type InventoryStatus,
+  DB_RETIRED_INVENTORY_STATUS_FILTER,
+  PICK_COMPLETED_INVENTORY_STATUS,
 } from "@/features/shared/core-types";
 import { upsertRecord } from "@/features/admin/admin-core";
-import { createLabelRecord } from "@/features/receiving/receiving-core";
 
 async function selectPickCandidates(productId: string, warehouseId: string, quantity: number) {
   const { data: product } = await db("products").select("*").eq("id", productId).single();
@@ -117,7 +116,6 @@ export async function listPickLists() {
   if (error) throw error;
   return data ?? [];
 }
-
 
 export async function getPickExecution(pickListId: string) {
   const [pickList, pickTasks] = await Promise.all([

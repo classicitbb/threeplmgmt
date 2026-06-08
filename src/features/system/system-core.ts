@@ -1,3 +1,4 @@
+import { supabase } from "@/integrations/supabase/client";
 import { db } from "@/features/shared/core-types";
 
 export type ClientVariable = {
@@ -127,37 +128,3 @@ export async function resolveSystemLog(id: string) {
     .eq("id", id);
   if (error) throw error;
 }
-
-export async function snapshotRecordCounts() {
-  const tables = [
-    "warehouses", "zones", "locations", "clients", "products",
-    "pallets", "inventory_balances", "receipts", "putaway_tasks",
-    "pick_lists", "transfers", "cycle_counts", "audit_events",
-  ];
-
-  const counts = await Promise.all(
-    tables.map(async (table) => {
-      const { count, error } = await db(table).select("*", { count: "exact", head: true });
-      return { table, count: error ? null : (count ?? 0) };
-    }),
-  );
-
-  await Promise.all(
-    counts.map(({ table, count }) =>
-      count !== null
-        ? writeSystemLog({
-            log_type: "record_count",
-            severity: "info",
-            title: `Record count snapshot: ${table}`,
-            table_name: table,
-            record_count: count,
-            source: "snapshot",
-          })
-        : Promise.resolve(),
-    ),
-  );
-
-  return counts;
-}
-
-// ── Draft receipts ────────────────────────────────────────────────────────────

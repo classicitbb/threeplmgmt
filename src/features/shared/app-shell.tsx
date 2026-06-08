@@ -193,6 +193,77 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 
 import { FailedTasksReminder, AccessRequestsBanner } from "@/features/shared/ui-shared";
 
+function ProfileMenu({ initials, displayName, onSignOut }: { initials: string; displayName: string; onSignOut: () => void }) {
+  const [pwOpen, setPwOpen] = useState(false);
+  return (
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            className="flex items-center gap-2 rounded-lg border border-border bg-card/80 px-2.5 py-1.5 text-sm transition-colors hover:bg-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <Avatar className="h-6 w-6">
+              <AvatarFallback className="bg-primary/10 text-xs font-semibold text-primary">{initials}</AvatarFallback>
+            </Avatar>
+            <span className="hidden truncate text-xs font-medium sm:block">{displayName}</span>
+            <ChevronDown className="h-3 w-3 text-muted-foreground" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-48">
+          <DropdownMenuItem onSelect={(event) => { event.preventDefault(); setPwOpen(true); }}>
+            <KeyRound className="mr-2 h-3.5 w-3.5" />
+            Change password
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={() => onSignOut()}>
+            <LogOut className="mr-2 h-3.5 w-3.5" />
+            Sign out
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <ChangeOwnPasswordDialog open={pwOpen} onOpenChange={setPwOpen} hideTrigger />
+    </>
+  );
+}
+
+function OfflineQueueBadge({ compact = false }: { compact?: boolean }) {
+  const { count, syncing } = useOfflineQueue();
+  if (count === 0 && !syncing) return null;
+  const label = syncing ? "Syncing…" : `${count} queued`;
+  const handleClick = async () => {
+    if (syncing) return;
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      toast.error("Still offline — reconnect to a network, then tap again.");
+      return;
+    }
+    const result = await flushOfflineQueue();
+    if (result.remaining === 0 && result.succeeded > 0) {
+      toast.success(`Synced ${result.succeeded} buffered action${result.succeeded === 1 ? "" : "s"}.`);
+    } else if (result.remaining > 0) {
+      toast.warning(`${result.remaining} item${result.remaining === 1 ? "" : "s"} still pending — will retry on next reconnect.`);
+    }
+  };
+  return (
+    <Button
+      type="button"
+      size="sm"
+      variant="outline"
+      onClick={handleClick}
+      disabled={syncing}
+      className={cn(
+        "h-9 gap-1.5 border-amber-400/60 bg-amber-50 text-amber-900 hover:bg-amber-100 dark:bg-amber-950/40 dark:text-amber-100 dark:hover:bg-amber-900/50",
+        compact && "px-2 text-[11px]",
+      )}
+      title="Buffered work waiting for reconnect"
+    >
+      {syncing ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <CloudOff className="h-3.5 w-3.5" />}
+      <span className={cn(compact && "hidden sm:inline")}>{label}</span>
+      {!compact && count > 0 && !syncing ? <span className="text-xs opacity-70">tap to sync</span> : null}
+    </Button>
+  );
+}
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { pathname } = useLocation();
   const { profile, roles, signOut, user, refreshProfile } = useAuth();
@@ -509,4 +580,3 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     </div>
   );
 }
-

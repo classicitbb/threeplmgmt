@@ -6,7 +6,6 @@ import {
   cycleCountSchema,
 } from "@/features/shared/core-types";
 import { upsertRecord } from "@/features/admin/admin-core";
-import { createLabelRecord } from "@/features/receiving/receiving-core";
 
 export async function createCycleCountFlow(input: z.infer<typeof cycleCountSchema>) {
   const payload = cycleCountSchema.parse(input);
@@ -84,4 +83,3 @@ export async function submitCycleCountLine(lineId: string, countedQuantity: numb
     ]);
   }
 }
-

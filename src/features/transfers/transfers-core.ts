@@ -3,11 +3,24 @@ import { supabase } from "@/integrations/supabase/client";
 import {
   db,
   buildPalletCode,
-  throwIfSupabaseError,
+  formatSupabaseError,
   transferSchema,
 } from "@/features/shared/core-types";
 import { upsertRecord } from "@/features/admin/admin-core";
-import { createLabelRecord, createReturnedPalletDraft } from "@/features/receiving/receiving-core";
+
+async function resolvePalletId(palletInput: string) {
+  const normalized = palletInput.trim();
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(normalized)) {
+    return normalized;
+  }
+
+  const { data, error } = await db("pallets")
+    .select("id")
+    .or(`pallet_code.eq.${normalized},pallet_barcode.eq.${normalized}`)
+    .single();
+  if (error) throw new Error("Pallet barcode was not found.");
+  return data.id as string;
+}
 
 export async function createTransferFlow(input: z.infer<typeof transferSchema>) {
   const payload = transferSchema.parse(input);
@@ -204,4 +217,3 @@ export async function listTransfers() {
   if (error) throw error;
   return data ?? [];
 }
-

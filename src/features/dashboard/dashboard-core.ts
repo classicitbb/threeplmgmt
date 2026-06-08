@@ -1,9 +1,12 @@
 import {
   db,
-  type DashboardMetrics,
-  type DashboardMetricKey,
-  type DashboardTaskRow,
+  isRetiredInventoryStatus,
+  hasVisibleInventoryQuantity,
+  DB_RETIRED_INVENTORY_STATUS_FILTER,
   getDashboardMetricKeysForModules,
+  type DashboardMetrics,
+  type DashboardTaskRow,
+  type DashboardMetricKey,
 } from "@/features/shared/core-types";
 
 export async function getDashboardMetrics(warehouseId?: string | null, enabledModules?: Partial<Record<string, boolean>>) {
@@ -204,4 +207,3 @@ export async function getDashboardMetrics(warehouseId?: string | null, enabledMo
     dashboardMetricKeys,
   } satisfies DashboardMetrics;
 }
-

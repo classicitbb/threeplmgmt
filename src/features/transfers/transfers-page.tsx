@@ -443,4 +443,3 @@ export function TransfersPage() {
     </div>
   );
 }
-

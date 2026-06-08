@@ -5,12 +5,19 @@ import { recordPalletQtyObservation } from "@/lib/ai-assist";
 import {
   db,
   buildPalletCode,
+  getStoredPalletCounts,
+  formatSupabaseError,
   throwIfSupabaseError,
-  type InventoryStatus,
   receivingSchema,
+  type InventoryStatus,
 } from "@/features/shared/core-types";
-import { upsertRecord } from "@/features/admin/admin-core";
 import { writeSystemLog } from "@/features/system/system-core";
+
+function buildPalletCode(prefix: string) {
+  const time = Date.now().toString().slice(-8);
+  const rand = Math.random().toString(36).slice(2, 6).toUpperCase();
+  return `${prefix}-${time}${rand}`;
+}
 
 function buildClientId(_prefix?: string) {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
@@ -93,7 +100,7 @@ async function resolveInventoryLot(payload: z.infer<typeof receivingSchema>) {
   return data;
 }
 
-export async function createLabelRecord(label_type: string, entityId: string, labelCode: string) {
+async function createLabelRecord(label_type: string, entityId: string, labelCode: string) {
   const { error } = await db("barcode_labels").insert({
     label_type,
     entity_id: entityId,
@@ -257,6 +264,7 @@ export async function createReceiptFlow(input: z.infer<typeof receivingSchema>) 
   return { receipt, receiptLine, pallet, putawayTask, topSuggestion };
 }
 
+// ── Draft receipts ────────────────────────────────────────────────────────────
 
 export type DraftReceipt = {
   id: string;
@@ -528,7 +536,7 @@ export async function updateDraftReceipt(draftId: string, values: z.infer<typeof
   }).catch((error) => console.error("[updateDraftReceipt] writeSystemLog failed:", error));
 }
 
-export async function createReturnedPalletDraft({
+async function createReturnedPalletDraft({
   palletId,
   warehouseId,
   sourceLabel,
@@ -826,53 +834,3 @@ export async function deleteDraftReceipt(draftId: string): Promise<void> {
     details: { draftId, receipt_number: (draft as any)?.receipt_number ?? null, reference_number: (draft as any)?.reference_number ?? null },
   }).catch((error) => console.error("[deleteDraftReceipt] writeSystemLog failed:", error));
 }
-
-// ── Bin capacity helper ───────────────────────────────────────────────────────
-
-async function getStoredPalletCounts(locationIds: string[]): Promise<Map<string, number>> {
-  if (locationIds.length === 0) return new Map();
-
-  const [balanceResult, palletResult] = await Promise.all([
-    db("inventory_balances")
-      .select("location_id, status")
-      .in("location_id", locationIds)
-      .not("status", "in", DB_RETIRED_INVENTORY_STATUS_FILTER),
-    db("pallets")
-      .select("current_location_id, status")
-      .in("current_location_id", locationIds)
-      .not("status", "in", DB_RETIRED_INVENTORY_STATUS_FILTER),
-  ]);
-
-  const balanceCounts = new Map<string, number>();
-  if (!balanceResult.error) {
-    for (const row of balanceResult.data ?? []) {
-      if (isRetiredInventoryStatus(row.status)) continue;
-      const id = row.location_id;
-      if (id) balanceCounts.set(id, (balanceCounts.get(id) ?? 0) + 1);
-    }
-  } else {
-    console.warn("[getStoredPalletCounts] inventory balance count unavailable:", balanceResult.error);
-  }
-
-  const palletCounts = new Map<string, number>();
-  if (!palletResult.error) {
-    for (const row of palletResult.data ?? []) {
-      if (isRetiredInventoryStatus(row.status)) continue;
-      const id = row.current_location_id;
-      if (id) palletCounts.set(id, (palletCounts.get(id) ?? 0) + 1);
-    }
-  } else {
-    console.warn("[getStoredPalletCounts] pallet count unavailable:", palletResult.error);
-  }
-
-  const counts = new Map<string, number>();
-  for (const id of locationIds) {
-    counts.set(id, Math.max(balanceCounts.get(id) ?? 0, palletCounts.get(id) ?? 0));
-  }
-  return counts;
-}
-
-async function getStoredPalletCount(locationId: string): Promise<number> {
-  return (await getStoredPalletCounts([locationId])).get(locationId) ?? 0;
-}
-

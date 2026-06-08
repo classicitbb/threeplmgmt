@@ -639,4 +639,3 @@ export function LocationMovesPage() {
     </div>
   );
 }
-

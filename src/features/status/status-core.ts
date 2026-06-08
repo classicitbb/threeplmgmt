@@ -2,11 +2,24 @@ import { z } from "zod";
 import { supabase } from "@/integrations/supabase/client";
 import {
   db,
-  buildPalletCode,
   statusChangeSchema,
+  DB_RETIRED_INVENTORY_STATUS_FILTER,
 } from "@/features/shared/core-types";
-import { upsertRecord } from "@/features/admin/admin-core";
 import { writeSystemLog } from "@/features/system/system-core";
+
+async function resolvePalletId(palletInput: string) {
+  const normalized = palletInput.trim();
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(normalized)) {
+    return normalized;
+  }
+
+  const { data, error } = await db("pallets")
+    .select("id")
+    .or(`pallet_code.eq.${normalized},pallet_barcode.eq.${normalized}`)
+    .single();
+  if (error) throw new Error("Pallet barcode was not found.");
+  return data.id as string;
+}
 
 export async function listStatusPallets() {
   const { data, error } = await db("inventory_search_view")
@@ -61,18 +74,3 @@ export async function changePalletStatus(input: z.infer<typeof statusChangeSchem
     details: { palletId, old_status: balance.status, new_status: payload.new_status, reason: payload.reason },
   }).catch((error) => console.error("[changePalletStatus] writeSystemLog failed:", error));
 }
-
-async function resolvePalletId(palletInput: string) {
-  const normalized = palletInput.trim();
-  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(normalized)) {
-    return normalized;
-  }
-
-  const { data, error } = await db("pallets")
-    .select("id")
-    .or(`pallet_code.eq.${normalized},pallet_barcode.eq.${normalized}`)
-    .single();
-  if (error) throw new Error("Pallet barcode was not found.");
-  return data.id as string;
-}
-

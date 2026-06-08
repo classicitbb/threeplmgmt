@@ -4,10 +4,12 @@ import { format } from "date-fns";
 import { supabase } from "@/integrations/supabase/client";
 import { validateIso6346ContainerNumber } from "@/lib/container-number";
 import { recordPalletQtyObservation, recordPlacementObservation } from "@/lib/ai-assist";
+// isDesktopClient reserved for future device-aware flows
 
+// Helper to bypass strict Supabase typing for tables not yet in the schema.
+// Once all WMS tables are migrated, this can be replaced with direct db() calls.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export const db = supabase.from.bind(supabase) as (table: string) => any;
-
+const db = supabase.from.bind(supabase) as (table: string) => any;
 // These types will come from the DB once all WMS tables are created.
 // For now we define them locally so the code compiles.
 export type RoleCode =
@@ -23,15 +25,15 @@ export type InventoryStatus = string;
 export type TaskStatus = string;
 export type TemperatureClass = string;
 
-export const PICK_COMPLETED_INVENTORY_STATUS: InventoryStatus = "shipped";
-export const DB_RETIRED_INVENTORY_STATUS_FILTER = "(shipped,in_transit,missing)";
-export const RETIRED_INVENTORY_STATUSES = new Set(["picked", "shipped", "in_transit", "missing"]);
+const PICK_COMPLETED_INVENTORY_STATUS: InventoryStatus = "shipped";
+const DB_RETIRED_INVENTORY_STATUS_FILTER = "(shipped,in_transit,missing)";
+const RETIRED_INVENTORY_STATUSES = new Set(["picked", "shipped", "in_transit", "missing"]);
 
-export function isRetiredInventoryStatus(status: unknown): boolean {
+function isRetiredInventoryStatus(status: unknown): boolean {
   return RETIRED_INVENTORY_STATUSES.has(String(status ?? "").toLowerCase());
 }
 
-export function hasVisibleInventoryQuantity(row: Record<string, unknown>): boolean {
+function hasVisibleInventoryQuantity(row: Record<string, unknown>): boolean {
   return Number(row.available_quantity ?? 0) > 0 || Number(row.quantity ?? 0) > 0;
 }
 
@@ -106,7 +108,7 @@ export type ProfileUpdateInput = {
   badge_code?: string | null;
 };
 
-export function formatSupabaseError(error: unknown, fallback: string) {
+function formatSupabaseError(error: unknown, fallback: string) {
   if (!error) return fallback;
   if (error instanceof Error) return error.message;
   if (typeof error === "object") {
@@ -119,7 +121,7 @@ export function formatSupabaseError(error: unknown, fallback: string) {
   return String(error);
 }
 
-export function throwIfSupabaseError(result: { error?: unknown } | null | undefined, fallback: string) {
+function throwIfSupabaseError(result: { error?: unknown } | null | undefined, fallback: string) {
   if (result?.error) throw new Error(formatSupabaseError(result.error, fallback));
 }
 
@@ -563,16 +565,158 @@ export const statusChangeSchema = z.object({
   reason: z.string().min(3),
 });
 
+export function formatDate(value: string | null | undefined) {
+  if (!value) return "—";
+  return format(new Date(value), "dd MMM yyyy");
+}
 
-// ── Pallet code generator ───────────────────────────────────────────────────
+export function formatNumber(value: number | null | undefined) {
+  if (value == null) return "0";
+  return new Intl.NumberFormat().format(value);
+}
+
+export function downloadCsv(filename: string, rows: Array<Record<string, unknown>>) {
+  const headers = Array.from(new Set(rows.flatMap((row) => Object.keys(row))));
+  const csv = [
+    headers.join(","),
+    ...rows.map((row) =>
+      headers
+        .map((header) => JSON.stringify(row[header] ?? ""))
+        .join(","),
+    ),
+  ].join("\n");
+
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(link.href);
+}
+
+export function downloadCsvTemplate(resource: ResourceDefinition) {
+  const rows = [
+    resource.fields.map((field) => field.name),
+    resource.fields.map((field) => field.label),
+    resource.fields.map((field) => templateExampleValue(resource.table, field)),
+    resource.fields.map((field) => (field.required ? "required" : "optional")),
+  ];
+  const csv = rows.map((row) => row.map((value) => JSON.stringify(value ?? "")).join(",")).join("\n");
+
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = `${resource.table}-import-template.csv`;
+  link.click();
+  URL.revokeObjectURL(link.href);
+}
+
+function templateExampleValue(resourceTable: string, field: FieldDefinition) {
+  if (field.name.endsWith("_id")) return `replace-with-${field.name}`;
+  if (field.type === "boolean") return "true";
+  if (field.type === "number") return field.name.includes("sequence") ? "10" : "1";
+  if (field.type === "select") return field.options?.[0]?.value ?? "";
+
+  const examples: Record<string, Record<string, string>> = {
+    locations: {
+      code: "MAIN-STG-A-01-L01",
+      aisle: "A",
+      bay: "01",
+      status: "active",
+    },
+    products: {
+      sku: "SKU-EXAMPLE-001",
+      barcode: "0123456789012",
+      name: "Example Product",
+      description: "Imported product master record",
+      product_family: "Ambient",
+      rotation_method: "fifo",
+    },
+  };
+
+  return examples[resourceTable]?.[field.name] ?? "";
+}
+
+export function parseCsv(text: string) {
+  const [headerLine, ...lines] = text.split(/\r?\n/).filter(Boolean);
+  const headers = headerLine.split(",").map((value) => value.trim());
+
+  return lines.map((line) => {
+    const values = line.split(",").map((value) => value.replace(/^"|"$/g, "").trim());
+    return headers.reduce<Record<string, string>>((accumulator, header, index) => {
+      accumulator[header] = values[index] ?? "";
+      return accumulator;
+    }, {});
+  });
+}
+
+export function validatePutawayAssignment(input: {
+  productTemperature: TemperatureClass;
+  locationTemperature: TemperatureClass;
+  locationStatus: string;
+  locationMaxPallets: number;
+  occupiedPallets: number;
+  mixedSkuAllowed: boolean;
+  hasOtherSku: boolean;
+  palletHeightCm?: number | null;
+  locationMaxPalletHeightCm?: number | null;
+}) {
+  if (input.locationStatus !== "active") {
+    return { valid: false, reason: "Location is not active" };
+  }
+  if (input.productTemperature === "cool" && input.locationTemperature !== "cool") {
+    return { valid: false, reason: "Cool-chain pallet cannot be placed in a non-cool location" };
+  }
+  if (input.occupiedPallets >= input.locationMaxPallets) {
+    return { valid: false, reason: "Location is full" };
+  }
+  if (input.hasOtherSku && !input.mixedSkuAllowed) {
+    return { valid: false, reason: "Location blocks mixed SKU storage" };
+  }
+  if (
+    input.locationMaxPalletHeightCm != null &&
+    input.palletHeightCm != null &&
+    input.palletHeightCm > input.locationMaxPalletHeightCm
+  ) {
+    return {
+      valid: false,
+      reason: `Pallet height ${input.palletHeightCm} cm exceeds location ceiling of ${input.locationMaxPalletHeightCm} cm`,
+    };
+  }
+  return { valid: true, reason: "Assignment valid" };
+}
+
+function applyArchiveFilter(
+  query: any,
+  archiveField?: ArchiveField,
+  includeHidden = false,
+) {
+  if (includeHidden || !archiveField) {
+    return query;
+  }
+
+  if (archiveField === "active") {
+    return query.eq("active", true);
+  }
+
+  return query.eq("is_hidden", false);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Shared helper exports (used by multiple feature modules)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export { db };
+export { DB_RETIRED_INVENTORY_STATUS_FILTER, RETIRED_INVENTORY_STATUSES };
+export { isRetiredInventoryStatus, hasVisibleInventoryQuantity };
+export { formatSupabaseError, throwIfSupabaseError, applyArchiveFilter };
+export { PICK_COMPLETED_INVENTORY_STATUS };
 
 export function buildPalletCode(prefix: string) {
   const time = Date.now().toString().slice(-8);
   const rand = Math.random().toString(36).slice(2, 6).toUpperCase();
   return `${prefix}-${time}${rand}`;
 }
-
-// ── Bin capacity helpers ─────────────────────────────────────────────────────
 
 export async function getStoredPalletCounts(locationIds: string[]): Promise<Map<string, number>> {
   if (locationIds.length === 0) return new Map();
@@ -616,6 +760,7 @@ export async function getStoredPalletCounts(locationIds: string[]): Promise<Map<
   }
   return counts;
 }
+
 
 export async function getStoredPalletCount(locationId: string): Promise<number> {
   return (await getStoredPalletCounts([locationId])).get(locationId) ?? 0;

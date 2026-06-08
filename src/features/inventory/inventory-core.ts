@@ -1,5 +1,4 @@
 import { supabase } from "@/integrations/supabase/client";
-import { recordPlacementObservation } from "@/lib/ai-assist";
 import {
   db,
   getStoredPalletCounts,
@@ -7,11 +6,17 @@ import {
   isRetiredInventoryStatus,
   hasVisibleInventoryQuantity,
   DB_RETIRED_INVENTORY_STATUS_FILTER,
-  type InventoryStatus,
   type InventoryAgeBucket,
   type InventoryExpiryWindow,
-  type BayOccupancyCell,
+  type InventoryStatus,
 } from "@/features/shared/core-types";
+import {
+  buildBayOccupancyGrid,
+  getBayCellLevel,
+  getBayCellPosition,
+  type BayOccupancyCell,
+  type BayOccupancyGridSlot,
+} from "@/features/setup/setup-core";
 
 export async function searchInventory(filters: {
   search?: string;
@@ -137,7 +142,6 @@ export async function getInventoryDetail(balanceId: string) {
     audit: audit ?? [],
   };
 }
-
 
 export async function getBinOccupancy(locationCode: string): Promise<{
   locationId: string;
@@ -401,6 +405,3 @@ export async function getPalletByBarcode(barcode: string): Promise<{
     location_code: (location as any)?.code,
   };
 }
-
-// ── Put-Away draft revert ───────────────────────────────────────────────────────
-export async function revertPutawayToDraft(taskId: string): Promise<void> {

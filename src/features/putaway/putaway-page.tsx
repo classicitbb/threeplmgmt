@@ -1023,4 +1023,3 @@ export function PutawayTasksPage() {
     </div>
   );
 }
-

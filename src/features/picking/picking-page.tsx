@@ -729,5 +729,3 @@ export function PickListsPage() {
     </Tabs>
   );
 }
-
-
