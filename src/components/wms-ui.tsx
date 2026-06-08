@@ -4739,16 +4739,35 @@ function WarehouseBayBrowserDialog({
     enabled: open && Boolean(warehouseId),
   });
 
-  // Group by rack letter (parse "A" from "A-1", fall back to "" for plain aisle numbers)
-  const rackGroups = useMemo(() => {
-    const map = new Map<string, WarehouseBayGroup[]>();
+  // Collapsible zone state – all expanded by default
+  const [collapsedZones, setCollapsedZones] = useState<Set<string>>(new Set());
+  const toggleZone = (zk: string) =>
+    setCollapsedZones((prev) => {
+      const next = new Set(prev);
+      next.has(zk) ? next.delete(zk) : next.add(zk);
+      return next;
+    });
+
+  // Group by zone (ordered by zone name), then by aisle within each zone
+  const zoneGroups = useMemo(() => {
+    const zoneMap = new Map<string, { zoneName: string; aisles: Map<string, WarehouseBayGroup[]> }>();
     for (const bay of bays) {
-      const firstPart = (bay.aisle ?? "").split("-")[0] ?? "";
-      const rack = /^[A-Z]$/i.test(firstPart) ? firstPart.toUpperCase() : "";
-      if (!map.has(rack)) map.set(rack, []);
-      map.get(rack)!.push(bay);
+      const zk = bay.zoneCode || "__no_zone__";
+      if (!zoneMap.has(zk)) zoneMap.set(zk, { zoneName: bay.zoneName || "", aisles: new Map() });
+      const zone = zoneMap.get(zk)!;
+      const ak = bay.aisle ?? "";
+      if (!zone.aisles.has(ak)) zone.aisles.set(ak, []);
+      zone.aisles.get(ak)!.push(bay);
     }
-    return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b));
+    return Array.from(zoneMap.entries())
+      .sort(([, a], [, b]) => a.zoneName.localeCompare(b.zoneName))
+      .map(([zk, { zoneName, aisles }]) => ({
+        zoneKey: zk,
+        zoneName,
+        aisles: Array.from(aisles.entries())
+          .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }))
+          .map(([aisleCode, grpBays]) => ({ aisleCode, bays: grpBays })),
+      }));
   }, [bays]);
 
   return (
@@ -4772,50 +4791,86 @@ function WarehouseBayBrowserDialog({
         {!isLoading && !error && bays.length === 0 && (
           <p className="py-4 text-center text-sm text-muted-foreground">No rack locations configured for this warehouse.</p>
         )}
-        {rackGroups.map(([rack, rackBays]) => (
-          <div key={rack || "_"} className="space-y-2">
-            {rack && (
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Rack {rack}</h3>
-            )}
-            <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(8rem, 1fr))" }}>
-              {rackBays.map((bay) => {
-                const pct = bay.totalCapacity > 0 ? bay.totalOccupied / bay.totalCapacity : 0;
-                const isFull = bay.totalCapacity > 0 && bay.totalOccupied >= bay.totalCapacity;
-                const isNearFull = pct >= 0.7;
-                return (
-                  <button
-                    key={bay.bayCode}
-                    type="button"
-                    disabled={isFull}
-                    onClick={() => { onSelectBay(bay.bayCode); onClose(); }}
+        <div className="divide-y divide-border/40">
+          {zoneGroups.map((zone) => {
+            const collapsed = collapsedZones.has(zone.zoneKey);
+            return (
+              <div key={zone.zoneKey} className="py-3 first:pt-1">
+                {/* Zone header – tap to collapse / expand */}
+                <button
+                  type="button"
+                  onClick={() => toggleZone(zone.zoneKey)}
+                  className="flex w-full items-center justify-between gap-2 pb-1 text-left"
+                >
+                  <span className="text-xs font-semibold uppercase tracking-widest text-foreground/80">
+                    {zone.zoneName || "Unassigned"}
+                  </span>
+                  <ChevronDown
                     className={cn(
-                      "flex flex-col gap-1.5 rounded-md border p-3 text-left text-xs transition focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
-                      isFull
-                        ? "cursor-not-allowed border-muted bg-muted/40 opacity-60"
-                        : "border-border bg-card hover:bg-secondary/60",
+                      "h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-200",
+                      collapsed && "-rotate-90",
                     )}
-                  >
-                    <span className="font-mono font-semibold text-foreground">
-                      {bay.aisle}-{bay.bay}
-                    </span>
-                    <span className="text-muted-foreground">
-                      {bay.totalOccupied}/{bay.totalCapacity} pallets
-                    </span>
-                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                      <div
-                        className={cn(
-                          "h-full rounded-full transition-all",
-                          isFull ? "bg-red-500" : isNearFull ? "bg-amber-500" : "bg-green-500",
-                        )}
-                        style={{ width: `${Math.min(100, Math.round(pct * 100))}%` }}
-                      />
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        ))}
+                  />
+                </button>
+
+                {/* Aisles within zone */}
+                {!collapsed && (
+                  <div className="mt-1.5 space-y-3">
+                    {zone.aisles.map((aisleGroup) => (
+                      <div key={aisleGroup.aisleCode}>
+                        {/* Aisle separator line with code on the left */}
+                        <div className="mb-2 flex items-center gap-2">
+                          <span className="font-mono text-[10px] font-semibold text-muted-foreground whitespace-nowrap">
+                            {aisleGroup.aisleCode}
+                          </span>
+                          <div className="h-px flex-1 bg-border/50" />
+                        </div>
+                        {/* Bay cards – single horizontal flex row, wraps on overflow */}
+                        <div className="flex flex-wrap gap-1.5">
+                          {aisleGroup.bays.map((bay) => {
+                            const pct = bay.totalCapacity > 0 ? bay.totalOccupied / bay.totalCapacity : 0;
+                            const isFull = bay.totalCapacity > 0 && bay.totalOccupied >= bay.totalCapacity;
+                            const isNearFull = pct >= 0.7;
+                            return (
+                              <button
+                                key={bay.bayCode}
+                                type="button"
+                                disabled={isFull}
+                                onClick={() => { onSelectBay(bay.bayCode); onClose(); }}
+                                className={cn(
+                                  "flex flex-col gap-1 rounded-md border p-2.5 text-left text-xs transition focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
+                                  isFull
+                                    ? "cursor-not-allowed border-muted bg-muted/40 opacity-60"
+                                    : "border-border bg-card hover:bg-secondary/60",
+                                )}
+                              >
+                                <span className="font-mono font-semibold text-foreground leading-none">
+                                  {bay.aisle}-{bay.bay}
+                                </span>
+                                <span className="text-muted-foreground leading-none">
+                                  {bay.totalOccupied}/{bay.totalCapacity}
+                                </span>
+                                <div className="mt-0.5 h-1 w-full overflow-hidden rounded-full bg-muted">
+                                  <div
+                                    className={cn(
+                                      "h-full rounded-full transition-all",
+                                      isFull ? "bg-red-500" : isNearFull ? "bg-amber-500" : "bg-green-500",
+                                    )}
+                                    style={{ width: `${Math.min(100, Math.round(pct * 100))}%` }}
+                                  />
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
       </DialogContent>
     </Dialog>
   );
