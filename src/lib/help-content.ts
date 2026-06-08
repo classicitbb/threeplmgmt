@@ -647,6 +647,38 @@ export const helpArticles: HelpArticle[] = [
       { title: "Failure Handling", content: ["Check the recipient address, template, and error message before retrying or asking the user to check their mailbox.", "Repeated failures usually indicate provider configuration, DNS, suppression, or invalid address issues."] },
     ],
   },
+  {
+    id: "warehouse-structure-tool",
+    title: "Warehouse Structure Tool",
+    module: "settings",
+    audience: "Admins, managers, and supervisors",
+    keywords: ["warehouse structure", "tree", "hierarchy", "zones", "aisles", "bays", "locations", "browser"],
+    sections: [
+      {
+        title: "What It Is",
+        content: [
+          "The Warehouse Structure tool is a live tree view of the physical hierarchy: Warehouse > Zone > Aisle > Bay > Level > Depth.",
+          "It is available as a tab from operational pages (Dashboard, Receiving, Put-Away, Inventory, Moves, Pick Lists, Transfers, Cycle Counts, Resources) and from Settings.",
+        ],
+      },
+      {
+        title: "When to Use It",
+        content: [
+          "Use it to verify that warehouses, zones, aisles, bays, and bin locations match the floor before printing labels or starting directed work.",
+          "Use it during onboarding so new supervisors can see the full naming convention without opening each resource table.",
+          "Use it to confirm capacity and occupancy expectations before approving a setup wizard run or a bulk import.",
+        ],
+      },
+      {
+        title: "Best Practice",
+        content: [
+          "Expand a single zone at a time so the structure stays readable on tablets.",
+          "If a node looks wrong, edit it in the matching resource table (Warehouses, Zones, Locations) rather than re-running the setup wizard.",
+          "Re-print the affected beam/bay/zone labels whenever a code changes so scanners stay in sync with the tree.",
+        ],
+      },
+    ],
+  },
 ];
 
 const routeMatchers: Array<{ match: (pathname: string) => boolean; helpId: string }> = [
