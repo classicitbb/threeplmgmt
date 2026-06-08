@@ -1076,22 +1076,6 @@ export function WarehouseStructureTab() {
     });
   }, []);
 
-  // Expand the header-selected active warehouse on first load (and keep localStorage state)
-  const hasAutoExpandedRef = useRef(false);
-  useEffect(() => {
-    if (hasAutoExpandedRef.current) return;
-    if (!activeWarehouseId || warehouses.length === 0) return;
-    const key = `w${activeWarehouseId}`;
-    setExpandedNodes((prev) => {
-      if (prev.has(key)) return prev;
-      const next = new Set(prev);
-      next.add(key);
-      try { localStorage.setItem(LS_KEY, JSON.stringify([...next])); } catch { /* ignore */ }
-      return next;
-    });
-    hasAutoExpandedRef.current = true;
-  }, [activeWarehouseId, warehouses]);
-
   const { data: warehouses = [], isLoading: wLoading } = useQuery({
     queryKey: ["tree", "warehouses"],
     queryFn: async () => {
@@ -1116,6 +1100,22 @@ export function WarehouseStructureTab() {
       return (data ?? []) as ZoneRow[];
     },
   });
+
+  // Expand the header-selected active warehouse on first load (and keep localStorage state)
+  const hasAutoExpandedRef = useRef(false);
+  useEffect(() => {
+    if (hasAutoExpandedRef.current) return;
+    if (!activeWarehouseId || warehouses.length === 0) return;
+    const key = `w${activeWarehouseId}`;
+    setExpandedNodes((prev) => {
+      if (prev.has(key)) return prev;
+      const next = new Set(prev);
+      next.add(key);
+      try { localStorage.setItem(LS_KEY, JSON.stringify([...next])); } catch { /* ignore */ }
+      return next;
+    });
+    hasAutoExpandedRef.current = true;
+  }, [activeWarehouseId, warehouses]);
 
   const isLoading = wLoading || zLoading;
 
