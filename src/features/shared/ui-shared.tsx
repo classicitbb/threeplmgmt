@@ -626,7 +626,7 @@ export function TableFrame({
   );
 }
 
-function renderField(
+export function renderField(
   field: FieldDefinition,
   form: ReturnType<typeof useForm<Record<string, unknown>>>,
   options: Array<{ label: string; value: string }> = field.options ?? [],
@@ -839,7 +839,7 @@ function RackLocationCodeBuilder({
   );
 }
 
-function ResourceFormDialog({
+export function ResourceFormDialog({
   resource,
   trigger,
 }: {
@@ -948,7 +948,7 @@ function ResourceFormDialog({
   );
 }
 
-function ResourceEditDialog({
+export function ResourceEditDialog({
   resource,
   editRecord,
   onClose,
@@ -2374,7 +2374,7 @@ export function ResourcePage({
   );
 }
 
-function ImportButton({ resource, asMenuItems = false }: { resource: ResourceDefinition; asMenuItems?: boolean }) {
+export function ImportButton({ resource, asMenuItems = false }: { resource: ResourceDefinition; asMenuItems?: boolean }) {
   const queryClient = useQueryClient();
   const [preview, setPreview] = useState<ImportPreview | null>(null);
   const [parsing, setParsing] = useState(false);
@@ -2541,7 +2541,7 @@ function ImportPreviewDialog({
   );
 }
 
-function LocationWizardDialog({ trigger }: { trigger?: React.ReactNode }) {
+export function LocationWizardDialog({ trigger }: { trigger?: React.ReactNode }) {
   const queryClient = useQueryClient();
   const { data: options } = useQuery({ queryKey: ["options", "location-wizard"], queryFn: () => fetchOptions() });
   const [open, setOpen] = useState(false);
@@ -2705,7 +2705,7 @@ function LocationWizardDialog({ trigger }: { trigger?: React.ReactNode }) {
   );
 }
 
-function BarcodePrintDialog({ labelType, code, title }: { labelType: "warehouse" | "zone" | "location"; code: string; title: string }) {
+export function BarcodePrintDialog({ labelType, code, title }: { labelType: "warehouse" | "zone" | "location"; code: string; title: string }) {
   const printRef = useRef<HTMLDivElement>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
@@ -2798,7 +2798,7 @@ function BarcodePrintDialog({ labelType, code, title }: { labelType: "warehouse"
   );
 }
 
-function defaultFieldValue(field: FieldDefinition) {
+export function defaultFieldValue(field: FieldDefinition) {
   if (field.type === "boolean") return field.name === "active" || field.name === "lot_tracked";
   if (field.type === "number") return "";
   if (field.name === "temperature_class" || field.name === "temperature_requirement") return "ambient";
@@ -2807,7 +2807,7 @@ function defaultFieldValue(field: FieldDefinition) {
   return "";
 }
 
-function composeLocationCode(
+export function composeLocationCode(
   options: Awaited<ReturnType<typeof fetchOptions>> | undefined,
   warehouseId: unknown,
   zoneId: unknown,
@@ -2824,7 +2824,7 @@ function composeLocationCode(
   return rawCode.toUpperCase().startsWith(prefix.toUpperCase()) ? rawCode : `${prefix}${rawCode}`;
 }
 
-function normalizeResourceValues(
+export function normalizeResourceValues(
   resource: ResourceDefinition,
   values: Record<string, unknown>,
   options?: Awaited<ReturnType<typeof fetchOptions>>,
@@ -2845,7 +2845,7 @@ function normalizeResourceValues(
   return payload;
 }
 
-function getResourceFieldOptions(field: FieldDefinition, options?: Awaited<ReturnType<typeof fetchOptions>>) {
+export function getResourceFieldOptions(field: FieldDefinition, options?: Awaited<ReturnType<typeof fetchOptions>>) {
   if (field.options) return field.options;
   if (field.name === "warehouse_id") return (options?.warehouses ?? []).map((warehouse: any) => ({ label: `${warehouse.code} - ${warehouse.name}`, value: warehouse.id }));
   if (field.name === "zone_id") return (options?.zones ?? []).map((zone: any) => ({ label: `${zone.code} - ${zone.name}`, value: zone.id }));
@@ -3501,7 +3501,7 @@ export function HiddenDashboardTilesPanel({
   );
 }
 
-function WarehouseBrainPanel({ recommendations }: { recommendations: WarehouseBrainRecommendation[] }) {
+export function WarehouseBrainPanel({ recommendations }: { recommendations: WarehouseBrainRecommendation[] }) {
   return (
     <Card className="h-full">
       <CardHeader className="pr-20">
@@ -4631,7 +4631,7 @@ export function TextField({
   );
 }
 
-function SelectField({
+export function SelectField({
   form,
   name,
   label,
