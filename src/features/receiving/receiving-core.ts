@@ -100,7 +100,7 @@ async function resolveInventoryLot(payload: z.infer<typeof receivingSchema>) {
   return data;
 }
 
-async function createLabelRecord(label_type: string, entityId: string, labelCode: string) {
+export async function createLabelRecord(label_type: string, entityId: string, labelCode: string) {
   const { error } = await db("barcode_labels").insert({
     label_type,
     entity_id: entityId,
@@ -536,7 +536,7 @@ export async function updateDraftReceipt(draftId: string, values: z.infer<typeof
   }).catch((error) => console.error("[updateDraftReceipt] writeSystemLog failed:", error));
 }
 
-async function createReturnedPalletDraft({
+export async function createReturnedPalletDraft({
   palletId,
   warehouseId,
   sourceLabel,
