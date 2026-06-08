@@ -1553,7 +1553,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   );
 }
 
-function FailedTasksReminder() {
+export function FailedTasksReminder() {
   const { items, dismiss, dismissAll } = useDeadLetterQueue();
   const [activeIndex, setActiveIndex] = useState(0);
 
@@ -1634,7 +1634,7 @@ function FailedTasksReminder() {
   );
 }
 
-function AccessRequestsBanner() {
+export function AccessRequestsBanner() {
   const { roles } = useAuth();
   const navigate = useNavigate();
   const canSee = roles.some((r) => ["admin", "warehouse_manager", "warehouse_supervisor", "developer"].includes(r));
