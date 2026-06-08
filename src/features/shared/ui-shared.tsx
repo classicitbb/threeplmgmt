@@ -5012,3 +5012,13 @@ export function markPutawayOccupancyCached(queryClient: ReturnType<typeof useQue
     },
   );
 }
+
+export function statusBadgeVariant(status: string): "default" | "secondary" | "destructive" | "outline" {
+  if (status === "completed") return "default";
+  if (status === "exception" || status === "cancelled") return "destructive";
+  if (status === "in_progress" || status === "queued") return "secondary";
+  return "outline";
+}
+
+// Alias kept for compatibility — Dock mode currently reuses the handoff board.
+export { DockHandoffBoard as WarehouseDockMode };
