@@ -584,7 +584,7 @@ type UserActivityRow = {
   profiles?: { full_name?: string | null; email?: string | null } | null;
 };
 
-const navIcons: Record<AppRoute, typeof LayoutDashboard> = {
+export const navIcons: Record<AppRoute, typeof LayoutDashboard> = {
   "/": Home,
   "/dashboard": LayoutDashboard,
   "/warehouses": Building2,
@@ -2854,7 +2854,7 @@ function getResourceFieldOptions(field: FieldDefinition, options?: Awaited<Retur
   return [];
 }
 
-function shouldRestrictToDefaultWarehouse(roles: string[]) {
+export function shouldRestrictToDefaultWarehouse(roles: string[]) {
   return roles.some((role) => ["inventory_clerk", "warehouse_operator", "dispatch_driver"].includes(role)) &&
     !roles.some((role) => ["admin", "warehouse_manager"].includes(role));
 }
