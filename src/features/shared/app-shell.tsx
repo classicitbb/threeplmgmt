@@ -584,6 +584,44 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </div>
       <AccessRequestsBanner />
       <FailedTasksReminder />
+      <MobileActionBar items={items} pathname={pathname} />
     </div>
+  );
+}
+
+function MobileActionBar({
+  items,
+  pathname,
+}: {
+  items: typeof NAVIGATION;
+  pathname: string;
+}) {
+  // Show up to 5 primary nav items (skip Help — it lives in the header).
+  const barItems = items.filter((item) => item.to !== "/help").slice(0, 5);
+  if (barItems.length === 0) return null;
+  return (
+    <nav
+      className="fixed bottom-0 left-0 right-0 z-40 flex h-14 items-center justify-around border-t border-border bg-background/95 px-1 backdrop-blur lg:landscape:hidden"
+      aria-label="Primary mobile navigation"
+    >
+      {barItems.map((item) => {
+        const Icon = navIcons[item.to] ?? LayoutDashboard;
+        const isActive = pathname === item.to;
+        return (
+          <NavLink
+            key={item.to}
+            to={item.to}
+            aria-label={item.label}
+            className={cn(
+              "flex flex-1 flex-col items-center justify-center gap-0.5 rounded-md py-1 text-[10px] font-medium transition-colors",
+              isActive ? "text-primary" : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            <Icon className="h-5 w-5" />
+            <span className="max-w-[64px] truncate">{item.label}</span>
+          </NavLink>
+        );
+      })}
+    </nav>
   );
 }
