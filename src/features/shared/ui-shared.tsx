@@ -215,11 +215,11 @@ type DashboardMetricKey =
   | "stockAge6Months"
   | "stockAge12Months";
 
-type DashboardCardConfig = DashboardTileDefinition<ModuleKey> & {
+export type DashboardCardConfig = DashboardTileDefinition<ModuleKey> & {
   metricKey: DashboardMetricKey;
 };
 
-const DEFAULT_DASHBOARD_CARDS: DashboardCardConfig[] = [
+export const DEFAULT_DASHBOARD_CARDS: DashboardCardConfig[] = [
   { id: "totalPallets", label: "Total Pallets", metricKey: "totalPallets", size: "lg", moduleKey: "inventory" },
   { id: "warehousePallets", label: "This Warehouse", metricKey: "warehousePallets", size: "lg", moduleKey: "inventory" },
   { id: "openReceipts", label: "Open Receipts", metricKey: "openReceipts", size: "sm", moduleKey: "receiving" },
@@ -233,9 +233,9 @@ const DEFAULT_DASHBOARD_CARDS: DashboardCardConfig[] = [
   { id: "stockAge12Months", label: "Aging 12+ Mo", metricKey: "stockAge12Months", size: "sm", moduleKey: "inventory" },
 ];
 
-const DASHBOARD_FLOOR_LAYOUT_KEY = "wms.dashboard.floor.surface.layout.v1";
-const DASHBOARD_DOCK_LAYOUT_KEY = "wms.dashboard.dock.surface.layout.v1";
-const DASHBOARD_OFFICE_LAYOUT_KEY = "wms.dashboard.office.surface.layout.v1";
+export const DASHBOARD_FLOOR_LAYOUT_KEY = "wms.dashboard.floor.surface.layout.v1";
+export const DASHBOARD_DOCK_LAYOUT_KEY = "wms.dashboard.dock.surface.layout.v1";
+export const DASHBOARD_OFFICE_LAYOUT_KEY = "wms.dashboard.office.surface.layout.v1";
 const DASHBOARD_DIAL_METRICS = new Set<DashboardMetricKey>(["totalPallets", "warehousePallets"]);
 const DASHBOARD_METRIC_ROUTES: Record<DashboardMetricKey, AppRoute> = {
   totalPallets: "/inventory-search",
@@ -295,11 +295,11 @@ const DEFAULT_OFFICE_TILES: DashboardTileDefinition<ModuleKey>[] = [
   { id: "warehouse-brain", label: "Warehouse Brain", size: "lg" },
 ];
 
-const DEFAULT_FLOOR_LAYOUT: DashboardTileDefinition<ModuleKey>[] = [...DEFAULT_DASHBOARD_CARDS, ...DEFAULT_FLOOR_TILES];
-const DEFAULT_DOCK_LAYOUT: DashboardTileDefinition<ModuleKey>[] = [...DEFAULT_DASHBOARD_CARDS, ...DEFAULT_DOCK_TILES];
-const DEFAULT_OFFICE_LAYOUT: DashboardTileDefinition<ModuleKey>[] = [...DEFAULT_DASHBOARD_CARDS, ...DEFAULT_OFFICE_TILES];
+export const DEFAULT_FLOOR_LAYOUT: DashboardTileDefinition<ModuleKey>[] = [...DEFAULT_DASHBOARD_CARDS, ...DEFAULT_FLOOR_TILES];
+export const DEFAULT_DOCK_LAYOUT: DashboardTileDefinition<ModuleKey>[] = [...DEFAULT_DASHBOARD_CARDS, ...DEFAULT_DOCK_TILES];
+export const DEFAULT_OFFICE_LAYOUT: DashboardTileDefinition<ModuleKey>[] = [...DEFAULT_DASHBOARD_CARDS, ...DEFAULT_OFFICE_TILES];
 
-function tileConfigsFromDefinitions(definitions: DashboardTileDefinition<ModuleKey>[]): DashboardTileConfig[] {
+export function tileConfigsFromDefinitions(definitions: DashboardTileDefinition<ModuleKey>[]): DashboardTileConfig[] {
   return definitions.map((tile) => ({ id: tile.id, size: tile.size }));
 }
 
@@ -308,7 +308,7 @@ function tileConfigsFromDefinitions(definitions: DashboardTileDefinition<ModuleK
 // ---------------------------------------------------------------------------
 
 /** Play a short, pleasant confirmation beep via Web Audio API (works on iOS/Android too). */
-function playBarcodeBeep() {
+export function playBarcodeBeep() {
   try {
     const ctx = new (window.AudioContext ?? (window as any).webkitAudioContext)();
     const osc = ctx.createOscillator();
@@ -332,7 +332,7 @@ function playBarcodeBeep() {
  * Flash an input element with a colour highlight for scanner feedback.
  * colour: "orange" = next-field cue, "blue" = confirmed-field cue.
  */
-function flashInput(el: HTMLElement | null, colour: "orange" | "blue") {
+export function flashInput(el: HTMLElement | null, colour: "orange" | "blue") {
   if (!el) return;
   const cls = colour === "orange"
     ? ["ring-2", "ring-orange-400", "ring-offset-1"]
@@ -341,7 +341,7 @@ function flashInput(el: HTMLElement | null, colour: "orange" | "blue") {
   setTimeout(() => el.classList.remove(...cls), 700);
 }
 
-function loadFallbackTileLayout(key: string, defaults: DashboardTileConfig[]) {
+export function loadFallbackTileLayout(key: string, defaults: DashboardTileConfig[]) {
   if (typeof window === "undefined") return defaults;
   try {
     const raw = window.localStorage.getItem(key);
@@ -352,11 +352,11 @@ function loadFallbackTileLayout(key: string, defaults: DashboardTileConfig[]) {
   }
 }
 
-function fallbackLayoutKey(key: string, profileId?: string | null, deviceId?: string | null) {
+export function fallbackLayoutKey(key: string, profileId?: string | null, deviceId?: string | null) {
   return [key, profileId ?? "anonymous", deviceId ?? "device"].join(".");
 }
 
-function loadFallbackVisibility(key: string): DashboardVisibilityMap {
+export function loadFallbackVisibility(key: string): DashboardVisibilityMap {
   if (typeof window === "undefined") return {};
   try {
     const raw = window.localStorage.getItem(key);
@@ -366,11 +366,11 @@ function loadFallbackVisibility(key: string): DashboardVisibilityMap {
   }
 }
 
-function fallbackVisibilityKey(profileId: string | null | undefined, mode: DashboardMode) {
+export function fallbackVisibilityKey(profileId: string | null | undefined, mode: DashboardMode) {
   return `wms.dashboard.visibility.v1.${profileId ?? "anonymous"}.${mode}`;
 }
 
-function saveFallbackJson(key: string, value: unknown) {
+export function saveFallbackJson(key: string, value: unknown) {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(key, JSON.stringify(value));
@@ -472,7 +472,7 @@ function SortableMetricCard({
   );
 }
 
-function SortableSummaryCard({
+export function SortableSummaryCard({
   card,
   metrics,
   isLoading,
@@ -558,7 +558,7 @@ function PalletDialCard({
   );
 }
 
-type ProfileRow = {
+export type ProfileRow = {
   id: string;
   email?: string | null;
   full_name?: string | null;
@@ -570,12 +570,12 @@ type ProfileRow = {
   badge_code?: string | null;
 };
 
-type WarehouseOption = {
+export type WarehouseOption = {
   id: string;
   name: string;
 };
 
-type UserActivityRow = {
+export type UserActivityRow = {
   id: string;
   event_type: string;
   entity_table: string;
@@ -3139,7 +3139,7 @@ export function DashboardPage() {
   );
 }
 
-function WarehouseFloorMode({
+export function WarehouseFloorMode({
   snapshot,
   sensors,
   tiles,
@@ -3230,7 +3230,7 @@ function WarehouseFloorMode({
   );
 }
 
-function normalizeScannerText(value: unknown) {
+export function normalizeScannerText(value: unknown) {
   return String(value ?? "").trim().toUpperCase();
 }
 
@@ -3245,7 +3245,7 @@ function resolveContainerScanValue(value: unknown) {
   };
 }
 
-function isBaySelectorCode(value: string) {
+export function isBaySelectorCode(value: string) {
   const normalized = normalizeScannerText(value);
   if (normalized.startsWith("BAY:")) return true;
   const parts = normalized.split("-").filter(Boolean);
@@ -3293,7 +3293,7 @@ function WarehouseIntelligenceCard({ snapshot }: { snapshot: EnterpriseDashboard
   );
 }
 
-function DockHandoffBoard({
+export function DockHandoffBoard({
   loads,
   recommendations,
   sensors,
@@ -3377,7 +3377,7 @@ function DockHandoffBoard({
   );
 }
 
-function OfficeMonitoringMode({
+export function OfficeMonitoringMode({
   snapshot,
   sensors,
   tiles,
@@ -3472,7 +3472,7 @@ function OfficeMonitoringMode({
   );
 }
 
-function HiddenDashboardTilesPanel({
+export function HiddenDashboardTilesPanel({
   editMode,
   tiles,
   definitionsById,
@@ -4876,7 +4876,7 @@ function WarehouseBayBrowserDialog({
   );
 }
 
-function BayOccupancyGrid({
+export function BayOccupancyGrid({
   locationCode,
   selectedLocationCode,
   onSelect,
@@ -4973,11 +4973,11 @@ function BayOccupancyGrid({
   );
 }
 
-function incrementOccupancy(occupiedPallets: number, maxPallets: number) {
+export function incrementOccupancy(occupiedPallets: number, maxPallets: number) {
   return maxPallets > 0 ? Math.min(maxPallets, occupiedPallets + 1) : occupiedPallets + 1;
 }
 
-function markPutawayOccupancyCached(queryClient: ReturnType<typeof useQueryClient>, locationCode: string) {
+export function markPutawayOccupancyCached(queryClient: ReturnType<typeof useQueryClient>, locationCode: string) {
   const confirmedLocation = locationCode.trim().toUpperCase();
   if (!confirmedLocation) return;
 
