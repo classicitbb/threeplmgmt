@@ -1248,16 +1248,14 @@ export function SettingsPage() {
               </div>
               {[
                 {
-                  version: "1.1.8 Beta",
+                  version: "1.2.0",
                   date: "June 2026",
                   changes: [
-                    "Put-Away and Pick: shortened bay codes open the bay selector while full location scans still confirm directly",
-                    "Bin Locations table: Warehouse and Zone now appear before Aisle, and Label appears before Max Pallets",
-                    "Location labels: batch printing now matches the per-row beam label design on Avery 99 x 38 mm labels",
-                    "Bay labels: shortened location codes without level numbers print on Avery 99 x 93 mm labels",
-                    "Zone labels: warehouse-zone-aisle codes print on Avery 99 x 93 mm labels",
-                    "Badge sign-in: trusted-device PIN shortcut is limited to previously authenticated mobile/tablet devices",
-                    "Access control: public Request Access is hidden; Admin and Dev users add accounts from Settings",
+                    "Location Moves: Browse bays button next to the location scanner opens the bay selector (with warehouse picker when more than one facility is active)",
+                    "Location Moves: pallet and location codes are trimmed/normalised before lookup so valid pallets are no longer reported as missing",
+                    "Warehouse Structure tool: dedicated tab and Help topic for the live tree view of warehouses, zones, aisles, bays, and locations",
+                    "Help Center: per-module topics refreshed to cover browse-bay flows, label sheets, badge sign-in, access controls, and the Warehouse Structure tool",
+                    "Promoted from 1.1.8 beta: shortened bay codes open the bay selector in Put-Away and Pick; Bin Locations column order; Avery 99x38 location label sheets; Avery 99x93 bay/zone aisle sheets; trusted-device badge PIN limited to mobile/tablet; public Request Access removed in favour of admin-managed accounts",
                   ],
                 },
                 {
