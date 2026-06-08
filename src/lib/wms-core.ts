@@ -4327,6 +4327,11 @@ export async function validateMoveDestination(
     };
   }
 
+  // ── Capacity ──────────────────────────────────────────────────────────────
+  const maxPallets = Number(location.max_pallets ?? 0);
+  if (maxPallets > 0) {
+    const occupied = await getStoredPalletCount(location.id);
+    // Check whether this pallet is already at the location (would be a no-op but not a capacity problem)
     const alreadyHere = pallet.current_location_id === location.id;
     if (!alreadyHere && occupied >= maxPallets) {
       return {
