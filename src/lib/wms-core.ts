@@ -869,6 +869,19 @@ export async function adminUpdateUserPassword(profileId: string, password: strin
   });
 }
 
+export async function adminDeleteUser(profileId: string) {
+  const client = supabase as unknown as {
+    rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: unknown }>;
+  };
+  const { error } = await client.rpc("admin_delete_user", {
+    in_user_id: profileId,
+  });
+  if (error) throw new Error(formatSupabaseError(error, "User delete failed"));
+  await logUserActivity("user_deleted", "profiles", profileId, {
+    deleted: true,
+  });
+}
+
 export async function adminUpdateUserPin(profileId: string, pin: string) {
   const client = supabase as unknown as {
     rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: unknown }>;
@@ -896,14 +909,18 @@ export async function refreshUserDeviceTrust(deviceId: string) {
 
 export async function setUserRoleVisibility(userRoleId: string, hidden: boolean, reason?: string) {
   const { error } = await (supabase.from as any)("user_roles")
-    .update({
-      is_hidden: hidden,
-      hidden_at: hidden ? new Date().toISOString() : null,
-      hidden_reason: hidden ? reason ?? null : null,
-    })
+    .update({ is_hidden: hidden })
     .eq("id", userRoleId);
-  if (error) throw error;
+  if (error) throw new Error(formatSupabaseError(error, "Role update failed"));
   await logUserActivity("user_access_change", "user_roles", userRoleId, { hidden, reason: reason ?? null });
+}
+
+export async function removeUserRoleAssignment(userRoleId: string) {
+  const { error } = await (supabase.from as any)("user_roles").delete().eq("id", userRoleId);
+  if (error) throw new Error(formatSupabaseError(error, "Role unassign failed"));
+  await logUserActivity("user_access_change", "user_roles", userRoleId, {
+    removed: true,
+  });
 }
 
 export async function fetchOptions(includeHidden = false, scope?: WarehouseVisibilityScope) {
@@ -1679,9 +1696,10 @@ export async function createReceiptFlow(input: z.infer<typeof receivingSchema>) 
 
   await createLabelRecord("pallet", pallet.id, palletCode);
 
-  // AI assist: learn pallet qty per product (fire-and-forget)
-  recordPalletQtyObservation(payload.product_id, payload.warehouse_id, payload.quantity)
-    .catch((err) => console.error("[ai-assist] pallet qty record failed:", err));
+  // AI assist: record pallet qty observation (fire-and-forget, never throws)
+  recordPalletQtyObservation(payload.product_id, payload.warehouse_id, payload.quantity).catch(
+    (err) => console.error("[ai-assist] pallet qty record failed:", err),
+  );
 
   return { receipt, receiptLine, pallet, putawayTask, topSuggestion };
 }
@@ -1935,14 +1953,14 @@ export async function confirmPutaway(
   });
   if (putawayAudit.error) console.error("[confirmPutaway] log_audit_event failed:", putawayAudit.error);
 
-  // AI assist: learn product placement (fire-and-forget)
-  const _aiLoc = location as any;
+  // AI assist: record placement observation (fire-and-forget, never throws)
+  const aiLocation = location as any;
   recordPlacementObservation(
     pallet.product_id,
     location.warehouse_id,
     location.id,
     location.code,
-    _aiLoc.zones?.name ?? _aiLoc.zone_name ?? null,
+    aiLocation.zones?.name ?? aiLocation.zone_name ?? null,
   ).catch((err) => console.error("[ai-assist] placement record failed:", err));
 }
 
@@ -4420,5 +4438,103 @@ export async function completeDirectMove(palletBarcode: string, locationCode: st
       to_location_code: locationCode,
       reason: reason ?? null,
     },
+  });
+}
+
+export async function completeMoveTask(taskId: string, scannedPalletBarcode: string, scannedLocationCode: string): Promise<void> {
+  const { data: task, error: taskErr } = await db("move_tasks").select("*").eq("id", taskId).single();
+  if (taskErr) throw taskErr;
+  if (["completed", "cancelled"].includes(task.status)) {
+    throw new Error("Move task is already closed.");
+  }
+
+  const { data: pallet, error: palletErr } = await db("pallets")
+    .select("id, pallet_barcode, current_location_id, warehouse_id")
+    .eq("pallet_barcode", scannedPalletBarcode)
+    .single();
+  if (palletErr) throw new Error(`Pallet not found: ${scannedPalletBarcode}`);
+  if (task.pallet_id !== pallet.id) {
+    throw new Error("Scanned pallet does not match this move task.");
+  }
+
+  const { data: toLocation, error: locErr } = await db("locations")
+    .select("id, zone_id")
+    .eq("code", scannedLocationCode)
+    .single();
+  if (locErr) throw new Error(`Location not found: ${scannedLocationCode}`);
+
+  const { error: palletUpdErr } = await db("pallets")
+    .update({ current_location_id: toLocation.id } as any)
+    .eq("id", pallet.id);
+  if (palletUpdErr) throw palletUpdErr;
+
+  const { error: balanceUpdErr } = await db("inventory_balances")
+    .update({ location_id: toLocation.id, zone_id: toLocation.zone_id ?? null } as any)
+    .eq("pallet_id", pallet.id)
+    .not("status", "in", DB_RETIRED_INVENTORY_STATUS_FILTER);
+  if (balanceUpdErr) throw balanceUpdErr;
+
+  const { error: taskUpdErr } = await db("move_tasks")
+    .update({ status: "completed", to_location_id: toLocation.id, completed_at: new Date().toISOString() } as any)
+    .eq("id", taskId);
+  if (taskUpdErr) throw taskUpdErr;
+
+  await (supabase.rpc as any)("log_audit_event", {
+    in_event_type: "move_task_completed",
+    in_entity_table: "move_tasks",
+    in_entity_id: taskId,
+    in_warehouse_id: task.warehouse_id,
+    in_metadata: { pallet_barcode: scannedPalletBarcode, to_location: scannedLocationCode },
+  });
+}
+
+export async function cancelMoveTask(taskId: string): Promise<void> {
+  const { data: task, error: taskErr } = await db("move_tasks").select("*").eq("id", taskId).single();
+  if (taskErr) throw taskErr;
+  if (!["queued", "in_progress"].includes(task.status)) {
+    throw new Error("Only queued or in-progress move tasks can be cancelled.");
+  }
+
+  const { error: taskUpdErr } = await db("move_tasks")
+    .update({ status: "cancelled" } as any)
+    .eq("id", taskId);
+  if (taskUpdErr) throw taskUpdErr;
+
+  await (supabase.rpc as any)("log_audit_event", {
+    in_event_type: "move_task_cancelled",
+    in_entity_table: "move_tasks",
+    in_entity_id: taskId,
+    in_warehouse_id: task.warehouse_id,
+    in_metadata: { pallet_id: task.pallet_id, from_location_id: task.from_location_id, to_location_id: task.to_location_id },
+  });
+}
+
+export async function moveToPickingArea(palletBarcode: string): Promise<void> {
+  const { data: pallet, error: palletErr } = await db("pallets")
+    .select("id, warehouse_id")
+    .eq("pallet_barcode", palletBarcode)
+    .single();
+  if (palletErr) throw new Error(`Pallet not found: ${palletBarcode}`);
+
+  const { data: stagingLoc, error: locErr } = await db("locations")
+    .select("id")
+    .eq("warehouse_id", pallet.warehouse_id)
+    .eq("is_staging", true)
+    .limit(1)
+    .maybeSingle();
+  if (locErr) throw locErr;
+
+  const toLocationId = stagingLoc?.id ?? null;
+  const { error: updErr } = await db("pallets")
+    .update({ current_location_id: toLocationId } as any)
+    .eq("id", pallet.id);
+  if (updErr) throw updErr;
+
+  await (supabase.rpc as any)("log_audit_event", {
+    in_event_type: "pallet_moved_to_picking_area",
+    in_entity_table: "pallets",
+    in_entity_id: pallet.id,
+    in_warehouse_id: pallet.warehouse_id,
+    in_metadata: { pallet_barcode: palletBarcode },
   });
 }

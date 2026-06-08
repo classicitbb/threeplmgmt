@@ -2,7 +2,7 @@
 -- Stores rolling learned signals per product+warehouse:
 --   pallet_qty  : modal/median units-per-pallet from receiving history
 --   placement   : ranked list of locations this product is routinely put away to
---   velocity    : A/B/C pick-frequency class derived from pick audit events
+--   velocity    : A/B/C pick-frequency class derived from inventory_balances activity
 --
 -- The application layer writes to this table via the ai-assist module and reads
 -- it back to surface operator cues during receiving and putaway workflows.
@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS public.ai_product_hints (
 CREATE UNIQUE INDEX IF NOT EXISTS ai_product_hints_unique_idx
   ON public.ai_product_hints (product_id, warehouse_id, hint_type);
 
--- Fast lookup by product+warehouse
+-- Fast lookup by product+warehouse (used in every operator cue fetch)
 CREATE INDEX IF NOT EXISTS ai_product_hints_product_warehouse_idx
   ON public.ai_product_hints (product_id, warehouse_id);
 
@@ -44,11 +44,23 @@ CREATE TRIGGER trg_ai_product_hints_updated_at
 -- ── RLS ──────────────────────────────────────────────────────────────────────
 ALTER TABLE public.ai_product_hints ENABLE ROW LEVEL SECURITY;
 
+-- Authenticated users can read all hints (hints are not sensitive)
 CREATE POLICY "ai_product_hints authenticated read"
-  ON public.ai_product_hints FOR SELECT TO authenticated USING (true);
+  ON public.ai_product_hints
+  FOR SELECT
+  TO authenticated
+  USING (true);
 
+-- Authenticated users can insert/update hints (application layer controls logic)
 CREATE POLICY "ai_product_hints authenticated write"
-  ON public.ai_product_hints FOR INSERT TO authenticated WITH CHECK (true);
+  ON public.ai_product_hints
+  FOR INSERT
+  TO authenticated
+  WITH CHECK (true);
 
 CREATE POLICY "ai_product_hints authenticated update"
-  ON public.ai_product_hints FOR UPDATE TO authenticated USING (true) WITH CHECK (true);
+  ON public.ai_product_hints
+  FOR UPDATE
+  TO authenticated
+  USING (true)
+  WITH CHECK (true);

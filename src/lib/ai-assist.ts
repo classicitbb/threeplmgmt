@@ -72,7 +72,7 @@ function db(table: string) {
 function computeConfidence(sampleCount: number, modeCount: number): number {
   const sampleWeight = Math.min(sampleCount, 20) / 20;
   const agreementRate = sampleCount > 0 ? modeCount / sampleCount : 0;
-  return Math.round(sampleWeight * agreementRate * 10_000) / 10_000;
+  return Math.round(sampleWeight * agreementRate * 10_000) / 10_000; // 4 dp
 }
 
 /** Statistical mode of a number array. Returns [modeValue, modeCount]. */
@@ -145,6 +145,7 @@ export async function recordPalletQtyObservation(
 ): Promise<void> {
   if (!productId || !warehouseId || qty <= 0) return;
 
+  // Fetch existing hint to update rolling samples
   const { data: existing } = await db("ai_product_hints")
     .select("id, hint_value, sample_count")
     .eq("product_id", productId)
@@ -221,6 +222,7 @@ export async function recordPlacementObservation(
 ): Promise<void> {
   if (!productId || !warehouseId || !locationId) return;
 
+  // Fetch existing hint
   const { data: existing } = await db("ai_product_hints")
     .select("id, hint_value, sample_count")
     .eq("product_id", productId)
@@ -231,9 +233,10 @@ export async function recordPlacementObservation(
   const prevEntries: PlacementHintEntry[] = (existing?.hint_value as PlacementHintValue) ?? [];
   const prevSampleCount: number = existing?.sample_count ?? 0;
 
-  const existingEntry = prevEntries.find((e) => e.location_id === locationId);
+  // Upsert this location in the entry list
+  const existing_entry = prevEntries.find((e) => e.location_id === locationId);
   let updatedEntries: PlacementHintEntry[];
-  if (existingEntry) {
+  if (existing_entry) {
     updatedEntries = prevEntries.map((e) =>
       e.location_id === locationId
         ? { ...e, frequency: e.frequency + 1, last_used_at: new Date().toISOString() }
@@ -252,6 +255,7 @@ export async function recordPlacementObservation(
     ];
   }
 
+  // Sort by frequency desc, keep top 20 unique locations
   updatedEntries = updatedEntries
     .sort((a, b) => b.frequency - a.frequency)
     .slice(0, 20);
@@ -279,17 +283,20 @@ export async function recordPlacementObservation(
 // ─── Velocity ─────────────────────────────────────────────────────────────────
 
 /**
- * Returns A/B/C velocity class for a product in a warehouse.
- * Result is cached in ai_product_hints and refreshed if > 24 h stale.
+ * Returns A/B/C velocity class for a product in a warehouse,
+ * derived from audit_events pick activity in the last 90 days.
  *
- * A: >= 1 pick/day average over 90 days
+ * A: >= 1 pick/day average
  * B: >= 0.1 picks/day average
  * C: below B threshold
+ *
+ * Result is cached in ai_product_hints and refreshed if > 24 h stale.
  */
 export async function getProductVelocityHint(
   productId: string,
   warehouseId: string,
 ): Promise<VelocityHint | null> {
+  // Check cache first
   const { data: cached } = await db("ai_product_hints")
     .select("hint_value, last_observed_at")
     .eq("product_id", productId)
@@ -316,7 +323,7 @@ export async function getProductVelocityHint(
     .gte("created_at", cutoff);
 
   if (palletError) {
-    console.error("[ai-assist] getProductVelocityHint failed:", palletError);
+    console.error("[ai-assist] getProductVelocityHint pallet join failed:", palletError);
     return null;
   }
 
@@ -331,6 +338,7 @@ export async function getProductVelocityHint(
     avg_picks_per_day: avgPicksPerDay,
   };
 
+  // Cache result (fire-and-forget)
   db("ai_product_hints").upsert(
     {
       product_id: productId,
