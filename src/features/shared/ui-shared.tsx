@@ -3234,7 +3234,7 @@ export function normalizeScannerText(value: unknown) {
   return String(value ?? "").trim().toUpperCase();
 }
 
-function resolveContainerScanValue(value: unknown) {
+export function resolveContainerScanValue(value: unknown) {
   const result = extractIso6346ContainerNumber(value);
   if (result.valid) return { value: result.normalized, valid: true, message: result.message, candidate: result.candidate };
   return {
@@ -4673,7 +4673,7 @@ export function SelectField({
   );
 }
 
-function BinCapacityBar({ locationCode }: { locationCode: string; taskId?: string }) {
+export function BinCapacityBar({ locationCode }: { locationCode: string; taskId?: string }) {
   const { data } = useQuery({
     queryKey: ["bin-occupancy", locationCode],
     queryFn: () => getBinOccupancy(locationCode),
@@ -5022,3 +5022,7 @@ export function statusBadgeVariant(status: string): "default" | "secondary" | "d
 
 // Alias kept for compatibility — Dock mode currently reuses the handoff board.
 export { DockHandoffBoard as WarehouseDockMode };
+
+function escapeHtml(value: unknown): string {
+  return String(value ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c] as string));
+}

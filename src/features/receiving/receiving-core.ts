@@ -1,10 +1,10 @@
+import { upsertRecord } from "@/features/admin/admin-core";
 import { z } from "zod";
 import { supabase } from "@/integrations/supabase/client";
 import { validateIso6346ContainerNumber } from "@/lib/container-number";
 import { recordPalletQtyObservation } from "@/lib/ai-assist";
 import {
   db,
-  buildPalletCode,
   getStoredPalletCounts,
   formatSupabaseError,
   throwIfSupabaseError,
