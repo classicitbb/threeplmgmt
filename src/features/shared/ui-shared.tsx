@@ -4721,7 +4721,7 @@ export function BinCapacityBar({ locationCode }: { locationCode: string; taskId?
   );
 }
 
-function WarehouseBayBrowserDialog({
+export function WarehouseBayBrowserDialog({
   open,
   warehouseId,
   onSelectBay,
