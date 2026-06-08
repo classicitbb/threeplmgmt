@@ -194,6 +194,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import {
   SelectField,
   TextField,
+  statusBadgeVariant,
 } from "@/features/shared/ui-shared";
 
 export function TransfersPage() {

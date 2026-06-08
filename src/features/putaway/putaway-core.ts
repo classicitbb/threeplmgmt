@@ -1,3 +1,4 @@
+import { createReturnedPalletDraft } from "@/features/receiving/receiving-core";
 import { supabase } from "@/integrations/supabase/client";
 import { recordPlacementObservation } from "@/lib/ai-assist";
 import {
