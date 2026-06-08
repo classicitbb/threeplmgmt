@@ -1073,7 +1073,7 @@ const locationWizardSchema = z
 
 export type LocationWizardValues = z.infer<typeof locationWizardSchema>;
 
-function ChangeOwnPasswordDialog({
+export function ChangeOwnPasswordDialog({
   onClose,
   open: openProp,
   onOpenChange,
@@ -3554,7 +3554,7 @@ type ReceivingShipmentFormState = {
   lines: ReceivingShipmentLineState[];
 };
 
-function newShipmentLine(productId = ""): ReceivingShipmentLineState {
+export function newShipmentLine(productId = ""): ReceivingShipmentLineState {
   return {
     id: typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `line-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     product_id: productId,
