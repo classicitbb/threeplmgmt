@@ -766,3 +766,8 @@ export async function getStoredPalletCount(locationId: string): Promise<number> 
   return (await getStoredPalletCounts([locationId])).get(locationId) ?? 0;
 }
 
+
+// Re-exports for backwards compatibility with split files that still import
+// these types from core-types.
+export type { CascadeDeleteResult, LocationRangeInput, ExpandedLocationRow } from "@/features/setup/setup-core";
+export type { ImportPreview, ImportRowPreview } from "@/features/reports/reports-core";
