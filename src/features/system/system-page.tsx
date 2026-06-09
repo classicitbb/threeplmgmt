@@ -465,7 +465,10 @@ export function EmailLogPage() {
               ))}
             </SelectContent>
           </Select>
-          <Input type="search" placeholder="Search recipient, template, message id, error…" value={search} onChange={(e) => setSearch(e.target.value)} />
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input type="search" className="pl-10" placeholder="Search recipient, template, message id, error…" value={search} onChange={(e) => setSearch(e.target.value)} />
+          </div>
         </CardContent>
       </Card>
       <Card>

@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { Search } from "lucide-react";
 
 const KNOWN_MODULE_KEYS = Object.keys(STARTER_MODULES) as ModuleKey[];
 
@@ -45,12 +46,16 @@ export default function HelpCenterPage() {
             Search the operator wiki for setup, receiving, stock control, user access, and reporting guidance.
           </p>
         </div>
-        <Input
-          type="search"
-          placeholder="Search help articles, modules, or workflow terms"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-        />
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            type="search"
+            className="pl-10"
+            placeholder="Search help articles, modules, or workflow terms"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+        </div>
         <p className="text-xs text-muted-foreground">
           {results.length} result{results.length === 1 ? "" : "s"} for your role and active modules.
         </p>
