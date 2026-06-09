@@ -209,6 +209,31 @@ export function TransfersPage() {
     resolver: zodResolver(transferSchema),
   });
 
+  const sourceWarehouseId = form.watch("source_warehouse_id");
+
+  const inFlightPalletIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const t of (transfers as any[])) {
+      if (t.status === "completed" || t.status === "cancelled") continue;
+      for (const line of (t.transfer_lines ?? [])) {
+        if (line.pallet_id) ids.add(line.pallet_id);
+      }
+    }
+    return ids;
+  }, [transfers]);
+
+  const transferablePallets = useMemo(() => {
+    if (!sourceWarehouseId) return [] as any[];
+    const allowed = new Set(["available", "quarantine", "hold"]);
+    return (options?.pallets ?? []).filter((p: any) =>
+      p.current_warehouse_id === sourceWarehouseId
+      && p.is_stored
+      && p.current_location_id
+      && allowed.has(String(p.status))
+      && !inFlightPalletIds.has(p.id),
+    );
+  }, [options?.pallets, sourceWarehouseId, inFlightPalletIds]);
+
   const createMutation = useMutation({
     mutationFn: async (values: z.infer<typeof transferSchema>) => createTransferFlow(values),
     onSuccess: async () => {
@@ -280,7 +305,21 @@ export function TransfersPage() {
               ]} />
               <SelectField form={form} name="source_warehouse_id" label="Source warehouse" options={(options?.warehouses ?? []).map((warehouse) => ({ label: warehouse.name, value: warehouse.id }))} />
               <SelectField form={form} name="destination_warehouse_id" label="Destination warehouse" options={(options?.warehouses ?? []).map((warehouse) => ({ label: warehouse.name, value: warehouse.id }))} />
-              <SelectField form={form} name="pallet_id" label="Pallet" options={(options?.pallets ?? []).map((pallet) => ({ label: `${pallet.pallet_code} · ${pallet.status}`, value: pallet.id }))} />
+              <SelectField
+                form={form}
+                name="pallet_id"
+                label="Pallet"
+                options={transferablePallets.map((pallet: any) => ({
+                  label: `${pallet.pallet_barcode || pallet.pallet_code} · ${pallet.status}`,
+                  value: pallet.id,
+                }))}
+              />
+              {sourceWarehouseId && transferablePallets.length === 0 && (
+                <p className="text-xs text-muted-foreground">No transferable pallets in this warehouse.</p>
+              )}
+              {!sourceWarehouseId && (
+                <p className="text-xs text-muted-foreground">Select a source warehouse to list available pallets.</p>
+              )}
               <TextField form={form} name="quantity" label="Quantity" type="number" />
               <FormField
                 control={form.control}
