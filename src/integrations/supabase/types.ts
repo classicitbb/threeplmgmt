@@ -2949,20 +2949,29 @@ export type Database = {
           available_quantity: number | null
           batch_number: string | null
           client_code: string | null
+          client_id: string | null
           client_name: string | null
+          container_number: string | null
+          created_at: string | null
           damaged_quantity: number | null
           expiry_date: string | null
           height: number | null
           held_quantity: number | null
           inventory_balance_id: string | null
+          inventory_lot_id: string | null
           length: number | null
           location_code: string | null
+          location_id: string | null
           lot_number: string | null
           manufacture_date: string | null
+          owner_name: string | null
           pallet_barcode: string | null
           pallet_code: string | null
+          pallet_id: string | null
+          po_number: string | null
           product_barcode: string | null
           product_family: string | null
+          product_id: string | null
           product_name: string | null
           quantity: number | null
           received_at: string | null
@@ -2974,13 +2983,72 @@ export type Database = {
             | Database["public"]["Enums"]["temperature_class"]
             | null
           warehouse_code: string | null
+          warehouse_id: string | null
           warehouse_name: string | null
           weight: number | null
           width: number | null
           zone_code: string | null
+          zone_id: string | null
           zone_name: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "inventory_balances_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "inventory_balances_inventory_lot_id_fkey"
+            columns: ["inventory_lot_id"]
+            isOneToOne: false
+            referencedRelation: "inventory_lots"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "inventory_balances_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "location_occupancy_view"
+            referencedColumns: ["location_id"]
+          },
+          {
+            foreignKeyName: "inventory_balances_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "locations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "inventory_balances_pallet_id_fkey"
+            columns: ["pallet_id"]
+            isOneToOne: false
+            referencedRelation: "pallets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "inventory_balances_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "inventory_balances_warehouse_id_fkey"
+            columns: ["warehouse_id"]
+            isOneToOne: false
+            referencedRelation: "warehouses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "inventory_balances_zone_id_fkey"
+            columns: ["zone_id"]
+            isOneToOne: false
+            referencedRelation: "zones"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       location_occupancy_view: {
         Row: {
