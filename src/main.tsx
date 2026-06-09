@@ -3,9 +3,13 @@ import { toast } from "sonner";
 import { registerSW } from "virtual:pwa-register";
 import App from "./App";
 import { AppErrorBoundary } from "@/components/error-boundary";
+import { installConsoleErrorTelemetry, installToastTelemetry, logErrorTelemetry, logSystemTelemetry } from "@/lib/system-telemetry";
 import "./index.css";
 
 // ── Global error telemetry ────────────────────────────────────────────────────
+
+installConsoleErrorTelemetry();
+installToastTelemetry();
 
 // Catch unhandled promise rejections (e.g. fire-and-forget async calls that
 // throw). We log to console and show a toast, but never crash the app.
@@ -18,6 +22,14 @@ window.addEventListener("unhandledrejection", (event) => {
   const isNetwork = /fetch|network|failed to fetch|load failed/i.test(message);
   if (!isNetwork) {
     console.error("[unhandledrejection]", error);
+    logErrorTelemetry({
+      error,
+      title: "Unhandled promise rejection",
+      source: "window.unhandledrejection",
+      details: {
+        reasonType: typeof event.reason,
+      },
+    });
     toast.error(message, { id: "unhandled-rejection", duration: 8_000 });
   }
 });
@@ -26,6 +38,17 @@ window.addEventListener("unhandledrejection", (event) => {
 window.addEventListener("error", (event) => {
   if (event.error) {
     console.error("[uncaught error]", event.error);
+    logErrorTelemetry({
+      error: event.error,
+      title: "Uncaught browser error",
+      source: "window.error",
+      details: {
+        message: event.message,
+        filename: event.filename,
+        line: event.lineno,
+        column: event.colno,
+      },
+    });
   }
 });
 
@@ -76,6 +99,23 @@ if (!isInIframe && !isPreviewHost) {
         }
       };
       document.addEventListener("visibilitychange", applyWhenHidden);
+      logSystemTelemetry({
+        log_type: "info",
+        severity: "info",
+        title: "Toast: Update available",
+        message: "A new version of Warehouse Wizard is ready. It will apply automatically in the background.",
+        source: "toast.default",
+        details: {
+          toast: {
+            method: "default",
+            title: "Update available",
+            options: {
+              description: "A new version of Warehouse Wizard is ready. It will apply automatically in the background.",
+              action: "Reload now",
+            },
+          },
+        },
+      });
       toast("Update available", {
         description: "A new version of Warehouse Wizard is ready. It will apply automatically in the background.",
         duration: 20_000,

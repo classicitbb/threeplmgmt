@@ -2,6 +2,7 @@ import { MutationCache, QueryCache, QueryClient, type QueryClientConfig } from "
 import { toast } from "sonner";
 
 import { assertOnline } from "@/hooks/use-network-status";
+import { logErrorTelemetry } from "@/lib/system-telemetry";
 
 export const queryClientDefaultOptions = {
   queries: {
@@ -33,6 +34,19 @@ function isNetworkError(error: unknown): boolean {
   return error instanceof Error && SUPPRESSED_PATTERNS.some((p) => p.test(error.message));
 }
 
+function shouldLogGlobalError(error: unknown): boolean {
+  return !isNetworkError(error);
+}
+
+function getErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  if (error && typeof error === "object" && "message" in error && typeof error.message === "string") {
+    return error.message;
+  }
+  return fallback;
+}
+
 export function createAppQueryClient() {
   const client = new QueryClient({
     queryCache: new QueryCache({
@@ -40,8 +54,24 @@ export function createAppQueryClient() {
         // Only toast if no specific onError is registered on the query itself,
         // and only for non-network errors (those are shown by the offline banner).
         if (query.options.meta?.suppressGlobalError) return;
-        if (isNetworkError(error)) return;
-        const message = error instanceof Error ? error.message : "An unexpected error occurred";
+        if (!shouldLogGlobalError(error)) return;
+        logErrorTelemetry({
+          error,
+          title: "React Query failed",
+          source: "react-query.query",
+          details: {
+            queryKey: query.queryKey,
+            meta: query.options.meta ?? null,
+            state: {
+              failureCount: query.state.fetchFailureCount,
+              status: query.state.status,
+              fetchStatus: query.state.fetchStatus,
+              dataUpdatedAt: query.state.dataUpdatedAt,
+              errorUpdatedAt: query.state.errorUpdatedAt,
+            },
+          },
+        });
+        const message = getErrorMessage(error, "An unexpected error occurred");
         toast.error(message, { id: `query-error-${String(query.queryKey[0])}` });
       },
     }),
@@ -57,9 +87,25 @@ export function createAppQueryClient() {
       onError: (error, _vars, _ctx, mutation) => {
         // Global mutation error fallback — only fires when the mutation has no
         // onError of its own registered.
+        if (!shouldLogGlobalError(error)) return;
+        logErrorTelemetry({
+          error,
+          title: "React Query mutation failed",
+          source: "react-query.mutation",
+          details: {
+            mutationKey: mutation.options.mutationKey ?? null,
+            meta: mutation.options.meta ?? null,
+            variables: _vars,
+            hasLocalOnError: Boolean(mutation.options.onError),
+            state: {
+              failureCount: mutation.state.failureCount,
+              status: mutation.state.status,
+              submittedAt: mutation.state.submittedAt,
+            },
+          },
+        });
         if (mutation.options.onError) return;
-        if (isNetworkError(error)) return;
-        const message = error instanceof Error ? error.message : "Mutation failed";
+        const message = getErrorMessage(error, "Mutation failed");
         toast.error(message);
       },
     }),

@@ -18,6 +18,7 @@ import { Component, type ErrorInfo, type ReactNode } from "react";
 import { AlertTriangle, RefreshCw, Home } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { logErrorTelemetry } from "@/lib/system-telemetry";
 
 // ── Chunk-load detection ──────────────────────────────────────────────────────
 
@@ -65,6 +66,17 @@ export class ErrorBoundary extends Component<Props, State> {
 
     // Always log to console so DevTools shows the full stack.
     console.error("[ErrorBoundary] Uncaught render error:", error, info.componentStack);
+    logErrorTelemetry({
+      error,
+      title: "React render error",
+      source: `react-error-boundary.${this.props.level ?? "route"}`,
+      details: {
+        componentStack: info.componentStack,
+        boundaryLevel: this.props.level ?? "route",
+        isChunkLoadError: isChunkLoadError(error),
+      },
+      severity: this.props.level === "app" ? "critical" : "error",
+    });
 
     // Chunk-load errors mean a stale tab with missing assets — reload once.
     if (isChunkLoadError(error)) {

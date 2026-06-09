@@ -1,5 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
-import { db } from "@/features/shared/core-types";
+import { db, formatSupabaseError } from "@/features/shared/core-types";
 
 export type ClientVariable = {
   id: string;
@@ -21,7 +21,7 @@ export async function listClientVariables(clientId?: string) {
     .order("key");
   if (clientId) query = query.eq("client_id", clientId);
   const { data, error } = await query;
-  if (error) throw error;
+  if (error) throw new Error(formatSupabaseError(error, "Failed to load client variables"));
   return (data ?? []) as any[];
 }
 
@@ -94,7 +94,7 @@ export async function listSystemLogs(filters?: {
   }
 
   const { data, error } = await query;
-  if (error) throw error;
+  if (error) throw new Error(formatSupabaseError(error, "Failed to load system logs"));
   return (data ?? []) as any[];
 }
 
@@ -118,7 +118,7 @@ export async function writeSystemLog(payload: {
     in_table_name: payload.table_name ?? null,
     in_record_count: payload.record_count ?? null,
   });
-  if (error) throw error;
+  if (error) throw new Error(formatSupabaseError(error, "Failed to write system log"));
   return data as string;
 }
 
@@ -126,5 +126,5 @@ export async function resolveSystemLog(id: string) {
   const { error } = await db("system_logs")
     .update({ resolved: true, resolved_at: new Date().toISOString() })
     .eq("id", id);
-  if (error) throw error;
+  if (error) throw new Error(formatSupabaseError(error, "Failed to resolve system log"));
 }

@@ -200,9 +200,10 @@ export function SystemLogPage() {
   const [logType, setLogType] = useState("all");
   const [severity, setSeverity] = useState("all");
   const [showResolved, setShowResolved] = useState(false);
-  const { data: logs = [], isLoading } = useQuery({
+  const { data: logs = [], error: logsError, isLoading } = useQuery({
     queryKey: ["system-logs", logType, severity, showResolved],
     queryFn: () => listSystemLogs({ log_type: logType === "all" ? undefined : logType, severity: severity === "all" ? undefined : severity, resolved: showResolved ? undefined : false }),
+    meta: { suppressGlobalError: true },
   });
   const resolveMutation = useMutation({
     mutationFn: resolveSystemLog,
@@ -224,6 +225,13 @@ export function SystemLogPage() {
   const form = useForm({ defaultValues: { title: "", message: "", log_type: "system_change", severity: "info" } });
   const severityVariant = (s: string): "default" | "secondary" | "destructive" | "outline" =>
     s === "critical" || s === "error" ? "destructive" : s === "warning" ? "secondary" : "default";
+  const formatDetails = (details: unknown) => {
+    try {
+      return JSON.stringify(details, null, 2);
+    } catch {
+      return String(details);
+    }
+  };
 
   return (
     <div className="flex flex-col gap-6">
@@ -288,6 +296,17 @@ export function SystemLogPage() {
               <TableBody>
                 {isLoading ? (
                   <TableRow><TableCell colSpan={8} className="h-24 text-center text-muted-foreground">Loading logs…</TableCell></TableRow>
+                ) : logsError ? (
+                  <TableRow>
+                    <TableCell colSpan={8} className="h-24 text-center">
+                      <div className="mx-auto max-w-2xl space-y-2">
+                        <p className="font-medium text-destructive">System logs could not be loaded.</p>
+                        <p className="text-xs text-muted-foreground">
+                          {logsError instanceof Error ? logsError.message : String(logsError)}
+                        </p>
+                      </div>
+                    </TableCell>
+                  </TableRow>
                 ) : logs.length === 0 ? (
                   <TableRow><TableCell colSpan={8} className="h-24 text-center text-muted-foreground">No log entries found.</TableCell></TableRow>
                 ) : logs.map((log: any) => (
@@ -297,6 +316,16 @@ export function SystemLogPage() {
                     <TableCell>
                       <p className="font-medium leading-tight">{log.title}</p>
                       {log.message ? <p className="text-xs text-muted-foreground">{log.message}</p> : null}
+                      {log.details ? (
+                        <details className="mt-2 max-w-2xl rounded border bg-muted/40 p-2 text-xs">
+                          <summary className="cursor-pointer select-none font-medium text-muted-foreground">
+                            Developer detail
+                          </summary>
+                          <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-all font-mono text-[10px] leading-relaxed">
+                            {formatDetails(log.details)}
+                          </pre>
+                        </details>
+                      ) : null}
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">{log.source ?? "—"}</TableCell>
                     <TableCell className="font-mono text-sm">{log.table_name ?? "—"}</TableCell>
