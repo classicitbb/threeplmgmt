@@ -2593,6 +2593,39 @@ export type Database = {
         }
         Relationships: []
       }
+      system_logs: {
+        Row: {
+          context: Json
+          created_at: string
+          id: string
+          level: Database["public"]["Enums"]["system_log_level"]
+          message: string
+          request_id: string | null
+          source: string
+          user_id: string | null
+        }
+        Insert: {
+          context?: Json
+          created_at?: string
+          id?: string
+          level?: Database["public"]["Enums"]["system_log_level"]
+          message: string
+          request_id?: string | null
+          source: string
+          user_id?: string | null
+        }
+        Update: {
+          context?: Json
+          created_at?: string
+          id?: string
+          level?: Database["public"]["Enums"]["system_log_level"]
+          message?: string
+          request_id?: string | null
+          source?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       transfer_lines: {
         Row: {
           client_id: string | null
@@ -3093,6 +3126,7 @@ export type Database = {
       receipt_type: "po" | "transfer" | "return" | "other"
       recommendation_status: "open" | "accepted" | "dismissed" | "resolved"
       rotation_method: "fifo" | "fefo" | "lifo"
+      system_log_level: "debug" | "info" | "warning" | "error" | "critical"
       task_status:
         | "draft"
         | "queued"
@@ -3287,6 +3321,7 @@ export const Constants = {
       receipt_type: ["po", "transfer", "return", "other"],
       recommendation_status: ["open", "accepted", "dismissed", "resolved"],
       rotation_method: ["fifo", "fefo", "lifo"],
+      system_log_level: ["debug", "info", "warning", "error", "critical"],
       task_status: [
         "draft",
         "queued",
