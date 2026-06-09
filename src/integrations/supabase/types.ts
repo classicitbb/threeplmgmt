@@ -1855,6 +1855,7 @@ export type Database = {
           full_name: string | null
           id: string
           phone: string | null
+          pin_hash: string | null
           updated_at: string
           user_code: string | null
         }
@@ -1868,6 +1869,7 @@ export type Database = {
           full_name?: string | null
           id: string
           phone?: string | null
+          pin_hash?: string | null
           updated_at?: string
           user_code?: string | null
         }
@@ -1881,6 +1883,7 @@ export type Database = {
           full_name?: string | null
           id?: string
           phone?: string | null
+          pin_hash?: string | null
           updated_at?: string
           user_code?: string | null
         }
@@ -3013,6 +3016,9 @@ export type Database = {
         Args: { in_password: string; in_user_id: string }
         Returns: undefined
       }
+      admin_update_user_pin:
+        | { Args: { in_pin: string; in_user_id: string }; Returns: undefined }
+        | { Args: { in_pin: string; in_user_id: string }; Returns: undefined }
       delete_client_cascade: { Args: { in_id: string }; Returns: Json }
       delete_email: {
         Args: { message_id: number; queue_name: string }
