@@ -135,6 +135,20 @@ export async function loadExistingSetupPayload(): Promise<WarehouseSetupPayload>
   return { warehouses, zones, locationTemplates };
 }
 
+/**
+ * Delete all products (and their cascading operational data) while leaving
+ * warehouse structure (warehouses, zones, locations) intact.
+ * Developer-only operation — enforced at the UI level.
+ */
+export async function deleteAllProducts(): Promise<{ deleted: number }> {
+  // Delete inventory and operational records that reference products first,
+  // then delete products themselves. Uses a dedicated RPC so the DB can handle
+  // FK cascades safely in a single transaction.
+  const { data, error } = await (supabase.rpc as any)("delete_all_products");
+  if (error) throw error;
+  return (data as { deleted: number }) ?? { deleted: 0 };
+}
+
 export async function resetWmsData() {
   const { data, error } = await (supabase.rpc as any)("reset_wms_data");
   if (error) throw error;

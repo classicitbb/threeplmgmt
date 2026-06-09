@@ -69,6 +69,7 @@ import {
   dispatchTransfer,
   cycleCountSchema,
   resetWmsData,
+  deleteAllProducts,
   removeUserRoleAssignment,
   downloadCsv,
   downloadCsvTemplate,
@@ -89,6 +90,9 @@ import {
   parseCsvForResource,
   commitImportRows,
   type ImportPreview,
+  type ImportRowPreview,
+  type ProductCategory,
+  inferProductCategory,
   listClientVariables,
   listDraftReceipts,
   saveShipmentDrafts,
@@ -2374,11 +2378,38 @@ export function ResourcePage({
   );
 }
 
+// ── Inferred-field override state for product imports ────────────────────────
+type ProductOverrides = {
+  temperature_requirement: string;
+  rotation_method: string;
+  expiry_tracked: boolean;
+  lot_tracked: boolean;
+  batch_tracked: boolean;
+};
+
+function applyOverridesToPreview(preview: ImportPreview, overrides: ProductOverrides): ImportPreview {
+  if (preview.resourceTable !== "products") return preview;
+  const rows = preview.rows.map((r) => {
+    if (!r.normalized || !r.inferred) return r;
+    const updated = {
+      ...r.normalized,
+      temperature_requirement: overrides.temperature_requirement,
+      rotation_method: overrides.rotation_method,
+      expiry_tracked: overrides.expiry_tracked,
+      lot_tracked: overrides.lot_tracked,
+      batch_tracked: overrides.batch_tracked,
+    };
+    return { ...r, normalized: updated };
+  });
+  return { ...preview, rows };
+}
+
 export function ImportButton({ resource, asMenuItems = false }: { resource: ResourceDefinition; asMenuItems?: boolean }) {
   const queryClient = useQueryClient();
   const [preview, setPreview] = useState<ImportPreview | null>(null);
   const [parsing, setParsing] = useState(false);
   const [committing, setCommitting] = useState(false);
+  const [overrides, setOverrides] = useState<ProductOverrides | null>(null);
 
   function handleImport() {
     const input = document.createElement("input");
@@ -2391,6 +2422,22 @@ export function ImportButton({ resource, asMenuItems = false }: { resource: Reso
       try {
         const p = await parseCsvForResource(resource, file);
         setPreview(p);
+        // Seed overrides from the first inferred row so the panel has sensible defaults
+        if (resource.table === "products") {
+          const firstInferred = p.rows.find((r) => r.inferred);
+          if (firstInferred?.inferred) {
+            const inf = firstInferred.inferred;
+            setOverrides({
+              temperature_requirement: inf.temperature_requirement,
+              rotation_method: inf.rotation_method,
+              expiry_tracked: inf.expiry_tracked,
+              lot_tracked: inf.lot_tracked,
+              batch_tracked: inf.batch_tracked,
+            });
+          } else {
+            setOverrides({ temperature_requirement: "ambient", rotation_method: "fifo", expiry_tracked: false, lot_tracked: false, batch_tracked: false });
+          }
+        }
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "Could not parse CSV");
       } finally {
@@ -2402,9 +2449,12 @@ export function ImportButton({ resource, asMenuItems = false }: { resource: Reso
 
   async function handleConfirm() {
     if (!preview) return;
+    const finalPreview = (resource.table === "products" && overrides)
+      ? applyOverridesToPreview(preview, overrides)
+      : preview;
     setCommitting(true);
     try {
-      const result = await commitImportRows(resource, preview);
+      const result = await commitImportRows(resource, finalPreview);
       if (result.failed > 0) {
         downloadCsv(`${resource.table}-errors.csv`, result.errors);
         toast.error(`Imported ${result.inserted}, failed ${result.failed} — error report downloaded`);
@@ -2412,6 +2462,7 @@ export function ImportButton({ resource, asMenuItems = false }: { resource: Reso
         toast.success(`Imported ${result.inserted} ${resource.title.toLowerCase()}`);
       }
       setPreview(null);
+      setOverrides(null);
       await queryClient.invalidateQueries({ queryKey: ["records", resource.table] });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Import failed");
@@ -2434,7 +2485,9 @@ export function ImportButton({ resource, asMenuItems = false }: { resource: Reso
         <ImportPreviewDialog
           resource={resource}
           preview={preview}
-          onCancel={() => setPreview(null)}
+          overrides={overrides}
+          onOverridesChange={setOverrides}
+          onCancel={() => { setPreview(null); setOverrides(null); }}
           onConfirm={handleConfirm}
           committing={committing}
         />
@@ -2459,7 +2512,9 @@ export function ImportButton({ resource, asMenuItems = false }: { resource: Reso
       <ImportPreviewDialog
         resource={resource}
         preview={preview}
-        onCancel={() => setPreview(null)}
+        overrides={overrides}
+        onOverridesChange={setOverrides}
+        onCancel={() => { setPreview(null); setOverrides(null); }}
         onConfirm={handleConfirm}
         committing={committing}
       />
@@ -2467,22 +2522,54 @@ export function ImportButton({ resource, asMenuItems = false }: { resource: Reso
   );
 }
 
+const TEMP_OPTIONS = [
+  { label: "Ambient", value: "ambient" },
+  { label: "Cool", value: "cool" },
+  { label: "Frozen", value: "frozen" },
+];
+const ROTATION_OPTIONS = [
+  { label: "FEFO — First Expired First Out", value: "fefo" },
+  { label: "FIFO — First In First Out", value: "fifo" },
+];
+
 function ImportPreviewDialog({
   resource,
   preview,
+  overrides,
+  onOverridesChange,
   onCancel,
   onConfirm,
   committing,
 }: {
   resource: ResourceDefinition;
   preview: ImportPreview | null;
+  overrides: ProductOverrides | null;
+  onOverridesChange: (o: ProductOverrides) => void;
   onCancel: () => void;
   onConfirm: () => void;
   committing: boolean;
 }) {
   const open = preview !== null;
   const summary = preview?.summary ?? { total: 0, valid: 0, invalid: 0 };
-  const previewCols = resource.fields.slice(0, 5).map((f) => f.name);
+  const isProducts = resource.table === "products";
+
+  // Determine which inferred categories appear in this file
+  const inferredCategories = useMemo(() => {
+    if (!preview || !isProducts) return [];
+    const seen = new Map<string, number>();
+    for (const r of preview.rows) {
+      if (r.inferred) seen.set(r.inferred.label, (seen.get(r.inferred.label) ?? 0) + 1);
+    }
+    return Array.from(seen.entries()).map(([label, count]) => ({ label, count }));
+  }, [preview, isProducts]);
+
+  const hasInferred = inferredCategories.length > 0;
+
+  // Preview columns: for products show the key fields
+  const previewCols = isProducts
+    ? ["sku", "name", "temperature_requirement", "rotation_method", "expiry_tracked"]
+    : resource.fields.slice(0, 5).map((f) => f.name);
+
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o && !committing) onCancel(); }}>
       <DialogContent className="max-w-5xl">
@@ -2492,43 +2579,107 @@ function ImportPreviewDialog({
             Rows are validated before anything is written. IDs and timestamps from the file are ignored — new records get fresh IDs.
           </DialogDescription>
         </DialogHeader>
+
         <div className="flex flex-wrap gap-2 text-sm">
           <Badge variant="secondary">Total {summary.total}</Badge>
           <Badge className="bg-emerald-600 text-white hover:bg-emerald-600">Valid {summary.valid}</Badge>
-          <Badge variant="destructive">Errors {summary.invalid}</Badge>
+          {summary.invalid > 0 && <Badge variant="destructive">Errors {summary.invalid}</Badge>}
+          {hasInferred && <Badge className="bg-amber-500 text-white hover:bg-amber-500">Auto-categorised {inferredCategories.reduce((s, c) => s + c.count, 0)}</Badge>}
         </div>
-        <ScrollArea className="max-h-[55vh] rounded border">
+
+        {/* Auto-categorisation override panel */}
+        {isProducts && hasInferred && overrides && (
+          <div className="rounded-md border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30 p-3 space-y-3">
+            <div className="flex items-start gap-2">
+              <Info className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+              <div className="text-sm text-amber-800 dark:text-amber-300">
+                <span className="font-medium">Fields were inferred from product names.</span>{" "}
+                Detected: {inferredCategories.map((c) => `${c.label} (${c.count})`).join(", ")}.
+                Adjust below to apply different defaults to all auto-categorised rows before importing.
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Temperature</label>
+                <select
+                  className="w-full rounded border bg-background px-2 py-1 text-sm"
+                  value={overrides.temperature_requirement}
+                  onChange={(e) => onOverridesChange({ ...overrides, temperature_requirement: e.target.value })}
+                >
+                  {TEMP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Rotation</label>
+                <select
+                  className="w-full rounded border bg-background px-2 py-1 text-sm"
+                  value={overrides.rotation_method}
+                  onChange={(e) => onOverridesChange({ ...overrides, rotation_method: e.target.value })}
+                >
+                  {ROTATION_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </div>
+              <div className="flex items-center gap-4 col-span-2 pt-1">
+                {(["expiry_tracked", "lot_tracked", "batch_tracked"] as const).map((f) => (
+                  <label key={f} className="flex items-center gap-1.5 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={overrides[f]}
+                      onChange={(e) => onOverridesChange({ ...overrides, [f]: e.target.checked })}
+                      className="h-3.5 w-3.5 accent-amber-600"
+                    />
+                    <span className="text-xs">{f.replace(/_/g, " ")}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        <ScrollArea className="max-h-[45vh] rounded border">
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead className="w-12">#</TableHead>
                 <TableHead className="w-24">Status</TableHead>
                 {previewCols.map((c) => <TableHead key={c}>{c}</TableHead>)}
-                <TableHead>Issues</TableHead>
+                <TableHead>Notes</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {preview?.rows.map((r) => (
-                <TableRow key={r.rowNumber}>
-                  <TableCell className="font-mono text-xs">{r.rowNumber}</TableCell>
-                  <TableCell>
-                    {r.normalized
-                      ? <Badge className="bg-emerald-600 text-white hover:bg-emerald-600">OK</Badge>
-                      : <Badge variant="destructive">Error</Badge>}
-                  </TableCell>
-                  {previewCols.map((c) => (
-                    <TableCell key={c} className="text-xs">
-                      {String((r.normalized?.[c] ?? r.raw[c]) ?? "")}
+              {preview?.rows.map((r) => {
+                const effectiveNormalized = (isProducts && overrides && r.inferred && r.normalized)
+                  ? { ...r.normalized, ...overrides }
+                  : r.normalized;
+                return (
+                  <TableRow key={r.rowNumber} className={r.inferred ? "bg-amber-50/40 dark:bg-amber-950/20" : undefined}>
+                    <TableCell className="font-mono text-xs">{r.rowNumber}</TableCell>
+                    <TableCell>
+                      {effectiveNormalized
+                        ? <Badge className="bg-emerald-600 text-white hover:bg-emerald-600">{r.inferred ? "Auto" : "OK"}</Badge>
+                        : <Badge variant="destructive">Error</Badge>}
                     </TableCell>
-                  ))}
-                  <TableCell className="text-xs">
-                    {[...r.errors, ...r.warnings].join("; ")}
-                  </TableCell>
-                </TableRow>
-              ))}
+                    {previewCols.map((c) => {
+                      const val = String((effectiveNormalized?.[c] ?? r.raw[c]) ?? "");
+                      const wasInferred = r.inferred && effectiveNormalized && c in (r.inferred as object) && !(c in r.raw || r.raw[c]);
+                      return (
+                        <TableCell key={c} className={`text-xs ${wasInferred ? "text-amber-700 dark:text-amber-400 font-medium" : ""}`}>
+                          {val === "true" ? "✓" : val === "false" ? "–" : val}
+                        </TableCell>
+                      );
+                    })}
+                    <TableCell className="text-xs text-muted-foreground">
+                      {r.errors.length > 0
+                        ? <span className="text-destructive">{r.errors.join("; ")}</span>
+                        : r.warnings.filter((w) => !w.startsWith("Auto-categorised")).join("; ")}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         </ScrollArea>
+
         <DialogFooter>
           <Button variant="outline" onClick={onCancel} disabled={committing}>Cancel</Button>
           <Button onClick={onConfirm} disabled={committing || summary.valid === 0}>

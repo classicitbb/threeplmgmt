@@ -69,6 +69,7 @@ import {
   dispatchTransfer,
   cycleCountSchema,
   resetWmsData,
+  deleteAllProducts,
   removeUserRoleAssignment,
   downloadCsv,
   downloadCsvTemplate,
@@ -1132,6 +1133,18 @@ export function SettingsPage() {
   const [resetChallenge, setResetChallenge] = useState("");
   const resetReady = resetChallenge.trim() === "RESET ALL";
 
+  const deleteProductsMutation = useMutation({
+    mutationFn: deleteAllProducts,
+    onSuccess: async (result) => {
+      const deleted = (result as { deleted?: number } | null)?.deleted ?? 0;
+      toast.success(`Deleted ${deleted} product${deleted === 1 ? "" : "s"}. Warehouse structure preserved.`);
+      await invalidateWarehouseData(queryClient);
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Product delete failed"),
+  });
+  const [deleteProductsOpen, setDeleteProductsOpen] = useState(false);
+  const isDeveloper = roles.includes("developer");
+
   return (
     <div className="flex flex-col gap-6">
       <div>
@@ -1177,8 +1190,15 @@ export function SettingsPage() {
                   {resetMutation.isPending ? <Loader2 className="animate-spin" /> : <RotateCcw data-icon="inline-start" />}
                   Reset all
                 </Button>
+                {isDeveloper && (
+                  <Button variant="outline" className="border-destructive text-destructive hover:bg-destructive/10" onClick={() => setDeleteProductsOpen(true)} disabled={deleteProductsMutation.isPending}>
+                    {deleteProductsMutation.isPending ? <Loader2 className="animate-spin" /> : <PackageX data-icon="inline-start" />}
+                    Delete products
+                  </Button>
+                )}
               </div>
               {!isDeveloperOrAdmin ? <p>Only admins and developers can run Reset All.</p> : null}
+              {isDeveloper && <p className="text-xs text-muted-foreground">Delete products is dev-only — removes all products and inventory, preserves warehouse structure.</p>}
             </CardContent>
           </Card>
           <Dialog open={resetOpen} onOpenChange={(o) => { if (!resetMutation.isPending) setResetOpen(o); }}>
@@ -1210,6 +1230,39 @@ export function SettingsPage() {
                 >
                   {resetMutation.isPending ? <Loader2 className="animate-spin" /> : null}
                   Reset everything
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+          <Dialog open={deleteProductsOpen} onOpenChange={(o) => { if (!deleteProductsMutation.isPending) setDeleteProductsOpen(o); }}>
+            <DialogContent className="max-w-lg">
+              <DialogHeader>
+                <DialogTitle className="text-destructive">Delete all products</DialogTitle>
+                <DialogDescription>Developer-only. Warehouse structure is preserved.</DialogDescription>
+              </DialogHeader>
+              <div className="grid gap-3 text-sm">
+                <p className="font-medium">What will be deleted:</p>
+                <ul className="list-disc space-y-1 pl-5 text-muted-foreground">
+                  <li>All products and their external sync mappings.</li>
+                  <li>All inventory balances, pallets, and lot/batch records linked to those products.</li>
+                  <li>All receipts, putaway tasks, pick lists, transfers, and cycle counts that reference those products.</li>
+                </ul>
+                <p className="font-medium">What is preserved:</p>
+                <ul className="list-disc space-y-1 pl-5 text-muted-foreground">
+                  <li>All warehouses, zones, and locations.</li>
+                  <li>All users, roles, and client records.</li>
+                  <li>System settings, label templates, and printer stations.</li>
+                </ul>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setDeleteProductsOpen(false)} disabled={deleteProductsMutation.isPending}>Cancel</Button>
+                <Button
+                  variant="destructive"
+                  disabled={deleteProductsMutation.isPending}
+                  onClick={() => { deleteProductsMutation.mutate(undefined, { onSettled: () => setDeleteProductsOpen(false) }); }}
+                >
+                  {deleteProductsMutation.isPending ? <Loader2 className="animate-spin" /> : null}
+                  Delete all products
                 </Button>
               </DialogFooter>
             </DialogContent>

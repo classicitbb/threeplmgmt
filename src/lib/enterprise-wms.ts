@@ -1,4 +1,5 @@
 import type { DashboardMetrics, DashboardTaskRow, RoleCode } from "@/lib/wms-core";
+import { inferProductCategory } from "@/features/reports/reports-core";
 
 type InventoryRow = {
   sku?: string | null;
@@ -138,6 +139,25 @@ export type NetSuiteItemPayload = {
   isInactive?: boolean;
 };
 
+/** Shared result shape for all sync mappers. */
+export type MappedProductPayload = {
+  external_system: string;
+  external_id: string;
+  sku: string;
+  barcode: string | null;
+  name: string;
+  temperature_requirement: string;
+  lot_tracked: boolean;
+  expiry_tracked: boolean;
+  batch_tracked: boolean;
+  rotation_method: string;
+  active: boolean;
+  /** True when one or more fields were filled by the auto-categoriser, not the source system. */
+  auto_categorised: boolean;
+  /** Human-readable label from the matched rule, e.g. "Food — Flour / Grain". Null if no rule matched. */
+  category_label: string | null;
+};
+
 export function generateZplLabel(input: ZplLabelInput) {
   const title = sanitizeZpl(input.title).slice(0, 34);
   const subtitle = sanitizeZpl(input.subtitle ?? input.labelType.replace(/_/g, " ")).slice(0, 42);
@@ -160,18 +180,105 @@ export function generateZplLabel(input: ZplLabelInput) {
   ].filter(Boolean).join("\n");
 }
 
-export function mapNetSuiteItemToProduct(payload: NetSuiteItemPayload) {
+export function mapNetSuiteItemToProduct(payload: NetSuiteItemPayload): MappedProductPayload {
+  const name = payload.displayName || payload.itemId;
+  const hasTemperature = Boolean(payload.custitem_temperature_class?.trim());
+  const hasTracking = payload.custitem_lot_tracked != null || payload.custitem_expiry_tracked != null;
+
+  // Fall back to keyword categoriser when NetSuite custom fields are absent
+  const inferred = (!hasTemperature || !hasTracking) ? inferProductCategory(name) : null;
+
+  const temperature_requirement = hasTemperature
+    ? normalizeTemperature(payload.custitem_temperature_class)
+    : (inferred?.temperature_requirement ?? "ambient");
+
+  const expiry_tracked = payload.custitem_expiry_tracked != null
+    ? Boolean(payload.custitem_expiry_tracked)
+    : (inferred?.expiry_tracked ?? false);
+
+  const lot_tracked = payload.custitem_lot_tracked != null
+    ? Boolean(payload.custitem_lot_tracked)
+    : (inferred?.lot_tracked ?? false);
+
+  const batch_tracked = inferred?.batch_tracked ?? false;
+  const rotation_method = expiry_tracked ? "fefo" : (inferred?.rotation_method ?? "fifo");
+
   return {
     external_system: "netsuite",
     external_id: payload.id,
     sku: payload.itemId,
     barcode: payload.upcCode ?? null,
-    name: payload.displayName || payload.itemId,
-    temperature_requirement: normalizeTemperature(payload.custitem_temperature_class),
-    lot_tracked: Boolean(payload.custitem_lot_tracked),
-    expiry_tracked: Boolean(payload.custitem_expiry_tracked),
-    rotation_method: payload.custitem_expiry_tracked ? "fefo" : "fifo",
+    name,
+    temperature_requirement,
+    lot_tracked,
+    expiry_tracked,
+    batch_tracked,
+    rotation_method,
     active: !payload.isInactive,
+    auto_categorised: inferred !== null,
+    category_label: inferred?.label ?? null,
+  };
+}
+
+/** Generic REST payload — minimal shape expected from a third-party connector. */
+export type GenericRestItemPayload = {
+  id: string;
+  sku?: string;
+  barcode?: string;
+  name?: string;
+  description?: string;
+  temperature?: string;
+  lot_tracked?: boolean;
+  expiry_tracked?: boolean;
+  batch_tracked?: boolean;
+  active?: boolean;
+};
+
+export function mapGenericRestItemToProduct(payload: GenericRestItemPayload): MappedProductPayload {
+  const name = payload.name || payload.sku || payload.id;
+  const hasTemperature = Boolean(payload.temperature?.trim());
+  const hasTracking = payload.lot_tracked != null || payload.expiry_tracked != null;
+
+  const inferred = (!hasTemperature || !hasTracking)
+    ? inferProductCategory(name, payload.description)
+    : null;
+
+  const temperature_requirement = hasTemperature
+    ? normalizeTemperature(payload.temperature)
+    : (inferred?.temperature_requirement ?? "ambient");
+
+  const expiry_tracked = payload.expiry_tracked != null
+    ? Boolean(payload.expiry_tracked)
+    : (inferred?.expiry_tracked ?? false);
+
+  const lot_tracked = payload.lot_tracked != null
+    ? Boolean(payload.lot_tracked)
+    : (inferred?.lot_tracked ?? false);
+
+  const batch_tracked = payload.batch_tracked != null
+    ? Boolean(payload.batch_tracked)
+    : (inferred?.batch_tracked ?? false);
+
+  const rotation_method = expiry_tracked ? "fefo" : (inferred?.rotation_method ?? "fifo");
+
+  // Cross-fill sku ↔ barcode when one side is blank
+  const sku = payload.sku || payload.barcode || payload.id;
+  const barcode = payload.barcode || payload.sku || null;
+
+  return {
+    external_system: "generic_rest",
+    external_id: payload.id,
+    sku,
+    barcode,
+    name,
+    temperature_requirement,
+    lot_tracked,
+    expiry_tracked,
+    batch_tracked,
+    rotation_method,
+    active: payload.active !== false,
+    auto_categorised: inferred !== null,
+    category_label: inferred?.label ?? null,
   };
 }
 

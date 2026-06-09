@@ -92,12 +92,131 @@ export async function importCsvToResource(resource: ResourceDefinition, file: Fi
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const STRIP_FIELDS = new Set(["id", "created_at", "updated_at"]);
 
+// ─── Product Auto-Categoriser ────────────────────────────────────────────────
+
+export type ProductCategory = {
+  label: string;                     // human-readable e.g. "Food — Flour / Grain"
+  temperature_requirement: string;   // "ambient" | "cool" | "frozen"
+  rotation_method: string;           // "fifo" | "fefo"
+  expiry_tracked: boolean;
+  lot_tracked: boolean;
+  batch_tracked: boolean;
+};
+
+type CategoryRule = {
+  label: string;
+  keywords: RegExp;
+  category: Omit<ProductCategory, "label">;
+};
+
+const CATEGORY_RULES: CategoryRule[] = [
+  // ── Frozen ──────────────────────────────────────────────────────────────
+  {
+    label: "Food — Frozen",
+    keywords: /\bfrozen?\b|ice\s*cream|gelato|sorbet|freezer/i,
+    category: { temperature_requirement: "frozen", rotation_method: "fefo", expiry_tracked: true, lot_tracked: true, batch_tracked: false },
+  },
+  // ── Meat / Seafood / Poultry (cool) ─────────────────────────────────────
+  {
+    label: "Food — Meat / Seafood",
+    keywords: /\b(beef|pork|chicken|poultry|lamb|veal|turkey|fish|salmon|tuna|shrimp|prawn|seafood|crab|lobster|scallop|clam|mussel|oyster|meat)\b/i,
+    category: { temperature_requirement: "cool", rotation_method: "fefo", expiry_tracked: true, lot_tracked: true, batch_tracked: true },
+  },
+  // ── Dairy ────────────────────────────────────────────────────────────────
+  {
+    label: "Food — Dairy",
+    keywords: /\b(milk|cheese|butter|cream|yogh?urt|dairy|whey|lactose|mozzarella|cheddar|brie|gouda)\b/i,
+    category: { temperature_requirement: "cool", rotation_method: "fefo", expiry_tracked: true, lot_tracked: true, batch_tracked: false },
+  },
+  // ── Deli / Prepared / Chilled ────────────────────────────────────────────
+  {
+    label: "Food — Deli / Prepared",
+    keywords: /\b(deli|sandwich|prepared\s+meal|ready[\s-]to[\s-]eat|rte|cooked|smoked|cured|pate|terrine|hummus)\b/i,
+    category: { temperature_requirement: "cool", rotation_method: "fefo", expiry_tracked: true, lot_tracked: true, batch_tracked: true },
+  },
+  // ── Produce (fresh fruit & veg) ──────────────────────────────────────────
+  {
+    label: "Food — Fresh Produce",
+    keywords: /\b(fruit|vegetable|veg|lettuce|tomato|potato|onion|carrot|apple|banana|grape|citrus|berry|berries|spinach|kale|cabbage|broccoli|cauliflower|celery|cucumber|pepper|zucchini|avocado|mushroom)\b/i,
+    category: { temperature_requirement: "cool", rotation_method: "fefo", expiry_tracked: true, lot_tracked: false, batch_tracked: false },
+  },
+  // ── Flour / Grain / Bakery dry ───────────────────────────────────────────
+  {
+    label: "Food — Flour / Grain",
+    keywords: /\b(flour|wheat|grain|semolina|bran|oat|barley|rye|corn\s*meal|cornmeal|bread\s*mix|baking\s*mix|gluten)\b/i,
+    category: { temperature_requirement: "cool", rotation_method: "fefo", expiry_tracked: true, lot_tracked: true, batch_tracked: false },
+  },
+  // ── Pasta / Noodles ──────────────────────────────────────────────────────
+  {
+    label: "Food — Pasta / Noodles",
+    keywords: /\b(pasta|noodle|spaghetti|penne|fettuccine|linguine|tagliatelle|lasagna|vermicelli|ramen|udon|soba|instant\s*noodle)\b/i,
+    category: { temperature_requirement: "ambient", rotation_method: "fefo", expiry_tracked: true, lot_tracked: true, batch_tracked: false },
+  },
+  // ── Canned / Preserved Food ──────────────────────────────────────────────
+  {
+    label: "Food — Canned / Preserved",
+    keywords: /\b(canned|tinned|jarred|preserved|pickle|relish|chutney|jam|jelly|marmalade|conserve|compote)\b/i,
+    category: { temperature_requirement: "ambient", rotation_method: "fefo", expiry_tracked: true, lot_tracked: false, batch_tracked: false },
+  },
+  // ── Dry Grocery / Shelf-stable ───────────────────────────────────────────
+  {
+    label: "Food — Dry Grocery",
+    keywords: /\b(sugar|salt|spice|seasoning|sauce|ketchup|mustard|vinegar|oil|syrup|honey|chocolate|cocoa|coffee|tea|cereal|cracker|biscuit|cookie|snack|chip|crisp|nuts?|seed|dried\s*fruit|rice|lentil|bean|legume)\b/i,
+    category: { temperature_requirement: "ambient", rotation_method: "fefo", expiry_tracked: true, lot_tracked: false, batch_tracked: false },
+  },
+  // ── Beverages ────────────────────────────────────────────────────────────
+  {
+    label: "Food — Beverage",
+    keywords: /\b(beverage|drink|juice|water|soda|cola|beer|wine|spirit|liquor|whisky|vodka|gin|rum|energy\s*drink|smoothie|kombucha)\b/i,
+    category: { temperature_requirement: "ambient", rotation_method: "fefo", expiry_tracked: true, lot_tracked: false, batch_tracked: false },
+  },
+  // ── Medical / Pharma / Gloves ────────────────────────────────────────────
+  {
+    label: "Medical / PPE",
+    keywords: /\b(glove|nitrile|latex|vinyl|exam\s*glove|surgical|mask|ppe|medical|pharmaceutical|pharma|drug|medication|bandage|dressing)\b/i,
+    category: { temperature_requirement: "ambient", rotation_method: "fefo", expiry_tracked: true, lot_tracked: true, batch_tracked: true },
+  },
+  // ── Cleaning / Chemical ──────────────────────────────────────────────────
+  {
+    label: "Cleaning / Chemical",
+    keywords: /\b(disinfectant|cleaner|detergent|sanitizer|bleach|degreaser|dishwash|laundry|soap|chemical|solvent|acid|alkali)\b/i,
+    category: { temperature_requirement: "ambient", rotation_method: "fifo", expiry_tracked: true, lot_tracked: false, batch_tracked: false },
+  },
+  // ── Paper / Disposable / Packaging ──────────────────────────────────────
+  {
+    label: "Paper / Disposables",
+    keywords: /\b(tissue|toilet\s*paper|paper\s*towel|napkin|tissue|bathroom\s*tissue|roll\s*towel|pan\s*liner|parchment|wrap|film|bag|cup|plate|container|tray|box|carton|packaging|disposable|cutlery|straw)\b/i,
+    category: { temperature_requirement: "ambient", rotation_method: "fifo", expiry_tracked: false, lot_tracked: false, batch_tracked: false },
+  },
+  // ── Sponge / Cleaning Pad ────────────────────────────────────────────────
+  {
+    label: "Household / Cleaning Supplies",
+    keywords: /\b(sponge|scouring|cloth|wipe|mop|broom|brush|scrub|pad)\b/i,
+    category: { temperature_requirement: "ambient", rotation_method: "fifo", expiry_tracked: false, lot_tracked: false, batch_tracked: false },
+  },
+];
+
+/**
+ * Infer product category fields from the product name and/or description.
+ * Returns null if no rule matches (caller should fall back to defaults).
+ */
+export function inferProductCategory(name: string, description?: string): (ProductCategory) | null {
+  const haystack = `${name} ${description ?? ""}`.toLowerCase();
+  for (const rule of CATEGORY_RULES) {
+    if (rule.keywords.test(haystack)) {
+      return { label: rule.label, ...rule.category };
+    }
+  }
+  return null;
+}
+
 export type ImportRowPreview = {
   rowNumber: number;
   raw: Record<string, string>;
   normalized: Record<string, unknown> | null;
   errors: string[];
   warnings: string[];
+  inferred?: ProductCategory | null;   // populated for product rows that used auto-categorisation
 };
 
 export type ImportPreview = {
@@ -176,10 +295,14 @@ export async function parseCsvForResource(resource: ResourceDefinition, file: Fi
   }
   const seenInFile = new Set<string>();
 
+  // Fields that can be auto-inferred for products — not hard errors if missing
+  const PRODUCT_INFERRED_FIELDS = new Set(["temperature_requirement", "rotation_method", "expiry_tracked", "lot_tracked", "batch_tracked"]);
+
   const preview: ImportRowPreview[] = rows.map((raw, idx) => {
     const errors: string[] = [];
     const warnings: string[] = [];
     const normalized: Record<string, unknown> = {};
+    let inferred: ProductCategory | null = null;
 
     // Skip template metadata rows (label row "required/optional" pattern, all "required"/"optional" tokens)
     const allValues = Object.values(raw);
@@ -196,7 +319,10 @@ export async function parseCsvForResource(resource: ResourceDefinition, file: Fi
       }
       const value = valueRaw;
       if (value === "" || value == null) {
-        if (field.required) errors.push(`Missing required: ${field.name}`);
+        // For inferred product fields, skip here — we'll fill them from categoriser below
+        if (field.required && !PRODUCT_INFERRED_FIELDS.has(field.name)) {
+          errors.push(`Missing required: ${field.name}`);
+        }
         continue;
       }
       if (field.type === "boolean") {
@@ -240,9 +366,55 @@ export async function parseCsvForResource(resource: ResourceDefinition, file: Fi
       }
     }
 
+    // ── Products: auto-categorise + sku/barcode cross-fill ─────────────────
+    if (resource.table === "products") {
+      // SKU ↔ barcode cross-fill
+      const hasSku = normalized.sku && String(normalized.sku).trim() !== "";
+      const hasBarcode = normalized.barcode && String(normalized.barcode).trim() !== "";
+      if (!hasSku && hasBarcode) {
+        normalized.sku = normalized.barcode;
+        warnings.push("SKU was blank — set to barcode value");
+      } else if (hasSku && !hasBarcode) {
+        normalized.barcode = normalized.sku;
+        warnings.push("Barcode was blank — set to SKU value");
+      } else if (!hasSku && !hasBarcode) {
+        errors.push("At least one of SKU or barcode is required");
+      }
+
+      // Auto-infer category fields from name/description when blank
+      const nameVal = String(raw.name ?? raw.description ?? "");
+      const descVal = String(raw.description ?? "");
+      if (nameVal) {
+        inferred = inferProductCategory(nameVal, descVal);
+        if (inferred) {
+          const inferredFields: Array<[string, unknown]> = [
+            ["temperature_requirement", inferred.temperature_requirement],
+            ["rotation_method", inferred.rotation_method],
+            ["expiry_tracked", inferred.expiry_tracked],
+            ["lot_tracked", inferred.lot_tracked],
+            ["batch_tracked", inferred.batch_tracked],
+          ];
+          for (const [k, v] of inferredFields) {
+            if (!(k in normalized) || normalized[k] === "" || normalized[k] == null) {
+              normalized[k] = v;
+            }
+          }
+          warnings.push(`Auto-categorised as "${inferred.label}" — review inferred fields`);
+        } else {
+          // No rule matched — apply safe defaults
+          if (!("temperature_requirement" in normalized)) normalized.temperature_requirement = "ambient";
+          if (!("rotation_method" in normalized)) normalized.rotation_method = "fifo";
+          if (!("expiry_tracked" in normalized)) normalized.expiry_tracked = false;
+          if (!("lot_tracked" in normalized)) normalized.lot_tracked = false;
+          if (!("batch_tracked" in normalized)) normalized.batch_tracked = false;
+          warnings.push("No category matched — defaulted to ambient/FIFO. Review before confirming.");
+        }
+      }
+    }
+
     // Required field check for columns missing entirely.
-    // Skip nullable-in-DB FKs (e.g. client_owner_id) — users can fill them in after import.
-    const skipRequired = new Set(["client_owner_id"]);
+    // Skip nullable-in-DB FKs (e.g. client_owner_id) and inferred product fields.
+    const skipRequired = new Set(["client_owner_id", ...PRODUCT_INFERRED_FIELDS]);
     for (const f of resource.fields) {
       if (skipRequired.has(f.name)) continue;
       if (f.required && !(f.name in normalized) && !errors.some((e) => e.includes(f.name))) {
@@ -264,6 +436,7 @@ export async function parseCsvForResource(resource: ResourceDefinition, file: Fi
       normalized: errors.length === 0 ? normalized : null,
       errors,
       warnings,
+      inferred,
     };
   });
 
