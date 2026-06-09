@@ -410,6 +410,11 @@ export async function parseCsvForResource(resource: ResourceDefinition, file: Fi
           warnings.push("No category matched — defaulted to ambient/FIFO. Review before confirming.");
         }
       }
+
+      // Products always import as active unless the CSV explicitly says false
+      if (!("active" in normalized) || normalized.active == null) {
+        normalized.active = true;
+      }
     }
 
     // Required field check for columns missing entirely.
