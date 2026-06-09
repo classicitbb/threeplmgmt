@@ -2031,22 +2031,3 @@ const App = () => (
 );
 
 export default App;
-      <FeatureFlagProvider>
-        <AuthProvider>
-          <Toaster />
-          <Sonner />
-          <BrowserRouter>
-            <RouteErrorBoundary>
-              <Suspense fallback={<PageSpinner />}>
-                <ResourceRoutes />
-              </Suspense>
-            </RouteErrorBoundary>
-          </BrowserRouter>
-          <Analytics />
-        </AuthProvider>
-      </FeatureFlagProvider>
-    </TooltipProvider>
-  </QueryClientProvider>
-);
-
-export default App;
