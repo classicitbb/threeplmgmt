@@ -91,6 +91,7 @@ export async function importCsvToResource(resource: ResourceDefinition, file: Fi
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const STRIP_FIELDS = new Set(["id", "created_at", "updated_at"]);
+const PRODUCT_DEFERRED_FIELDS = new Set(["client_owner_id"]);
 
 // ─── Product Auto-Categoriser ────────────────────────────────────────────────
 
@@ -319,6 +320,11 @@ export async function parseCsvForResource(resource: ResourceDefinition, file: Fi
       }
       const value = valueRaw;
       if (value === "" || value == null) {
+        if (resource.table === "products" && PRODUCT_DEFERRED_FIELDS.has(field.name)) {
+          normalized[key] = null;
+          warnings.push(`${field.name}: left blank — assign after import`);
+          continue;
+        }
         // For inferred product fields, skip here — we'll fill them from categoriser below
         if (field.required && !PRODUCT_INFERRED_FIELDS.has(field.name)) {
           errors.push(`Missing required: ${field.name}`);
