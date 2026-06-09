@@ -25,6 +25,23 @@ async function resolvePalletId(palletInput: string) {
 
 export async function createTransferFlow(input: z.infer<typeof transferSchema>) {
   const payload = transferSchema.parse(input);
+
+  const { data: pallet, error: palletError } = await db("pallets").select("*").eq("id", payload.pallet_id).single();
+  if (palletError) throw palletError;
+
+  const transferableStatuses = new Set(["available", "quarantine", "hold"]);
+  if (!transferableStatuses.has(String(pallet.status))) {
+    throw new Error(`Pallet status "${pallet.status}" cannot be transferred.`);
+  }
+  if (pallet.current_warehouse_id !== payload.source_warehouse_id) {
+    throw new Error("Pallet is not in the selected source warehouse.");
+  }
+  if (!pallet.is_stored || !pallet.current_location_id) {
+    throw new Error("Pallet must be stored in a location before transfer.");
+  }
+
+  const fromLocationId = pallet.current_location_id as string | null;
+
   const transfer = await upsertRecord("transfers", {
     transfer_number: buildPalletCode("TRF"),
     transfer_type: payload.transfer_type,
@@ -33,9 +50,6 @@ export async function createTransferFlow(input: z.infer<typeof transferSchema>) 
     status: "queued",
     notes: payload.notes || null,
   });
-
-  const { data: pallet, error: palletError } = await db("pallets").select("*").eq("id", payload.pallet_id).single();
-  if (palletError) throw palletError;
 
   await upsertRecord("transfer_lines", {
     transfer_id: transfer.id,
@@ -51,9 +65,34 @@ export async function createTransferFlow(input: z.infer<typeof transferSchema>) 
     pallet_id: payload.pallet_id,
     warehouse_id: payload.source_warehouse_id,
     transfer_id: transfer.id,
-    from_location_id: pallet.current_location_id,
+    from_location_id: fromLocationId,
     status: "queued",
     reason: "Transfer dispatch",
+  });
+
+  // Debit source-warehouse inventory immediately so the pallet stops appearing
+  // in source inventory views once the transfer is created.
+  await Promise.all([
+    db("pallets")
+      .update({ status: "in_transit", current_location_id: null, is_stored: false })
+      .eq("id", payload.pallet_id),
+    db("inventory_balances")
+      .update({ status: "in_transit", location_id: null, zone_id: null })
+      .eq("pallet_id", payload.pallet_id),
+  ]);
+
+  await (supabase.rpc as any)("log_audit_event", {
+    in_event_type: "transfer_created",
+    in_entity_table: "transfers",
+    in_entity_id: transfer.id,
+    in_warehouse_id: payload.source_warehouse_id,
+    in_pallet_id: payload.pallet_id,
+    in_from_location_id: fromLocationId,
+    in_metadata: {
+      transfer_number: transfer.transfer_number,
+      destination_warehouse_id: payload.destination_warehouse_id,
+      quantity: payload.quantity,
+    },
   });
 
   await createLabelRecord("transfer_document", transfer.id, transfer.transfer_number);
