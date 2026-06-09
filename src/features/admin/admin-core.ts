@@ -420,12 +420,28 @@ export async function getPickableStockSummary(
 
 export async function listUserActivities(limit = 25) {
   const { data, error } = await db("audit_events")
-    .select("*, profiles:actor_user_id(full_name, email)")
+    .select("*")
     .in("entity_table", ["profiles", "user_roles"])
     .order("created_at", { ascending: false })
     .limit(limit);
-  if (error) throw error;
-  return data ?? [];
+  if (error) throw new Error(formatSupabaseError(error, "Failed to load user activity"));
+
+  const rows = data ?? [];
+  const actorIds = Array.from(
+    new Set(rows.map((row: any) => row.actor_user_id).filter((id: unknown): id is string => typeof id === "string" && id.length > 0)),
+  );
+  if (actorIds.length === 0) return rows;
+
+  const { data: profiles, error: profilesError } = await db("profiles")
+    .select("id, full_name, email")
+    .in("id", actorIds);
+  if (profilesError) throw new Error(formatSupabaseError(profilesError, "Failed to load user activity profiles"));
+
+  const profilesById = new Map((profiles ?? []).map((profile: any) => [profile.id, profile]));
+  return rows.map((row: any) => ({
+    ...row,
+    profiles: row.actor_user_id ? profilesById.get(row.actor_user_id) ?? null : null,
+  }));
 }
 
 export async function resolveLoginCode(loginCode: string) {
