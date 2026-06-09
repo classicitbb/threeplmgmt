@@ -513,24 +513,6 @@ export async function snapshotRecordCounts() {
   return counts;
 }
 
-function coerceBoolean(v: string): boolean | null {
-  const s = v.trim().toLowerCase();
-  if (s === "") return null;
-  if (["true", "1", "yes", "y", "t"].includes(s)) return true;
-  if (["false", "0", "no", "n", "f"].includes(s)) return false;
-  return null;
-}
-
-// Fields that can be omitted on import — either auto-inferred or optional FKs
-const SKIP_REQUIRED = new Set([
-  "client_owner_id",        // optional FK — assign after import
-  "temperature_requirement",// auto-inferred from product name
-  "rotation_method",        // auto-inferred
-  "expiry_tracked",         // auto-inferred
-  "lot_tracked",            // auto-inferred
-  "batch_tracked",          // auto-inferred
-]);
-
 export async function parseCsvForResource(resource: ResourceDefinition, file: File): Promise<ImportPreview> {
   const text = await file.text();
   const { headers, rows } = parseCsvRobust(text);
