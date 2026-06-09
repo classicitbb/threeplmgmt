@@ -1,4 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { RouteErrorBoundary } from "@/components/error-boundary";
 import { BrowserRouter, Navigate, NavLink, Outlet, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 import { QueryClientProvider, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
@@ -37,6 +38,15 @@ import { HelpSidebar } from "@/components/help-sidebar";
 import NotFound from "./pages/NotFound";
 
 const queryClient = createAppQueryClient();
+
+/** Full-page loading spinner shown while lazy chunks are fetched. */
+function PageSpinner() {
+  return (
+    <div className="flex h-screen w-full items-center justify-center bg-background">
+      <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" aria-label="Loading…" />
+    </div>
+  );
+}
 
 const DashboardPage = lazy(() => import("@/components/wms-ui").then((mod) => ({ default: mod.DashboardPage })));
 const AppShell = lazy(() => import("@/components/wms-ui").then((mod) => ({ default: mod.AppShell })));
@@ -2007,9 +2017,30 @@ const App = () => (
           <Toaster />
           <Sonner />
           <BrowserRouter>
-            <Suspense fallback={null}>
-              <ResourceRoutes />
-            </Suspense>
+            <RouteErrorBoundary>
+              <Suspense fallback={<PageSpinner />}>
+                <ResourceRoutes />
+              </Suspense>
+            </RouteErrorBoundary>
+          </BrowserRouter>
+          <Analytics />
+        </AuthProvider>
+      </FeatureFlagProvider>
+    </TooltipProvider>
+  </QueryClientProvider>
+);
+
+export default App;
+      <FeatureFlagProvider>
+        <AuthProvider>
+          <Toaster />
+          <Sonner />
+          <BrowserRouter>
+            <RouteErrorBoundary>
+              <Suspense fallback={<PageSpinner />}>
+                <ResourceRoutes />
+              </Suspense>
+            </RouteErrorBoundary>
           </BrowserRouter>
           <Analytics />
         </AuthProvider>

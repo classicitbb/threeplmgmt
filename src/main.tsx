@@ -2,9 +2,40 @@ import { createRoot } from "react-dom/client";
 import { toast } from "sonner";
 import { registerSW } from "virtual:pwa-register";
 import App from "./App";
+import { AppErrorBoundary } from "@/components/error-boundary";
 import "./index.css";
 
-createRoot(document.getElementById("root")!).render(<App />);
+// ── Global error telemetry ────────────────────────────────────────────────────
+
+// Catch unhandled promise rejections (e.g. fire-and-forget async calls that
+// throw). We log to console and show a toast, but never crash the app.
+window.addEventListener("unhandledrejection", (event) => {
+  const error = event.reason;
+  const message =
+    error instanceof Error ? error.message : typeof error === "string" ? error : "Unhandled async error";
+
+  // Skip noisy network errors — the offline banner already covers these.
+  const isNetwork = /fetch|network|failed to fetch|load failed/i.test(message);
+  if (!isNetwork) {
+    console.error("[unhandledrejection]", error);
+    toast.error(message, { id: "unhandled-rejection", duration: 8_000 });
+  }
+});
+
+// Log uncaught synchronous errors (belt-and-suspenders alongside ErrorBoundary).
+window.addEventListener("error", (event) => {
+  if (event.error) {
+    console.error("[uncaught error]", event.error);
+  }
+});
+
+// ── App mount ─────────────────────────────────────────────────────────────────
+
+createRoot(document.getElementById("root")!).render(
+  <AppErrorBoundary>
+    <App />
+  </AppErrorBoundary>,
+);
 
 // Auto-check for new service worker every hour and prompt to reload when an
 // update is ready. Skip in iframes / Lovable preview to avoid stale shells.
