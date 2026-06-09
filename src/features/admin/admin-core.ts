@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { supabase } from "@/integrations/supabase/client";
+import { writeSystemLog } from "@/features/system/system-core";
 import {
   db,
   formatSupabaseError,
@@ -135,6 +136,45 @@ export type AdminInviteUserInput = {
   warehouse_id?: string;
 };
 
+function isEdgeFunctionRequestFailure(error: unknown) {
+  const message = formatSupabaseError(error, "");
+  return /failed to send a request|failed to fetch|network|fetch/i.test(message);
+}
+
+async function logInviteUserFallback(input: AdminInviteUserInput, error: unknown) {
+  await writeSystemLog({
+    log_type: "error",
+    severity: "warning",
+    title: "Invite user Edge Function unavailable; RPC fallback used",
+    message: formatSupabaseError(error, "Failed to send a request to the Edge Function"),
+    source: "adminInviteUser",
+    details: {
+      email: input.email,
+      full_name: input.full_name,
+      role_code: input.role_code ?? null,
+      warehouse_id: input.warehouse_id ?? null,
+      edge_function: "invite-user",
+      error: formatSupabaseError(error, "Failed to send a request to the Edge Function"),
+    },
+  }).catch((logError) => {
+    console.error("[adminInviteUser] writeSystemLog failed:", logError);
+  });
+}
+
+async function adminInviteUserViaRpc(input: AdminInviteUserInput): Promise<string> {
+  const { data, error } = await (supabase.rpc as any)("admin_invite_user", {
+    in_email: input.email,
+    in_full_name: input.full_name,
+    in_password: input.password,
+    in_role_code: input.role_code ?? null,
+    in_warehouse_id: input.warehouse_id ?? null,
+  });
+
+  if (error) throw new Error(formatSupabaseError(error, "User creation fallback failed"));
+  if (!data) throw new Error("User creation fallback failed");
+  return String(data);
+}
+
 export async function adminInviteUser(input: AdminInviteUserInput): Promise<string> {
   // Use the invite-user edge function which calls auth.admin.createUser().
   // Unlike the admin_invite_user RPC (which inserts directly into auth.users),
@@ -150,7 +190,20 @@ export async function adminInviteUser(input: AdminInviteUserInput): Promise<stri
     },
   });
 
-  if (error) throw error;
+  if (error) {
+    if (!isEdgeFunctionRequestFailure(error)) {
+      throw new Error(formatSupabaseError(error, "User creation failed"));
+    }
+
+    const fallbackId = await adminInviteUserViaRpc(input);
+    await logInviteUserFallback(input, error);
+    await logUserActivity("user_invited", "profiles", fallbackId, {
+      email: input.email,
+      role: input.role_code ?? null,
+      fallback: "admin_invite_user_rpc",
+    });
+    return fallbackId;
+  }
 
   const result = data as { id?: string; error?: string } | null;
   if (result?.error) throw new Error(result.error);
