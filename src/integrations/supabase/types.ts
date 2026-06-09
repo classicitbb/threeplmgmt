@@ -2600,34 +2600,72 @@ export type Database = {
         Row: {
           context: Json
           created_at: string
+          created_by: string | null
+          details: Json | null
           id: string
           level: Database["public"]["Enums"]["system_log_level"]
+          log_type: string
           message: string
+          record_count: number | null
           request_id: string | null
+          resolved: boolean
+          resolved_at: string | null
+          severity: string
           source: string
+          table_name: string | null
+          title: string
+          updated_at: string
           user_id: string | null
         }
         Insert: {
           context?: Json
           created_at?: string
+          created_by?: string | null
+          details?: Json | null
           id?: string
           level?: Database["public"]["Enums"]["system_log_level"]
+          log_type?: string
           message: string
+          record_count?: number | null
           request_id?: string | null
+          resolved?: boolean
+          resolved_at?: string | null
+          severity?: string
           source: string
+          table_name?: string | null
+          title: string
+          updated_at?: string
           user_id?: string | null
         }
         Update: {
           context?: Json
           created_at?: string
+          created_by?: string | null
+          details?: Json | null
           id?: string
           level?: Database["public"]["Enums"]["system_log_level"]
+          log_type?: string
           message?: string
+          record_count?: number | null
           request_id?: string | null
+          resolved?: boolean
+          resolved_at?: string | null
+          severity?: string
           source?: string
+          table_name?: string | null
+          title?: string
+          updated_at?: string
           user_id?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "system_logs_created_by_profiles_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       transfer_lines: {
         Row: {
@@ -3146,6 +3184,19 @@ export type Database = {
         }[]
       }
       reset_wms_data: { Args: never; Returns: Json }
+      write_system_log: {
+        Args: {
+          in_details?: Json
+          in_log_type: string
+          in_message?: string
+          in_record_count?: number
+          in_severity: string
+          in_source?: string
+          in_table_name?: string
+          in_title: string
+        }
+        Returns: string
+      }
     }
     Enums: {
       app_role_code:
