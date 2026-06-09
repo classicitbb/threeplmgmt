@@ -512,30 +512,6 @@ export async function snapshotRecordCounts() {
 
   return counts;
 }
-      if (c === '"') {
-        if (text[i + 1] === '"') { field += '"'; i++; } else { inQuotes = false; }
-      } else { field += c; }
-    } else {
-      if (c === '"') inQuotes = true;
-      else if (c === ",") { cur.push(field); field = ""; }
-      else if (c === "\n" || c === "\r") {
-        if (c === "\r" && text[i + 1] === "\n") i++;
-        cur.push(field); field = "";
-        if (cur.some((v) => v !== "")) records.push(cur);
-        cur = [];
-      } else { field += c; }
-    }
-  }
-  if (field !== "" || cur.length > 0) { cur.push(field); if (cur.some((v) => v !== "")) records.push(cur); }
-  if (records.length === 0) return { headers: [], rows: [] };
-  const headers = records[0].map((h) => h.trim());
-  const rows = records.slice(1).map((vals) => {
-    const o: Record<string, string> = {};
-    headers.forEach((h, i) => { o[h] = (vals[i] ?? "").trim(); });
-    return o;
-  });
-  return { headers, rows };
-}
 
 function coerceBoolean(v: string): boolean | null {
   const s = v.trim().toLowerCase();
