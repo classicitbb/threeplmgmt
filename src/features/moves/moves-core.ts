@@ -11,6 +11,102 @@ import {
 import { writeSystemLog } from "@/features/system/system-core";
 import { upsertRecord } from "@/features/admin/admin-core";
 
+const MOVE_LOCATION_SELECT =
+  "id, code, status, max_pallets, temperature_class, mixed_sku_allowed, mixed_lot_allowed, max_pallet_height_cm, zone_id, warehouse_id";
+
+function uniqueValues(values: string[]) {
+  return Array.from(new Set(values.filter(Boolean)));
+}
+
+function getLocationCodeCandidates(locationCode: string) {
+  const code = String(locationCode ?? "").trim().toUpperCase();
+  const candidates = [code];
+  const positionMatch = code.match(/-P(\d+)$/i);
+  if (positionMatch) {
+    const position = Number(positionMatch[1]);
+    if (Number.isFinite(position)) {
+      candidates.push(code.replace(/-P\d+$/i, `-P${position}`));
+      candidates.push(code.replace(/-P\d+$/i, `-P${String(position).padStart(2, "0")}`));
+      candidates.push(code.replace(/-P\d+$/i, ""));
+    }
+  }
+  return uniqueValues(candidates);
+}
+
+function parseFullLocationScan(locationCode: string) {
+  const parts = String(locationCode ?? "").trim().toUpperCase().split("-").filter(Boolean);
+  const positionPart = parts.at(-1);
+  const levelPart = parts.at(-2);
+  if (!positionPart || !levelPart || !/^P\d+$/i.test(positionPart) || !/^L\d+$/i.test(levelPart) || parts.length < 6) {
+    return null;
+  }
+
+  const bay = parts.at(-3);
+  const aisle = parts.at(-4);
+  const zoneCode = parts.at(-5);
+  const warehouseCode = parts.slice(0, -5).join("-");
+  const level = Number(levelPart.replace(/^L/i, ""));
+  const position = Number(positionPart.replace(/^P/i, ""));
+
+  if (!warehouseCode || !zoneCode || !aisle || !bay || !Number.isFinite(level) || !Number.isFinite(position)) {
+    return null;
+  }
+
+  return { warehouseCode, zoneCode, aisle, bay, level, position };
+}
+
+async function resolveMoveLocation(locationCode: string) {
+  for (const candidate of getLocationCodeCandidates(locationCode)) {
+    const { data, error } = await db("locations")
+      .select(MOVE_LOCATION_SELECT)
+      .eq("code", candidate)
+      .maybeSingle();
+    if (error) throw error;
+    if (data) return data;
+  }
+
+  const parsed = parseFullLocationScan(locationCode);
+  if (!parsed) return null;
+
+  const { data: warehouse, error: warehouseError } = await db("warehouses")
+    .select("id")
+    .eq("code", parsed.warehouseCode)
+    .maybeSingle();
+  if (warehouseError) throw warehouseError;
+  if (!warehouse) return null;
+
+  const { data: zone, error: zoneError } = await db("zones")
+    .select("id")
+    .eq("warehouse_id", warehouse.id)
+    .eq("code", parsed.zoneCode)
+    .maybeSingle();
+  if (zoneError) throw zoneError;
+  if (!zone) return null;
+
+  const baseQuery = () =>
+    db("locations")
+      .select(MOVE_LOCATION_SELECT)
+      .eq("warehouse_id", warehouse.id)
+      .eq("zone_id", zone.id)
+      .eq("aisle", parsed.aisle)
+      .eq("bay", parsed.bay)
+      .eq("level", parsed.level);
+
+  const { data: positionedLocation, error: positionedError } = await baseQuery()
+    .eq("position", parsed.position)
+    .maybeSingle();
+  if (positionedError) throw positionedError;
+  if (positionedLocation) return positionedLocation;
+
+  if (parsed.position === 1) {
+    const { data: unpositionedLocation, error: unpositionedError } = await baseQuery().maybeSingle();
+    if (unpositionedError) throw unpositionedError;
+    if (unpositionedLocation) return unpositionedLocation;
+  }
+
+  return null;
+}
+
 export async function listMoveTasks() {
   const { data, error } = await db("move_tasks")
     .select("*, pallets(pallet_barcode, products(*)), from_location:from_location_id(code, aisle, bay, level, depth), to_location:to_location_id(code, aisle, bay, level, depth)")
@@ -21,16 +117,13 @@ export async function listMoveTasks() {
 
 export async function createMoveTask(palletBarcode: string, toLocationCode: string, reason?: string): Promise<void> {
   const { data: pallet, error: palletErr } = await db("pallets")
-    .select("id, current_location_id, warehouse_id")
+    .select("id, current_location_id, warehouse_id:current_warehouse_id")
     .eq("pallet_barcode", palletBarcode)
     .single();
   if (palletErr) throw new Error(`Pallet not found: ${palletBarcode}`);
 
-  const { data: toLocation, error: locErr } = await db("locations")
-    .select("id")
-    .eq("code", toLocationCode)
-    .single();
-  if (locErr) throw new Error(`Location not found: ${toLocationCode}`);
+  const toLocation = await resolveMoveLocation(toLocationCode);
+  if (!toLocation) throw new Error(`Location not found: ${toLocationCode}`);
 
   await upsertRecord("move_tasks", {
     task_number: buildPalletCode("MOV"),
@@ -72,7 +165,7 @@ export async function validateMoveDestination(
 
   // ── Fetch pallet ──────────────────────────────────────────────────────────
   const { data: pallet, error: palletErr } = await db("pallets")
-    .select("id, product_id, warehouse_id, current_location_id, status")
+    .select("id, product_id, warehouse_id:current_warehouse_id, current_location_id, status")
     .eq("pallet_barcode", palletKey)
     .maybeSingle();
   if (palletErr) {
@@ -87,13 +180,8 @@ export async function validateMoveDestination(
   }
 
   // ── Fetch location ────────────────────────────────────────────────────────
-  const { data: location, error: locErr } = await db("locations")
-    .select(
-      "id, code, status, max_pallets, temperature_class, mixed_sku_allowed, mixed_lot_allowed, max_pallet_height_cm, zone_id, warehouse_id",
-    )
-    .eq("code", locationKey)
-    .maybeSingle();
-  if (locErr || !location) {
+  const location = await resolveMoveLocation(locationKey);
+  if (!location) {
     return { valid: false, reason: `Location "${locationKey}" does not exist`, warnings };
   }
   if (location.status !== "active") {
@@ -193,16 +281,13 @@ export async function validateMoveDestination(
 
 export async function completeDirectMove(palletBarcode: string, locationCode: string, reason?: string): Promise<void> {
   const { data: pallet, error: palletErr } = await db("pallets")
-    .select("id, current_location_id, warehouse_id")
+    .select("id, current_location_id, warehouse_id:current_warehouse_id")
     .eq("pallet_barcode", palletBarcode)
     .single();
   if (palletErr) throw new Error(`Pallet not found: ${palletBarcode}`);
 
-  const { data: toLocation, error: locErr } = await db("locations")
-    .select("id, zone_id")
-    .eq("code", locationCode)
-    .single();
-  if (locErr) throw new Error(`Location not found: ${locationCode}`);
+  const toLocation = await resolveMoveLocation(locationCode);
+  if (!toLocation) throw new Error(`Location not found: ${locationCode}`);
 
   const completedAt = new Date().toISOString();
   const task = await upsertRecord("move_tasks", {
@@ -249,7 +334,7 @@ export async function completeMoveTask(taskId: string, scannedPalletBarcode: str
   }
 
   const { data: pallet, error: palletErr } = await db("pallets")
-    .select("id, pallet_barcode, current_location_id, warehouse_id")
+    .select("id, pallet_barcode, current_location_id, warehouse_id:current_warehouse_id")
     .eq("pallet_barcode", scannedPalletBarcode)
     .single();
   if (palletErr) throw new Error(`Pallet not found: ${scannedPalletBarcode}`);
@@ -257,11 +342,8 @@ export async function completeMoveTask(taskId: string, scannedPalletBarcode: str
     throw new Error("Scanned pallet does not match this move task.");
   }
 
-  const { data: toLocation, error: locErr } = await db("locations")
-    .select("id, zone_id")
-    .eq("code", scannedLocationCode)
-    .single();
-  if (locErr) throw new Error(`Location not found: ${scannedLocationCode}`);
+  const toLocation = await resolveMoveLocation(scannedLocationCode);
+  if (!toLocation) throw new Error(`Location not found: ${scannedLocationCode}`);
 
   const { error: palletUpdErr } = await db("pallets")
     .update({ current_location_id: toLocation.id } as any)
@@ -311,7 +393,7 @@ export async function cancelMoveTask(taskId: string): Promise<void> {
 
 export async function moveToPickingArea(palletBarcode: string): Promise<void> {
   const { data: pallet, error: palletErr } = await db("pallets")
-    .select("id, warehouse_id")
+    .select("id, warehouse_id:current_warehouse_id")
     .eq("pallet_barcode", palletBarcode)
     .single();
   if (palletErr) throw new Error(`Pallet not found: ${palletBarcode}`);

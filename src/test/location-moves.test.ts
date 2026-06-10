@@ -14,24 +14,26 @@ vi.mock("@/integrations/supabase/client", () => {
       select: () => {
         const chain: any = {
           eq: (column: string, value: unknown) => {
-          filters.push([column, value]);
-          return {
-            eq: (nextColumn: string, nextValue: unknown) => {
-              filters.push([nextColumn, nextValue]);
-              return chain;
-            },
-            single: () => mockDb.selects[table]?.shift() ?? { data: null, error: new Error(`No ${table} mock`) },
-          };
-        },
-        single: () => mockDb.selects[table]?.shift() ?? { data: null, error: new Error(`No ${table} mock`) },
+            filters.push([column, value]);
+            return chain;
+          },
+          maybeSingle: () => mockDb.selects[table]?.shift() ?? { data: null, error: new Error(`No ${table} mock`) },
+          single: () => mockDb.selects[table]?.shift() ?? { data: null, error: new Error(`No ${table} mock`) },
         };
         return chain;
       },
       update: (payload: Record<string, unknown>) => ({
         eq: (column: string, value: unknown) => {
           filters.push([column, value]);
-          mockDb.updates.push({ table, payload, filters: [...filters] });
-          return { error: null };
+          const update = { table, payload, filters: [...filters] };
+          mockDb.updates.push(update);
+          return {
+            error: null,
+            not: (nextColumn: string, operator: string, nextValue: unknown) => {
+              update.filters.push([`not:${nextColumn}:${operator}`, nextValue]);
+              return { error: null };
+            },
+          };
         },
       }),
       upsert: (payload: Record<string, unknown>) => {
@@ -56,7 +58,7 @@ vi.mock("@/integrations/supabase/client", () => {
   };
 });
 
-import { cancelMoveTask, completeDirectMove, completeMoveTask } from "@/lib/wms-core";
+import { cancelMoveTask, completeDirectMove, completeMoveTask, validateMoveDestination } from "@/lib/wms-core";
 
 describe("location move helpers", () => {
   beforeEach(() => {
@@ -88,11 +90,34 @@ describe("location move helpers", () => {
     });
     expect(mockDb.updates).toEqual([
       { table: "pallets", payload: { current_location_id: "loc-new" }, filters: [["id", "pallet-1"]] },
+      {
+        table: "inventory_balances",
+        payload: { location_id: "loc-new", zone_id: null },
+        filters: [["pallet_id", "pallet-1"], ["not:status:in", "(shipped,in_transit,missing)"]],
+      },
     ]);
     expect(mockDb.rpcs[0]).toMatchObject({
       name: "log_audit_event",
       args: { in_event_type: "move_task_completed", in_entity_table: "move_tasks", in_entity_id: "move-new" },
     });
+  });
+
+  it("resolves scanned full hierarchy location labels by warehouse, zone, aisle, bay, level, and position", async () => {
+    mockDb.selects = {
+      pallets: [{ data: { id: "pallet-1", product_id: null, current_location_id: "loc-old", warehouse_id: "wh-1", status: "available" }, error: null }],
+      locations: [
+        { data: null, error: null },
+        { data: null, error: null },
+        { data: null, error: null },
+        { data: { id: "loc-new", code: "WH3-A-1-06-L03-P1", status: "active", max_pallets: 0, warehouse_id: "wh-1", zone_id: "zone-a" }, error: null },
+      ],
+      warehouses: [{ data: { id: "wh-1" }, error: null }],
+      zones: [{ data: { id: "zone-a" }, error: null }],
+    };
+
+    const result = await validateMoveDestination("PBC-1", "WH3-A-1-06-L03-P1");
+
+    expect(result).toEqual({ valid: true, warnings: [] });
   });
 
   it("rejects queued completion when the scanned pallet does not match the task", async () => {

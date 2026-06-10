@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { supabase } from "@/integrations/supabase/client";
 import { writeSystemLog } from "@/features/system/system-core";
+import { isDesktopClient } from "@/lib/device-identity";
 import {
   db,
   formatSupabaseError,
@@ -263,12 +264,11 @@ export async function adminUpdateUserPin(profileId: string, pin: string) {
 }
 
 export async function refreshUserDeviceTrust(deviceId: string) {
-  const client = supabase as unknown as {
-    rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: unknown }>;
-  };
-  const { error } = await client.rpc("refresh_user_device_trust", {
-    in_device_id: deviceId,
-    in_user_agent: typeof navigator === "undefined" ? null : navigator.userAgent,
+  const { error } = await supabase.functions.invoke("trust-device", {
+    body: {
+      deviceId,
+      isDesktop: isDesktopClient(),
+    },
   });
   if (error) throw new Error((error as any).message ?? "Device trust update failed");
 }
