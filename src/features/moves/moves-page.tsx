@@ -207,9 +207,11 @@ export function LocationMovesPage() {
   const [newReason, setNewReason] = useState("");
   const newPalletRef = useRef<HTMLInputElement | null>(null);
   const newLocationRef = useRef<HTMLInputElement | null>(null);
+  const newReasonRef = useRef<HTMLInputElement | null>(null);
   const [scanState, setScanState] = useState<Record<string, { pallet: string; location: string; validation: MoveValidationResult | null; validating: boolean }>>({})
   const [newValidation, setNewValidation] = useState<MoveValidationResult | null>(null);
   const [newValidating, setNewValidating] = useState(false);;
+  const [newBaySelectorOpen, setNewBaySelectorOpen] = useState(false);
   const [completedIds, setCompletedIds] = useState<Set<string>>(new Set());
   const [cancelledIds, setCancelledIds] = useState<Set<string>>(new Set());
   const [bayBrowserOpen, setBayBrowserOpen] = useState(false);
@@ -328,6 +330,7 @@ export function LocationMovesPage() {
     }
     const location = normalizeScannerText(value);
     setNewLocation(location);
+    setNewBaySelectorOpen(isBaySelectorCode(location));
     playBarcodeBeep();
     flashInput(newLocationRef.current, isBaySelectorCode(location) ? "orange" : "blue");
     if (!isBaySelectorCode(location)) {
@@ -337,9 +340,11 @@ export function LocationMovesPage() {
 
   function selectNewMoveLocation(locationCode: string) {
     setNewLocation(locationCode);
+    setNewBaySelectorOpen(false);
     playBarcodeBeep();
     flashInput(newLocationRef.current, "blue");
     void runNewValidation(newPallet, locationCode);
+    setTimeout(() => newReasonRef.current?.focus(), 50);
   }
 
   const pending = (tasks as any[]).filter((t) => !completedIds.has(t.id) && !cancelledIds.has(t.id) && !["completed", "cancelled"].includes(t.status));
@@ -386,6 +391,7 @@ export function LocationMovesPage() {
                 onChange={(e) => {
                   const val = normalizeScannerText(e.target.value);
                   setNewLocation(val);
+                  setNewBaySelectorOpen(isBaySelectorCode(val));
                   setNewValidation(null);
                   if (val.trim() && newPallet.trim() && !isBaySelectorCode(val)) {
                     void runNewValidation(newPallet, val);
@@ -445,13 +451,12 @@ export function LocationMovesPage() {
             onSelectBay={(bayCode) => {
               setBayBrowserOpen(false);
               setNewLocation(bayCode);
+              setNewBaySelectorOpen(true);
               flashInput(newLocationRef.current, "orange");
               setNewValidation(null);
             }}
           />
-          {newPallet.trim() && newLocation.trim().length >= 2 && isBaySelectorCode(newLocation) ? (
-            <BayOccupancyGrid locationCode={newLocation} onSelect={selectNewMoveLocation} />
-          ) : newPallet.trim() && newLocation.trim().length >= 2 && !newValidation?.valid ? (
+          {newBaySelectorOpen && newPallet.trim() && newLocation.trim().length >= 2 && isBaySelectorCode(newLocation) ? (
             <BayOccupancyGrid locationCode={newLocation} onSelect={selectNewMoveLocation} />
           ) : null}
           {/* Validation feedback */}
@@ -486,6 +491,7 @@ export function LocationMovesPage() {
             </div>
           )}
           <Input
+            ref={newReasonRef}
             placeholder="Reason (optional — e.g. aisle blocked, consolidation)"
             value={newReason}
             onChange={(e) => setNewReason(e.target.value)}

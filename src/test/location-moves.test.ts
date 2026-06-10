@@ -89,10 +89,14 @@ describe("location move helpers", () => {
       },
     });
     expect(mockDb.updates).toEqual([
-      { table: "pallets", payload: { current_location_id: "loc-new" }, filters: [["id", "pallet-1"]] },
+      {
+        table: "pallets",
+        payload: { current_location_id: "loc-new", current_warehouse_id: "wh-1" },
+        filters: [["id", "pallet-1"]],
+      },
       {
         table: "inventory_balances",
-        payload: { location_id: "loc-new", zone_id: null },
+        payload: { warehouse_id: "wh-1", location_id: "loc-new", zone_id: null },
         filters: [["pallet_id", "pallet-1"], ["not:status:in", "(shipped,in_transit,missing)"]],
       },
     ]);
@@ -118,6 +122,33 @@ describe("location move helpers", () => {
     const result = await validateMoveDestination("PBC-1", "WH3-A-1-06-L03-P1");
 
     expect(result).toEqual({ valid: true, warnings: [] });
+  });
+
+  it("uses the destination warehouse when completing a move for a legacy pallet without a warehouse", async () => {
+    mockDb.selects = {
+      pallets: [{ data: { id: "pallet-1", current_location_id: "loc-old", warehouse_id: null }, error: null }],
+      locations: [{ data: { id: "loc-new", warehouse_id: "wh-1", zone_id: "zone-a" }, error: null }],
+    };
+    mockDb.upserts = [{ id: "move-new", task_number: "MOV-1" }];
+
+    await completeDirectMove("PBC-1", "WH3-A-1-13-L05-P1");
+
+    expect(mockDb.upserts[1]).toMatchObject({
+      table: "move_tasks",
+      payload: expect.objectContaining({ warehouse_id: "wh-1", to_location_id: "loc-new" }),
+    });
+    expect(mockDb.updates).toEqual([
+      {
+        table: "pallets",
+        payload: { current_location_id: "loc-new", current_warehouse_id: "wh-1" },
+        filters: [["id", "pallet-1"]],
+      },
+      {
+        table: "inventory_balances",
+        payload: { warehouse_id: "wh-1", location_id: "loc-new", zone_id: "zone-a" },
+        filters: [["pallet_id", "pallet-1"], ["not:status:in", "(shipped,in_transit,missing)"]],
+      },
+    ]);
   });
 
   it("rejects queued completion when the scanned pallet does not match the task", async () => {

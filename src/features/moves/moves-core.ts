@@ -12,7 +12,7 @@ import { writeSystemLog } from "@/features/system/system-core";
 import { upsertRecord } from "@/features/admin/admin-core";
 
 const MOVE_LOCATION_SELECT =
-  "id, code, status, max_pallets, temperature_class, mixed_sku_allowed, mixed_lot_allowed, max_pallet_height_cm, zone_id, warehouse_id";
+  "id, code, status, max_pallets, temperature_class, mixed_sku_allowed, mixed_lot_allowed, max_height, zone_id, warehouse_id";
 
 function uniqueValues(values: string[]) {
   return Array.from(new Set(values.filter(Boolean)));
@@ -105,6 +105,18 @@ async function resolveMoveLocation(locationCode: string) {
   }
 
   return null;
+}
+
+function moveError(error: unknown, fallback: string) {
+  return new Error(formatSupabaseError(error, fallback) || fallback);
+}
+
+function getMoveWarehouseId(
+  pallet: { warehouse_id?: string | null },
+  location: { warehouse_id?: string | null },
+  fallback?: string | null,
+) {
+  return pallet.warehouse_id ?? location.warehouse_id ?? fallback ?? null;
 }
 
 export async function listMoveTasks() {
@@ -241,7 +253,7 @@ export async function validateMoveDestination(
 
       // ── Height ─────────────────────────────────────────────────────────────
       const palletH = Number(product.pallet_height_cm ?? 0);
-      const locH = Number(location.max_pallet_height_cm ?? 0);
+      const locH = Number((location as any).max_height ?? (location as any).max_pallet_height_cm ?? 0);
       if (palletH > 0 && locH > 0 && palletH > locH) {
         return {
           valid: false,
@@ -288,35 +300,42 @@ export async function completeDirectMove(palletBarcode: string, locationCode: st
 
   const toLocation = await resolveMoveLocation(locationCode);
   if (!toLocation) throw new Error(`Location not found: ${locationCode}`);
+  const warehouseId = getMoveWarehouseId(pallet, toLocation);
+  if (!warehouseId) throw new Error("Destination warehouse could not be resolved for this move");
 
   const completedAt = new Date().toISOString();
-  const task = await upsertRecord("move_tasks", {
-    task_number: buildPalletCode("MOV"),
-    pallet_id: pallet.id,
-    warehouse_id: pallet.warehouse_id,
-    from_location_id: pallet.current_location_id,
-    to_location_id: toLocation.id,
-    status: "completed",
-    reason: reason ?? null,
-    completed_at: completedAt,
-  });
+  let task;
+  try {
+    task = await upsertRecord("move_tasks", {
+      task_number: buildPalletCode("MOV"),
+      pallet_id: pallet.id,
+      warehouse_id: warehouseId,
+      from_location_id: pallet.current_location_id,
+      to_location_id: toLocation.id,
+      status: "completed",
+      reason: reason ?? null,
+      completed_at: completedAt,
+    });
+  } catch (error) {
+    throw moveError(error, "Move task creation failed");
+  }
 
   const { error: palletUpdErr } = await db("pallets")
-    .update({ current_location_id: toLocation.id } as any)
+    .update({ current_location_id: toLocation.id, current_warehouse_id: warehouseId } as any)
     .eq("id", pallet.id);
-  if (palletUpdErr) throw palletUpdErr;
+  if (palletUpdErr) throw moveError(palletUpdErr, "Pallet location update failed");
 
   const { error: balanceUpdErr } = await db("inventory_balances")
-    .update({ location_id: toLocation.id, zone_id: toLocation.zone_id ?? null } as any)
+    .update({ warehouse_id: warehouseId, location_id: toLocation.id, zone_id: toLocation.zone_id ?? null } as any)
     .eq("pallet_id", pallet.id)
     .not("status", "in", DB_RETIRED_INVENTORY_STATUS_FILTER);
-  if (balanceUpdErr) throw balanceUpdErr;
+  if (balanceUpdErr) throw moveError(balanceUpdErr, "Inventory balance update failed");
 
   await (supabase.rpc as any)("log_audit_event", {
     in_event_type: "move_task_completed",
     in_entity_table: "move_tasks",
     in_entity_id: (task as any).id,
-    in_warehouse_id: pallet.warehouse_id,
+    in_warehouse_id: warehouseId,
     in_metadata: {
       task_number: (task as any).task_number,
       pallet_barcode: palletBarcode,
@@ -328,7 +347,7 @@ export async function completeDirectMove(palletBarcode: string, locationCode: st
 
 export async function completeMoveTask(taskId: string, scannedPalletBarcode: string, scannedLocationCode: string): Promise<void> {
   const { data: task, error: taskErr } = await db("move_tasks").select("*").eq("id", taskId).single();
-  if (taskErr) throw taskErr;
+  if (taskErr) throw moveError(taskErr, "Move task lookup failed");
   if (["completed", "cancelled"].includes(task.status)) {
     throw new Error("Move task is already closed.");
   }
@@ -344,28 +363,30 @@ export async function completeMoveTask(taskId: string, scannedPalletBarcode: str
 
   const toLocation = await resolveMoveLocation(scannedLocationCode);
   if (!toLocation) throw new Error(`Location not found: ${scannedLocationCode}`);
+  const warehouseId = getMoveWarehouseId(pallet, toLocation, task.warehouse_id);
+  if (!warehouseId) throw new Error("Destination warehouse could not be resolved for this move");
 
   const { error: palletUpdErr } = await db("pallets")
-    .update({ current_location_id: toLocation.id } as any)
+    .update({ current_location_id: toLocation.id, current_warehouse_id: warehouseId } as any)
     .eq("id", pallet.id);
-  if (palletUpdErr) throw palletUpdErr;
+  if (palletUpdErr) throw moveError(palletUpdErr, "Pallet location update failed");
 
   const { error: balanceUpdErr } = await db("inventory_balances")
-    .update({ location_id: toLocation.id, zone_id: toLocation.zone_id ?? null } as any)
+    .update({ warehouse_id: warehouseId, location_id: toLocation.id, zone_id: toLocation.zone_id ?? null } as any)
     .eq("pallet_id", pallet.id)
     .not("status", "in", DB_RETIRED_INVENTORY_STATUS_FILTER);
-  if (balanceUpdErr) throw balanceUpdErr;
+  if (balanceUpdErr) throw moveError(balanceUpdErr, "Inventory balance update failed");
 
   const { error: taskUpdErr } = await db("move_tasks")
     .update({ status: "completed", to_location_id: toLocation.id, completed_at: new Date().toISOString() } as any)
     .eq("id", taskId);
-  if (taskUpdErr) throw taskUpdErr;
+  if (taskUpdErr) throw moveError(taskUpdErr, "Move task completion update failed");
 
   await (supabase.rpc as any)("log_audit_event", {
     in_event_type: "move_task_completed",
     in_entity_table: "move_tasks",
     in_entity_id: taskId,
-    in_warehouse_id: task.warehouse_id,
+    in_warehouse_id: warehouseId,
     in_metadata: { pallet_barcode: scannedPalletBarcode, to_location: scannedLocationCode },
   });
 }
