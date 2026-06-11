@@ -129,7 +129,7 @@ describe("location move helpers", () => {
       pallets: [{ data: { id: "pallet-1", current_location_id: "loc-old", warehouse_id: null }, error: null }],
       locations: [{ data: { id: "loc-new", warehouse_id: "wh-1", zone_id: "zone-a" }, error: null }],
     };
-    mockDb.upserts = [{ id: "move-new", task_number: "MOV-1" }];
+    mockDb.upserts = [{ table: "move_tasks", payload: { id: "move-new", task_number: "MOV-1" } }];
 
     await completeDirectMove("PBC-1", "WH3-A-1-13-L05-P1");
 

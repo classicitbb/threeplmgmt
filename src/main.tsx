@@ -134,27 +134,45 @@ if (!isInIframe && !isPreviewHost) {
   });
 } else {
   // In preview / iframe: aggressively unregister any pre-existing SW
-  // and clear caches so the latest build is always served.
-  if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.getRegistrations().then((regs) => {
-      const hadRegistrations = regs.length > 0;
-      regs.forEach((r) => r.unregister());
-      if (hadRegistrations) {
-        // A SW was controlling this page — reload once after unregister
-        // so the freshly-fetched bundle (not the SW-cached one) is used.
-        const RELOAD_KEY = "__lovable_sw_reloaded__";
-        if (!sessionStorage.getItem(RELOAD_KEY)) {
-          sessionStorage.setItem(RELOAD_KEY, "1");
-          window.location.reload();
+  // and clear caches so the latest build is always served. We do this
+  // synchronously-awaited inside an IIFE so the reload only fires after
+  // both the SW unregister and cache deletion have actually completed,
+  // and the reload guard is keyed on the current build version so a new
+  // deploy is allowed to trigger another cleanup reload.
+  void (async () => {
+    let removedSomething = false;
+    try {
+      if ("serviceWorker" in navigator) {
+        // Ask any controlling SW to step aside before we unregister it.
+        try {
+          navigator.serviceWorker.controller?.postMessage({ type: "SKIP_WAITING" });
+        } catch {
+          /* no-op */
+        }
+        const regs = await navigator.serviceWorker.getRegistrations();
+        if (regs.length > 0) {
+          removedSomething = true;
+          await Promise.all(regs.map((r) => r.unregister().catch(() => false)));
         }
       }
-    });
-    if ("caches" in window) {
-      caches.keys().then((names) => {
-        names.forEach((n) => caches.delete(n));
-      });
+      if ("caches" in window) {
+        const names = await caches.keys();
+        if (names.length > 0) {
+          removedSomething = true;
+          await Promise.all(names.map((n) => caches.delete(n).catch(() => false)));
+        }
+      }
+    } catch {
+      /* no-op */
     }
-  }
+    if (removedSomething) {
+      const RELOAD_KEY = `__lovable_sw_reloaded_v_${String(__APP_VERSION__)}`;
+      if (!sessionStorage.getItem(RELOAD_KEY)) {
+        sessionStorage.setItem(RELOAD_KEY, "1");
+        window.location.reload();
+      }
+    }
+  })();
 
   // Bust HTTP cache for the app shell on every preview load by appending
   // a build/version query to the document URL when missing. This ensures

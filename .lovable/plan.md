@@ -1,53 +1,35 @@
-## Goal
+## What's actually happening
 
-Make Transfers behave correctly:
+The "incorrect UI" screenshots are not coming from the current code. I searched the entire `src/` tree for the strings shown on those screens — `"WMS Lite"`, `"Sign in to access warehouse management"`, `"Don't have an account? Sign up"`, `"Sign in with Apple"`, `"INTERNAL OPERATIONS"`, `"Live activity across receiving, storage, and outbound work"` — and **none of them exist anywhere in the project**.
 
-1. The pallet picker only lists pallets that are actually transferable from the chosen source warehouse.
-2. Creating a transfer immediately debits source-warehouse inventory (not only on dispatch).
-3. A transferred pallet no longer appears in the source warehouse's inventory.
+The current source renders the "Welcome back / User code / Enterprise Warehouse Management System" login and the Command Center dashboard you see in your "correct" screenshots.
 
-## Current behavior (verified)
+The difference between the two screenshots is the URL:
 
-- `TransfersPage` pallet dropdown is populated from `fetchOptions().pallets` — every pallet in the system, including ones with status `picked`, `shipped`, `in_transit`, or pallets that don't belong to the selected source warehouse.
-- `createTransferFlow` only inserts `transfers` / `transfer_lines` / `move_tasks` rows. It does **not** touch `pallets` or `inventory_balances`, so the pallet still shows in source-warehouse inventory until someone signs off dispatch.
-- `dispatchTransfer` is where the pallet/inventory rows are flipped to `in_transit` and `location_id` is cleared. Inventory search already hides `in_transit` / `shipped` / `picked` (`RETIRED_INVENTORY_STATUSES`), so once dispatched it correctly disappears — but between create and dispatch it incorrectly still shows.
-- No filter on the pallet picker for picked/shipped/in_transit pallets, and no scoping to the source warehouse.
+- Stale (editor iframe): `id-preview--b1278655-...lovable.app`
+- Fresh (new tab): `preview--threeplmgmt.lovable.app`
 
-## Changes
+These are two separate origins. The iframe origin has an old service worker + Cache Storage entry that was registered by a much earlier build of the app, and it's serving that old HTML/JS shell to the iframe before the network request for the new build ever runs.
 
-### 1. `src/features/transfers/transfers-page.tsx` — pallet picker
+`src/main.tsx` already tries to unregister the SW inside iframes, but the cleanup is fire-and-forget and gated by a `sessionStorage` flag that only allows one reload per session. So on the very first visit the old cached shell paints, the SW gets queued for removal, and the auto-reload either doesn't fire or fires once and then the flag prevents future cleanups when a new old shell variant shows up.
 
-- Watch `form.watch("source_warehouse_id")`.
-- Build the pallet `<SelectField>` options from `options.pallets` filtered to:
-  - `current_warehouse_id === source_warehouse_id` (required; show empty/disabled state until source is chosen),
-  - `is_stored === true` and `current_location_id` present,
-  - `status` in `{available, quarantine, hold}` — exclude `picked`, `shipped`, `in_transit`, `receiving`, `damaged`, `missing`,
-  - not already referenced by an active (`queued` / `in_progress`) transfer line (use the existing `transfers` query to derive the in-flight pallet id set).
-- Show a clear empty message ("No transferable pallets in this warehouse") when the filtered list is empty.
+## Fix
 
-### 2. `src/features/transfers/transfers-core.ts` — debit on create
+Harden the iframe/preview cleanup in `src/main.tsx` so it deterministically removes the stale shell:
 
-In `createTransferFlow`, after loading the pallet and before/after inserting `transfer_lines`:
+1. Run SW unregister and `caches.delete(...)` for every cache as awaited promises (wrapped in an async IIFE), not fire-and-forget.
+2. After both finish, if anything was actually removed, force `window.location.reload()` — but key the "already reloaded" guard on the current `__APP_VERSION__` (e.g. `__lovable_sw_reloaded_v_<version>`) instead of a plain flag, so a new build can trigger another cleanup reload.
+3. Add a `<meta http-equiv="Clear-Site-Data" content="cache, storage">`-style belt-and-braces by also calling `navigator.serviceWorker.controller?.postMessage({ type: "SKIP_WAITING" })` before unregister, so any controlling SW releases the page first.
+4. Keep the existing HTTP cache-busting `?v=` query.
 
-- Validate the pallet is in the source warehouse, stored, and in a transferable status; throw a clear error otherwise (defense-in-depth for the UI filter).
-- Capture `pallet.current_location_id` and `pallet.current_warehouse_id` for the move task / audit metadata.
-- Update `pallets`: `status = 'in_transit'`, `current_location_id = null`, `is_stored = false`.
-- Update `inventory_balances` for that pallet: `status = 'in_transit'`, `location_id = null`, `zone_id = null`.
-- Write an `log_audit_event` row (`event_type = 'transfer_created'`) with the source warehouse and from-location for traceability.
+No UI changes, no feature changes — this only touches `src/main.tsx`.
 
-Result: the pallet is debited from source inventory the moment the transfer is created. `dispatchTransfer` keeps doing the driver sign-off and timestamping, but the pallet/inventory updates there become no-ops (idempotent — leave them in place but guarded so they don't error if already `in_transit`).
+## After the code change
 
-### 3. No schema or RLS changes required
+Even with the fix in place, the *currently* cached iframe needs one manual eviction so the new `main.tsx` can run at all. I'll give you a one-time recovery step (hard-refresh the iframe with DevTools open → Application → Service Workers → Unregister, or just open the preview in a new tab once). After that, the hardened cleanup keeps it from coming back.
 
-`inventory_search_view` already filters retired statuses; once `status = 'in_transit'` is set on create, the pallet disappears from the source warehouse view automatically. `cancelTransfer` already returns the pallet to `receiving` with a draft, so cancellation still works.
+## Files touched
 
-## Out of scope
+- `src/main.tsx` — harden iframe/preview SW + Cache Storage cleanup and version-key the reload guard.
 
-- No UI restyle of the Transfers page.
-- No changes to dispatch sign-off, receive, or cancel flows beyond making the pallet/inventory updates in `dispatchTransfer` idempotent.
-- No changes to Inventory Search / Status pages — they already respect the retired-status filter.
-
-## Verification
-
-- `bunx tsc --noEmit`.
-- Manually: pick a source warehouse → only its stored, non-picked/non-shipped pallets appear; create transfer → pallet disappears from Inventory Search for that warehouse immediately; cancel returns it to receiving as today.
+Nothing else in the app changes.
