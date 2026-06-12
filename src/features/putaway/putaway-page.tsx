@@ -512,6 +512,13 @@ export function PutawayTasksPage() {
   const [violations, setViolations] = useState<Record<string, string>>({});
   const [bayBrowserOpen, setBayBrowserOpen] = useState<Record<string, boolean>>({});
   const [taskSearch, setTaskSearch] = useState("");
+  const [scanDialogOpen, setScanDialogOpen] = useState(false);
+  const [scanQuery, setScanQuery] = useState("");
+  const [scanError, setScanError] = useState("");
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [flowCancelled, setFlowCancelled] = useState(false);
+  const [openTasksExpanded, setOpenTasksExpanded] = useState(false);
+  const scanInputRef = useRef<HTMLInputElement | null>(null);
   const palletRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const locationRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const confirmRefs = useRef<Record<string, HTMLButtonElement | null>>({});
@@ -525,6 +532,12 @@ export function PutawayTasksPage() {
       toast.success("Task saved as draft");
       setReturnTask(null);
       setRevertedIds((prev) => new Set([...prev, vars.taskId]));
+      setSelectedTaskId(null);
+      setTaskSearch("");
+      setScanQuery("");
+      setScanError("");
+      setFlowCancelled(false);
+      setOpenTasksExpanded(false);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["putaway-tasks"] }),
         queryClient.invalidateQueries({ queryKey: ["putaway-task-history"] }),
@@ -579,6 +592,12 @@ export function PutawayTasksPage() {
           delete next[vars.taskId];
           return next;
         });
+        setSelectedTaskId(null);
+        setTaskSearch("");
+        setScanQuery("");
+        setScanError("");
+        setFlowCancelled(false);
+        setOpenTasksExpanded(false);
         return;
       }
       playBarcodeBeep();
@@ -604,6 +623,12 @@ export function PutawayTasksPage() {
         delete next[vars.taskId];
         return next;
       });
+      setSelectedTaskId(null);
+      setTaskSearch("");
+      setScanQuery("");
+      setScanError("");
+      setFlowCancelled(false);
+      setOpenTasksExpanded(false);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["putaway-tasks"] }),
         queryClient.invalidateQueries({ queryKey: ["putaway-task-history"] }),
@@ -627,21 +652,66 @@ export function PutawayTasksPage() {
 
   const openPutawayStatuses = new Set(["queued", "assigned", "in_progress", "exception"]);
   const pendingTasks = data.filter((task: any) => openPutawayStatuses.has(task.status) && !completedIds.has(task.id) && !revertedIds.has(task.id));
-  const taskSearchTerm = taskSearch.trim().toLowerCase();
-  const visibleTasks = taskSearchTerm
-    ? pendingTasks.filter((task: any) =>
-      [
-        task.task_number,
-        task.status,
-        task.pallets?.pallet_barcode,
-        task.pallets?.pallet_code,
-        task.pallets?.products?.sku,
-        task.pallets?.products?.name,
-        task.locations?.code,
-      ].some((value) => String(value ?? "").toLowerCase().includes(taskSearchTerm)),
-    )
-    : pendingTasks;
+  const selectedTask = selectedTaskId ? pendingTasks.find((task: any) => task.id === selectedTaskId) ?? null : null;
+  const visibleTasks = selectedTask ? [selectedTask] : openTasksExpanded ? pendingTasks : [];
   const activeTasks = visibleTasks.filter((t: any) => openPutawayStatuses.has(t.status));
+
+  function getTaskPalletCodes(task: any) {
+    const pallet = task.pallets as any;
+    return [pallet?.pallet_barcode, pallet?.pallet_code].map((value) => normalizeScannerText(value)).filter(Boolean);
+  }
+
+  function getConfirmPalletCode(task: any, fallback: string) {
+    const pallet = task.pallets as any;
+    return normalizeScannerText(pallet?.pallet_barcode || pallet?.pallet_code || fallback);
+  }
+
+  function closeBayBrowser(taskId: string) {
+    setBayBrowserOpen((current) => ({ ...current, [taskId]: false }));
+    setTimeout(() => {
+      flashInput(locationRefs.current[taskId], "orange");
+      locationRefs.current[taskId]?.focus();
+    }, 50);
+  }
+
+  function commitPalletScan(rawValue: string) {
+    const value = normalizeScannerText(rawValue);
+    if (!value) {
+      setScanError("Scan or enter a pallet number.");
+      return;
+    }
+
+    const match = pendingTasks.find((task: any) => getTaskPalletCodes(task).includes(value));
+    if (!match) {
+      setSelectedTaskId(null);
+      setTaskSearch(value);
+      setScanError(`No open Put-Away task found for pallet ${value}.`);
+      return;
+    }
+
+    const palletCode = getConfirmPalletCode(match, value);
+    setSelectedTaskId(match.id);
+    setTaskSearch(value);
+    setScanQuery(value);
+    setScanError("");
+    setFlowCancelled(false);
+    setOpenTasksExpanded(false);
+    setScanState((current) => ({
+      ...current,
+      [match.id]: {
+        ...(current[match.id] ?? { pallet: "", location: "", override: false, reason: "" }),
+        pallet: palletCode,
+      },
+    }));
+    setBayScanState((current) => {
+      const next = { ...current };
+      delete next[match.id];
+      return next;
+    });
+    setBayBrowserOpen({ [match.id]: true });
+    playBarcodeBeep();
+    setScanDialogOpen(false);
+  }
 
   function applyLocationScan(task: any, scannedValue: string) {
     const value = normalizeScannerText(scannedValue);
@@ -666,17 +736,119 @@ export function PutawayTasksPage() {
     setTimeout(() => confirmRefs.current[task.id]?.focus(), 50);
   }
 
-  // Auto-focus first pallet field on desktop when tasks load
+  useEffect(() => {
+    if (isLoading) return;
+    if (pendingTasks.length === 0) {
+      setScanDialogOpen(false);
+      setSelectedTaskId(null);
+      setFlowCancelled(false);
+      return;
+    }
+    if (!selectedTask && !flowCancelled) {
+      setScanDialogOpen(true);
+    }
+  }, [flowCancelled, isLoading, pendingTasks.length, selectedTask]);
+
+  useEffect(() => {
+    if (!scanDialogOpen) return;
+    const timer = setTimeout(() => scanInputRef.current?.focus(), 120);
+    return () => clearTimeout(timer);
+  }, [scanDialogOpen]);
+
+  // Auto-focus first pallet field only when the manual task list is expanded on desktop.
   const isMobile = typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches;
   useEffect(() => {
-    if (isMobile || isLoading || activeTasks.length === 0) return;
+    if (isMobile || isLoading || selectedTask || scanDialogOpen || activeTasks.length === 0) return;
     const firstId = activeTasks[0].id;
     const timer = setTimeout(() => palletRefs.current[firstId]?.focus(), 120);
     return () => clearTimeout(timer);
-  }, [isLoading, activeTasks.length, isMobile]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isLoading, activeTasks.length, isMobile, scanDialogOpen, selectedTask]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const scanPromptWaiting = scanDialogOpen && scanQuery.trim().length === 0;
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-6 overflow-hidden">
+      <Dialog
+        open={scanDialogOpen}
+        onOpenChange={(open) => {
+          setScanDialogOpen(open);
+          if (open) {
+            setFlowCancelled(false);
+            setScanError("");
+            return;
+          }
+          if (!selectedTaskId) setFlowCancelled(true);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Scan pallet for Put-Away</DialogTitle>
+            <DialogDescription>
+              Scan or type the pallet number, then press Enter to open its Put-Away task.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3">
+            <div
+              className={cn("rounded-lg", scanPromptWaiting && "scan-prompt-halo")}
+              data-testid="putaway-scan-prompt"
+              data-waiting-for-input={scanPromptWaiting ? "true" : "false"}
+            >
+            <div className="relative z-[1] flex gap-2">
+              <div className="relative min-w-0 flex-1">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  ref={scanInputRef}
+                  className={cn("min-h-12 pl-9 font-mono text-base", scanPromptWaiting && "scan-prompt-input")}
+                  value={scanQuery}
+                  onChange={(event) => {
+                    setScanQuery(event.target.value.toUpperCase());
+                    setScanError("");
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      commitPalletScan(event.currentTarget.value);
+                    }
+                  }}
+                  placeholder="Scan or enter pallet number"
+                  aria-label="Pallet number"
+                />
+              </div>
+              <BarcodeScanButton
+                title="Scan pallet barcode"
+                className={cn("h-12 w-12", scanPromptWaiting && "scan-prompt-camera")}
+                onScan={(value) => commitPalletScan(value)}
+              />
+            </div>
+            </div>
+            {scanError ? (
+              <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
+                {scanError}
+              </div>
+            ) : null}
+            {pendingTasks.length > 0 ? (
+              <p className="text-xs text-muted-foreground">
+                {pendingTasks.length} open Put-Away task{pendingTasks.length === 1 ? "" : "s"} waiting.
+              </p>
+            ) : null}
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setScanDialogOpen(false);
+                setFlowCancelled(true);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button type="button" onClick={() => commitPalletScan(scanQuery)}>
+              Find pallet
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <div className="shrink-0 rounded-lg border border-border bg-background/95 p-4 shadow-sm backdrop-blur sm:flex sm:items-end sm:justify-between sm:gap-3">
         <div>
           <h2 className="text-2xl font-semibold">Put-Away Tasks</h2>
@@ -686,29 +858,54 @@ export function PutawayTasksPage() {
           {pendingTasks.length > 0 && (
             <Badge variant="secondary" className="w-fit text-sm">{pendingTasks.length} pending</Badge>
           )}
-          <div className="flex w-full min-w-0 gap-2">
-            <div className="relative min-w-0 flex-1">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                type="search"
-                className="pl-9"
-                value={taskSearch}
-                onChange={(event) => setTaskSearch(event.target.value)}
-                placeholder="Search pallet barcode or task"
-              />
-            </div>
-            <BarcodeScanButton title="Scan pallet barcode" onScan={(value) => setTaskSearch(normalizeScannerText(value))} />
-          </div>
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full justify-center sm:w-auto"
+            onClick={() => {
+              setScanDialogOpen(true);
+              setFlowCancelled(false);
+            }}
+          >
+            <Search className="mr-2 h-4 w-4" />
+            {taskSearch ? `Scan another pallet` : "Scan pallet"}
+          </Button>
         </div>
       </div>
       <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto pr-1">
+        {!selectedTask && pendingTasks.length > 0 ? (
+          <details
+            className="group rounded-lg border border-border bg-background/60 px-3 py-2"
+            open={openTasksExpanded}
+            onToggle={(event) => setOpenTasksExpanded(event.currentTarget.open)}
+          >
+            <summary className="cursor-pointer list-none text-sm text-muted-foreground hover:text-foreground">
+              <span className="group-open:hidden">Show {pendingTasks.length} open Put-Away task{pendingTasks.length === 1 ? "" : "s"}</span>
+              <span className="hidden group-open:inline">Hide open Put-Away tasks</span>
+            </summary>
+          </details>
+        ) : null}
         {isLoading ? (
           <Card><CardContent className="p-6 text-sm text-muted-foreground">Loading putaway tasks…</CardContent></Card>
         ) : visibleTasks.length === 0 ? (
           <Card>
             <CardContent className="flex flex-col items-center gap-2 p-8 text-center text-sm text-muted-foreground">
               <CheckCircle2 className="h-8 w-8 text-green-500" />
-              <p className="font-medium">{pendingTasks.length === 0 ? "All putaway tasks complete" : "No putaway tasks matched"}</p>
+              <p className="font-medium">{pendingTasks.length === 0 ? "All putaway tasks complete" : "Scan a pallet to begin Put-Away"}</p>
+              {pendingTasks.length > 0 ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setScanDialogOpen(true);
+                    setFlowCancelled(false);
+                  }}
+                >
+                  <Search className="mr-2 h-4 w-4" />
+                  Scan pallet
+                </Button>
+              ) : null}
             </CardContent>
           </Card>
         ) : (
@@ -851,7 +1048,7 @@ export function PutawayTasksPage() {
                   <WarehouseBayBrowserDialog
                     open={Boolean(bayBrowserOpen[task.id])}
                     warehouseId={task.warehouse_id as string}
-                    onClose={() => setBayBrowserOpen((s) => ({ ...s, [task.id]: false }))}
+                    onClose={() => closeBayBrowser(task.id)}
                     onSelectBay={(bayCode) => {
                       setBayScanState((s) => ({ ...s, [task.id]: bayCode }));
                       setScanState((s) => ({ ...s, [task.id]: { ...(s[task.id] ?? { pallet: "", location: "", override: false, reason: "" }), location: "" } }));

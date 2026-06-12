@@ -292,6 +292,36 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     )
     // Help is always pinned as the last sidebar entry, regardless of module order.
     .sort((a, b) => (a.to === "/help" ? 1 : 0) - (b.to === "/help" ? 1 : 0));
+  const canAccessPutaway = items.some((item) => item.to === "/putaway-tasks");
+  const canAccessReceiving = items.some((item) => item.to === "/receiving");
+  const canAccessPickLists = items.some((item) => item.to === "/pick-lists");
+  const canSeeAllPutawayTasks = roles.some((role) => ["developer", "admin", "warehouse_manager", "warehouse_supervisor"].includes(role));
+  const putawayUserId = canSeeAllPutawayTasks ? undefined : user?.id;
+  const { data: putawayNavTasks = [] } = useQuery({
+    queryKey: ["putaway-tasks", putawayUserId],
+    queryFn: () => getPutawayTasks(putawayUserId),
+    enabled: canAccessPutaway && (canSeeAllPutawayTasks || Boolean(user?.id)),
+    staleTime: 30_000,
+  });
+  const putawayTaskCount = putawayNavTasks.length;
+  const { data: navDashboardMetrics } = useQuery({
+    queryKey: ["dashboard-metrics", profile?.default_warehouse_id, "nav-counts"],
+    queryFn: () => getDashboardMetrics(profile?.default_warehouse_id),
+    enabled: canAccessReceiving || canAccessPickLists,
+    staleTime: 30_000,
+  });
+  const routeBadgeCounts = useMemo<Partial<Record<AppRoute, number>>>(() => ({
+    "/receiving": navDashboardMetrics?.openReceipts ?? 0,
+    "/putaway-tasks": putawayTaskCount,
+    "/pick-lists": navDashboardMetrics?.openPickLists ?? 0,
+  }), [navDashboardMetrics?.openPickLists, navDashboardMetrics?.openReceipts, putawayTaskCount]);
+  const getNavBadgeCount = useCallback((route: AppRoute) => routeBadgeCounts[route] ?? 0, [routeBadgeCounts]);
+  const getNavBadgeLabel = useCallback((route: AppRoute, count: number) => {
+    if (route === "/receiving") return `${count} open Receiving tasks`;
+    if (route === "/pick-lists") return `${count} open Pick Lists`;
+    if (route === "/putaway-tasks") return `${count} open Put-Away tasks`;
+    return `${count} open tasks`;
+  }, []);
   const canSwitchWarehouses = roles.some((role) => ["admin", "warehouse_manager"].includes(role));
   const { data: headerOptions } = useQuery({
     queryKey: ["header-warehouse-options", canSwitchWarehouses],
@@ -419,12 +449,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             const Icon = navIcons[item.to] ?? LayoutDashboard;
             const isActive = pathname === item.to;
             const showSeparator = !sidebarCollapsed && item.to === "/warehouses";
+            const badgeCount = getNavBadgeCount(item.to);
             const link = (
               <NavLink
                 key={item.to}
                 className={({ isActive: navActive }) =>
                   cn(
-                    "group flex min-h-[3.375rem] items-center gap-2.5 rounded-md px-2.5 text-sm font-medium transition-all duration-100 active:scale-[0.96] active:transition-transform",
+                    "group relative flex min-h-[3.375rem] items-center gap-2.5 rounded-md px-2.5 text-sm font-medium transition-all duration-100 active:scale-[0.96] active:transition-transform",
                     sidebarCollapsed && "h-[3.375rem] w-11 justify-center p-0",
                     navActive || isActive
                       ? "bg-primary text-primary-foreground shadow-sm"
@@ -437,8 +468,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 onFocus={() => prefetchRouteData(item.to)}
                 onClick={() => setMobileMenuOpen(false)}
               >
-                <Icon className={cn("shrink-0", sidebarCollapsed ? "h-5 w-5" : "h-4 w-4")} />
+                <Icon
+                  data-active-icon={isActive ? "true" : "false"}
+                  className={cn("shrink-0", sidebarCollapsed ? "h-5 w-5" : "h-4 w-4", isActive && "text-accent")}
+                />
                 {sidebarCollapsed ? null : <span className="truncate">{item.label}</span>}
+                {badgeCount > 0 ? (
+                  <span
+                    className={cn(
+                      "ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive px-1.5 text-[10px] font-semibold leading-none text-destructive-foreground",
+                      sidebarCollapsed && "absolute right-0 top-1 ml-0",
+                    )}
+                    aria-label={getNavBadgeLabel(item.to, badgeCount)}
+                  >
+                    {badgeCount > 99 ? "99+" : badgeCount}
+                  </span>
+                ) : null}
               </NavLink>
             );
 
@@ -584,7 +629,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </div>
       <AccessRequestsBanner />
       <FailedTasksReminder />
-      <MobileActionBar items={items} pathname={pathname} />
+      <MobileActionBar items={items} pathname={pathname} routeBadgeCounts={routeBadgeCounts} getNavBadgeLabel={getNavBadgeLabel} />
     </div>
   );
 }
@@ -592,13 +637,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 function MobileActionBar({
   items,
   pathname,
+  routeBadgeCounts,
+  getNavBadgeLabel,
 }: {
   items: typeof NAVIGATION;
   pathname: string;
+  routeBadgeCounts: Partial<Record<AppRoute, number>>;
+  getNavBadgeLabel: (route: AppRoute, count: number) => string;
 }) {
   // Show up to 5 primary nav items (skip Help — it lives in the header).
   const barItems = items.filter((item) => item.to !== "/help").slice(0, 5);
   if (barItems.length === 0) return null;
+  const getNavBadgeCount = (route: AppRoute) => routeBadgeCounts[route] ?? 0;
   return (
     <nav
       className="fixed bottom-0 left-0 right-0 z-40 flex h-14 items-center justify-around border-t border-border bg-background/95 px-1 backdrop-blur lg:landscape:hidden"
@@ -607,6 +657,7 @@ function MobileActionBar({
       {barItems.map((item) => {
         const Icon = navIcons[item.to] ?? LayoutDashboard;
         const isActive = pathname === item.to;
+        const badgeCount = getNavBadgeCount(item.to);
         return (
           <NavLink
             key={item.to}
@@ -617,7 +668,17 @@ function MobileActionBar({
               isActive ? "text-primary" : "text-muted-foreground hover:text-foreground",
             )}
           >
-            <Icon className="h-5 w-5" />
+            <span className="relative">
+              <Icon className={cn("h-5 w-5", isActive && "text-accent")} data-active-icon={isActive ? "true" : "false"} />
+              {badgeCount > 0 ? (
+                <span
+                  className="absolute -right-2 -top-2 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[9px] font-semibold leading-none text-destructive-foreground"
+                  aria-label={getNavBadgeLabel(item.to, badgeCount)}
+                >
+                  {badgeCount > 99 ? "99+" : badgeCount}
+                </span>
+              ) : null}
+            </span>
             <span className="max-w-[64px] truncate">{item.label}</span>
           </NavLink>
         );

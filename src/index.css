@@ -90,6 +90,86 @@
   .animate-themed-loader {
     animation: themed-loader-spin 1.05s linear infinite;
   }
+
+  @keyframes scan-prompt-pulse {
+    0%,
+    100% {
+      box-shadow: 0 0 0 1px hsl(var(--accent) / 0.45), 0 0 14px hsl(var(--accent) / 0.28);
+      border-color: hsl(var(--accent) / 0.55);
+    }
+
+    50% {
+      box-shadow: 0 0 0 3px hsl(var(--accent) / 0.78), 0 0 26px hsl(var(--accent) / 0.52);
+      border-color: hsl(var(--accent));
+    }
+  }
+
+  @keyframes scan-prompt-camera-pulse {
+    0%,
+    100% {
+      color: hsl(var(--accent));
+      filter: drop-shadow(0 0 5px hsl(var(--accent) / 0.45));
+    }
+
+    50% {
+      color: hsl(var(--accent-foreground));
+      background-color: hsl(var(--accent));
+      border-color: hsl(var(--accent));
+      filter: drop-shadow(0 0 13px hsl(var(--accent) / 0.8));
+    }
+  }
+
+  .scan-prompt-halo {
+    position: relative;
+    isolation: isolate;
+  }
+
+  .scan-prompt-halo::before {
+    content: "";
+    position: absolute;
+    inset: -0.45rem;
+    z-index: -1;
+    border-radius: calc(var(--radius) + 0.55rem);
+    background:
+      radial-gradient(
+        circle at 50% 50%,
+        hsl(var(--accent) / 0.4),
+        hsl(var(--primary) / 0.28) 48%,
+        hsl(var(--accent) / 0) 72%
+      );
+    filter: blur(0.35rem);
+    opacity: 0.9;
+  }
+
+  .scan-prompt-input {
+    animation: scan-prompt-pulse 1.05s ease-in-out infinite;
+  }
+
+  .scan-prompt-camera {
+    animation: scan-prompt-camera-pulse 0.95s ease-in-out infinite;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .scan-prompt-halo::before,
+    .scan-prompt-input,
+    .scan-prompt-camera {
+      animation: none;
+    }
+
+    .scan-prompt-halo::before {
+      opacity: 0.85;
+    }
+
+    .scan-prompt-input {
+      box-shadow: 0 0 0 2px hsl(var(--accent) / 0.75), 0 0 18px hsl(var(--accent) / 0.35);
+      border-color: hsl(var(--accent));
+    }
+
+    .scan-prompt-camera {
+      color: hsl(var(--accent));
+      box-shadow: 0 0 0 2px hsl(var(--accent) / 0.55), 0 0 16px hsl(var(--accent) / 0.35);
+    }
+  }
 }
 
 @layer base {

@@ -756,7 +756,7 @@ export function ReceivingPage() {
           </DialogHeader>
           <ScrollArea className="max-h-[calc(100dvh-8.75rem)] px-3 py-3 sm:max-h-[calc(92vh-150px)] sm:px-4 sm:py-4">
             <div className="grid gap-3 sm:gap-4">
-              <div className="grid grid-cols-2 gap-2 sm:gap-3 md:grid-cols-3">
+              <div className="grid grid-cols-2 items-start gap-2 sm:gap-3 md:grid-cols-3">
                 <div className="grid gap-1.5">
                   <ShipmentFieldLabel>Container number</ShipmentFieldLabel>
                   <div className="flex gap-2">
@@ -775,7 +775,7 @@ export function ReceivingPage() {
                       aria-invalid={shipmentContainerInvalid}
                       aria-describedby="container-number-help"
                     />
-                    <BarcodeScanButton title="Scan container number" enableTextRecognition inputRef={shipmentContainerInputRef} onScan={applyShipmentContainerScan} />
+                    <BarcodeScanButton className="h-9 self-start sm:h-10" title="Scan container number" enableTextRecognition inputRef={shipmentContainerInputRef} onScan={applyShipmentContainerScan} />
                   </div>
                   <p
                     id="container-number-help"
