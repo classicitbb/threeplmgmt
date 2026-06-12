@@ -8,6 +8,7 @@ import {
   buildPalletCode,
 } from "@/features/shared/core-types";
 import { writeSystemLog } from "@/features/system/system-core";
+import { displayRackLocationCode } from "@/features/setup/setup-core";
 
 async function resolvePalletId(palletInput: string) {
   const normalized = palletInput.trim();
@@ -29,7 +30,10 @@ export async function listStatusPallets() {
     .in("status", ["hold", "quarantine", "damaged", "missing"])
     .order("received_at", { ascending: false });
   if (error) throw error;
-  return data ?? [];
+  return (data ?? []).map((row: any) => ({
+    ...row,
+    location_code: row.location_code ? displayRackLocationCode(row.location_code) : row.location_code,
+  }));
 }
 
 export async function changePalletStatus(input: z.infer<typeof statusChangeSchema>) {

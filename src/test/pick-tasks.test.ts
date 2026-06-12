@@ -72,7 +72,7 @@ function seedPick({
 } = {}) {
   pickDb.selects = {
     pick_tasks: [
-      { data: { id: "pick-task-1", pallet_id: "pallet-1", pick_list_id: "pick-list-1", status: "queued", ...task }, error: null },
+      { data: { id: "pick-task-1", pallet_id: "pallet-1", pick_list_id: "pick-list-1", status: "queued", requested_quantity: 10, ...task }, error: null },
       { data: siblings, error: null },
     ],
     pallets: [
@@ -82,7 +82,7 @@ function seedPick({
       { data: { id: "bal-1", pallet_id: "pallet-1", location_id: "loc-1", warehouse_id: "wh-1", quantity: 10, available_quantity: 10, ...balance }, error: null },
     ],
     locations: [
-      { data: { id: "loc-1", code: "A-01-01", ...location }, error: null },
+      { data: { id: "loc-1", code: "A-01-L01-P1", ...location }, error: null },
     ],
     pick_lists: parent ? [{ data: parent, error: null }] : [],
   };
@@ -99,7 +99,7 @@ describe("confirmPickTask", () => {
   it("fully depletes picked stock and clears the location", async () => {
     seedPick();
 
-    await confirmPickTask("pick-task-1", "A-01-01", "PBC-1", 10);
+    await confirmPickTask("pick-task-1", "A-01-L01-P1", "PBC-1", 10);
 
     expect(pickDb.updates).toEqual(expect.arrayContaining([
       expect.objectContaining({ table: "pick_tasks", payload: expect.objectContaining({ status: "completed", confirmed_quantity: 10 }) }),
@@ -115,26 +115,32 @@ describe("confirmPickTask", () => {
     });
   });
 
-  it("partially picks stock without clearing the location", async () => {
+  it("rejects partial pick confirmation", async () => {
     seedPick({
       siblings: [{ id: "pick-task-1", status: "completed" }, { id: "pick-task-2", status: "queued" }],
       parent: null,
     });
 
-    await confirmPickTask("pick-task-1", "A-01-01", "PBC-1", 4);
+    await expect(confirmPickTask("pick-task-1", "A-01-L01-P1", "PBC-1", 4)).rejects.toThrow("Partial picks are disabled");
+
+    expect(pickDb.updates).toEqual([]);
+    expect(pickDb.rpcs).toEqual([]);
+  });
+
+  it("accepts legacy full location scans for migrated short location codes", async () => {
+    seedPick();
+
+    await confirmPickTask("pick-task-1", "WH3-A-1-01-L01-P1", "PBC-1", 10);
 
     expect(pickDb.updates).toEqual(expect.arrayContaining([
-      expect.objectContaining({ table: "pallets", payload: expect.objectContaining({ quantity: 6, available_quantity: 6, status: "available" }) }),
-      expect.objectContaining({ table: "inventory_balances", payload: expect.objectContaining({ quantity: 6, available_quantity: 6, status: "available" }) }),
+      expect.objectContaining({ table: "pick_tasks", payload: expect.objectContaining({ status: "completed", confirmed_quantity: 10 }) }),
     ]));
-    expect(pickDb.updates.some((update) => update.table === "inventory_balances" && "location_id" in update.payload)).toBe(false);
-    expect(pickDb.rpcs[0].args.in_metadata).toMatchObject({ confirmed_quantity: 4, remaining_quantity: 6, location_cleared: false });
   });
 
   it("rejects already closed pick tasks", async () => {
     seedPick({ task: { status: "completed" } });
 
-    await expect(confirmPickTask("pick-task-1", "A-01-01", "PBC-1", 1)).rejects.toThrow("already closed");
+    await expect(confirmPickTask("pick-task-1", "A-01-L01-P1", "PBC-1", 1)).rejects.toThrow("already closed");
     expect(pickDb.updates).toEqual([]);
     expect(pickDb.rpcs).toEqual([]);
   });
@@ -142,7 +148,7 @@ describe("confirmPickTask", () => {
   it("rejects over-picking available stock", async () => {
     seedPick({ balance: { quantity: 5, available_quantity: 5 }, pallet: { quantity: 5, available_quantity: 5 } });
 
-    await expect(confirmPickTask("pick-task-1", "A-01-01", "PBC-1", 6)).rejects.toThrow("only 5 available");
+    await expect(confirmPickTask("pick-task-1", "A-01-L01-P1", "PBC-1", 6)).rejects.toThrow("only 5 available");
     expect(pickDb.updates).toEqual([]);
     expect(pickDb.rpcs).toEqual([]);
   });
@@ -151,7 +157,7 @@ describe("confirmPickTask", () => {
     seedPick();
     pickDb.updateErrors.pallets = new Error("pallet update denied");
 
-    await expect(confirmPickTask("pick-task-1", "A-01-01", "PBC-1", 10)).rejects.toThrow("pallet update denied");
+    await expect(confirmPickTask("pick-task-1", "A-01-L01-P1", "PBC-1", 10)).rejects.toThrow("pallet update denied");
 
     expect(pickDb.updates.some((update) => update.table === "pick_tasks")).toBe(false);
     expect(pickDb.rpcs).toEqual([]);

@@ -7,6 +7,7 @@ interface BarcodeScanButtonProps {
   onScan: (value: string) => void;
   title?: string;
   className?: string;
+  disabled?: boolean;
   enableTextRecognition?: boolean;
   /** After scan is accepted, simulate Enter keydown on this input to advance focus. */
   inputRef?: React.RefObject<HTMLInputElement | null>;
@@ -18,7 +19,7 @@ const BARCODE_FORMATS = [
   "data_matrix", "pdf417", "aztec",
 ];
 
-export function BarcodeScanButton({ onScan, title = "Scan barcode", className, enableTextRecognition = false, inputRef }: BarcodeScanButtonProps) {
+export function BarcodeScanButton({ onScan, title = "Scan barcode", className, disabled = false, enableTextRecognition = false, inputRef }: BarcodeScanButtonProps) {
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [detected, setDetected] = useState<string | null>(null);
@@ -176,6 +177,7 @@ export function BarcodeScanButton({ onScan, title = "Scan barcode", className, e
         size="icon"
         className={`h-10 w-10 shrink-0 ${className ?? ""}`}
         title={title}
+        disabled={disabled}
         onClick={() => setOpen(true)}
         aria-label={title}
       >

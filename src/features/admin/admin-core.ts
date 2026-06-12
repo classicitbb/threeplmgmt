@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { supabase } from "@/integrations/supabase/client";
 import { writeSystemLog } from "@/features/system/system-core";
+import { displayRackLocationCode } from "@/features/setup/setup-core";
 import { isDesktopClient } from "@/lib/device-identity";
 import {
   db,
@@ -33,7 +34,12 @@ export async function listRecords(
 
   const { data, error } = await query;
   if (error) throw error;
-  return (data ?? []) as any[];
+  const rows = (data ?? []) as any[];
+  if (table !== "locations") return rows;
+  return rows.map((row) => ({
+    ...row,
+    code: displayRackLocationCode(row.code),
+  }));
 }
 
 export async function upsertRecord(

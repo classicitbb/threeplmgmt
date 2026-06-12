@@ -10,6 +10,7 @@ import {
   PICK_COMPLETED_INVENTORY_STATUS,
   type InventoryStatus,
 } from "@/features/shared/core-types";
+import { normalizeRackLocationCode } from "@/features/setup/setup-core";
 import { upsertRecord } from "@/features/admin/admin-core";
 import { createLabelRecord } from "@/features/receiving/receiving-core";
 
@@ -101,7 +102,7 @@ export async function createPickListFlow(input: z.infer<typeof pickListSchema>) 
         order_line_id: orderLine.id,
         pallet_id: candidate.pallet_id,
         location_id: candidate.location_id ?? null,
-        requested_quantity: Math.min(candidate.available_quantity, line.quantity),
+        requested_quantity: candidate.available_quantity,
         status: selection.short > 0 ? "exception" : "queued",
         short_reason: selection.short > 0 ? `Short by ${selection.short}` : null,
       });
@@ -114,7 +115,7 @@ export async function createPickListFlow(input: z.infer<typeof pickListSchema>) 
 
 export async function listPickLists() {
   const { data, error } = await db("pick_lists")
-    .select("*, pick_tasks(*, pallets(pallet_barcode, pallet_code, quantity, available_quantity, products(*)), locations:location_id(code))")
+    .select("*, pick_tasks(*, pallets(pallet_barcode, pallet_code, quantity, available_quantity, products(*)), locations:location_id(code, aisle, bay, level, position))")
     .order("created_at", { ascending: false });
   if (error) throw error;
   return data ?? [];
@@ -124,7 +125,7 @@ export async function getPickExecution(pickListId: string) {
   const [pickList, pickTasks] = await Promise.all([
     db("pick_lists").select("*").eq("id", pickListId).single(),
     db("pick_tasks")
-      .select("*, pallets(pallet_barcode, pallet_code, quantity, available_quantity, products(sku, name)), locations:location_id(code)")
+      .select("*, pallets(pallet_barcode, pallet_code, quantity, available_quantity, products(sku, name)), locations:location_id(code, aisle, bay, level, position)")
       .eq("pick_list_id", pickListId)
       .order("created_at", { ascending: true }),
   ]);
@@ -136,7 +137,7 @@ export async function getPickExecution(pickListId: string) {
     (pickTasks.data ?? []).map(async (task: any) => {
       if (!task.pallet_id || task.locations?.code) return task;
       const { data: balance } = await db("inventory_balances")
-        .select("available_quantity, quantity, locations:location_id(code)")
+        .select("available_quantity, quantity, locations:location_id(code, aisle, bay, level, position)")
         .eq("pallet_id", task.pallet_id)
         .maybeSingle();
       return { ...task, pick_balance: balance ?? null };
@@ -162,11 +163,8 @@ export async function confirmPickTask(taskId: string, scannedLocation: string, s
   if (["completed", "cancelled"].includes(task.status)) {
     throw new Error("Pick task is already closed. Refresh the pick list.");
   }
-  if (!Number.isFinite(Number(confirmedQuantity)) || Number(confirmedQuantity) < 0) {
-    throw new Error("Confirmed pick quantity must be zero or greater.");
-  }
-  if (Number(confirmedQuantity) === 0 && !shortReason) {
-    throw new Error("A short reason is required when confirming zero quantity.");
+  if (!Number.isFinite(Number(confirmedQuantity)) || Number(confirmedQuantity) <= 0) {
+    throw new Error("Confirmed pick quantity must be greater than zero.");
   }
 
   const [{ data: pallet, error: palletError }, { data: balance, error: balanceError }] = await Promise.all([
@@ -184,7 +182,7 @@ export async function confirmPickTask(taskId: string, scannedLocation: string, s
     ? await db("locations").select("*").eq("id", balance.location_id).single()
     : { data: null, error: null };
   if (location.error) throw location.error;
-  if (location.data && location.data.code !== scannedLocation) {
+  if (location.data && normalizeRackLocationCode(location.data.code) !== normalizeRackLocationCode(scannedLocation)) {
     throw new Error("Scanned location does not match the suggested pick location.");
   }
 
@@ -192,8 +190,12 @@ export async function confirmPickTask(taskId: string, scannedLocation: string, s
   let fullyDepleted = false;
 
   if (Number(confirmedQuantity) > 0) {
+    const wholePalletQuantity = Number(balance.available_quantity ?? pallet.available_quantity ?? task.requested_quantity ?? 0);
     if (Number(confirmedQuantity) > Number(balance.available_quantity ?? 0)) {
       throw new Error(`Cannot pick ${confirmedQuantity}; only ${balance.available_quantity ?? 0} available on this pallet.`);
+    }
+    if (Number(confirmedQuantity) !== wholePalletQuantity) {
+      throw new Error(`Partial picks are disabled. Confirm the full pallet quantity of ${wholePalletQuantity}.`);
     }
 
     const nextAvailable = Math.max(balance.available_quantity - confirmedQuantity, 0);

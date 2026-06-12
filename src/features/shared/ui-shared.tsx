@@ -702,12 +702,12 @@ function RackLocationCodeBuilder({
   const [depth, setDepth] = useState(1);
 
   const localCode = buildRackLocationCode({ rack, aisle, bay, level, position });
-  const prefixKey = `${rack.toUpperCase()}-${aisle}-${String(bay).padStart(2, "0")}-L${String(level).padStart(2, "0")}`;
+  const prefixKey = `${rack.toUpperCase()}-${String(bay).padStart(2, "0")}-L${String(level).padStart(2, "0")}`;
 
   const { data: existingAtPrefix = [] } = useQuery({
     queryKey: ["locations-prefix", prefixKey],
     queryFn: async () => {
-      const { data } = await supabase.from("locations").select("code").ilike("code", `%-${prefixKey}-%`);
+      const { data } = await supabase.from("locations").select("code").ilike("code", `${prefixKey}-%`);
       return (data ?? []).map((r: any) => String(r.code));
     },
     enabled: Boolean(rack && aisle && bay && level),
@@ -716,10 +716,6 @@ function RackLocationCodeBuilder({
 
   const isDuplicate = existingAtPrefix.some((c) => c.toUpperCase().includes(localCode.toUpperCase()));
   const nextSuggestion = suggestNextRackPosition(existingAtPrefix, rack, aisle, bay, level);
-
-  const warehouseId = form.watch("warehouse_id") as string | undefined;
-  const zoneId = form.watch("zone_id") as string | undefined;
-  const fullCode = composeLocationCode(options, warehouseId, zoneId, localCode);
 
   useEffect(() => {
     form.setValue("code", localCode, { shouldValidate: true });
@@ -836,7 +832,7 @@ function RackLocationCodeBuilder({
         )}
       >
         <span className="shrink-0 text-xs text-muted-foreground">Code:</span>
-        <span className="flex-1 truncate">{fullCode || localCode}</span>
+        <span className="flex-1 truncate">{localCode}</span>
         {isDuplicate && <span className="shrink-0 text-xs font-medium text-destructive">already exists</span>}
       </div>
     </div>
@@ -2752,7 +2748,7 @@ export function LocationWizardDialog({ trigger }: { trigger?: React.ReactNode })
       const locations = expanded.map((row) => ({
         warehouse_id: values.warehouse_id,
         zone_id: values.zone_id,
-        code: composeLocationCode(options, values.warehouse_id, values.zone_id, row.localCode),
+        code: row.localCode,
         aisle: row.aisle,
         bay: row.bay,
         level: row.level,
@@ -2810,7 +2806,7 @@ export function LocationWizardDialog({ trigger }: { trigger?: React.ReactNode })
                 hint={selectedWarehouseId ? "Zones for the selected warehouse." : "Select a warehouse first."}
                 options={filteredZones.map((zone: any) => ({ label: `${zone.code} – ${zone.name}`, value: zone.id }))}
               />
-              <TextField form={form} name="prefix" label="Aisle prefix" hint="Letter or short code, e.g. A or BR." />
+              <TextField form={form} name="prefix" label="Rack prefix" hint="Letter or short code, e.g. A or BR." />
               <TextField form={form} name="start_bay" label="Start bay" type="number" hint="First bay number in the range (≥ 1)." />
               <TextField form={form} name="end_bay" label="End bay" type="number" hint="Must be ≥ start bay." />
               <TextField form={form} name="levels" label="Levels" type="number" hint="Vertical levels per bay (1–6)." />
@@ -2974,14 +2970,10 @@ export function composeLocationCode(
   localCode: unknown,
 ) {
   const rawCode = String(localCode ?? "").trim();
-  if (!rawCode) return rawCode;
-  const warehouse = (options?.warehouses ?? []).find((row: any) => row.id === warehouseId);
-  const zone = (options?.zones ?? []).find((row: any) => row.id === zoneId);
-  const warehouseCode = String(warehouse?.code ?? "").trim();
-  const zoneCode = String(zone?.code ?? "").trim();
-  if (!warehouseCode || !zoneCode) return rawCode;
-  const prefix = `${warehouseCode}-${zoneCode}-`;
-  return rawCode.toUpperCase().startsWith(prefix.toUpperCase()) ? rawCode : `${prefix}${rawCode}`;
+  void options;
+  void warehouseId;
+  void zoneId;
+  return rawCode;
 }
 
 export function normalizeResourceValues(
@@ -3409,6 +3401,7 @@ export function isBaySelectorCode(value: string) {
   const normalized = normalizeScannerText(value);
   if (normalized.startsWith("BAY:")) return true;
   const parts = normalized.split("-").filter(Boolean);
+  if (parts.length === 2 && /^\d+$/.test(parts[1])) return true;
   return parts.length >= 4 && !parts.some((part) => /^L\d+$/i.test(part));
 }
 

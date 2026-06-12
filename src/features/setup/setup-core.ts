@@ -249,28 +249,78 @@ export function expandLocationRange(input: LocationRangeInput): ExpandedLocation
 
 export interface RackLocationParts {
   rack: string;
-  aisle: number;
+  aisle?: number | null;
   bay: number;
   level: number;
   position: number;
 }
 
-/** Parse the local (non-prefixed) part of a rack location code, e.g. "A-1-01-L01-P01". */
+function formatRackPositionCode(parts: RackLocationParts): string {
+  return `${parts.rack.toUpperCase()}-${String(parts.bay).padStart(2, "0")}-L${String(parts.level).padStart(2, "0")}-P${parts.position}`;
+}
+
+/** Parse new rack codes ("A-05-L05-P1") and legacy full labels ("WH3-A-1-05-L05-P1"). */
 export function parseRackLocationCode(localCode: string): RackLocationParts | null {
-  const m = /^([A-Z])-(\d+)-(\d{1,2})-L(\d{1,2})-P(\d{1,2})$/i.exec(localCode.trim());
-  if (!m) return null;
-  return {
-    rack: m[1].toUpperCase(),
-    aisle: parseInt(m[2], 10),
-    bay: parseInt(m[3], 10),
-    level: parseInt(m[4], 10),
-    position: parseInt(m[5], 10),
-  };
+  const parts = String(localCode ?? "").trim().toUpperCase().split("-").filter(Boolean);
+  const positionPart = parts.at(-1);
+  const levelPart = parts.at(-2);
+  if (!positionPart || !levelPart || !/^P\d+$/i.test(positionPart) || !/^L\d+$/i.test(levelPart)) return null;
+
+  const position = parseInt(positionPart.replace(/^P/i, ""), 10);
+  const level = parseInt(levelPart.replace(/^L/i, ""), 10);
+  if (!Number.isFinite(position) || !Number.isFinite(level)) return null;
+
+  if (parts.length === 4) {
+    const [rack, bay] = parts;
+    const bayNumber = parseInt(bay, 10);
+    if (!rack || !Number.isFinite(bayNumber)) return null;
+    return { rack, aisle: null, bay: bayNumber, level, position };
+  }
+
+  if (parts.length >= 5) {
+    const rack = parts.at(-5);
+    const aisle = parseInt(parts.at(-4) ?? "", 10);
+    const bay = parseInt(parts.at(-3) ?? "", 10);
+    if (!rack || !Number.isFinite(aisle) || !Number.isFinite(bay)) return null;
+    return { rack, aisle, bay, level, position };
+  }
+
+  return null;
+}
+
+export function normalizeRackLocationCode(locationCode: string): string {
+  const parsed = parseRackLocationCode(locationCode);
+  if (!parsed) return String(locationCode ?? "").trim().toUpperCase();
+  return formatRackPositionCode(parsed);
+}
+
+export function displayRackLocationCode(locationCode: string | null | undefined): string {
+  const value = String(locationCode ?? "").trim();
+  const parsed = parseRackLocationCode(value);
+  return parsed ? formatRackPositionCode(parsed) : value;
+}
+
+export function formatPickRackInstruction(location: {
+  code?: string | null;
+  aisle?: string | number | null;
+  bay?: string | number | null;
+  level?: string | number | null;
+  position?: string | number | null;
+}): string {
+  const code = normalizeRackLocationCode(String(location.code ?? ""));
+  const parsed = parseRackLocationCode(code);
+  if (!parsed) return code || "assigned location";
+
+  const aisleText = String(location.aisle ?? parsed.aisle ?? "").replace(/^[A-Z]+-/i, "") || "—";
+  const bay = Number.parseInt(String(location.bay ?? parsed.bay), 10);
+  const level = Number.parseInt(String(location.level ?? parsed.level), 10);
+
+  return `Rack ${parsed.rack}, Aisle ${aisleText}, Bay ${Number.isFinite(bay) ? String(bay) : String(location.bay ?? parsed.bay)}, Level ${Number.isFinite(level) ? String(level) : String(location.level ?? parsed.level)} - ${code}`;
 }
 
 /** Build the local (non-prefixed) rack location code from its parts. */
 export function buildRackLocationCode(parts: RackLocationParts): string {
-  return `${parts.rack.toUpperCase()}-${parts.aisle}-${String(parts.bay).padStart(2, "0")}-L${String(parts.level).padStart(2, "0")}-P${String(parts.position).padStart(2, "0")}`;
+  return formatRackPositionCode(parts);
 }
 
 /**
@@ -286,15 +336,12 @@ export function suggestNextRackPosition(
 ): number {
   const used = existingCodes
     .map((c) => {
-      const parts = c.split("-");
-      const local = parts.length >= 5 ? parts.slice(-5).join("-") : c;
-      return parseRackLocationCode(local);
+      return parseRackLocationCode(c);
     })
     .filter(
       (p): p is RackLocationParts =>
         p !== null &&
         p.rack === rack.toUpperCase() &&
-        p.aisle === aisle &&
         p.bay === bay &&
         p.level === level,
     )

@@ -129,6 +129,7 @@ import {
   cancelMoveTask,
   expandLocationRange,
   buildRackLocationCode,
+  displayRackLocationCode,
   suggestNextRackPosition,
   validateMoveDestination,
   type MoveValidationResult,
@@ -205,6 +206,7 @@ export function PickListsPage() {
   const { profile } = useAuth();
   const [pickSearch, setPickSearch] = useState("");
   const [activeTab, setActiveTab] = useState("lists");
+  const [pendingProductScan, setPendingProductScan] = useState<string | null>(null);
   const clientTriggerRef = useRef<HTMLButtonElement | null>(null);
   const pickProductRefs = useRef<Record<number, ProductSearchHandle | null>>({});
   const { data: options } = useQuery({ queryKey: ["options"], queryFn: () => fetchOptions() });
@@ -326,6 +328,94 @@ export function PickListsPage() {
       };
     });
 
+  function findProductForPickScan(value: string) {
+    const normalized = normalizeScannerText(value);
+    return (options?.products ?? []).find((product: any) =>
+      [product.barcode, product.sku, product.name]
+        .filter(Boolean)
+        .some((candidate) => normalizeScannerText(candidate) === normalized),
+    );
+  }
+
+  function defaultWholePalletQuantity(productId: string) {
+    const qty = Number(pickableStock?.get(productId)?.topPallet?.available_quantity ?? 1);
+    return Number.isFinite(qty) && qty > 0 ? qty : 1;
+  }
+
+  function addProductScanToDraft(value: string, options?: { resetDraft?: boolean }) {
+    const product = findProductForPickScan(value);
+    if (!product) {
+      setPickSearch(normalizeScannerText(value));
+      toast.error("No product found for scanned barcode.");
+      return;
+    }
+
+    const scanQty = defaultWholePalletQuantity(product.id);
+    const currentLines = options?.resetDraft ? [] : [...(form.getValues("lines") ?? [])];
+    const existingIndex = currentLines.findIndex((line) => line.product_id === product.id);
+    let nextLines: typeof currentLines;
+    if (existingIndex >= 0) {
+      nextLines = currentLines.map((line, index) =>
+        index === existingIndex
+          ? { ...line, quantity: Number(line.quantity ?? 0) + scanQty }
+          : line,
+      );
+    } else {
+      const blankIndex = currentLines.findIndex((line) => !line.product_id);
+      const nextLine = { product_id: product.id, quantity: scanQty };
+      if (blankIndex >= 0) {
+        nextLines = currentLines.map((line, index) => index === blankIndex ? nextLine : line);
+      } else {
+        nextLines = [...currentLines, nextLine];
+      }
+    }
+
+    if (options?.resetDraft) {
+      form.reset({
+        warehouse_id: (form.getValues("warehouse_id") as string | undefined) || profile?.default_warehouse_id || undefined,
+        client_id: undefined,
+        order_number: "",
+        requested_ship_date: new Date().toISOString().slice(0, 10),
+        notes: "",
+        lines: nextLines.length > 0 ? nextLines : [{ product_id: product.id, quantity: scanQty }],
+      });
+    } else {
+      form.setValue("lines", nextLines.length > 0 ? nextLines : [{ product_id: product.id, quantity: scanQty }], {
+        shouldDirty: true,
+        shouldValidate: true,
+      });
+    }
+    setActiveTab("create");
+    toast.success(`Added ${product.sku ?? product.name} to pick draft`);
+  }
+
+  function hasUnreleasedPickDraft() {
+    return Boolean(
+      (form.getValues("lines") ?? []).some((line) => line.product_id) ||
+      form.getValues("order_number") ||
+      form.getValues("notes") ||
+      form.getValues("client_id"),
+    );
+  }
+
+  function handlePickHeaderScan(value: string) {
+    const normalized = normalizeScannerText(value);
+    const product = findProductForPickScan(normalized);
+    if (product && activeTab === "create") {
+      addProductScanToDraft(normalized);
+      return;
+    }
+    if (product && hasUnreleasedPickDraft()) {
+      setPendingProductScan(normalized);
+      return;
+    }
+    if (product) {
+      addProductScanToDraft(normalized);
+      return;
+    }
+    setPickSearch(normalized);
+  }
+
   function prefetchPickExecution(pickListId: string) {
     void queryClient.prefetchQuery({
       queryKey: ["pick-execution", pickListId],
@@ -334,6 +424,7 @@ export function PickListsPage() {
   }
 
   return (
+    <Fragment>
     <Tabs className="flex flex-col gap-6" value={activeTab} onValueChange={setActiveTab}>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
@@ -351,7 +442,7 @@ export function PickListsPage() {
               placeholder="Search pick lists or barcodes"
             />
           </div>
-          <BarcodeScanButton title="Scan pick list, pallet, or product barcode" onScan={(value) => setPickSearch(normalizeScannerText(value))} />
+          <BarcodeScanButton title="Scan pick list, pallet, or product barcode" onScan={handlePickHeaderScan} />
         </div>
       </div>
       <TabsList className="grid h-auto w-full grid-cols-2 sm:w-fit">
@@ -411,7 +502,7 @@ export function PickListsPage() {
                         )}
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
-                        <span className="text-sm font-semibold">Qty {formatNumber(task.quantity)}</span>
+                        <span className="text-sm font-semibold">Qty {formatNumber(task.requested_quantity ?? task.quantity ?? 0)}</span>
                         <Badge variant={statusBadgeVariant(task.status)} className="text-xs">{task.status}</Badge>
                       </div>
                       {task.short_reason && (
@@ -504,7 +595,7 @@ export function PickListsPage() {
                               <div className="min-w-0">
                                 <p className="truncate font-medium">{product?.name ?? "—"}</p>
                                 <p className="font-mono text-muted-foreground">
-                                  {product?.sku ?? "No SKU"} · Pallet {palletCode} · {task.locations?.code ?? "No location"}
+                                  {product?.sku ?? "No SKU"} · Pallet {palletCode} · {displayRackLocationCode(task.locations?.code) || "No location"}
                                 </p>
                                 {task.short_reason ? <p className="text-destructive">Short: {task.short_reason}</p> : null}
                               </div>
@@ -687,7 +778,7 @@ export function PickListsPage() {
                             >
                               <span className="font-mono">
                                 Picks: {summary.topPallet.pallet_code} · Qty {summary.topPallet.available_quantity}
-                                {summary.topPallet.location_code ? ` @ ${summary.topPallet.location_code}` : ""}
+                                {summary.topPallet.location_code ? ` @ ${displayRackLocationCode(summary.topPallet.location_code)}` : ""}
                                 {summary.topPallet.expiry_date ? ` · Exp ${summary.topPallet.expiry_date}` : ""}
                               </span>
                               <span className="ml-2">
@@ -729,5 +820,35 @@ export function PickListsPage() {
         </Card>
       </TabsContent>
     </Tabs>
+    <AlertDialog open={Boolean(pendingProductScan)} onOpenChange={(open) => { if (!open) setPendingProductScan(null); }}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Add scanned product to pick draft?</AlertDialogTitle>
+          <AlertDialogDescription>
+            There is an unreleased pick draft on this screen. Add the scanned product to that draft, or start a new draft with only this scan.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={() => {
+              if (pendingProductScan) addProductScanToDraft(pendingProductScan);
+              setPendingProductScan(null);
+            }}
+          >
+            Add to draft
+          </AlertDialogAction>
+          <AlertDialogAction
+            onClick={() => {
+              if (pendingProductScan) addProductScanToDraft(pendingProductScan, { resetDraft: true });
+              setPendingProductScan(null);
+            }}
+          >
+            Create new
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </Fragment>
   );
 }

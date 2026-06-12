@@ -2,11 +2,14 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildBayOccupancyGrid,
+  buildRackLocationCode,
   createBlankLocationTemplate,
   createBlankWarehouse,
   createBlankZone,
   createDefaultWarehouseSetupPayload,
+  displayRackLocationCode,
   expandLocationRange,
+  normalizeRackLocationCode,
   parseCsv,
   validatePutawayAssignment,
 } from "@/lib/wms-core";
@@ -107,21 +110,33 @@ describe("expandLocationRange", () => {
   });
 });
 
+describe("rack location codes", () => {
+  it("builds and normalizes four-code rack labels", () => {
+    expect(buildRackLocationCode({ rack: "A", aisle: 1, bay: 5, level: 5, position: 1 })).toBe("A-05-L05-P1");
+    expect(normalizeRackLocationCode("WH3-A-1-05-L05-P1")).toBe("A-05-L05-P1");
+  });
+
+  it("shortens rack location display labels without uppercasing non-rack labels", () => {
+    expect(displayRackLocationCode("WH3-A-1-01-L05-P2")).toBe("A-01-L05-P2");
+    expect(displayRackLocationCode("Receiving")).toBe("Receiving");
+  });
+});
+
 describe("buildBayOccupancyGrid", () => {
   it("orders levels bottom-up physically with P1/P2/P3 left to right", () => {
     const cells = [
-      "ST3-A-1-01-L01-P3",
-      "ST3-A-1-01-L03-P2",
-      "ST3-A-1-01-L04-P1",
-      "ST3-A-1-01-L02-P3",
-      "ST3-A-1-01-L01-P1",
-      "ST3-A-1-01-L04-P3",
-      "ST3-A-1-01-L02-P1",
-      "ST3-A-1-01-L03-P1",
-      "ST3-A-1-01-L04-P2",
-      "ST3-A-1-01-L01-P2",
-      "ST3-A-1-01-L02-P2",
-      "ST3-A-1-01-L03-P3",
+      "A-01-L01-P3",
+      "A-01-L03-P2",
+      "A-01-L04-P1",
+      "A-01-L02-P3",
+      "A-01-L01-P1",
+      "A-01-L04-P3",
+      "A-01-L02-P1",
+      "A-01-L03-P1",
+      "A-01-L04-P2",
+      "A-01-L01-P2",
+      "A-01-L02-P2",
+      "A-01-L03-P3",
     ].map((locationCode, index) => ({
       locationId: `loc-${index}`,
       locationCode,
@@ -138,10 +153,10 @@ describe("buildBayOccupancyGrid", () => {
     const renderedCodes = grid.map((row) => row.map((slot) => slot.cell?.locationCode ?? null));
 
     expect(renderedCodes).toEqual([
-      ["ST3-A-1-01-L04-P1", "ST3-A-1-01-L04-P2", "ST3-A-1-01-L04-P3"],
-      ["ST3-A-1-01-L03-P1", "ST3-A-1-01-L03-P2", "ST3-A-1-01-L03-P3"],
-      ["ST3-A-1-01-L02-P1", "ST3-A-1-01-L02-P2", "ST3-A-1-01-L02-P3"],
-      ["ST3-A-1-01-L01-P1", "ST3-A-1-01-L01-P2", "ST3-A-1-01-L01-P3"],
+      ["A-01-L04-P1", "A-01-L04-P2", "A-01-L04-P3"],
+      ["A-01-L03-P1", "A-01-L03-P2", "A-01-L03-P3"],
+      ["A-01-L02-P1", "A-01-L02-P2", "A-01-L02-P3"],
+      ["A-01-L01-P1", "A-01-L01-P2", "A-01-L01-P3"],
     ]);
   });
 });

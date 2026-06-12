@@ -7,6 +7,7 @@ import {
   validatePutawayAssignment,
   formatSupabaseError,
 } from "@/features/shared/core-types";
+import { normalizeRackLocationCode } from "@/features/setup/setup-core";
 
 export async function getPutawayTasks(userId?: string) {
   let query = db("putaway_tasks")
@@ -51,7 +52,7 @@ export async function confirmPutaway(
 
   const { data: location, error: locationError } = await db("locations")
     .select("*")
-    .eq("code", scannedLocationCode.toUpperCase())
+    .eq("code", normalizeRackLocationCode(scannedLocationCode))
     .maybeSingle();
   if (locationError) throw locationError;
   if (!location) throw new Error(`Location not found: ${scannedLocationCode}`);
