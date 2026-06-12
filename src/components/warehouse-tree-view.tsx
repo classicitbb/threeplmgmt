@@ -35,6 +35,7 @@ import { cn } from "@/lib/utils";
 import {
   type CascadeDeleteResult,
   deleteLocationCascade, deleteWarehouseCascade, deleteZoneCascade,
+  displayRackLocationCode,
   updateRecord, upsertRecord,
 } from "@/lib/wms-core";
 import { LocationLabelPage } from "@/components/location-label-page";
@@ -178,11 +179,12 @@ const TEMP_LABEL: Record<string, string> = { cool: "Cool", frozen: "Frozen" };
 
 function PositionNode({ location }: { location: LocationRow }) {
   const { setDialog } = useTCtx();
+  const displayCode = displayRackLocationCode(location.code);
   return (
     <div className="group flex min-h-9 items-center gap-1 rounded-sm px-1 text-sm hover:bg-accent hover:text-accent-foreground">
       <span className="h-3.5 w-3.5 shrink-0" />
       <MapPin className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70" />
-      <span className="flex-1 truncate font-mono text-xs">{location.code}</span>
+      <span className="flex-1 truncate font-mono text-xs">{displayCode}</span>
       {location.status && location.status !== "active" && (
         <Badge variant="outline" className={cn("h-4 shrink-0 px-1 text-[10px]", STATUS_CLS[location.status])}>
           {location.status}

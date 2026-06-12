@@ -6,6 +6,7 @@ import {
   type ResourceDefinition,
 } from "@/features/shared/core-types";
 import { writeSystemLog } from "@/features/system/system-core";
+import { displayRackLocationCode } from "@/features/setup/setup-core";
 
 export async function getReportData() {
   const [balances, occupancy, audits, clients, warehouses, cycleCounts, stagingLoads, dockAppointments, printerStations, labelTemplates, printJobs, replenishments, aiRecommendations] = await Promise.all([
@@ -39,8 +40,14 @@ export async function getReportData() {
   if (aiRecommendations.error) throw aiRecommendations.error;
 
   return {
-    inventory: balances.data ?? [],
-    occupancy: occupancy.data ?? [],
+    inventory: (balances.data ?? []).map((row: any) => ({
+      ...row,
+      location_code: row.location_code ? displayRackLocationCode(row.location_code) : row.location_code,
+    })),
+    occupancy: (occupancy.data ?? []).map((row: any) => ({
+      ...row,
+      location_code: row.location_code ? displayRackLocationCode(row.location_code) : row.location_code,
+    })),
     audits: audits.data ?? [],
     clients: clients.data ?? [],
     warehouses: warehouses.data ?? [],

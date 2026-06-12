@@ -10,6 +10,7 @@ import {
 } from "@/features/shared/core-types";
 import { writeSystemLog } from "@/features/system/system-core";
 import { upsertRecord } from "@/features/admin/admin-core";
+import { normalizeRackLocationCode } from "@/features/setup/setup-core";
 
 const MOVE_LOCATION_SELECT =
   "id, code, status, max_pallets, temperature_class, mixed_sku_allowed, mixed_lot_allowed, max_height, zone_id, warehouse_id";
@@ -21,6 +22,10 @@ function uniqueValues(values: string[]) {
 function getLocationCodeCandidates(locationCode: string) {
   const code = String(locationCode ?? "").trim().toUpperCase();
   const candidates = [code];
+  const normalizedRackCode = normalizeRackLocationCode(code);
+  if (normalizedRackCode && normalizedRackCode !== code) {
+    candidates.push(normalizedRackCode);
+  }
   const positionMatch = code.match(/-P(\d+)$/i);
   if (positionMatch) {
     const position = Number(positionMatch[1]);

@@ -14,6 +14,8 @@ import {
   buildBayOccupancyGrid,
   getBayCellLevel,
   getBayCellPosition,
+  displayRackLocationCode,
+  normalizeRackLocationCode,
   type BayOccupancyCell,
   type BayOccupancyGridSlot,
 } from "@/features/setup/setup-core";
@@ -38,7 +40,12 @@ export async function searchInventory(filters: {
 
   const { data, error } = await query.order("received_at", { ascending: false });
   if (error) throw error;
-  let rows = ((data ?? []) as any[]).filter((row) => !isRetiredInventoryStatus(row.status) && hasVisibleInventoryQuantity(row));
+  let rows = ((data ?? []) as any[])
+    .filter((row) => !isRetiredInventoryStatus(row.status) && hasVisibleInventoryQuantity(row))
+    .map((row) => ({
+      ...row,
+      location_code: row.location_code ? displayRackLocationCode(row.location_code) : row.location_code,
+    }));
   const searchTokens = (filters.search ?? "")
     .trim()
     .toLowerCase()
@@ -135,7 +142,7 @@ export async function getInventoryDetail(balanceId: string) {
     product: product ?? null,
     client: client ?? null,
     warehouse: warehouse ?? null,
-    location: location ?? null,
+    location: location ? { ...location, code: displayRackLocationCode((location as any).code) } : null,
     receiptLine: receiptLine ?? null,
     receipt: (receiptLine as any)?.receipts ?? null,
     packaging: packaging ?? null,
@@ -152,7 +159,7 @@ export async function getBinOccupancy(locationCode: string): Promise<{
 } | null> {
   const { data: location, error } = await db("locations")
     .select("id, code, max_pallets, status")
-    .eq("code", locationCode)
+    .eq("code", normalizeRackLocationCode(locationCode))
     .maybeSingle();
   if (error || !location) return null;
 
@@ -160,7 +167,7 @@ export async function getBinOccupancy(locationCode: string): Promise<{
 
   return {
     locationId: location.id,
-    locationCode: location.code,
+    locationCode: displayRackLocationCode(location.code),
     maxPallets: location.max_pallets ?? 0,
     occupiedPallets,
     status: location.status ?? "active",
@@ -173,7 +180,8 @@ export async function getBayOccupancy(locationCode: string): Promise<{
   bay: string | null;
   cells: BayOccupancyCell[];
 } | null> {
-  const normalizedCode = locationCode.trim();
+  const rawCode = locationCode.trim();
+  const normalizedCode = rawCode.toUpperCase().startsWith("BAY:") ? rawCode : normalizeRackLocationCode(rawCode);
   let anchor: any = null;
   const bayParts = normalizedCode.match(/^BAY:([^:]+):([^:]+):([^:]+):([^:]+)$/i);
   const bayCodePrefix = bayParts ? `${bayParts[1]}-${bayParts[2]}-${bayParts[3]}-${bayParts[4]}-` : "";
@@ -272,7 +280,7 @@ export async function getBayOccupancy(locationCode: string): Promise<{
     const maxPallets = Number(location.max_pallets ?? 0);
     return {
       locationId: location.id,
-      locationCode: location.code,
+      locationCode: displayRackLocationCode(location.code),
       level: location.level ?? null,
       position: location.position ?? null,
       depth: location.depth ?? null,
@@ -284,7 +292,7 @@ export async function getBayOccupancy(locationCode: string): Promise<{
   });
 
   return {
-    anchorCode: anchor.code,
+    anchorCode: displayRackLocationCode(anchor.code),
     aisle: anchor.aisle ?? null,
     bay: anchor.bay ?? null,
     cells,
@@ -326,7 +334,7 @@ export async function getWarehouseBayOccupancy(warehouseId: string): Promise<War
     const occupiedPallets = counts.get(loc.id) ?? 0;
     bayMap.get(key)!.push({
       locationId: loc.id,
-      locationCode: loc.code,
+      locationCode: displayRackLocationCode(loc.code),
       level: loc.level ?? null,
       position: loc.position ?? null,
       depth: loc.depth ?? null,
@@ -402,6 +410,6 @@ export async function getPalletByBarcode(barcode: string): Promise<{
     ...pallet,
     product_sku: (product as any)?.sku,
     product_name: (product as any)?.name,
-    location_code: (location as any)?.code,
+    location_code: location ? displayRackLocationCode((location as any).code) : undefined,
   };
 }

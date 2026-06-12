@@ -129,6 +129,7 @@ import {
   cancelMoveTask,
   expandLocationRange,
   buildRackLocationCode,
+  displayRackLocationCode,
   suggestNextRackPosition,
   validateMoveDestination,
   type MoveValidationResult,
@@ -522,8 +523,8 @@ export function LocationMovesPage() {
         <div className="flex flex-col gap-4">
           {pending.map((task: any) => {
             const local = scanState[task.id] ?? { pallet: "", location: "", validation: null, validating: false };
-            const fromLoc = (task.from_location as any)?.code ?? "—";
-            const toLoc   = (task.to_location   as any)?.code ?? "—";
+            const fromLoc = displayRackLocationCode((task.from_location as any)?.code) || "—";
+            const toLoc   = displayRackLocationCode((task.to_location   as any)?.code) || "—";
             const sku     = (task.pallets as any)?.products?.sku ?? "";
             const name    = (task.pallets as any)?.products?.name ?? "";
             const pBarcode = (task.pallets as any)?.pallet_barcode ?? "";
@@ -678,8 +679,8 @@ export function LocationMovesPage() {
               </summary>
               <div className="mt-3 flex flex-col gap-2">
                 {done.map((task: any) => {
-                  const fromLoc = (task.from_location as any)?.code ?? "—";
-                  const toLoc   = (task.to_location   as any)?.code ?? "—";
+                  const fromLoc = displayRackLocationCode((task.from_location as any)?.code) || "—";
+                  const toLoc   = displayRackLocationCode((task.to_location   as any)?.code) || "—";
                   const pBarcode = (task.pallets as any)?.pallet_barcode ?? "";
                   const isCancelled = cancelledIds.has(task.id) || task.status === "cancelled";
                   return (

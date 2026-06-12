@@ -106,17 +106,13 @@ describe("location move helpers", () => {
     });
   });
 
-  it("resolves scanned full hierarchy location labels by warehouse, zone, aisle, bay, level, and position", async () => {
+  it("resolves legacy full hierarchy location labels to the short rack location code", async () => {
     mockDb.selects = {
       pallets: [{ data: { id: "pallet-1", product_id: null, current_location_id: "loc-old", warehouse_id: "wh-1", status: "available" }, error: null }],
       locations: [
         { data: null, error: null },
-        { data: null, error: null },
-        { data: null, error: null },
-        { data: { id: "loc-new", code: "WH3-A-1-06-L03-P1", status: "active", max_pallets: 0, warehouse_id: "wh-1", zone_id: "zone-a" }, error: null },
+        { data: { id: "loc-new", code: "A-06-L03-P1", status: "active", max_pallets: 0, warehouse_id: "wh-1", zone_id: "zone-a" }, error: null },
       ],
-      warehouses: [{ data: { id: "wh-1" }, error: null }],
-      zones: [{ data: { id: "zone-a" }, error: null }],
     };
 
     const result = await validateMoveDestination("PBC-1", "WH3-A-1-06-L03-P1");
@@ -127,7 +123,10 @@ describe("location move helpers", () => {
   it("uses the destination warehouse when completing a move for a legacy pallet without a warehouse", async () => {
     mockDb.selects = {
       pallets: [{ data: { id: "pallet-1", current_location_id: "loc-old", warehouse_id: null }, error: null }],
-      locations: [{ data: { id: "loc-new", warehouse_id: "wh-1", zone_id: "zone-a" }, error: null }],
+      locations: [
+        { data: null, error: null },
+        { data: { id: "loc-new", code: "A-13-L05-P1", warehouse_id: "wh-1", zone_id: "zone-a" }, error: null },
+      ],
     };
     mockDb.upserts = [{ table: "move_tasks", payload: { id: "move-new", task_number: "MOV-1" } }];
 

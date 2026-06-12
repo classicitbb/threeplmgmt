@@ -4,7 +4,7 @@ import { BrowserRouter, Navigate, NavLink, Outlet, Route, Routes, useLocation, u
 import { QueryClientProvider, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { ArrowLeft, Calculator, Camera, CheckCircle2, Eye, EyeOff, HelpCircle, Keyboard, Loader2, LogOut, Mail, RefreshCw, ScanLine, Sparkles, Warehouse } from "lucide-react";
+import { ArrowLeft, Camera, CheckCircle2, Eye, EyeOff, HelpCircle, Keyboard, Loader2, LogOut, Mail, RefreshCw, ScanLine, Sparkles, Warehouse } from "lucide-react";
 import { toast } from "sonner";
 import { z } from "zod";
 import { Analytics } from "@vercel/analytics/react";
@@ -16,7 +16,7 @@ import { enqueueOfflineWork, isLikelyNetworkError } from "@/lib/offline-queue";
 import { supabase } from "@/integrations/supabase/client";
 import { createAppQueryClient } from "@/lib/query-client";
 
-import { buildBayOccupancyGrid, confirmPickTask, formatDate, formatNumber, getBayOccupancy, getInventoryDetail, getPickExecution, loginSchema, recordUserSignIn, refreshUserDeviceTrust, signUpSchema, RESOURCE_DEFINITIONS } from "@/lib/wms-core";
+import { buildBayOccupancyGrid, confirmPickTask, formatDate, formatNumber, formatPickRackInstruction, getBayOccupancy, getInventoryDetail, getPickExecution, loginSchema, normalizeRackLocationCode, recordUserSignIn, refreshUserDeviceTrust, signUpSchema, RESOURCE_DEFINITIONS } from "@/lib/wms-core";
 import { getOrCreateDeviceId, hasTrustedDeviceShortcut, isDesktopClient } from "@/lib/device-identity";
 import { cn } from "@/lib/utils";
 
@@ -27,7 +27,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -181,13 +180,14 @@ function playBarcodeBeep() {
   }
 }
 
-function flashInput(el: HTMLElement | null, colour: "orange" | "blue" | "red" | "green") {
+function flashInput(el: HTMLElement | null, colour: "orange" | "blue" | "red" | "green" | "yellow") {
   if (!el) return;
   const palette: Record<string, string[]> = {
     orange: ["ring-2", "ring-orange-400", "ring-offset-1"],
     blue: ["ring-2", "ring-blue-400", "ring-offset-1"],
     red: ["ring-2", "ring-red-500", "ring-offset-1", "animate-pulse"],
     green: ["ring-2", "ring-green-500", "ring-offset-1"],
+    yellow: ["ring-2", "ring-yellow-300", "ring-offset-1", "animate-pulse"],
   };
   const cls = palette[colour];
   el.classList.add(...cls);
@@ -202,7 +202,23 @@ function isBaySelectorCode(value: string) {
   const normalized = normalizeScannerText(value);
   if (normalized.startsWith("BAY:")) return true;
   const parts = normalized.split("-").filter(Boolean);
+  if (parts.length === 2 && /^\d+$/.test(parts[1])) return true;
   return parts.length >= 4 && !parts.some((part) => /^L\d+$/i.test(part));
+}
+
+function describePickLocation(location: { code?: string | null; aisle?: string | number | null; bay?: string | number | null; level?: string | number | null; position?: string | number | null } | null | undefined) {
+  const code = normalizeRackLocationCode(String(location?.code ?? ""));
+  if (!code) {
+    return {
+      fullCode: "assigned location",
+      goTo: "assigned location",
+    };
+  }
+
+  return {
+    fullCode: code,
+    goTo: formatPickRackInstruction({ ...location, code }),
+  };
 }
 
 function playPickSuccessTone() {
@@ -1369,6 +1385,7 @@ function PickExecutionPage() {
 
   const tasks = data?.pickTasks ?? [];
   const taskLocationRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const [confirmErrorNonceByTask, setConfirmErrorNonceByTask] = useState<Record<string, number>>({});
 
   const focusNextOpen = useCallback((justConfirmedId: string) => {
     const list = tasks;
@@ -1437,7 +1454,15 @@ function PickExecutionPage() {
       ]);
       setTimeout(() => focusNextOpen(variables.taskId), 300);
     },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Pick confirmation failed"),
+    onError: (error, variables) => {
+      if (variables?.taskId) {
+        setConfirmErrorNonceByTask((current) => ({
+          ...current,
+          [variables.taskId]: (current[variables.taskId] ?? 0) + 1,
+        }));
+      }
+      toast.error(error instanceof Error ? error.message : "Pick confirmation failed");
+    },
   });
 
   const completeMutation = useMutation({
@@ -1492,6 +1517,7 @@ function PickExecutionPage() {
             task={task}
             onConfirm={(payload) => mutation.mutate(payload)}
             isPending={mutation.isPending && mutation.variables?.taskId === task.id}
+            confirmErrorNonce={confirmErrorNonceByTask[task.id] ?? 0}
             registerLocationRef={(el) => {
               taskLocationRefs.current[task.id] = el;
             }}
@@ -1599,7 +1625,7 @@ function PickBayGrid({
                   className={[
                     "min-h-16 rounded-md border px-2 py-2 text-left text-xs transition focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
                     isAssigned
-                      ? "animate-pulse border-cyan-400 bg-cyan-50 text-cyan-950 ring-2 ring-cyan-400 dark:bg-cyan-950/50 dark:text-cyan-50"
+                      ? "animate-pulse border-yellow-300 bg-yellow-100 text-yellow-950 ring-2 ring-yellow-300 dark:border-yellow-500 dark:bg-yellow-950/50 dark:text-yellow-50"
                       : "cursor-not-allowed border-muted bg-muted text-muted-foreground opacity-70",
                   ].join(" ")}
                 >
@@ -1627,6 +1653,7 @@ function PickTaskCard({
   task,
   onConfirm,
   isPending,
+  confirmErrorNonce,
   registerLocationRef,
 }: {
   task: any;
@@ -1638,6 +1665,7 @@ function PickTaskCard({
     shortReason?: string;
   }) => void;
   isPending: boolean;
+  confirmErrorNonce: number;
   registerLocationRef: (el: HTMLInputElement | null) => void;
 }) {
   const form = useForm({
@@ -1650,17 +1678,28 @@ function PickTaskCard({
   });
   const locationRef = useRef<HTMLInputElement | null>(null);
   const palletRef = useRef<HTMLInputElement | null>(null);
+  const locationScanButtonRef = useRef<HTMLDivElement | null>(null);
   const confirmRef = useRef<HTMLButtonElement | null>(null);
-  const shortReasonRef = useRef<HTMLInputElement | null>(null);
   const cardRef = useRef<HTMLDivElement | null>(null);
-  const [keypadOpen, setKeypadOpen] = useState(false);
+  const [confirmPrompt, setConfirmPrompt] = useState(false);
   const [bayScan, setBayScan] = useState("");
   const pallet = task.pallets as any;
   const product = pallet?.products as any;
-  const locationCode = task.locations?.code ?? task.pick_balance?.locations?.code ?? "";
+  const location = task.locations ?? task.pick_balance?.locations ?? null;
+  const locationCode = normalizeRackLocationCode(location?.code ?? "");
+  const locationDescriptor = describePickLocation(location);
   const palletBarcode = pallet?.pallet_barcode ?? "";
   const palletQuantity = task.pick_balance?.available_quantity ?? pallet?.available_quantity ?? pallet?.quantity ?? task.requested_quantity;
+  const wholePalletQuantity = Number(palletQuantity ?? task.requested_quantity ?? 0);
   const isOpen = PICK_OPEN_STATUSES.has(task.status);
+  const scannedLocation = String(form.watch("locationCode") ?? "").trim();
+  const scannedPallet = String(form.watch("palletBarcode") ?? "").trim();
+  const readyToConfirm = Boolean(scannedLocation && scannedPallet);
+  const lockForConfirm = confirmPrompt && readyToConfirm;
+
+  useEffect(() => {
+    if (confirmErrorNonce > 0) setConfirmPrompt(false);
+  }, [confirmErrorNonce]);
 
   if (!isOpen) {
     const tone =
@@ -1691,47 +1730,28 @@ function PickTaskCard({
     );
   }
 
-  const instruction = [
-    `Go to: ${locationCode || "assigned location"}`,
-    `Pallet: ${palletBarcode || "assigned pallet"}`,
-    `Product: ${product?.sku ? `${product.sku} · ` : ""}${product?.name ?? "assigned product"}`,
-    `Pallet qty: ${formatNumber(Number(palletQuantity ?? 0))}`,
-  ].join("\n");
+  const instructionRows = [
+    { label: "Go to:", value: locationDescriptor.goTo },
+    { label: "Pallet:", value: palletBarcode || "assigned pallet" },
+    { label: "Product:", value: `${product?.sku ? `${product.sku} · ` : ""}${product?.name ?? "assigned product"}` },
+    { label: "Pallet qty:", value: formatNumber(Number(palletQuantity ?? 0)) },
+  ];
 
   const handleSubmit = form.handleSubmit((values) => {
-    const qty = Number(values.quantity);
-    const requested = Number(task.requested_quantity);
-    if (!Number.isFinite(qty) || qty < 0) {
-      toast.error("Enter a confirmed quantity.");
-      return;
-    }
-    if (qty > requested) {
-      toast.error("Confirmed qty cannot exceed requested qty.");
-      return;
-    }
-    if (qty < requested && !values.shortReason.trim()) {
-      flashInput(shortReasonRef.current, "red");
-      shortReasonRef.current?.focus();
-      toast.error("Enter a reason for short pick.");
+    if (!readyToConfirm) {
+      toast.error("Scan the bay/location and pallet before confirming.");
       return;
     }
     onConfirm({
       taskId: task.id,
       locationCode: values.locationCode,
       palletBarcode: values.palletBarcode,
-      quantity: qty,
-      shortReason: qty < requested ? values.shortReason.trim() : undefined,
+      quantity: wholePalletQuantity,
     });
     if (cardRef.current) {
       flashInput(cardRef.current, "green");
     }
   });
-
-  const appendDigit = (d: string) => {
-    const current = String(form.getValues("quantity") ?? "");
-    const next = current === "0" ? d : `${current}${d}`;
-    form.setValue("quantity", Number(next));
-  };
 
   function applyLocationScan(value: string) {
     const scanned = normalizeScannerText(value);
@@ -1739,12 +1759,15 @@ function PickTaskCard({
     if (isBaySelectorCode(scanned)) {
       setBayScan(scanned);
       form.setValue("locationCode", "");
+      setConfirmPrompt(false);
       playBarcodeBeep();
-      flashInput(locationRef.current, "orange");
+      flashInput(locationScanButtonRef.current, "yellow");
+      flashInput(locationRef.current, "yellow");
       return;
     }
     setBayScan("");
     form.setValue("locationCode", scanned);
+    setConfirmPrompt(false);
     playBarcodeBeep();
     flashInput(locationRef.current, "blue");
     setTimeout(() => {
@@ -1769,15 +1792,23 @@ function PickTaskCard({
             className="grid gap-4 lg:grid-cols-4"
             onSubmit={handleSubmit}
           >
-            <div className="lg:col-span-4">
-              <Textarea value={instruction} readOnly className="min-h-24 resize-none font-mono text-sm" aria-label="Pick task instructions" />
+            <div
+              className="lg:col-span-4 grid gap-1.5 rounded-md border border-border bg-muted/50 px-3 py-2 font-mono text-sm"
+              aria-label="Pick task instructions"
+            >
+              {instructionRows.map((row) => (
+                <div key={row.label} className="grid gap-1 sm:grid-cols-[7rem_minmax(0,1fr)]">
+                  <span className="font-semibold text-muted-foreground">{row.label}</span>
+                  <span className="min-w-0 break-words text-foreground">{row.value}</span>
+                </div>
+              ))}
             </div>
             <FormField
               control={form.control}
               name="locationCode"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Location barcode</FormLabel>
+                  <FormLabel>Bay/Location Code</FormLabel>
                   <FormControl>
                     <div className="flex gap-2">
                       <Input
@@ -1788,6 +1819,7 @@ function PickTaskCard({
                           registerLocationRef(el);
                         }}
                         className="min-h-10 min-w-0 flex-1 transition-shadow duration-300"
+                        disabled={lockForConfirm}
                         placeholder="Scan location barcode"
                         onChange={(event) => {
                           const value = normalizeScannerText(event.target.value.replace(/[\r\n]/g, ""));
@@ -1805,10 +1837,13 @@ function PickTaskCard({
                           }
                         }}
                       />
-                      <BarcodeScanButton
-                        title="Scan location barcode"
-                        onScan={applyLocationScan}
-                      />
+                      <div ref={locationScanButtonRef} className="rounded-md transition-shadow duration-300">
+                        <BarcodeScanButton
+                          title="Scan Bay/Location Code"
+                          onScan={applyLocationScan}
+                          disabled={lockForConfirm}
+                        />
+                      </div>
                     </div>
                   </FormControl>
                 </FormItem>
@@ -1821,8 +1856,9 @@ function PickTaskCard({
                 onSelectAssigned={(selectedLocation) => {
                   setBayScan("");
                   form.setValue("locationCode", selectedLocation);
+                  setConfirmPrompt(false);
                   playBarcodeBeep();
-                  flashInput(locationRef.current, "blue");
+                  flashInput(locationRef.current, "yellow");
                   setTimeout(() => {
                     flashInput(palletRef.current, "orange");
                     palletRef.current?.focus();
@@ -1845,6 +1881,7 @@ function PickTaskCard({
                           palletRef.current = el;
                         }}
                         className="min-h-10 min-w-0 flex-1 transition-shadow duration-300"
+                        disabled={lockForConfirm}
                         placeholder="Scan pallet barcode"
                         onChange={(event) => field.onChange(normalizeScannerText(event.target.value.replace(/[\r\n]/g, "")))}
                         onKeyDown={(event) => {
@@ -1852,7 +1889,11 @@ function PickTaskCard({
                             event.preventDefault();
                             playBarcodeBeep();
                             flashInput(palletRef.current, "blue");
-                            setTimeout(() => confirmRef.current?.focus(), 50);
+                            setConfirmPrompt(true);
+                            setTimeout(() => {
+                              flashInput(confirmRef.current, "yellow");
+                              confirmRef.current?.focus();
+                            }, 50);
                           }
                         }}
                       />
@@ -1862,74 +1903,32 @@ function PickTaskCard({
                           form.setValue("palletBarcode", normalizeScannerText(value));
                           playBarcodeBeep();
                           flashInput(palletRef.current, "blue");
-                          setTimeout(() => confirmRef.current?.focus(), 50);
+                          setConfirmPrompt(true);
+                          setTimeout(() => {
+                            flashInput(confirmRef.current, "yellow");
+                            confirmRef.current?.focus();
+                          }, 50);
                         }}
+                        disabled={lockForConfirm}
                       />
                     </div>
                   </FormControl>
                 </FormItem>
               )}
             />
-            <FormField
-              control={form.control}
-              name="quantity"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Confirmed qty</FormLabel>
-                  <FormControl>
-                    <div className="flex gap-2">
-                      <Input {...field} type="number" inputMode="numeric" className="min-w-0 flex-1" />
-                      <Popover open={keypadOpen} onOpenChange={setKeypadOpen}>
-                        <PopoverTrigger asChild>
-                          <Button type="button" variant="outline" size="icon" title="Numeric keypad">
-                            <Calculator className="h-4 w-4" />
-                          </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-56 p-2">
-                          <div className="mb-2 rounded border bg-muted px-2 py-1 text-right font-mono text-base">
-                            {String(form.watch("quantity") ?? 0)}
-                          </div>
-                          <div className="grid grid-cols-3 gap-1">
-                            {["1","2","3","4","5","6","7","8","9"].map((d) => (
-                              <Button key={d} type="button" variant="outline" onClick={() => appendDigit(d)}>{d}</Button>
-                            ))}
-                            <Button type="button" variant="outline" onClick={() => form.setValue("quantity", 0)}>C</Button>
-                            <Button type="button" variant="outline" onClick={() => appendDigit("0")}>0</Button>
-                            <Button type="button" variant="outline" onClick={() => {
-                              const cur = String(form.getValues("quantity") ?? "");
-                              const next = cur.length > 1 ? cur.slice(0, -1) : "0";
-                              form.setValue("quantity", Number(next));
-                            }}>⌫</Button>
-                            <Button type="button" className="col-span-3" onClick={() => { setKeypadOpen(false); confirmRef.current?.focus(); }}>Done</Button>
-                          </div>
-                        </PopoverContent>
-                      </Popover>
-                    </div>
-                  </FormControl>
-                </FormItem>
+            <div className="lg:col-span-2 grid gap-1 rounded-md border border-border bg-muted/40 px-3 py-2 text-sm">
+              <span className="text-xs font-medium text-muted-foreground">Full pallet qty</span>
+              <span className="font-mono text-base font-semibold">{formatNumber(wholePalletQuantity)}</span>
+            </div>
+            <Button
+              ref={confirmRef}
+              className={cn(
+                "w-full lg:col-span-4",
+                confirmPrompt && readyToConfirm && "animate-pulse border border-yellow-300 bg-yellow-300 text-yellow-950 hover:bg-yellow-300",
               )}
-            />
-            <FormField
-              control={form.control}
-              name="shortReason"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Short reason</FormLabel>
-                  <FormControl>
-                    <Input
-                      {...field}
-                      ref={(el) => {
-                        field.ref(el);
-                        shortReasonRef.current = el;
-                      }}
-                      className="transition-shadow duration-300"
-                      placeholder="Required if confirmed qty is short"
-                    />
-                  </FormControl>
-                </FormItem>
-              )}
-            />
-            <Button ref={confirmRef} className="w-full lg:col-span-4" type="submit" disabled={isPending}>
+              type="submit"
+              disabled={isPending || !readyToConfirm}
+            >
               {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
               Confirm pick
             </Button>
