@@ -434,12 +434,26 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     >
       {/* Logo area */}
       <div className={cn(
-        "mb-4 flex items-center gap-3 px-2",
+        "mb-4 flex items-center justify-between gap-2 px-2",
         sidebarCollapsed && "justify-center px-0"
       )}>
-        <img src="/logo.png" alt="Warehouse Wizard" className="h-8 w-8 shrink-0 rounded-lg object-fill" />
+        <div className="flex items-center gap-3 min-w-0">
+          <img src="/logo.png" alt="Warehouse Wizard" className="h-8 w-8 shrink-0 rounded-lg object-fill" />
+          {!sidebarCollapsed && (
+            <span className="truncate text-sm font-semibold text-foreground">Warehouse Wizard</span>
+          )}
+        </div>
         {!sidebarCollapsed && (
-          <span className="truncate text-sm font-semibold text-foreground">Warehouse Wizard</span>
+          <Button
+            className="h-7 w-7 shrink-0"
+            size="icon"
+            variant="ghost"
+            onClick={() => window.location.reload()}
+            aria-label="Hard refresh"
+            title="Hard refresh"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+          </Button>
         )}
       </div>
 
@@ -537,6 +551,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <div className="flex items-center gap-2">
             <img src="/logo.png" alt="Warehouse Wizard" className="h-7 w-7 shrink-0 rounded-md object-fill" />
             <span className="text-sm font-semibold">{appTitle}</span>
+            <Button
+              className="h-7 w-7"
+              size="icon"
+              variant="ghost"
+              onClick={() => window.location.reload()}
+              aria-label="Hard refresh"
+              title="Hard refresh"
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+            </Button>
             <span className="hidden text-[10px] font-medium text-muted-foreground sm:inline">v{__APP_VERSION__}</span>
           </div>
           <div className="flex items-center gap-2">
