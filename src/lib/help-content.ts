@@ -37,7 +37,7 @@ export const setupWizardSteps: SetupWizardStepDetail[] = [
     summary: "Decide how aisles, bays, levels, and depth positions are produced.",
     details: [
       "Pick the aisle count, bays per aisle, levels per bay, and depth (1\u20135) that match the physical racking.",
-      "Confirm the location code pattern so labels match what is printed on the racks (Warehouse > Zone > Aisle > Bay > Level > Depth).",
+      "Confirm the location code pattern so labels match what is printed on the racks. Rack location scan strings use rack, bay, level, and position while warehouse and aisle remain structured context.",
       "Set capacity defaults (max weight, stack height) so the slot suggester respects the rack rating.",
     ],
   },
@@ -184,11 +184,11 @@ const routeHelpDefinitions: Record<string, RouteHelpDefinition> = {
   "pick-lists": {
     id: "pick-lists",
     title: "Pick Lists",
-    summary: "Pick lists release outbound work and group the pick tasks operators must execute.",
-    keyActions: ["Release lists", "Review shortages", "Open execution detail for assigned work", "Use shortened bay scans to visually confirm the pallet location"],
-    commonMistakes: ["Releasing work before stock is available", "Ignoring shortage exceptions on generated tasks", "Confirming the wrong rack cell after a bay scan"],
+    summary: "Pick lists release outbound work and group the whole-pallet pick tasks operators must execute.",
+    keyActions: ["Release lists", "Review shortages", "Open execution detail for assigned work", "Use bay/location scans to visually confirm the pallet location"],
+    commonMistakes: ["Releasing work before stock is available", "Treating order demand as permission to split a pallet", "Confirming the wrong rack cell after a bay scan"],
     permissions: "Managed by admins, managers, and operators.",
-    wikiArticleIds: ["pick-flow", "inventory-search"],
+    wikiArticleIds: ["pick-flow", "operational-dead-ends", "inventory-search"],
   },
   transfers: {
     id: "transfers",
@@ -233,7 +233,7 @@ const routeHelpDefinitions: Record<string, RouteHelpDefinition> = {
     keyActions: ["Apply controlled statuses", "Record a reason", "Review controlled stock"],
     commonMistakes: ["Changing status without reason detail", "Forgetting that controlled stock still affects decisions"],
     permissions: "Used by admins, managers, and inventory clerks.",
-    wikiArticleIds: ["status-controls"],
+    wikiArticleIds: ["status-controls", "operational-dead-ends"],
   },
   reports: {
     id: "reports",
@@ -296,7 +296,7 @@ const routeHelpDefinitions: Record<string, RouteHelpDefinition> = {
     keyActions: ["Search articles", "Open module-specific guides", "Use linked context from the help sidebar"],
     commonMistakes: ["Searching too narrowly by exact title only", "Using an outdated process instead of the in-app wiki"],
     permissions: "Visible to all approved users.",
-    wikiArticleIds: ["help-center", "warehouse-setup", "receiving-flow"],
+    wikiArticleIds: ["help-center", "operational-dead-ends", "warehouse-setup", "receiving-flow"],
   },
   "setup-wizard": {
     id: "setup-wizard",
@@ -412,10 +412,116 @@ export const helpArticles: HelpArticle[] = [
     title: "Pick Lists and Execution",
     module: "pick-lists",
     audience: "Managers and operators",
-    keywords: ["pick", "pick list", "execution", "short", "outbound"],
+    keywords: ["pick", "pick list", "execution", "short", "outbound", "whole pallet", "partial pick", "bay code"],
     sections: [
-      { title: "Release to Execution", content: ["Managers create pick lists and the system generates pick tasks from available inventory.", "Operators then confirm the assigned pallet, location, and picked quantity. A shortened bay code can open the bay grid and highlight the pallet's assigned location before confirmation."] },
-      { title: "Shorts and Exceptions", content: ["Any shortage or mismatch should be recorded during confirmation so the audit trail stays complete.", "Do not force picks from unverified stock."] },
+      { title: "Release to Execution", content: ["Managers create pick lists and the system generates tasks from available palletized inventory.", "For now, pick tasks are whole-pallet tasks. If demand is 50 and the available pallet has 100, the task is created for 100 because partial picks are disabled."] },
+      { title: "Location and Pallet Scans", content: ["Pick Execution tells the operator where to go using rack, aisle, bay, level, and the short rack position code.", "Scanning a bay code opens the bay grid and highlights the assigned location. Scanning the exact location code fills the field directly.", "After the pallet barcode is scanned, the Confirm pick button flashes yellow. Confirm the task before doing anything else on that pick."] },
+      { title: "Shorts and Exceptions", content: ["If the pallet is missing, damaged, inaccessible, or does not physically match the system quantity, stop the pick and notify a supervisor instead of forcing the confirmation.", "Use Inventory Search and Status Controls to inspect or restrict the pallet. Use System Log for support-visible notes when the issue needs follow-up.", "A dedicated Pick Exception Resolver is planned so a supervisor can choose hold, damage, waste, defect, or escalation directly from the pick task."] },
+    ],
+  },
+  {
+    id: "operational-dead-ends",
+    title: "What to Do If Warehouse Work Gets Stuck",
+    module: "help",
+    audience: "Operators, supervisors, and managers",
+    keywords: [
+      "what to do if",
+      "dead end",
+      "stuck",
+      "blocked",
+      "short pick",
+      "partial pick",
+      "damage",
+      "waste",
+      "defect",
+      "hold",
+      "scanner",
+      "wrong location",
+      "missing pallet",
+      "quantity mismatch",
+      "exception",
+    ],
+    sections: [
+      {
+        title: "Operator Rule",
+        content: [
+          "If the system blocks a workflow, do not work around the scan or type a value just to move forward. Stop, keep the stock where it is, and verify the physical pallet, location label, selected warehouse, and task number.",
+          "If the stock is damaged, opened, leaking, wet, expired, missing, inaccessible, or not in the expected quantity, notify a supervisor before the pallet is moved into the next step.",
+        ],
+      },
+      {
+        title: "If a Pallet Barcode Does Not Scan",
+        content: [
+          "Try the printed text under the QR/barcode, then search Inventory by pallet code or product. If the pallet record is found, reprint the pallet label before continuing.",
+          "If no record is found, do not receive, move, pick, or ship it under a guessed code. Treat it as an unidentified pallet and ask a supervisor to investigate Receiving, Inventory Search, and System Log.",
+        ],
+      },
+      {
+        title: "If a Bay or Location Code Does Not Scan",
+        content: [
+          "Type the visible short code exactly as printed, then use Browse bays or the bay selector when available. Reprint the location or bay label if the printed code is damaged or stale.",
+          "If the code does not exist in the selected warehouse, confirm the warehouse selector first. The warehouse is part of the working context even though it is no longer stored in normal rack location scan strings.",
+        ],
+      },
+      {
+        title: "If the Pallet Is Not Where the Task Says",
+        content: [
+          "Search Inventory by pallet barcode and check the last known location and movement history. Do not pick a substitute pallet unless a manager releases or reassigns work for that pallet.",
+          "If the pallet is physically found somewhere else, use Location Moves or Status Controls as appropriate before returning to pick execution.",
+        ],
+      },
+      {
+        title: "If the Quantity on the Pallet Looks Wrong",
+        content: [
+          "Whole-pallet picks must be confirmed for the full assigned pallet quantity. If the system expects 100 but only 80 or 90 are physically present, do not confirm the normal pick.",
+          "Current system action: stop the pick, search the pallet in Inventory, place it on hold or another controlled status when authorized, and record a System Log note for follow-up.",
+          "Planned gap closure: Pick Execution should offer hold, debit as damage, debit as waste, debit as defect, or escalate without debit, then write the stock adjustment, audit event, and system log automatically.",
+        ],
+      },
+      {
+        title: "If Stock Is Damaged, Expired, Wet, Opened, or Contaminated",
+        content: [
+          "Move the pallet only if it is safe and authorized. Otherwise leave it secured, mark it visually on the floor, and call a supervisor.",
+          "Use Status Controls to put the pallet on hold, quarantine, damaged, or missing with a reason. Use System Log when the issue needs support, quality, customer, or manager follow-up.",
+        ],
+      },
+      {
+        title: "If a Location Is Physically Full or Blocked",
+        content: [
+          "Do not put away, move, or pick into a blocked cell just because the system shows capacity. Use the bay selector to choose an available cell when the workflow supports it.",
+          "If the system and floor disagree, stop and have a supervisor use Inventory Search, Location Moves, or Cycle Counts to correct the location state before more work is released there.",
+        ],
+      },
+      {
+        title: "If the Product Barcode Is Unknown",
+        content: [
+          "Search by SKU, product name, alternate label text, or pallet. If the product still cannot be identified, do not add it to a pick list or receive it against a guessed SKU.",
+          "Ask a clerk or manager to correct the product master data, barcode, packaging profile, or client ownership before releasing warehouse work.",
+        ],
+      },
+      {
+        title: "If the Scanner, Camera, or Network Fails",
+        content: [
+          "Use direct typing when the scanner cannot read a code. Normal text entry should always work without clipboard access.",
+          "If the network blocks posting, keep the pallet in its current physical state and wait for the task to post or be retried. Do not repeat the physical move under a second task number.",
+        ],
+      },
+      {
+        title: "Current System Design To-Do for Operators",
+        content: [
+          "Use scan-confirmed workflows for normal Receiving, Put-Away, Location Moves, Pick Execution, Transfers, Status Controls, and Cycle Counts.",
+          "When the physical floor disagrees with the system, stop the transaction, verify in Inventory Search, apply a controlled status when authorized, and use System Log for the exception narrative.",
+          "For whole-pallet picking, do not enter or confirm a smaller picked quantity in the normal pick flow. Treat the issue as an exception until a supervisor resolves the inventory state.",
+        ],
+      },
+      {
+        title: "System Flow Gaps To Resolve",
+        content: [
+          "Pick Execution needs a dedicated exception resolver for short whole-pallet picks, with actions for hold, damage, waste, defect, and supervisor escalation.",
+          "The resolver should create stock adjustments, update pallet and inventory quantities/statuses, write audit events, write System Log entries, and leave the pick task in a clear exception state.",
+          "The UI should anticipate this before the operator is trapped: when a scanned pallet cannot be confirmed as the full expected quantity, show the exception choices instead of only rejecting the partial quantity.",
+        ],
+      },
     ],
   },
   {
@@ -470,9 +576,11 @@ export const helpArticles: HelpArticle[] = [
     title: "Status Controls",
     module: "status",
     audience: "Clerks and supervisors",
-    keywords: ["status", "hold", "quarantine", "damaged", "missing", "available"],
+    keywords: ["status", "hold", "quarantine", "damaged", "missing", "available", "waste", "defect"],
     sections: [
       { title: "Purpose", content: ["Status controls keep restricted stock visible and auditable.", "Every status change requires a reason because it affects downstream operations."] },
+      { title: "What to Do If Stock Cannot Move", content: ["Use hold when stock needs supervisor review but the final disposition is not known.", "Use quarantine when quality, expiry, contamination, temperature, or customer controls require isolation.", "Use damaged or missing only when the physical condition or count has been verified enough to support that status."] },
+      { title: "Pick Exception Gap", content: ["Today, short whole-pallet pick problems should be stopped and handled through Inventory Search, Status Controls, and System Log.", "The planned Pick Exception Resolver should let supervisors debit damage, waste, or defect quantities directly from Pick Execution while preserving adjustment and audit history."] },
     ],
   },
   {
@@ -483,7 +591,7 @@ export const helpArticles: HelpArticle[] = [
     keywords: ["labels", "printing", "barcode", "qr", "reprint", "pallet label", "location label", "bay label", "zone label"],
     sections: [
       { title: "When Labels Matter", content: ["Labels connect the physical pallet, location, zone, or warehouse sign to the system record operators scan.", "Print labels immediately after receiving or master-data setup so the next workflow does not depend on hand-written identifiers."] },
-      { title: "Location and Bay Labels", content: ["Per-row location labels and batch location sheets use the same beam-label layout: text on the left and QR on the right. Batch location sheets print on Avery 99 x 38 mm labels.", "Bay code labels remove the level number and print one shortened bay code such as WH-ZONE-A-01. Bay and zone aisle sheets print on Avery 99 x 93 mm labels."] },
+      { title: "Location and Bay Labels", content: ["Per-row rack location labels use the short location code such as A-05-L05-P1 because the warehouse is already selected and aisle remains structured context.", "Bay code labels remove the level and position so scanning the bay opens the bay grid. Bay and zone aisle sheets print on Avery 99 x 93 mm labels."] },
       { title: "Reprint Rules", content: ["Reprint when a barcode is damaged, unreadable, or missing; do not create a new pallet or location just to replace a label.", "If a location code is intentionally changed, reprint the physical label before sending operators to that rack."] },
     ],
   },
@@ -514,8 +622,8 @@ export const helpArticles: HelpArticle[] = [
     audience: "Admins and warehouse managers",
     keywords: ["bin locations", "generation", "aisles", "bays", "levels", "capacity"],
     sections: [
-      { title: "Templates", content: ["Location templates generate consistent codes and capacities across a zone. Codes should be readable in the aisle and sortable in the system.", "Aisle, bay, and level counts should match the real warehouse footprint you want operators to use. Never create virtual locations that operators cannot physically find."] },
-      { title: "Rack and Bay Codes", content: ["Full location labels identify the exact rack cell, including level. Bay labels remove the level so scanning the bay code opens a selector for every active location in that bay.", "This supports rack-upright scanning without creating separate bay records. The selector still uses the existing aisle, bay, level, depth, capacity, and status fields."] },
+      { title: "Templates", content: ["Location templates generate consistent codes and capacities across a zone. Codes should be readable in the aisle and sortable in the system.", "Rack location scan strings now store rack, bay, level, and position only. Warehouse, zone, and aisle remain structured fields used for filtering, bay selection, and warehouse layout."] },
+      { title: "Rack and Bay Codes", content: ["Rack labels identify the exact rack cell using codes such as A-05-L05-P1. The pick instruction still says the aisle in plain language when aisle helps the operator orient on the floor.", "Bay labels remove the level and position so scanning the bay code opens a selector for every active location in that bay. The selector still uses aisle, bay, level, depth, capacity, and status fields."] },
       { title: "Import Template", content: ["Use the CSV template for bulk location creation when you already know the warehouse and zone IDs. Required fields prevent partial locations from entering directed work.", "Sequence fields should reflect walking and travel paths. Good sequencing removes motion waste by guiding put-away and picking through a sensible route."] },
     ],
     acronyms: {

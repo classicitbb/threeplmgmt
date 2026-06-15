@@ -61,8 +61,16 @@ export default defineConfig(({ mode }) => ({
   build: {
     rollupOptions: {
       output: {
-        manualChunks: {
-          vendor: ["@supabase/supabase-js", "@tanstack/react-query", "react", "react-dom", "react-router-dom"],
+        manualChunks(id) {
+          if (
+            id.includes("node_modules/@supabase/supabase-js") ||
+            id.includes("node_modules/@tanstack/react-query") ||
+            id.includes("node_modules/react") ||
+            id.includes("node_modules/react-dom") ||
+            id.includes("node_modules/react-router-dom")
+          ) {
+            return "vendor";
+          }
         },
       },
     },
