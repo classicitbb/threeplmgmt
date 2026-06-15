@@ -43,11 +43,10 @@ function moduleOrder(mod: string): number {
 type HelpTocProps = {
   articles: HelpArticle[];
   collapsed: boolean;
-  onCollapsedChange: (collapsed: boolean) => void;
   onNavigate: (articleId: string, sectionTitle?: string) => void;
 };
 
-export function WikiBar({ articles, collapsed, onCollapsedChange, onNavigate }: HelpTocProps) {
+export function WikiBar({ articles, collapsed, onNavigate }: HelpTocProps) {
   const [expandedModules, setExpandedModules] = useState<Record<string, boolean>>({});
   const [activeArticleId, setActiveArticleId] = useState<string | null>(null);
   const [activeSectionSlug, setActiveSectionSlug] = useState<string | null>(null);
@@ -82,6 +81,8 @@ export function WikiBar({ articles, collapsed, onCollapsedChange, onNavigate }: 
     }
     if (els.length === 0) return;
 
+    const root = document.getElementById("help-articles");
+
     observerRef.current = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
@@ -98,7 +99,7 @@ export function WikiBar({ articles, collapsed, onCollapsedChange, onNavigate }: 
           }
         }
       },
-      { rootMargin: "-80px 0px -65% 0px", threshold: 0 },
+      { root, rootMargin: "-80px 0px -65% 0px", threshold: 0 },
     );
 
     for (const el of els) observerRef.current.observe(el);
@@ -234,7 +235,7 @@ export function WikiBar({ articles, collapsed, onCollapsedChange, onNavigate }: 
         </SheetTrigger>
         <SheetContent
           side="bottom"
-          className="max-h-[80vh] rounded-t-xl px-4 pb-8 pt-4"
+          className="help-center-light max-h-[80vh] rounded-t-xl px-4 pb-8 pt-4"
         >
           <SheetHeader className="sr-only">
             <SheetTitle>Table of Contents</SheetTitle>

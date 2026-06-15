@@ -77,11 +77,10 @@ export default function HelpCenterPage() {
   }, []);
 
   return (
-    <div className="flex gap-0 relative h-full overflow-hidden">
+    <div className="help-center-light bg-background text-foreground flex gap-0 relative h-full overflow-hidden">
       <WikiBar
         articles={results}
         collapsed={collapsed}
-        onCollapsedChange={setCollapsed}
         onNavigate={handleTocNavigate}
       />
       <div className="flex-1 min-w-0 flex flex-col min-h-0">
@@ -120,7 +119,7 @@ export default function HelpCenterPage() {
           </p>
         </div>
         {/* Scrollable articles area — light mode */}
-        <div id="help-articles" className="flex-1 min-h-0 overflow-y-auto px-4 pb-6 sm:px-5 lg:px-6 help-center-light">
+        <div id="help-articles" className="flex-1 min-h-0 overflow-y-auto px-4 pb-6 sm:px-5 lg:px-6">
           <div className="grid gap-4 pt-4">
         {results.map((article) => (
           <Card id={`article-${article.id}`} data-toc-type="article" data-toc-id={article.id} key={article.id} className="scroll-mt-4">
@@ -199,6 +198,7 @@ export default function HelpCenterPage() {
             </CardContent>
           </Card>
         ))}
+      </div>
       </div>
       </div>
 
