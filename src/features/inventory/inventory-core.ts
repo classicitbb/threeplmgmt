@@ -221,27 +221,61 @@ export async function getBayOccupancy(locationCode: string): Promise<{
     if (data) {
       anchor = data;
     } else {
-      const prefixCandidates = [
-        normalizedCode.endsWith("-") ? normalizedCode : `${normalizedCode}-`,
-        normalizedCode,
-      ];
-      for (const prefix of prefixCandidates) {
-        const prefixResult = await db("locations")
-          .select("id, code, warehouse_id, zone_id, aisle, bay")
-          .eq("location_type", "rack")
-          .ilike("code", `${prefix}%`)
-          .order("level", { ascending: false })
-          .order("position", { ascending: true })
-          .order("code", { ascending: true })
-          .limit(1)
+      // Detect WH-ZONE-AISLE-BAY dash format (4 parts; third is not a level indicator,
+      // fourth is not a position indicator — distinguishes bay codes from location codes
+      // like "A-05-L02-P1" which have L\d+ at [-2] and P\d+ at [-1]).
+      const dashParts = normalizedCode.split("-").filter(Boolean);
+      const isBayDashCode =
+        dashParts.length === 4 &&
+        !/^L\d+$/i.test(dashParts[2]) &&
+        !/^P\d+$/i.test(dashParts[3]);
+      if (isBayDashCode) {
+        const [whCode, zoneCode, aisle, bay] = dashParts;
+        const { data: warehouse, error: warehouseError } = await db("warehouses")
+          .select("id")
+          .eq("code", whCode)
           .maybeSingle();
-        if (prefixResult.error) throw prefixResult.error;
-        if (prefixResult.data) {
-          anchor = { ...prefixResult.data, code: normalizedCode };
-          break;
+        if (warehouseError) throw warehouseError;
+        let zone: any = null;
+        if (warehouse) {
+          const zoneResult = await db("zones")
+            .select("id")
+            .eq("warehouse_id", warehouse.id)
+            .eq("code", zoneCode)
+            .maybeSingle();
+          if (zoneResult.error) throw zoneResult.error;
+          zone = zoneResult.data;
         }
+        anchor = {
+          code: normalizedCode,
+          warehouse_id: warehouse?.id ?? null,
+          zone_id: zone?.id ?? null,
+          aisle,
+          bay,
+        };
+      } else {
+        const prefixCandidates = [
+          normalizedCode.endsWith("-") ? normalizedCode : `${normalizedCode}-`,
+          normalizedCode,
+        ];
+        for (const prefix of prefixCandidates) {
+          const prefixResult = await db("locations")
+            .select("id, code, warehouse_id, zone_id, aisle, bay")
+            .eq("location_type", "rack")
+            .ilike("code", `${prefix}%`)
+            .order("level", { ascending: false })
+            .order("position", { ascending: true })
+            .order("code", { ascending: true })
+            .limit(1)
+            .maybeSingle();
+          if (prefixResult.error) throw prefixResult.error;
+          if (prefixResult.data) {
+            anchor = { ...prefixResult.data, code: normalizedCode };
+            break;
+          }
+        }
+        if (!anchor) return null;
       }
-      if (!anchor) return null;
     }
   }
 
