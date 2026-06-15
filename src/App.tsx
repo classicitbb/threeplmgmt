@@ -81,6 +81,17 @@ const ProtectedShell = lazy(() =>
 
 const RELEASE_HISTORY = [
   {
+    version: "1.21",
+    date: "June 2026",
+    changes: [
+      "Pick Execution: whole-pallet picks are enforced so operators confirm the assigned pallet quantity instead of entering partial quantities",
+      "Pick Execution: rack instructions now use short four-part location codes with the warehouse context removed from the scanned/displayed location string",
+      "Pick Lists: scanner-first create mode lets operators add product lines by scanning products repeatedly before editing quantities, client, order, and release details",
+      "Pick Execution: the confirm button flashes yellow after the pallet scan and locks the scan fields until the operator confirms or the backend returns an error",
+      "Help Center: added operator what-to-do guidance and a documented gap list for dead ends that still need live exception resolution",
+    ],
+  },
+  {
     version: "1.2.0",
     date: "June 2026",
     changes: [
