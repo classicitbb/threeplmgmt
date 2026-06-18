@@ -2698,15 +2698,33 @@ function ImportPreviewDialog({
   );
 }
 
-export function LocationWizardDialog({ trigger }: { trigger?: React.ReactNode }) {
+export function LocationWizardDialog({
+  trigger,
+  open: openProp,
+  onOpenChange,
+  defaultWarehouseId = "",
+  defaultZoneId = "",
+}: {
+  trigger?: React.ReactNode;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  defaultWarehouseId?: string;
+  defaultZoneId?: string;
+}) {
   const queryClient = useQueryClient();
   const { data: options } = useQuery({ queryKey: ["options", "location-wizard"], queryFn: () => fetchOptions() });
-  const [open, setOpen] = useState(false);
+  const [openState, setOpenState] = useState(false);
+  const isControlled = openProp !== undefined;
+  const open = isControlled ? openProp : openState;
+  const setOpen = (next: boolean) => {
+    if (!isControlled) setOpenState(next);
+    onOpenChange?.(next);
+  };
   const form = useForm<LocationWizardValues>({
     resolver: zodResolver(locationWizardSchema),
     defaultValues: {
-      warehouse_id: "",
-      zone_id: "",
+      warehouse_id: defaultWarehouseId,
+      zone_id: defaultZoneId,
       prefix: "A",
       start_bay: 1,
       end_bay: 10,
@@ -2723,9 +2741,14 @@ export function LocationWizardDialog({ trigger }: { trigger?: React.ReactNode })
 
   const selectedWarehouseId = form.watch("warehouse_id");
 
-  // Reset zone when warehouse changes so user can’t submit a mismatched pair
+  // Reset zone when warehouse changes so user can’t submit a mismatched pair.
+  // Skip the very first render so a caller-provided defaultZoneId survives mount.
+  const prevWarehouseRef = useRef(selectedWarehouseId);
   useEffect(() => {
-    form.setValue("zone_id", "");
+    if (prevWarehouseRef.current !== selectedWarehouseId) {
+      form.setValue("zone_id", "");
+      prevWarehouseRef.current = selectedWarehouseId;
+    }
   }, [selectedWarehouseId, form]);
 
   const filteredZones = (options?.zones ?? []).filter(
