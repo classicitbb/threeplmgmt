@@ -35,18 +35,21 @@ if (-not (Test-Path (Join-Path $root "node_modules"))) {
   npm install
 }
 
-Write-Host "Building the site..." -ForegroundColor Yellow
-npm run build
-
 if (Test-PortOpen -Port $port) {
   Write-Host "Port $port is already in use. Opening the existing local app at $url" -ForegroundColor Yellow
 } else {
-  Write-Host "Starting local production preview on $url" -ForegroundColor Yellow
-  $previewArgs = @("vite", "preview", "--host", "127.0.0.1", "--port", "$port", "--strictPort")
-  $preview = Start-Process -FilePath "npx.cmd" -ArgumentList $previewArgs -WorkingDirectory $root -PassThru -WindowStyle Hidden
-  Start-Sleep -Seconds 2
-  if ($preview.HasExited) {
-    throw "The local preview server stopped before the browser could open."
+  Write-Host "Starting local dev server on $url" -ForegroundColor Yellow
+  # Dev server (vite). No service worker is registered in dev mode, so code
+  # changes are always served fresh -- no stale precache, no manual SW clearing.
+  $devArgs = @("vite", "--host", "127.0.0.1", "--port", "$port", "--strictPort")
+  $dev = Start-Process -FilePath "npx.cmd" -ArgumentList $devArgs -WorkingDirectory $root -PassThru -WindowStyle Hidden
+  # Dev server needs a moment to compile and start listening before we open the browser.
+  for ($i = 0; $i -lt 60; $i++) {
+    if ($dev.HasExited) {
+      throw "The local dev server stopped before the browser could open."
+    }
+    if (Test-PortOpen -Port $port) { break }
+    Start-Sleep -Milliseconds 500
   }
 }
 
