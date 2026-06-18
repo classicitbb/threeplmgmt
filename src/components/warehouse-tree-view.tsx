@@ -43,6 +43,7 @@ import { LocationLabelPage } from "@/components/location-label-page";
 import { ZoneLabelPage } from "@/components/zone-label-page";
 import { BayLocationCodesPrintDialog, type LabelSheetItem } from "@/components/label-sheet-print";
 import { Textarea } from "@/components/ui/textarea";
+import { LocationWizardDialog } from "@/features/shared/ui-shared";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -370,6 +371,7 @@ function ZoneNode({
   const { expandedNodes, toggleNode, setDialog, navigate } = useTCtx();
   const isOpen = expandedNodes.has(nodeKey);
   const zoneLabelCode = prefixedCode(warehouseCode, zone.code);
+  const [wizardOpen, setWizardOpen] = useState(false);
 
   const { data: rawLocations = [], isLoading } = useQuery({
     queryKey: ["tree", "locations", zone.id],
@@ -425,7 +427,12 @@ function ZoneNode({
                 <DropdownMenuItem onSelect={() => setDialog({ type: "edit-zone", zone, warehouseName })}>
                   <Pencil className="mr-2 h-3.5 w-3.5" />Edit Zone
                 </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => navigate("/locations")}>
+                <DropdownMenuItem
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    setWizardOpen(true);
+                  }}
+                >
                   <Plus className="mr-2 h-3.5 w-3.5" />Add Locations
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
@@ -443,6 +450,12 @@ function ZoneNode({
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
+            <LocationWizardDialog
+              open={wizardOpen}
+              onOpenChange={setWizardOpen}
+              defaultWarehouseId={zone.warehouse_id}
+              defaultZoneId={zone.id}
+            />
           </div>
         </div>
       </CollapsibleTrigger>
