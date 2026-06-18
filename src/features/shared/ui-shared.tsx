@@ -1518,14 +1518,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <div className="flex items-center gap-2">
               {canSwitchWarehouses ? (
                 <Select
-                  value={profile?.default_warehouse_id ?? ""}
-                  onValueChange={(value) => warehouseSwitchMutation.mutate(value)}
+                  value={profile?.default_warehouse_id ?? (canSelectAllWarehouses ? "__all__" : "")}
+                  onValueChange={(value) => warehouseSwitchMutation.mutate(value === "__all__" ? null : value)}
                   disabled={warehouseSwitchMutation.isPending}
                 >
                   <SelectTrigger className="h-9 w-[13rem]">
                     <SelectValue placeholder="Select warehouse" />
                   </SelectTrigger>
                   <SelectContent>
+                    {canSelectAllWarehouses ? (
+                      <SelectItem value="__all__">All warehouses</SelectItem>
+                    ) : null}
                     {headerWarehouses.map((warehouse: any) => (
                       <SelectItem key={warehouse.id} value={warehouse.id}>
                         {warehouse.code ? `${warehouse.code} - ${warehouse.name}` : warehouse.name}
