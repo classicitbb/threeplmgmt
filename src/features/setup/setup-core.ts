@@ -205,6 +205,7 @@ export type LocationRangeInput = {
   positionsPerLevel: number;
   levels: number;
   depth: number;
+  levelStyle?: "numeric" | "letters";
 };
 
 export type ExpandedLocationRow = {
@@ -229,9 +230,13 @@ export function expandLocationRange(input: LocationRangeInput): ExpandedLocation
   const levels = Math.max(1, Math.min(6, Math.floor(input.levels)));
   const positions = Math.max(1, Math.min(3, Math.floor(input.positionsPerLevel)));
   const depth = Math.max(1, Math.min(5, Math.floor(input.depth)));
+  const useLetters = input.levelStyle === "letters";
   for (let bay = startBay; bay <= endBay; bay += 1) {
     for (let level = 1; level <= levels; level += 1) {
       for (let position = 1; position <= positions; position += 1) {
+        const levelSegment = useLetters
+          ? String.fromCharCode("A".charCodeAt(0) + (level - 1))
+          : `L${String(level).padStart(2, "0")}`;
         rows.push({
           aisle: input.prefix,
           bay: String(bay).padStart(2, "0"),
@@ -239,7 +244,7 @@ export function expandLocationRange(input: LocationRangeInput): ExpandedLocation
           position,
           depth,
           maxPallets: depth,
-          localCode: `${input.prefix}-${String(bay).padStart(2, "0")}-L${String(level).padStart(2, "0")}-P${position}`,
+          localCode: `${input.prefix}-${String(bay).padStart(2, "0")}-${levelSegment}-P${position}`,
         });
       }
     }
