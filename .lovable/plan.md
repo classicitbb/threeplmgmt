@@ -1,71 +1,61 @@
-# Location Wizard from Warehouse Tree — fix, verify, and extend
+# Warehouse-scoped task lists + non-disruptive refresh
 
-The previous turn's edits to `LocationWizardDialog` and the zone ⋯ menu were not actually persisted. The current code still navigates to `/locations` from "Add Locations", the wizard has no controlled-open / prefill / letter-substitute support, and there is no edit-range flow. This plan implements all five asks in one pass.
+## 1. Filter Put-Away tasks and Pick Lists by the active warehouse
 
-## 1. Make `LocationWizardDialog` controllable and prefilled
+Today `getPutawayTasks()` and the pick-list query return tasks for every warehouse, so picking a specific warehouse in the switcher does not narrow the active queues. The "All warehouses" sentinel (developer/admin) should keep showing everything; any other selection should hide tasks from other warehouses.
 
-In `src/features/shared/ui-shared.tsx`:
+**Changes**
+- `src/features/putaway/putaway-core.ts` — extend `getPutawayTasks(userId?, warehouseId?: string | null)`. When `warehouseId` is a non-null string, add `.eq("warehouse_id", warehouseId)`. When it is `null` (All) or `undefined` (legacy callers), no warehouse filter is applied.
+- `src/features/putaway/putaway-page.tsx` — read `profile?.default_warehouse_id` and pass it into `getPutawayTasks`. Include the value in the `queryKey` (`["putaway-tasks", userId, warehouseId]`) so switching warehouses refetches.
+- `src/features/picking/picking-core.ts` — add an optional `warehouseId` arg to the pick-list fetcher and `.eq("warehouse_id", …)` when set.
+- `src/features/picking/picking-page.tsx` — pass `profile?.default_warehouse_id` into the pick-list query and include it in the query key.
+- Update `src/test/putaway-page.test.tsx` mocks so the new signature stays satisfied.
 
-- Extend props: `open?`, `onOpenChange?`, `defaultWarehouseId?`, `defaultZoneId?`, `trigger?: React.ReactNode | null`.
-- Internal state falls back to uncontrolled when `open` is undefined; when `trigger === null`, render no `DialogTrigger`.
-- When the dialog transitions to open, reset the form with the supplied defaults (warehouse + zone) so re-opening from a different zone re-prefills correctly.
-- Drop the unconditional `setValue("zone_id","")` effect on warehouse change so the prefilled zone is not wiped. Only clear when the user actually changes the warehouse via the select.
+The active-doc badge counts in the sidebar already aggregate across warehouses; leave those alone so admins/developers still see global totals.
 
-## 2. Add "Substitute level numbers for letters" toggle
+## 2. Keep the bay selector scoped to the receiving warehouse
 
-Matches the screenshot.
+The Put-Away bay browser is already invoked with `warehouseId={task.warehouse_id}` (the warehouse the pallet was received in), so the dialog itself is correct even when "All warehouses" is active. Verify nothing else passes the active-warehouse instead:
 
-- Add field `level_style: "numeric" | "letters"` to `locationWizardSchema` (default `numeric`).
-- Render a Switch row above Type/Temperature with the copy from the screenshot.
-- Extend `expandLocationRange` in `src/features/setup/setup-core.ts` (or wherever it lives) with an optional `levelStyle` arg. When `letters`, level segment becomes `A,B,C…` instead of `L01,L02…` (e.g. `A-01-B-P1`). Update the rack code builder/normalizer or store the rendered code directly in `localCode` so DB inserts keep the letter form.
-- Add a unit test in `src/test/wms-core.test.ts` covering `levelStyle: "letters"` output and that `positions_per_level=1` omits `-P1` only if existing behavior does — otherwise keep `-P1` so codes stay unique.
+- Audit `src/features/putaway/putaway-page.tsx` and confirm every `<WarehouseBayBrowserDialog …>` and `getWarehouseBayOccupancy(...)` call uses the **task's** `warehouse_id`, never `profile?.default_warehouse_id`. Fix any stray usage.
+- Same audit for pick-task bay/location pickers in `src/features/picking/picking-page.tsx`.
 
-## 3. Wire the wizard into the zone ⋯ menu
+No schema or RPC change needed.
 
-In `src/components/warehouse-tree-view.tsx`:
+## 3. Non-disruptive background refresh
 
-- Add `setDialog` variant `{ type: "wizard-zone"; warehouseId: string; zoneId: string }` (and `{ type: "edit-range"; ... }` per §4).
-- Replace the `navigate("/locations")` item with `setDialog({ type: "wizard-zone", warehouseId: zone.warehouse_id, zoneId: zone.id })`.
-- At the dialog-render block, mount `<LocationWizardDialog open trigger={null} defaultWarehouseId=… defaultZoneId=… onOpenChange={(o) => !o && setDialog(null)} />`.
-- Verify for multiple zones by switching zones in the tree and re-opening; the prefill must reflect the latest zone (covered by §1 reset-on-open).
+Two mechanisms currently cause "hard refresh" feel:
 
-## 4. Edit-range flow from the zone menu
+- `src/hooks/use-background-sync.ts` calls `queryClient.invalidateQueries()` (all queries) when the tab returns after 2 min hidden. That can re-render an in-progress put-away/pick screen, dropping local form state and scan focus.
+- `src/main.tsx` registers the PWA service worker with auto-reload behaviors that, in some flows, can navigate the page.
 
-New menu item "Edit Location Range" in the same zone ⋯ menu.
+**Changes**
+- Introduce a tiny module `src/lib/active-work.ts` exporting:
+  ```ts
+  let active = 0;
+  export function beginActiveWork(): () => void { active++; return () => { active = Math.max(0, active-1); }; }
+  export function isActiveWorkInProgress() { return active > 0; }
+  ```
+- `use-background-sync.ts` — when returning to foreground:
+  - Always flush the offline queue (unchanged).
+  - If `isActiveWorkInProgress()` is true, **skip** the blanket `invalidateQueries` and instead only invalidate safe, read-only keys (`["putaway-tasks"]`, `["pick-lists"]`, `["warehouse-bay-occupancy"]`, `["options"]`) using `{ refetchType: "none" }` so background data stays fresh on next access but no in-flight screen re-mounts.
+  - If no active work, keep today's behavior.
+- Mark active work from the screens that own scan/confirm flow:
+  - `putaway-page.tsx` — call `beginActiveWork()` when a pallet has been scanned and a task is selected; release it on confirm/cancel/back to scan prompt.
+  - `picking-page.tsx` — call `beginActiveWork()` when a pick task is in progress (location scanned or quantity entered); release on confirm/skip/cancel.
+  - `receiving-page.tsx` — call it while the New Shipment / Print Draft dialog is open.
+- `src/main.tsx` PWA hook — when `onNeedRefresh` fires and `isActiveWorkInProgress()`, defer `updateSW(true)` until `visibilitychange → hidden` **and** active work is zero (current code already waits for hidden; add the active-work guard). Same for the preview-mode SW cleanup reload: skip the `window.location.reload()` if active work is in progress; reschedule on the next idle visibility change.
 
-- Opens an `EditLocationRangeDialog` that:
-  - Lets the user pick a rack prefix (auto-discovered from existing locations in the zone) and applies bulk updates: `location_type`, `temperature_class`, `mixed_sku_allowed`, `mixed_lot_allowed`, `depth/max_pallets`, `status`.
-  - Optionally re-codes levels between numeric ↔ letters using the same `level_style` toggle; renames affected `code` values via `upsertRecord("locations", …)` keyed by id.
-  - Shows the count of affected rows before applying, and a final confirm.
-- Per-location editing already exists via the pencil action; we are intentionally adding a *range* editor here, not duplicating that.
+This keeps data fresh in the background while guaranteeing that an operator mid-task is never bounced.
 
-## 5. Toast confirmation and submission fix
+## Verification
 
-- The mutation already toasts `${count} locations created`. Verify by running the wizard end-to-end (see §7). If `upsertRecord` silently de-duplicates on conflict, switch to a single `supabase.from("locations").insert(rows)` batch and toast the actual inserted count returned by Supabase. Surface server errors verbatim through `toast.error`.
-- After success, also invalidate `["warehouse-tree"]` (and any zone-scoped location queries) so the new locations appear in the tree without a hard refresh.
-
-## 6. Accessibility for menu + dialog
-
-- `DropdownMenuTrigger` button gets `aria-label="Zone actions — {zone.code}"`; same pattern for warehouse and location ⋯ buttons.
-- `DialogContent` already provides focus trap + Esc via Radix. Confirm `DialogTitle` and `DialogDescription` are wired (they are) so screen readers announce the dialog. Add `aria-describedby` is auto from Radix when `DialogDescription` is present — keep it.
-- Each form field uses shadcn `FormLabel`/`FormControl`, which sets `htmlFor`/`id` automatically. Audit the Switch rows (Mixed SKU, Mixed lot, Substitute letters) to ensure the label `<span>` is associated via `<label>` wrapping or `aria-labelledby` on the Switch.
-- Wizard submit button gets `aria-busy={mutation.isPending}`.
-
-## 7. Verification
-
-- `bunx vitest run src/test/wms-core.test.ts` for the letter-style expansion test.
-- Manually (via Playwright in build mode): open the warehouse tree, open zone ⋯ → Add Locations on two different zones, confirm prefill, toggle letter substitution, submit, observe toast with non-zero count, expand the zone in the tree, see the new locations.
-- `bunx tsc --noEmit`.
-
-## Files touched
-
-- `src/features/shared/ui-shared.tsx` — wizard props, prefill, letter toggle, toast/invalidation.
-- `src/features/setup/setup-core.ts` (or `src/lib/wms-core.ts` re-export site) — `expandLocationRange` letter mode.
-- `src/components/warehouse-tree-view.tsx` — zone menu wiring, edit-range dialog, aria-labels.
-- `src/test/wms-core.test.ts` — letter-style test.
-- New: `EditLocationRangeDialog` component (kept inside `warehouse-tree-view.tsx` to stay scoped per AGENTS.md "segment by page").
+- `bunx tsc --noEmit`
+- `bunx vitest run src/test/putaway-page.test.tsx src/test/pick-tasks.test.ts`
+- Manual: set a specific warehouse → confirm only its put-away tasks and pick lists appear; switch to "All warehouses" (admin) → both warehouses show. Open bay selector from a task created in WH-A while "All" is active → only WH-A bays load.
+- Manual: start a put-away (scan pallet, open bay selector), background the tab for >2 min, return → the in-progress dialog is still open with the same task and scan focus; no flicker, no data loss.
 
 ## Out of scope
 
-- No visual redesign of the wizard or tree.
-- No backend schema changes; letter-form codes are stored as plain `code` strings (existing column).
+- No visual redesign, no schema changes.
+- Sidebar active-doc count behavior is unchanged.

@@ -41,6 +41,7 @@ import {
   type FailedWorkItem,
 } from "@/lib/offline-queue";
 import { useBackgroundSync } from "@/hooks/use-background-sync";
+import { beginActiveWork } from "@/lib/active-work";
 import {
   NAVIGATION,
   ROLE_LABELS,
@@ -495,13 +496,14 @@ function markPutawayOccupancyCached(queryClient: ReturnType<typeof useQueryClien
 export function PutawayTasksPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const { user, roles } = useAuth();
+  const { user, roles, profile } = useAuth();
   // Managers and above see all open tasks; operators/clerks only see their own + unassigned
   const canSeeAllTasks = roles.some((r) => ["developer", "admin", "warehouse_manager", "warehouse_supervisor"].includes(r));
   const putawayUserId = canSeeAllTasks ? undefined : user?.id;
+  const activeWarehouseId = profile?.default_warehouse_id ?? null;
   const { data = [], isLoading } = useQuery({
-    queryKey: ["putaway-tasks", putawayUserId],
-    queryFn: () => getPutawayTasks(putawayUserId),
+    queryKey: ["putaway-tasks", putawayUserId, activeWarehouseId],
+    queryFn: () => getPutawayTasks(putawayUserId, activeWarehouseId),
   });
   const { data: putawayHistory = [] } = useQuery({
     queryKey: ["putaway-task-history", putawayUserId],
@@ -653,6 +655,15 @@ export function PutawayTasksPage() {
   const openPutawayStatuses = new Set(["queued", "assigned", "in_progress", "exception"]);
   const pendingTasks = data.filter((task: any) => openPutawayStatuses.has(task.status) && !completedIds.has(task.id) && !revertedIds.has(task.id));
   const selectedTask = selectedTaskId ? pendingTasks.find((task: any) => task.id === selectedTaskId) ?? null : null;
+
+  // Mark active work while an operator has a pallet+task locked in. Background
+  // refresh and SW reloads will defer until this is released so the in-flight
+  // confirm screen never blanks out.
+  useEffect(() => {
+    if (!selectedTaskId) return;
+    const release = beginActiveWork();
+    return () => release();
+  }, [selectedTaskId]);
   const visibleTasks = selectedTask ? [selectedTask] : openTasksExpanded ? pendingTasks : [];
   const activeTasks = visibleTasks.filter((t: any) => openPutawayStatuses.has(t.status));
 
