@@ -15,6 +15,12 @@ describe("ISO 6346 container numbers", () => {
     expect(validateIso6346ContainerNumber("MSKU1234565")).toMatchObject({ valid: true });
   });
 
+  it("validates real container examples from receiving scanner training images", () => {
+    expect(validateIso6346ContainerNumber("MEDU2484381")).toMatchObject({ valid: true });
+    expect(validateIso6346ContainerNumber("PSSU8023976")).toMatchObject({ valid: true });
+    expect(validateIso6346ContainerNumber("MTBU0200596")).toMatchObject({ valid: true });
+  });
+
   it("rejects invalid check digits", () => {
     expect(validateIso6346ContainerNumber("MSKU1234567")).toMatchObject({
       valid: false,
@@ -22,9 +28,25 @@ describe("ISO 6346 container numbers", () => {
     });
   });
 
+  it("rejects invalid diagram examples and size type markings", () => {
+    expect(validateIso6346ContainerNumber("ADNU1234560")).toMatchObject({ valid: false });
+    expect(validateIso6346ContainerNumber("BICU1234567")).toMatchObject({ valid: false });
+    expect(extractIso6346ContainerNumber("MAX.GR. 30,480 KG TARE 25G1 45G1")).toMatchObject({
+      valid: false,
+      message: "No ISO 6346 container number was found in the scan.",
+    });
+  });
+
   it("extracts a valid container number from OCR text", () => {
     expect(extractIso6346ContainerNumber("Container: MSKU 1234565 / PO-1")).toMatchObject({
       normalized: "MSKU1234565",
+      valid: true,
+    });
+  });
+
+  it("extracts the top-right row while ignoring the nearby ISO size code", () => {
+    expect(extractIso6346ContainerNumber("MTBU 020059 6\n25G1\nMAX.GR. 30,480 KGS")).toMatchObject({
+      normalized: "MTBU0200596",
       valid: true,
     });
   });

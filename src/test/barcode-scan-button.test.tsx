@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { BarcodeScanButton } from "@/components/barcode-scan-button";
-import { extractIso6346ContainerNumber } from "@/lib/container-number";
+import { collectIso6346ContainerCandidates, extractIso6346ContainerNumber } from "@/lib/container-number";
 
 const ocrMocks = vi.hoisted(() => ({
   recognize: vi.fn(),
@@ -22,6 +22,7 @@ describe("BarcodeScanButton", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    window.localStorage.clear();
     rafCount = 0;
 
     Object.defineProperty(navigator, "mediaDevices", {
@@ -114,5 +115,64 @@ describe("BarcodeScanButton", () => {
     fireEvent.click(screen.getByRole("button", { name: "Use" }));
 
     await waitFor(() => expect(onScan).toHaveBeenCalledWith("MSKU1234565"));
+  });
+
+  it("in container mode rejects invalid crop OCR before confirming a valid ISO code", async () => {
+    const onScan = vi.fn();
+    const onScanTelemetry = vi.fn();
+    ocrMocks.recognize
+      .mockResolvedValueOnce({ data: { text: "MAX.GR. 30,480 KG 45G1" } })
+      .mockResolvedValueOnce({ data: { text: "MTBU 020059 6\n25G1" } });
+
+    render(
+      <BarcodeScanButton
+        title="Scan container number"
+        enableTextRecognition
+        requireConfirm
+        scanMode="containerNumber"
+        validateScan={validateContainerScan}
+        getScanCandidates={collectIso6346ContainerCandidates}
+        onScanTelemetry={onScanTelemetry}
+        onScan={onScan}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Scan container number" }));
+
+    expect(await screen.findByText("MTBU0200596")).toBeInTheDocument();
+    expect(screen.getAllByText("Verify true").length).toBeGreaterThan(0);
+    expect(onScan).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Use" }));
+
+    await waitFor(() => expect(onScan).toHaveBeenCalledWith("MTBU0200596"));
+    expect(onScanTelemetry).toHaveBeenCalledWith(expect.objectContaining({
+      event: "scan-success",
+      value: "MTBU0200596",
+      tags: expect.arrayContaining(["container-scanner", "iso6346", "scan-success"]),
+    }));
+  });
+
+  it("in container mode keeps the scanner open when all OCR regions fail validation", async () => {
+    const onScan = vi.fn();
+    ocrMocks.recognize.mockResolvedValue({ data: { text: "TARE 3510 KG 45G1" } });
+
+    render(
+      <BarcodeScanButton
+        title="Scan container number"
+        enableTextRecognition
+        requireConfirm
+        scanMode="containerNumber"
+        validateScan={validateContainerScan}
+        getScanCandidates={collectIso6346ContainerCandidates}
+        onScan={onScan}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Scan container number" }));
+
+    expect(await screen.findByText("Verify failed. Keeping scanner open.")).toBeInTheDocument();
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(onScan).not.toHaveBeenCalled();
   });
 });

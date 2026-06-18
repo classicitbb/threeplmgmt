@@ -2,12 +2,29 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from "react"
 import { Camera, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { getLearnedContainerScanRegion, recordContainerScannerSuccess, type ContainerScannerSuccessSample } from "@/lib/container-scanner-learning";
+import { getContainerScanRegions, scanRegionToPixels, type NormalizedScanRegion } from "@/lib/container-scanner-regions";
 import { cn } from "@/lib/utils";
 
 export type ScanValidationResult = {
   valid: boolean;
   value?: string;
   message?: string;
+};
+
+export type ScanTelemetryEvent = {
+  event: "scan-success" | "scan-failed";
+  scanMode: "generic" | "containerNumber";
+  value?: string;
+  rawText?: string;
+  region?: NormalizedScanRegion;
+  rejectedCandidates: string[];
+  rejectedRegions: Array<{ name: string; rawText?: string; message?: string }>;
+  attemptCount: number;
+  elapsedMs: number;
+  fallbackUsed: boolean;
+  faceDetected: boolean;
+  tags: string[];
 };
 
 interface BarcodeScanButtonProps {
@@ -18,8 +35,11 @@ interface BarcodeScanButtonProps {
   disabled?: boolean;
   enableTextRecognition?: boolean;
   requireConfirm?: boolean;
+  scanMode?: "generic" | "containerNumber";
   statusText?: string;
   validateScan?: (raw: string) => ScanValidationResult;
+  getScanCandidates?: (raw: string) => string[];
+  onScanTelemetry?: (event: ScanTelemetryEvent) => void;
   /** After scan is accepted, simulate Enter keydown on this input to advance focus. */
   inputRef?: RefObject<HTMLInputElement | null>;
 }
@@ -28,7 +48,17 @@ type PendingScan = {
   raw: string;
   value: string;
   message?: string;
+  region?: NormalizedScanRegion;
 };
+
+type DetectedBarcode = { rawValue: string };
+type BarcodeDetectorLike = { detect: (source: HTMLVideoElement) => Promise<DetectedBarcode[]> };
+type BarcodeDetectorConstructor = {
+  new(options?: { formats?: string[] }): BarcodeDetectorLike;
+  getSupportedFormats?: () => Promise<string[]>;
+};
+type TextDetectorLike = { detect: (source: HTMLVideoElement) => Promise<Array<{ rawValue?: string; text?: string }>> };
+type TextDetectorConstructor = { new(): TextDetectorLike };
 
 const BARCODE_FORMATS = [
   "qr_code", "code_128", "code_39", "code_93",
@@ -37,6 +67,7 @@ const BARCODE_FORMATS = [
 ];
 
 const OCR_SCAN_INTERVAL_MS = 1800;
+const CONTAINER_RETRY_NOTICE_MS = 5000;
 
 function getScanCandidate(raw: string, validateScan?: (raw: string) => ScanValidationResult) {
   if (!validateScan) return { valid: true, value: raw, raw };
@@ -50,24 +81,28 @@ function getScanCandidate(raw: string, validateScan?: (raw: string) => ScanValid
   };
 }
 
-async function recognizeTextFromVideo(video: HTMLVideoElement) {
+async function recognizeTextFromVideo(video: HTMLVideoElement, region?: NormalizedScanRegion) {
   const width = video.videoWidth || 640;
   const height = video.videoHeight || 360;
-  const cropWidth = Math.round(width * 0.68);
-  const cropHeight = Math.round(height * 0.44);
-  const sourceX = Math.max(0, Math.round((width - cropWidth) / 2));
-  const sourceY = Math.max(0, Math.round((height - cropHeight) / 2));
+  const crop = region
+    ? scanRegionToPixels(region, width, height)
+    : {
+      width: Math.round(width * 0.68),
+      height: Math.round(height * 0.44),
+      x: Math.max(0, Math.round((width - Math.round(width * 0.68)) / 2)),
+      y: Math.max(0, Math.round((height - Math.round(height * 0.44)) / 2)),
+    };
 
   const canvas = document.createElement("canvas");
-  canvas.width = cropWidth;
-  canvas.height = cropHeight;
+  canvas.width = crop.width;
+  canvas.height = crop.height;
   const context = canvas.getContext("2d");
   if (!context) return "";
 
-  context.drawImage(video, sourceX, sourceY, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
+  context.drawImage(video, crop.x, crop.y, crop.width, crop.height, 0, 0, crop.width, crop.height);
   const image = canvas.toDataURL("image/png");
-  const tesseract = await import("tesseract.js");
-  const result = await (tesseract as any).recognize(image, "eng");
+  const tesseract = await import("tesseract.js") as { recognize: (image: string, language: string) => Promise<{ data?: { text?: string } }> };
+  const result = await tesseract.recognize(image, "eng");
   return String(result?.data?.text ?? "");
 }
 
@@ -79,8 +114,11 @@ export function BarcodeScanButton({
   disabled = false,
   enableTextRecognition = false,
   requireConfirm = false,
+  scanMode = "generic",
   statusText,
   validateScan,
+  getScanCandidates,
+  onScanTelemetry,
   inputRef,
 }: BarcodeScanButtonProps) {
   const [open, setOpen] = useState(false);
@@ -88,16 +126,23 @@ export function BarcodeScanButton({
   const [detected, setDetected] = useState<string | null>(null);
   const [pendingScan, setPendingScan] = useState<PendingScan | null>(null);
   const [scanMessage, setScanMessage] = useState<string | null>(null);
+  const [activeScanRegion, setActiveScanRegion] = useState<NormalizedScanRegion | null>(null);
   const pendingScanRef = useRef<PendingScan | null>(null);
   const acceptTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const rafRef = useRef<number | null>(null);
-  const detectorRef = useRef<any>(null);
-  const textDetectorRef = useRef<any>(null);
+  const detectorRef = useRef<BarcodeDetectorLike | null>(null);
+  const textDetectorRef = useRef<TextDetectorLike | null>(null);
   const lastTextScanRef = useRef(0);
   const ocrBusyRef = useRef(false);
+  const scanStartedAtRef = useRef(0);
+  const attemptCountRef = useRef(0);
+  const rejectedCandidatesRef = useRef<string[]>([]);
+  const rejectedRegionsRef = useRef<ScanTelemetryEvent["rejectedRegions"]>([]);
+  const failureLoggedRef = useRef(false);
+  const pendingContainerSuccessRef = useRef<{ event: ScanTelemetryEvent; sample: ContainerScannerSuccessSample } | null>(null);
 
   const stopStream = useCallback(() => {
     if (rafRef.current != null) {
@@ -111,6 +156,16 @@ export function BarcodeScanButton({
   }, []);
 
   const acceptScan = useCallback((value: string) => {
+    const pendingSuccess = pendingContainerSuccessRef.current;
+    if (pendingSuccess?.event.value === value) {
+      recordContainerScannerSuccess(pendingSuccess.sample);
+      try {
+        onScanTelemetry?.(pendingSuccess.event);
+      } catch {
+        // Telemetry is best-effort and must not block scan acceptance.
+      }
+      pendingContainerSuccessRef.current = null;
+    }
     setDetected(value);
     setPendingScan(null);
     pendingScanRef.current = null;
@@ -123,22 +178,37 @@ export function BarcodeScanButton({
         inputRef.current.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true, cancelable: true }));
       }
     }, 400);
-  }, [inputRef, onScan, stopStream]);
+  }, [inputRef, onScan, onScanTelemetry, stopStream]);
 
-  const handleScanValue = useCallback((rawValue: string, source: "barcode" | "text" | "ocr") => {
+  const emitScanTelemetry = useCallback((event: ScanTelemetryEvent) => {
+    try {
+      onScanTelemetry?.(event);
+    } catch {
+      // Telemetry is best-effort and must not block scanning.
+    }
+  }, [onScanTelemetry]);
+
+  const handleScanValue = useCallback((rawValue: string, source: "barcode" | "text" | "ocr", region?: NormalizedScanRegion) => {
     const candidate = getScanCandidate(rawValue, validateScan);
     if (!candidate.valid) {
       if (validateScan || source !== "barcode") {
-        setScanMessage(candidate.message ?? "No usable scan was found. Keep the code centered and try again.");
+        setScanMessage(scanMode === "containerNumber"
+          ? "Verify failed. Keeping scanner open."
+          : candidate.message ?? "No usable scan was found. Keep the code centered and try again.");
       }
       return false;
     }
 
-    const pending = { raw: rawValue, value: candidate.value, message: candidate.message };
+    const pending = {
+      raw: rawValue,
+      value: candidate.value,
+      message: scanMode === "containerNumber" ? "Verify true" : candidate.message,
+      region,
+    };
     if (requireConfirm) {
       pendingScanRef.current = pending;
       setPendingScan(pending);
-      setScanMessage(candidate.message ?? "Valid scan recognized. Confirm to insert.");
+      setScanMessage(scanMode === "containerNumber" ? "Verify true" : candidate.message ?? "Valid scan recognized. Confirm to insert.");
       stopStream();
       return true;
     }
@@ -146,7 +216,7 @@ export function BarcodeScanButton({
     if (source === "text" || source === "ocr") {
       pendingScanRef.current = pending;
       setPendingScan(pending);
-      setScanMessage(candidate.message ?? "Text recognized. Insert will continue automatically.");
+      setScanMessage(scanMode === "containerNumber" ? "Verify true" : candidate.message ?? "Text recognized. Insert will continue automatically.");
       if (acceptTimerRef.current != null) clearTimeout(acceptTimerRef.current);
       acceptTimerRef.current = setTimeout(() => {
         if (pendingScanRef.current?.value === pending.value) {
@@ -158,7 +228,86 @@ export function BarcodeScanButton({
 
     acceptScan(candidate.value);
     return true;
-  }, [acceptScan, requireConfirm, stopStream, validateScan]);
+  }, [acceptScan, requireConfirm, scanMode, stopStream, validateScan]);
+
+  const runContainerOcrPass = useCallback(async (video: HTMLVideoElement) => {
+    const attemptCount = attemptCountRef.current + 1;
+    attemptCountRef.current = attemptCount;
+    const learnedRegion = getLearnedContainerScanRegion();
+    const regions = getContainerScanRegions({
+      frameWidth: video.videoWidth || 1280,
+      frameHeight: video.videoHeight || 720,
+      learnedRegion,
+    });
+
+    setScanMessage(attemptCount === 1 ? "Finding container face" : "Checking top-right number");
+
+    for (const region of regions) {
+      setActiveScanRegion(region);
+      setScanMessage(region.source === "learned" ? "Checking learned container-number area" : region.name.includes("top-right") ? "Checking top-right number" : "Checking container number");
+      const rawText = await recognizeTextFromVideo(video, region);
+      const trimmed = rawText.trim();
+      if (!trimmed) {
+        rejectedRegionsRef.current = [...rejectedRegionsRef.current, { name: region.name, message: "No OCR text returned." }];
+        continue;
+      }
+
+      const candidate = getScanCandidate(trimmed, validateScan);
+      const regionCandidates = getScanCandidates?.(trimmed) ?? [];
+      if (!candidate.valid) {
+        rejectedCandidatesRef.current = Array.from(new Set([...rejectedCandidatesRef.current, ...regionCandidates]));
+        rejectedRegionsRef.current = [...rejectedRegionsRef.current, {
+          name: region.name,
+          rawText: trimmed.slice(0, 240),
+          message: candidate.message,
+        }];
+        continue;
+      }
+
+      const elapsedMs = Date.now() - scanStartedAtRef.current;
+      const value = candidate.value ?? trimmed;
+      pendingContainerSuccessRef.current = {
+        sample: { acceptedCode: value, region, rawText: trimmed, attemptCount },
+        event: {
+          event: "scan-success",
+          scanMode,
+          value,
+          rawText: trimmed.slice(0, 240),
+          region,
+          rejectedCandidates: rejectedCandidatesRef.current,
+          rejectedRegions: rejectedRegionsRef.current,
+          attemptCount,
+          elapsedMs,
+          fallbackUsed: region.source === "fallback" || regions.slice(0, regions.indexOf(region)).some((item) => item.source === "fallback"),
+          faceDetected: region.faceDetected,
+          tags: ["container-scanner", "iso6346", "scan-success", "learning-sample", "improvement-pass"],
+        },
+      };
+      return handleScanValue(trimmed, "ocr", region);
+    }
+
+    const elapsedMs = Date.now() - scanStartedAtRef.current;
+    setScanMessage(elapsedMs > CONTAINER_RETRY_NOTICE_MS
+      ? "Verify failed. Manual entry is available while the scanner keeps looking."
+      : "Verify failed. Keeping scanner open.");
+
+    if (elapsedMs > CONTAINER_RETRY_NOTICE_MS && !failureLoggedRef.current) {
+      failureLoggedRef.current = true;
+      emitScanTelemetry({
+        event: "scan-failed",
+        scanMode,
+        rejectedCandidates: rejectedCandidatesRef.current,
+        rejectedRegions: rejectedRegionsRef.current,
+        attemptCount,
+        elapsedMs,
+        fallbackUsed: rejectedRegionsRef.current.some((region) => region.name === "full-frame-paper-fallback"),
+        faceDetected: true,
+        tags: ["container-scanner", "iso6346", "scan-failed", "improvement-pass"],
+      });
+    }
+
+    return false;
+  }, [emitScanTelemetry, getScanCandidates, handleScanValue, scanMode, validateScan]);
 
   useEffect(() => {
     if (!open) {
@@ -167,8 +316,15 @@ export function BarcodeScanButton({
       setDetected(null);
       setPendingScan(null);
       setScanMessage(null);
+      setActiveScanRegion(null);
       pendingScanRef.current = null;
       ocrBusyRef.current = false;
+      scanStartedAtRef.current = 0;
+      attemptCountRef.current = 0;
+      rejectedCandidatesRef.current = [];
+      rejectedRegionsRef.current = [];
+      failureLoggedRef.current = false;
+      pendingContainerSuccessRef.current = null;
       if (acceptTimerRef.current != null) {
         clearTimeout(acceptTimerRef.current);
         acceptTimerRef.current = null;
@@ -177,10 +333,14 @@ export function BarcodeScanButton({
     }
 
     let cancelled = false;
+    scanStartedAtRef.current = Date.now();
 
     async function start() {
-      const supportsBarcode = "BarcodeDetector" in window;
-      const supportsText = enableTextRecognition && "TextDetector" in window;
+      const containerMode = scanMode === "containerNumber";
+      const BarcodeDetectorCtor = (window as Window & { BarcodeDetector?: BarcodeDetectorConstructor }).BarcodeDetector;
+      const TextDetectorCtor = (window as Window & { TextDetector?: TextDetectorConstructor }).TextDetector;
+      const supportsBarcode = !containerMode && Boolean(BarcodeDetectorCtor);
+      const supportsText = enableTextRecognition && !containerMode && Boolean(TextDetectorCtor);
       const supportsOcrFallback = enableTextRecognition && typeof document !== "undefined";
       if (!supportsBarcode && !supportsText && !supportsOcrFallback) {
         setError(enableTextRecognition
@@ -207,21 +367,23 @@ export function BarcodeScanButton({
         if (supportsBarcode) {
           let formats = BARCODE_FORMATS;
           try {
-            const supported: string[] = await (window as any).BarcodeDetector.getSupportedFormats();
-            formats = BARCODE_FORMATS.filter((format) => supported.includes(format));
+            const supported = await BarcodeDetectorCtor?.getSupportedFormats?.();
+            if (supported) formats = BARCODE_FORMATS.filter((format) => supported.includes(format));
           } catch {
             // getSupportedFormats is not implemented everywhere.
           }
-          detectorRef.current = new (window as any).BarcodeDetector({ formats: formats.length ? formats : BARCODE_FORMATS });
+          if (BarcodeDetectorCtor) {
+            detectorRef.current = new BarcodeDetectorCtor({ formats: formats.length ? formats : BARCODE_FORMATS });
+          }
         }
-        if (supportsText) {
-          textDetectorRef.current = new (window as any).TextDetector();
+        if (supportsText && TextDetectorCtor) {
+          textDetectorRef.current = new TextDetectorCtor();
         }
 
         const scan = async () => {
           if (cancelled || !videoRef.current) return;
           try {
-            const codes: Array<{ rawValue: string }> = detectorRef.current
+            const codes = detectorRef.current
               ? await detectorRef.current.detect(videoRef.current)
               : [];
             if (codes.length > 0) {
@@ -232,9 +394,19 @@ export function BarcodeScanButton({
             const now = Date.now();
             if (textDetectorRef.current && now - lastTextScanRef.current > 750) {
               lastTextScanRef.current = now;
-              const detectedText: Array<{ rawValue?: string; text?: string }> = await textDetectorRef.current.detect(videoRef.current);
+              const detectedText = await textDetectorRef.current.detect(videoRef.current);
               const ocrValue = detectedText.map((item) => item.rawValue ?? item.text ?? "").filter(Boolean).join(" ");
               if (ocrValue && !cancelled && handleScanValue(ocrValue, "text")) return;
+            } else if (containerMode && supportsOcrFallback && !ocrBusyRef.current && now - lastTextScanRef.current > OCR_SCAN_INTERVAL_MS) {
+              lastTextScanRef.current = now;
+              ocrBusyRef.current = true;
+              runContainerOcrPass(videoRef.current)
+                .catch(() => {
+                  if (!cancelled) setScanMessage("Verify failed. Keeping scanner open.");
+                })
+                .finally(() => {
+                  ocrBusyRef.current = false;
+                });
             } else if (!textDetectorRef.current && supportsOcrFallback && !ocrBusyRef.current && now - lastTextScanRef.current > OCR_SCAN_INTERVAL_MS) {
               lastTextScanRef.current = now;
               ocrBusyRef.current = true;
@@ -275,7 +447,16 @@ export function BarcodeScanButton({
         acceptTimerRef.current = null;
       }
     };
-  }, [enableTextRecognition, handleScanValue, open, stopStream]);
+  }, [enableTextRecognition, handleScanValue, open, runContainerOcrPass, scanMode, stopStream]);
+
+  const activeRegionStyle = activeScanRegion && scanMode === "containerNumber"
+    ? {
+      left: `${activeScanRegion.x * 100}%`,
+      top: `${activeScanRegion.y * 100}%`,
+      width: `${activeScanRegion.width * 100}%`,
+      height: `${activeScanRegion.height * 100}%`,
+    }
+    : undefined;
 
   return (
     <>
@@ -318,8 +499,11 @@ export function BarcodeScanButton({
                 muted
                 autoPlay
               />
-              <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                <div className="relative h-36 w-64">
+              <div className={cn(
+                "pointer-events-none absolute inset-0",
+                !activeRegionStyle && "flex items-center justify-center",
+              )}>
+                <div className={cn("relative", !activeRegionStyle && "h-36 w-64")} style={activeRegionStyle}>
                   <div className={cn(
                     "absolute inset-0 rounded shadow-[0_0_0_9999px_rgba(0,0,0,0.45)]",
                     pendingScan && "shadow-[0_0_0_9999px_rgba(22,163,74,0.25)]",
@@ -333,7 +517,7 @@ export function BarcodeScanButton({
               {pendingScan && (
                 <div className="absolute bottom-0 left-0 right-0 flex items-center gap-2 bg-black/75 px-3 py-2">
                   <div className="min-w-0 flex-1">
-                    <p className="text-xs font-medium text-green-300">Valid text recognized</p>
+                    <p className="text-xs font-medium text-green-300">{scanMode === "containerNumber" ? "Verify true" : "Valid text recognized"}</p>
                     <p className="break-all font-mono text-sm font-semibold text-white">{pendingScan.value}</p>
                   </div>
                   <Button

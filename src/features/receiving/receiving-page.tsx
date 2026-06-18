@@ -135,11 +135,11 @@ import {
 } from "@/lib/wms-core";
 import { ProductSearch } from "@/components/product-search";
 import { PalletLabelPage } from "@/components/pallet-label-page";
-import { BarcodeScanButton } from "@/components/barcode-scan-button";
+import { BarcodeScanButton, type ScanTelemetryEvent } from "@/components/barcode-scan-button";
 import { type ProductSearchHandle } from "@/components/product-search";
 
 import { cn } from "@/lib/utils";
-import { extractIso6346ContainerNumber, normalizeContainerNumber, validateIso6346ContainerNumber } from "@/lib/container-number";
+import { collectIso6346ContainerCandidates, extractIso6346ContainerNumber, normalizeContainerNumber, validateIso6346ContainerNumber } from "@/lib/container-number";
 import { getProductPalletQtyHint, type PalletQtyHint } from "@/lib/ai-assist";
 import { getOrCreateDeviceId } from "@/lib/device-identity";
 import { invalidateWarehouseData } from "@/lib/query-invalidation";
@@ -767,6 +767,24 @@ export function ReceivingPage() {
     if (!result.valid) toast.warning(result.message);
   }
 
+  function logContainerScannerTelemetry(event: ScanTelemetryEvent) {
+    void writeSystemLog({
+      log_type: "info",
+      severity: event.event === "scan-success" ? "info" : "warning",
+      title: event.event === "scan-success"
+        ? `Container scanner verified ${event.value ?? "ISO 6346 code"}`
+        : "Container scanner could not verify an ISO 6346 code",
+      message: event.event === "scan-success" ? "Verify true" : "Verify failed. Keeping scanner open.",
+      source: "receiving.container_scanner",
+      details: {
+        ...event,
+        deviceId: getOrCreateDeviceId(),
+        route: "/receiving",
+        imageStored: false,
+      },
+    }).catch((error) => console.error("[receiving.container_scanner] writeSystemLog failed:", error));
+  }
+
   return (
     <div className="flex min-h-full flex-col gap-6">
       {!online && (
@@ -925,11 +943,14 @@ export function ReceivingPage() {
                       buttonLabel="Scan container number"
                       enableTextRecognition
                       requireConfirm
+                      scanMode="containerNumber"
                       inputRef={shipmentContainerInputRef}
                       statusText="Point your camera at the printed container number. It will turn green when a valid ISO 6346 code is recognized."
+                      getScanCandidates={collectIso6346ContainerCandidates}
+                      onScanTelemetry={logContainerScannerTelemetry}
                       validateScan={(raw) => {
                         const result = resolveContainerScanValue(raw);
-                        return { valid: result.valid, value: result.value, message: result.message };
+                        return { valid: result.valid, value: result.value, message: result.valid ? "Verify true" : result.message };
                       }}
                       onScan={applyShipmentContainerScan}
                     />
