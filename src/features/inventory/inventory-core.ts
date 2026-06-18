@@ -16,6 +16,7 @@ import {
   getBayCellPosition,
   displayRackLocationCode,
   normalizeRackLocationCode,
+  bayCodeFromLocationCode,
   type BayOccupancyCell,
   type BayOccupancyGridSlot,
 } from "@/features/setup/setup-core";
@@ -381,7 +382,7 @@ export async function getWarehouseBayOccupancy(warehouseId: string): Promise<War
 
   return Array.from(bayMap.entries()).map(([key, cells]) => {
     const [, zoneCode, zoneName, aisle, bay] = key.split("|");
-    const bayCode = cells[0]?.locationCode.replace(/-L\d+.*$/i, "") ?? "";
+    const bayCode = bayCodeFromLocationCode(cells[0]?.locationCode) ?? "";
     const totalCapacity = cells.reduce((sum, c) => sum + c.maxPallets, 0);
     const totalOccupied = cells.reduce((sum, c) => sum + c.occupiedPallets, 0);
     return { aisle, bay, bayCode, totalCapacity, totalOccupied, cells, zoneName: zoneName ?? "", zoneCode: zoneCode ?? "" };

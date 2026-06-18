@@ -36,6 +36,7 @@ import {
   type CascadeDeleteResult,
   deleteLocationCascade, deleteWarehouseCascade, deleteZoneCascade,
   displayRackLocationCode,
+  bayCodeFromLocationCode,
   updateRecord, upsertRecord,
 } from "@/lib/wms-core";
 import { LocationLabelPage } from "@/components/location-label-page";
@@ -271,7 +272,7 @@ function BayNode({
   const isOpen = expandedNodes.has(nodeKey);
   const total = bayGroup.levels.reduce((s, l) => s + l.positions.length, 0);
   const firstLocation = bayGroup.levels.flatMap((level) => level.positions)[0];
-  const bayCode = firstLocation?.code.replace(/-L\d+.*$/i, "") ?? "";
+  const bayCode = bayCodeFromLocationCode(firstLocation?.code) ?? "";
   const bayItems = useMemo<LabelSheetItem[]>(
     () => bayCode ? [{
       code: bayCode,
