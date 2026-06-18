@@ -42,6 +42,7 @@ import { LocationLabelPage } from "@/components/location-label-page";
 import { ZoneLabelPage } from "@/components/zone-label-page";
 import { BayLocationCodesPrintDialog, type LabelSheetItem } from "@/components/label-sheet-print";
 import { Textarea } from "@/components/ui/textarea";
+import { LocationWizardDialog } from "@/features/shared/ui-shared";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -80,6 +81,8 @@ type ActiveDialog =
   | { type: "add-zone"; warehouseId: string; warehouseName: string }
   | { type: "edit-zone"; zone: ZoneRow; warehouseName: string }
   | { type: "edit-location"; location: LocationRow }
+  | { type: "wizard-zone"; warehouseId: string; zoneId: string; zoneCode: string }
+  | { type: "edit-range"; zone: ZoneRow }
   | { type: "delete"; label: string; deleteFn: () => Promise<CascadeDeleteResult> }
   | null;
 
