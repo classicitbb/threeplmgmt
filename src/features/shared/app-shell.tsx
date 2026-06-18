@@ -421,7 +421,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     if (route === "/pick-lists") {
       void queryClient.prefetchQuery({
         queryKey: ["pick-lists"],
-        queryFn: listPickLists,
+        queryFn: () => listPickLists(),
       });
     }
   }, [profile?.default_warehouse_id, queryClient, roles, user?.id]);
