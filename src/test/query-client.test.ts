@@ -8,7 +8,11 @@ describe("query client", () => {
     expect(queryClientDefaultOptions.queries?.gcTime).toBe(600_000);
     expect(queryClientDefaultOptions.queries?.refetchOnWindowFocus).toBe(false);
     expect(queryClientDefaultOptions.queries?.refetchOnReconnect).toBe(true);
-    expect(queryClientDefaultOptions.queries?.retry).toBe(1);
+    expect(queryClientDefaultOptions.queries?.retry).toBeTypeOf("function");
+    const retry = queryClientDefaultOptions.queries?.retry as (failureCount: number, error: unknown) => boolean;
+    expect(retry(0, new Error("Temporary failure"))).toBe(true);
+    expect(retry(2, new Error("Temporary failure"))).toBe(false);
+    expect(retry(0, new Error("404 not found"))).toBe(false);
     expect(queryClientDefaultOptions.mutations?.retry).toBe(0);
   });
 

@@ -67,7 +67,7 @@ function normalizeOcrContainerCandidate(value: string) {
   return `${ownerAndCategory}${serialAndCheck}`;
 }
 
-function collectContainerCandidates(value: unknown) {
+export function collectIso6346ContainerCandidates(value: unknown) {
   const compact = normalizeContainerNumber(value);
   const candidates = new Set<string>();
 
@@ -128,7 +128,7 @@ export function validateIso6346ContainerNumber(value: unknown): ContainerNumberV
 
 export function extractIso6346ContainerNumber(value: unknown): ContainerNumberScanResult {
   const text = normalizeContainerNumber(value);
-  const candidates = collectContainerCandidates(value);
+  const candidates = collectIso6346ContainerCandidates(value);
   for (const candidate of candidates) {
     const validation = validateIso6346ContainerNumber(candidate);
     if (validation.valid) {
