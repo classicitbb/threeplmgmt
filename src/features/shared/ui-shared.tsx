@@ -1068,6 +1068,7 @@ const locationWizardSchema = z
     temperature_class: z.enum(["ambient", "cool", "frozen"]),
     mixed_sku_allowed: z.boolean(),
     mixed_lot_allowed: z.boolean(),
+    level_style: z.enum(["numeric", "letters"]).default("numeric"),
   })
   .refine((v) => v.end_bay >= v.start_bay, { path: ["end_bay"], message: "End bay must be ≥ start bay" });
 
@@ -2697,15 +2698,35 @@ function ImportPreviewDialog({
   );
 }
 
-export function LocationWizardDialog({ trigger }: { trigger?: React.ReactNode }) {
+export interface LocationWizardDialogProps {
+  trigger?: React.ReactNode | null;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  defaultWarehouseId?: string;
+  defaultZoneId?: string;
+}
+
+export function LocationWizardDialog({
+  trigger,
+  open: openProp,
+  onOpenChange,
+  defaultWarehouseId,
+  defaultZoneId,
+}: LocationWizardDialogProps = {}) {
   const queryClient = useQueryClient();
   const { data: options } = useQuery({ queryKey: ["options", "location-wizard"], queryFn: () => fetchOptions() });
-  const [open, setOpen] = useState(false);
-  const form = useForm<LocationWizardValues>({
-    resolver: zodResolver(locationWizardSchema),
-    defaultValues: {
-      warehouse_id: "",
-      zone_id: "",
+  const [internalOpen, setInternalOpen] = useState(false);
+  const isControlled = openProp !== undefined;
+  const open = isControlled ? !!openProp : internalOpen;
+  const setOpen = (next: boolean) => {
+    if (!isControlled) setInternalOpen(next);
+    onOpenChange?.(next);
+  };
+
+  const buildDefaults = useCallback(
+    (): LocationWizardValues => ({
+      warehouse_id: defaultWarehouseId ?? "",
+      zone_id: defaultZoneId ?? "",
       prefix: "A",
       start_bay: 1,
       end_bay: 10,
@@ -2716,14 +2737,36 @@ export function LocationWizardDialog({ trigger }: { trigger?: React.ReactNode })
       temperature_class: "ambient",
       mixed_sku_allowed: false,
       mixed_lot_allowed: false,
-    },
+      level_style: "numeric",
+    }),
+    [defaultWarehouseId, defaultZoneId],
+  );
+
+  const form = useForm<LocationWizardValues>({
+    resolver: zodResolver(locationWizardSchema),
+    defaultValues: buildDefaults(),
   });
 
   const selectedWarehouseId = form.watch("warehouse_id");
+  const prevWarehouseRef = useRef(selectedWarehouseId);
 
-  // Reset zone when warehouse changes so user can’t submit a mismatched pair
+  // Reset form to prefilled defaults whenever the dialog opens.
   useEffect(() => {
-    form.setValue("zone_id", "");
+    if (open) {
+      const next = buildDefaults();
+      form.reset(next);
+      prevWarehouseRef.current = next.warehouse_id;
+    }
+  }, [open, buildDefaults, form]);
+
+  // Clear zone only when the user actually changes the warehouse (not on prefill).
+  useEffect(() => {
+    if (prevWarehouseRef.current !== selectedWarehouseId) {
+      if (prevWarehouseRef.current !== "") {
+        form.setValue("zone_id", "");
+      }
+      prevWarehouseRef.current = selectedWarehouseId;
+    }
   }, [selectedWarehouseId, form]);
 
   const filteredZones = (options?.zones ?? []).filter(
@@ -2744,8 +2787,9 @@ export function LocationWizardDialog({ trigger }: { trigger?: React.ReactNode })
         positionsPerLevel: values.positions_per_level,
         levels: values.levels,
         depth: values.depth,
+        levelStyle: values.level_style,
       });
-      const locations = expanded.map((row) => ({
+      const rows = expanded.map((row) => ({
         warehouse_id: values.warehouse_id,
         zone_id: values.zone_id,
         code: row.localCode,
@@ -2762,15 +2806,38 @@ export function LocationWizardDialog({ trigger }: { trigger?: React.ReactNode })
         status: "active",
       }));
 
-      for (const location of locations) {
-        await upsertRecord("locations", location);
-      }
+      // Skip rows whose code already exists (unique constraint on locations.code).
+      const { data: existing } = await supabase
+        .from("locations")
+        .select("code")
+        .in("code", rows.map((r) => r.code));
+      const existingCodes = new Set((existing ?? []).map((r: any) => r.code));
+      const toInsert = rows.filter((r) => !existingCodes.has(r.code));
 
-      return locations.length;
+      let created = 0;
+      if (toInsert.length > 0) {
+        const { error, count } = await (supabase.from("locations") as any)
+          .insert(toInsert, { count: "exact" });
+        if (error) throw error;
+        created = count ?? toInsert.length;
+      }
+      return { created, skipped: existingCodes.size, total: rows.length };
     },
-    onSuccess: async (count) => {
-      toast.success(`${count} locations created`);
-      await queryClient.invalidateQueries({ queryKey: ["locations"] });
+    onSuccess: async ({ created, skipped, total }) => {
+      if (created > 0 && skipped === 0) {
+        toast.success(`Created ${created} location${created !== 1 ? "s" : ""}`);
+      } else if (created > 0 && skipped > 0) {
+        toast.success(
+          `Created ${created} location${created !== 1 ? "s" : ""} (skipped ${skipped} duplicate${skipped !== 1 ? "s" : ""} of ${total})`,
+        );
+      } else {
+        toast.message(`No new locations created — all ${total} codes already exist`);
+      }
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["locations"] }),
+        queryClient.invalidateQueries({ queryKey: ["tree"] }),
+        queryClient.invalidateQueries({ queryKey: ["zone-locations"] }),
+      ]);
       setOpen(false);
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Location wizard failed"),
@@ -2778,12 +2845,16 @@ export function LocationWizardDialog({ trigger }: { trigger?: React.ReactNode })
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        {trigger ?? <Button variant="outline">
-          <MapPinned data-icon="inline-start" />
-          Location wizard
-        </Button>}
-      </DialogTrigger>
+      {trigger === null ? null : (
+        <DialogTrigger asChild>
+          {trigger ?? (
+            <Button variant="outline">
+              <MapPinned data-icon="inline-start" />
+              Location wizard
+            </Button>
+          )}
+        </DialogTrigger>
+      )}
       <DialogContent className="max-h-[90vh] overflow-hidden sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Create locations by range</DialogTitle>
@@ -2812,6 +2883,19 @@ export function LocationWizardDialog({ trigger }: { trigger?: React.ReactNode })
               <TextField form={form} name="levels" label="Levels" type="number" hint="Vertical levels per bay (1–6)." />
               <TextField form={form} name="positions_per_level" label="Positions per level" type="number" hint="Side-by-side slots in each bay-level (1–3)." />
               <TextField form={form} name="depth" label="Depth (capacity)" type="number" hint="Pallets deep per slot = capacity (1–5)." />
+              <div className="flex items-center justify-between rounded-lg border border-border px-4 py-3 sm:col-span-2">
+                <div className="grid gap-0.5 pr-3">
+                  <span id="lw-level-style-label" className="text-sm font-medium">Substitute level numbers for letters (A, B, C, D...)</span>
+                  <span className="text-xs text-muted-foreground">Writes the level as a letter instead of L01/L02 in the code (e.g. A-01-B). One style per zone and bay; different zones in a warehouse can differ.</span>
+                </div>
+                <FormField control={form.control} name="level_style" render={({ field }) => (
+                  <Switch
+                    aria-labelledby="lw-level-style-label"
+                    checked={field.value === "letters"}
+                    onCheckedChange={(checked) => field.onChange(checked ? "letters" : "numeric")}
+                  />
+                )} />
+              </div>
               <SelectField form={form} name="location_type" label="Type" hint="Used by directed putaway rules." options={[
                 { label: "Rack", value: "rack" },
                 { label: "Staging", value: "staging" },
@@ -2827,21 +2911,21 @@ export function LocationWizardDialog({ trigger }: { trigger?: React.ReactNode })
                 { label: "Frozen", value: "frozen" },
               ]} />
               <div className="flex items-center justify-between rounded-lg border border-border px-4 py-3 sm:col-span-2">
-                <div className="grid gap-0.5">
-                  <span className="text-sm font-medium">Mixed SKU allowed</span>
+                <div className="grid gap-0.5 pr-3">
+                  <span id="lw-mixed-sku-label" className="text-sm font-medium">Mixed SKU allowed</span>
                   <span className="text-xs text-muted-foreground">Permit different products in the same location.</span>
                 </div>
                 <FormField control={form.control} name="mixed_sku_allowed" render={({ field }) => (
-                  <Switch checked={field.value} onCheckedChange={field.onChange} />
+                  <Switch aria-labelledby="lw-mixed-sku-label" checked={field.value} onCheckedChange={field.onChange} />
                 )} />
               </div>
               <div className="flex items-center justify-between rounded-lg border border-border px-4 py-3 sm:col-span-2">
-                <div className="grid gap-0.5">
-                  <span className="text-sm font-medium">Mixed lot allowed</span>
+                <div className="grid gap-0.5 pr-3">
+                  <span id="lw-mixed-lot-label" className="text-sm font-medium">Mixed lot allowed</span>
                   <span className="text-xs text-muted-foreground">Permit different lot numbers in the same location.</span>
                 </div>
                 <FormField control={form.control} name="mixed_lot_allowed" render={({ field }) => (
-                  <Switch checked={field.value} onCheckedChange={field.onChange} />
+                  <Switch aria-labelledby="lw-mixed-lot-label" checked={field.value} onCheckedChange={field.onChange} />
                 )} />
               </div>
               {locationCount > 0 ? (
@@ -2849,7 +2933,7 @@ export function LocationWizardDialog({ trigger }: { trigger?: React.ReactNode })
                   This will generate <strong>{locationCount}</strong> location{locationCount !== 1 ? "s" : ""}.
                 </p>
               ) : null}
-              <Button className="sm:col-span-2" disabled={mutation.isPending || !selectedWarehouseId || !form.watch("zone_id")} type="submit">
+              <Button className="sm:col-span-2" disabled={mutation.isPending || !selectedWarehouseId || !form.watch("zone_id")} type="submit" aria-busy={mutation.isPending}>
                 {mutation.isPending ? <Loader2 className="animate-spin" /> : null}
                 Create location range
               </Button>

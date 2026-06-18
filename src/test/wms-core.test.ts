@@ -108,6 +108,27 @@ describe("expandLocationRange", () => {
     expect(rows).toHaveLength(6 * 3);
     expect(rows[0].depth).toBe(5);
   });
+
+  it("substitutes level numbers for letters when levelStyle is 'letters'", () => {
+    const rows = expandLocationRange({
+      prefix: "A",
+      startBay: 1,
+      endBay: 1,
+      levels: 3,
+      positionsPerLevel: 2,
+      depth: 1,
+      levelStyle: "letters",
+    });
+    expect(rows).toHaveLength(6);
+    expect(rows.map((r) => r.localCode)).toEqual([
+      "A-01-A-P1",
+      "A-01-A-P2",
+      "A-01-B-P1",
+      "A-01-B-P2",
+      "A-01-C-P1",
+      "A-01-C-P2",
+    ]);
+  });
 });
 
 describe("rack location codes", () => {
