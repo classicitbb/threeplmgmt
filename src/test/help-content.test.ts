@@ -59,4 +59,10 @@ describe("help content", () => {
     expect(searchHelpArticles("5s").some((article) => article.id === "lean-standard-work")).toBe(true);
     expect(searchHelpArticles("gs1").some((article) => article.references?.some((reference) => reference.url.includes("gs1.org")))).toBe(true);
   });
+
+  it("documents the receiving scanner and commit flow", () => {
+    expect(searchHelpArticles("iso 6346").some((article) => article.id === "receiving-flow")).toBe(true);
+    expect(searchHelpArticles("commit arrow").some((article) => article.id === "receiving-flow")).toBe(true);
+    expect(getRouteHelp("/receiving").keyActions.some((action) => action.includes("container camera scanner"))).toBe(true);
+  });
 });
