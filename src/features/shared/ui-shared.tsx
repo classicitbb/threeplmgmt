@@ -2705,7 +2705,7 @@ export function LocationWizardDialog({
   defaultWarehouseId = "",
   defaultZoneId = "",
 }: {
-  trigger?: React.ReactNode;
+  trigger?: React.ReactNode | null;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   defaultWarehouseId?: string;
