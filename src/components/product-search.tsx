@@ -116,6 +116,7 @@ export const ProductSearch = forwardRef<ProductSearchHandle, Props>(function Pro
           variant="outline"
           role="combobox"
           aria-expanded={open}
+          aria-label={selected ? `Product ${selected.sku} ${selected.name}` : placeholder}
           disabled={disabled}
           className={cn(
             "h-10 w-full justify-between font-normal",

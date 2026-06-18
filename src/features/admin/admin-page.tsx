@@ -1301,6 +1301,18 @@ export function SettingsPage() {
               </div>
               {[
                 {
+                  version: "1.22",
+                  date: "June 2026",
+                  changes: [
+                    "Receiving: New Shipment now follows a scanner-first vertical entry flow from container, to PO, to product, quantities, expiry, and optional lot details",
+                    "Receiving: container camera scanning can read printed container text, validate ISO 6346 check digits, show a green confirmed candidate, and insert it into the form",
+                    "Receiving: product scans select the SKU, then focus a highlighted right-arrow commit button before moving to Total received",
+                    "Receiving: quantity fields preserve manual typing, support Enter-to-advance, and can suggest learned quantity-per-pallet values after prior receipts",
+                    "Receiving: expiry selection now uses a larger app calendar picker for clearer mobile date entry",
+                    "Build: switched Vite from the SWC React plugin to @vitejs/plugin-react after the scanner update",
+                  ],
+                },
+                {
                   version: "1.21",
                   date: "June 2026",
                   changes: [

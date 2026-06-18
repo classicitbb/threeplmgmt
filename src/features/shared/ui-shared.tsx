@@ -2843,11 +2843,11 @@ export function LocationWizardDialog({
       }));
 
       // Skip rows whose code already exists (unique constraint on locations.code).
-      const { data: existing } = await supabase
+      const { data: existingRows } = await supabase
         .from("locations")
         .select("code")
         .in("code", rows.map((r) => r.code));
-      const existingCodes = new Set((existing ?? []).map((r: any) => r.code));
+      const existingCodes = new Set((existingRows ?? []).map((r: any) => r.code));
       const toInsert = rows.filter((r) => !existingCodes.has(r.code));
 
       let created = 0;
@@ -3807,9 +3807,9 @@ export function toneBorder(tone: "success" | "warning" | "critical" | "info") {
 export type ReceivingShipmentLineState = {
   id: string;
   product_id: string;
-  total_quantity: number;
-  quantity_per_pallet: number;
-  pallet_count: number;
+  total_quantity: number | string;
+  quantity_per_pallet: number | string;
+  pallet_count: number | string;
   expiry_date: string;
   lot_number: string;
   batch_number: string;

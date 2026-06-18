@@ -29,4 +29,12 @@ describe("receiving shipment math", () => {
     expect(next.quantity_per_pallet).toBe(125);
     expect(next.pallet_count).toBe(8);
   });
+
+  it("commits raw typed quantity strings only when distribution runs", () => {
+    const next = distributeShipmentLine({ ...baseLine, total_quantity: "100", quantity_per_pallet: "24" }, "total");
+
+    expect(next.total_quantity).toBe(100);
+    expect(next.quantity_per_pallet).toBe(24);
+    expect(next.pallet_count).toBe(4);
+  });
 });

@@ -46,6 +46,41 @@ export function normalizeContainerNumber(value: unknown) {
   return String(value ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
 }
 
+function normalizeOcrContainerCandidate(value: string) {
+  const raw = normalizeContainerNumber(value);
+  if (raw.length !== 11) return raw;
+
+  const ownerAndCategory = raw.slice(0, 4).replace(/[0185]/g, (char) => {
+    if (char === "0") return "O";
+    if (char === "1") return "I";
+    if (char === "8") return "B";
+    return "S";
+  });
+  const serialAndCheck = raw.slice(4).replace(/[OQDISBZ]/g, (char) => {
+    if (char === "O" || char === "Q" || char === "D") return "0";
+    if (char === "I") return "1";
+    if (char === "S") return "5";
+    if (char === "B") return "8";
+    return "2";
+  });
+
+  return `${ownerAndCategory}${serialAndCheck}`;
+}
+
+function collectContainerCandidates(value: unknown) {
+  const compact = normalizeContainerNumber(value);
+  const candidates = new Set<string>();
+
+  for (const match of compact.match(/[A-Z0-9]{4}\d{7}/g) ?? []) {
+    candidates.add(normalizeOcrContainerCandidate(match));
+  }
+  for (let index = 0; index <= compact.length - 11; index += 1) {
+    candidates.add(normalizeOcrContainerCandidate(compact.slice(index, index + 11)));
+  }
+
+  return Array.from(candidates).filter((candidate) => ISO6346_PATTERN.test(candidate));
+}
+
 export function calculateIso6346CheckDigit(codeWithoutCheckDigit: string) {
   const code = normalizeContainerNumber(codeWithoutCheckDigit).slice(0, 10);
   if (!/^[A-Z]{3}[UJZ]\d{6}$/.test(code)) return null;
@@ -93,7 +128,7 @@ export function validateIso6346ContainerNumber(value: unknown): ContainerNumberV
 
 export function extractIso6346ContainerNumber(value: unknown): ContainerNumberScanResult {
   const text = normalizeContainerNumber(value);
-  const candidates = text.match(/[A-Z]{3}[UJZ]\d{7}/g) ?? [];
+  const candidates = collectContainerCandidates(value);
   for (const candidate of candidates) {
     const validation = validateIso6346ContainerNumber(candidate);
     if (validation.valid) {
