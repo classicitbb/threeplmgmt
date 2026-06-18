@@ -1222,6 +1222,18 @@ export function WarehouseStructureTab() {
       {dialog?.type === "edit-location" && (
         <EditLocationDialog location={dialog.location} onClose={() => setDialog(null)} />
       )}
+      {dialog?.type === "wizard-zone" && (
+        <LocationWizardDialog
+          open
+          trigger={null}
+          defaultWarehouseId={dialog.warehouseId}
+          defaultZoneId={dialog.zoneId}
+          onOpenChange={(o) => !o && setDialog(null)}
+        />
+      )}
+      {dialog?.type === "edit-range" && (
+        <EditLocationRangeDialog zone={dialog.zone} onClose={() => setDialog(null)} />
+      )}
       {dialog?.type === "delete" && (
         <ConfirmDeleteDialog label={dialog.label} deleteFn={dialog.deleteFn} onClose={() => setDialog(null)} />
       )}
