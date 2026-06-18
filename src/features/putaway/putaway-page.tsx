@@ -41,6 +41,7 @@ import {
   type FailedWorkItem,
 } from "@/lib/offline-queue";
 import { useBackgroundSync } from "@/hooks/use-background-sync";
+import { beginActiveWork } from "@/lib/active-work";
 import {
   NAVIGATION,
   ROLE_LABELS,
