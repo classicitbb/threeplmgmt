@@ -427,12 +427,7 @@ function ZoneNode({
                 <DropdownMenuItem onSelect={() => setDialog({ type: "edit-zone", zone, warehouseName })}>
                   <Pencil className="mr-2 h-3.5 w-3.5" />Edit Zone
                 </DropdownMenuItem>
-                <DropdownMenuItem
-                  onSelect={(event) => {
-                    event.preventDefault();
-                    setWizardOpen(true);
-                  }}
-                >
+                <DropdownMenuItem onSelect={() => setWizardOpen(true)}>
                   <Plus className="mr-2 h-3.5 w-3.5" />Add Locations
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
@@ -451,6 +446,7 @@ function ZoneNode({
               </DropdownMenuContent>
             </DropdownMenu>
             <LocationWizardDialog
+              trigger={null}
               open={wizardOpen}
               onOpenChange={setWizardOpen}
               defaultWarehouseId={zone.warehouse_id}
