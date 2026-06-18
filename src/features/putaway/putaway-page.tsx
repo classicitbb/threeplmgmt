@@ -495,13 +495,14 @@ function markPutawayOccupancyCached(queryClient: ReturnType<typeof useQueryClien
 export function PutawayTasksPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const { user, roles } = useAuth();
+  const { user, roles, profile } = useAuth();
   // Managers and above see all open tasks; operators/clerks only see their own + unassigned
   const canSeeAllTasks = roles.some((r) => ["developer", "admin", "warehouse_manager", "warehouse_supervisor"].includes(r));
   const putawayUserId = canSeeAllTasks ? undefined : user?.id;
+  const activeWarehouseId = profile?.default_warehouse_id ?? null;
   const { data = [], isLoading } = useQuery({
-    queryKey: ["putaway-tasks", putawayUserId],
-    queryFn: () => getPutawayTasks(putawayUserId),
+    queryKey: ["putaway-tasks", putawayUserId, activeWarehouseId],
+    queryFn: () => getPutawayTasks(putawayUserId, activeWarehouseId),
   });
   const { data: putawayHistory = [] } = useQuery({
     queryKey: ["putaway-task-history", putawayUserId],
