@@ -655,6 +655,15 @@ export function PutawayTasksPage() {
   const openPutawayStatuses = new Set(["queued", "assigned", "in_progress", "exception"]);
   const pendingTasks = data.filter((task: any) => openPutawayStatuses.has(task.status) && !completedIds.has(task.id) && !revertedIds.has(task.id));
   const selectedTask = selectedTaskId ? pendingTasks.find((task: any) => task.id === selectedTaskId) ?? null : null;
+
+  // Mark active work while an operator has a pallet+task locked in. Background
+  // refresh and SW reloads will defer until this is released so the in-flight
+  // confirm screen never blanks out.
+  useEffect(() => {
+    if (!selectedTaskId) return;
+    const release = beginActiveWork();
+    return () => release();
+  }, [selectedTaskId]);
   const visibleTasks = selectedTask ? [selectedTask] : openTasksExpanded ? pendingTasks : [];
   const activeTasks = visibleTasks.filter((t: any) => openPutawayStatuses.has(t.status));
 
