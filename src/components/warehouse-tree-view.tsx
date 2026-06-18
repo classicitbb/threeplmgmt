@@ -419,7 +419,13 @@ function ZoneNode({
             />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={(e) => e.stopPropagation()}>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7"
+                  aria-label={`Zone actions — ${zone.code}`}
+                  onClick={(e) => e.stopPropagation()}
+                >
                   <MoreHorizontal className="h-3.5 w-3.5" />
                 </Button>
               </DropdownMenuTrigger>
@@ -427,8 +433,20 @@ function ZoneNode({
                 <DropdownMenuItem onSelect={() => setDialog({ type: "edit-zone", zone, warehouseName })}>
                   <Pencil className="mr-2 h-3.5 w-3.5" />Edit Zone
                 </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => navigate("/locations")}>
+                <DropdownMenuItem
+                  onSelect={() =>
+                    setDialog({
+                      type: "wizard-zone",
+                      warehouseId: zone.warehouse_id,
+                      zoneId: zone.id,
+                      zoneCode: zone.code,
+                    })
+                  }
+                >
                   <Plus className="mr-2 h-3.5 w-3.5" />Add Locations
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => setDialog({ type: "edit-range", zone })}>
+                  <Pencil className="mr-2 h-3.5 w-3.5" />Edit Location Range
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
