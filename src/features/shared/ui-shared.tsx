@@ -1258,7 +1258,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     )
     // Help is always pinned as the last sidebar entry, regardless of module order.
     .sort((a, b) => (a.to === "/help" ? 1 : 0) - (b.to === "/help" ? 1 : 0));
-  const canSwitchWarehouses = roles.some((role) => ["admin", "warehouse_manager"].includes(role));
+  const canSwitchWarehouses = roles.some((role) => ["admin", "warehouse_manager", "developer"].includes(role));
+  const canSelectAllWarehouses = roles.some((role) => ["admin", "developer"].includes(role));
   const { data: headerOptions } = useQuery({
     queryKey: ["header-warehouse-options", canSwitchWarehouses],
     queryFn: () => fetchOptions(false),
@@ -1279,7 +1280,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       : warehouses;
   }, [headerOptions, profile?.id, roles]);
   const warehouseSwitchMutation = useMutation({
-    mutationFn: (warehouseId: string) => updateProfileDefaultWarehouse(profile?.id ?? "", warehouseId),
+    mutationFn: (warehouseId: string | null) => updateProfileDefaultWarehouse(profile?.id ?? "", warehouseId),
     onSuccess: async () => {
       await refreshProfile();
       await queryClient.invalidateQueries({ queryKey: ["dashboard-metrics"] });
