@@ -1064,6 +1064,7 @@ const locationWizardSchema = z
     levels: z.coerce.number().int().min(1).max(6),
     positions_per_level: z.coerce.number().int().min(1).max(3),
     depth: z.coerce.number().int().min(1).max(5),
+    level_letters: z.boolean(),
     location_type: z.enum(["rack", "staging", "quarantine", "dispatch", "receiving", "floor", "returns"]),
     temperature_class: z.enum(["ambient", "cool", "frozen"]),
     mixed_sku_allowed: z.boolean(),
@@ -2737,6 +2738,7 @@ export function LocationWizardDialog({
       levels: 3,
       positions_per_level: 1,
       depth: 1,
+      level_letters: false,
       location_type: "rack",
       temperature_class: "ambient",
       mixed_sku_allowed: false,
@@ -2782,8 +2784,37 @@ export function LocationWizardDialog({
     Math.max(form.watch("levels") ?? 1, 1) *
     Math.max(form.watch("positions_per_level") ?? 1, 1);
 
+  // Representative code (level 2) reflecting the current style + position settings.
+  const samplePositions = Math.max(form.watch("positions_per_level") ?? 1, 1);
+  const samplePrefix = (form.watch("prefix") || "A").toUpperCase();
+  const sampleBay = String(Math.max(form.watch("start_bay") ?? 1, 1)).padStart(2, "0");
+  const sampleLevelSeg = form.watch("level_letters") ? "B" : "L02";
+  const samplePreview =
+    samplePositions > 1
+      ? `${samplePrefix}-${sampleBay}-${sampleLevelSeg}-P1`
+      : `${samplePrefix}-${sampleBay}-${sampleLevelSeg}`;
+
   const mutation = useMutation({
     mutationFn: async (values: LocationWizardValues) => {
+      const levelStyle: "numeric" | "alpha" = values.level_letters ? "alpha" : "numeric";
+
+      // Guard: a zone (and therefore each bay within it) must use a single level
+      // style. Different zones in the same warehouse may differ. The DB trigger is
+      // authoritative; this pre-check gives a clean message before any rows are written.
+      const { data: existing, error: existingError } = await (supabase.from as any)("locations")
+        .select("level_style, aisle, bay")
+        .eq("zone_id", values.zone_id);
+      if (existingError) throw existingError;
+      const styleOf = (row: any): "numeric" | "alpha" => (row?.level_style === "alpha" ? "alpha" : "numeric");
+      const zoneConflict = (existing ?? []).some((row: any) => styleOf(row) !== levelStyle);
+      if (zoneConflict) {
+        const existingLabel = levelStyle === "alpha" ? "numbered (L01, L02\u2026)" : "lettered (A, B, C\u2026)";
+        throw new Error(
+          `This zone already uses ${existingLabel} levels. A zone and its bays must use one level style. ` +
+            `Turn the level-letters switch the other way, or pick a different zone.`,
+        );
+      }
+
       const expanded = expandLocationRange({
         prefix: values.prefix,
         startBay: values.start_bay,
@@ -2801,6 +2832,7 @@ export function LocationWizardDialog({
         bay: row.bay,
         level: row.level,
         position: row.position,
+        level_style: row.levelStyle,
         depth: row.depth,
         max_pallets: row.maxPallets,
         location_type: values.location_type,

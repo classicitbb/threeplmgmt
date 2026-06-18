@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  bayCodeFromLocationCode,
   buildBayOccupancyGrid,
   buildRackLocationCode,
   createBlankLocationTemplate,
@@ -9,8 +10,11 @@ import {
   createDefaultWarehouseSetupPayload,
   displayRackLocationCode,
   expandLocationRange,
+  letterToLevel,
+  levelToLetter,
   normalizeRackLocationCode,
   parseCsv,
+  parseRackLocationCode,
   validatePutawayAssignment,
 } from "@/lib/wms-core";
 
@@ -179,5 +183,41 @@ describe("buildBayOccupancyGrid", () => {
       ["A-01-L02-P1", "A-01-L02-P2", "A-01-L02-P3"],
       ["A-01-L01-P1", "A-01-L01-P2", "A-01-L01-P3"],
     ]);
+  });
+});
+
+describe("level letter helpers", () => {
+  it("round-trips level numbers and letters", () => {
+    expect(levelToLetter(1)).toBe("A");
+    expect(levelToLetter(4)).toBe("D");
+    expect(letterToLevel("A")).toBe(1);
+    expect(letterToLevel("D")).toBe(4);
+    expect(letterToLevel("z")).toBe(26);
+    expect(Number.isNaN(letterToLevel("AB"))).toBe(true);
+  });
+});
+
+describe("parseRackLocationCode across styles", () => {
+  it("parses numeric and alpha codes with or without a position segment", () => {
+    expect(parseRackLocationCode("A-01-L02-P3")).toMatchObject({ rack: "A", bay: 1, level: 2, position: 3, levelStyle: "numeric", hasPosition: true });
+    expect(parseRackLocationCode("A-01-L02")).toMatchObject({ rack: "A", bay: 1, level: 2, position: 1, levelStyle: "numeric", hasPosition: false });
+    expect(parseRackLocationCode("A-05-B-P2")).toMatchObject({ rack: "A", bay: 5, level: 2, position: 2, levelStyle: "alpha", hasPosition: true });
+    expect(parseRackLocationCode("A-05-B")).toMatchObject({ rack: "A", bay: 5, level: 2, position: 1, levelStyle: "alpha", hasPosition: false });
+    expect(parseRackLocationCode("WH3-A-1-05-L05-P1")).toMatchObject({ rack: "A", aisle: 1, bay: 5, level: 5, position: 1, levelStyle: "numeric" });
+  });
+
+  it("round-trips alpha and single-position codes through display", () => {
+    expect(displayRackLocationCode("A-05-B")).toBe("A-05-B");
+    expect(displayRackLocationCode("A-05-C-P2")).toBe("A-05-C-P2");
+    expect(displayRackLocationCode("A-05-L02")).toBe("A-05-L02");
+  });
+});
+
+describe("bayCodeFromLocationCode", () => {
+  it("strips to the bay code regardless of level style or position", () => {
+    expect(bayCodeFromLocationCode("A-05-L05-P1")).toBe("A-05");
+    expect(bayCodeFromLocationCode("A-05-C")).toBe("A-05");
+    expect(bayCodeFromLocationCode("A-05-C-P2")).toBe("A-05");
+    expect(bayCodeFromLocationCode("A-05-L05")).toBe("A-05");
   });
 });

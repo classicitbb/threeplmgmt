@@ -198,6 +198,28 @@ export async function runWarehouseSetup(setupPayload: WarehouseSetupPayload, see
   return data;
 }
 
+export type LevelStyle = "numeric" | "alpha";
+
+const LEVEL_LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+/** Level number -> letter code (1 -> A, 2 -> B, ...). Wraps after Z (rare; levels cap at 6). */
+export function levelToLetter(level: number): string {
+  const index = Math.max(1, Math.floor(level)) - 1;
+  return LEVEL_LETTERS[index % LEVEL_LETTERS.length] ?? "A";
+}
+
+/** Letter code -> level number (A -> 1, B -> 2, ...). Returns NaN if not a single A-Z letter. */
+export function letterToLevel(letter: string): number {
+  const value = String(letter ?? "").trim().toUpperCase();
+  if (!/^[A-Z]$/.test(value)) return Number.NaN;
+  return LEVEL_LETTERS.indexOf(value) + 1;
+}
+
+/** Render the level segment of a code in the requested style. */
+function formatLevelSegment(level: number, style: LevelStyle): string {
+  return style === "alpha" ? levelToLetter(level) : `L${String(level).padStart(2, "0")}`;
+}
+
 export type LocationRangeInput = {
   prefix: string;
   startBay: number;
@@ -216,12 +238,19 @@ export type ExpandedLocationRow = {
   depth: number;
   maxPallets: number;
   localCode: string;
+  levelStyle: LevelStyle;
 };
 
 /**
  * Expand a rack range into one row per physical slot.
  * Total = (endBay - startBay + 1) * levels * positionsPerLevel.
  * Each slot's capacity = depth (1-5 pallets deep).
+ *
+ * Code shape is RACK-BAY-LEVEL[-POSITION]:
+ *  - LEVEL is L01/L02 (numeric) or A/B/C (alpha) per levelStyle.
+ *  - POSITION (-P1, -P2, ...) is omitted entirely when there is only one position
+ *    per level, since a single-position slot needs no position discriminator.
+ *    Scanners still parse codes with or without the position segment.
  */
 export function expandLocationRange(input: LocationRangeInput): ExpandedLocationRow[] {
   const rows: ExpandedLocationRow[] = [];
@@ -232,14 +261,16 @@ export function expandLocationRange(input: LocationRangeInput): ExpandedLocation
   const depth = Math.max(1, Math.min(5, Math.floor(input.depth)));
   const useLetters = input.levelStyle === "letters";
   for (let bay = startBay; bay <= endBay; bay += 1) {
+    const bayCode = String(bay).padStart(2, "0");
     for (let level = 1; level <= levels; level += 1) {
+      const levelSegment = formatLevelSegment(level, levelStyle);
       for (let position = 1; position <= positions; position += 1) {
         const levelSegment = useLetters
           ? String.fromCharCode("A".charCodeAt(0) + (level - 1))
           : `L${String(level).padStart(2, "0")}`;
         rows.push({
           aisle: input.prefix,
-          bay: String(bay).padStart(2, "0"),
+          bay: bayCode,
           level,
           position,
           depth,
@@ -258,39 +289,81 @@ export interface RackLocationParts {
   bay: number;
   level: number;
   position: number;
+  /** Style the level segment was written in / should be rendered in. Defaults to numeric. */
+  levelStyle?: LevelStyle;
+  /** Whether the code carries an explicit -P# position segment. Defaults to true. */
+  hasPosition?: boolean;
 }
 
 function formatRackPositionCode(parts: RackLocationParts): string {
-  return `${parts.rack.toUpperCase()}-${String(parts.bay).padStart(2, "0")}-L${String(parts.level).padStart(2, "0")}-P${parts.position}`;
+  const style: LevelStyle = parts.levelStyle === "alpha" ? "alpha" : "numeric";
+  const base = `${parts.rack.toUpperCase()}-${String(parts.bay).padStart(2, "0")}-${formatLevelSegment(parts.level, style)}`;
+  const includePosition = parts.hasPosition ?? true;
+  return includePosition ? `${base}-P${parts.position}` : base;
 }
 
-/** Parse new rack codes ("A-05-L05-P1") and legacy full labels ("WH3-A-1-05-L05-P1"). */
+/**
+ * Parse rack codes in any supported shape:
+ *  - new numeric ("A-05-L05-P1") and single-position ("A-05-L05")
+ *  - new alpha ("A-05-E-P1") and single-position ("A-05-E")
+ *  - legacy full labels ("WH3-A-1-05-L05-P1")
+ * The optional trailing -P# and the numeric-vs-letter level are both auto-detected.
+ */
 export function parseRackLocationCode(localCode: string): RackLocationParts | null {
   const parts = String(localCode ?? "").trim().toUpperCase().split("-").filter(Boolean);
-  const positionPart = parts.at(-1);
-  const levelPart = parts.at(-2);
-  if (!positionPart || !levelPart || !/^P\d+$/i.test(positionPart) || !/^L\d+$/i.test(levelPart)) return null;
+  if (parts.length < 3) return null;
 
-  const position = parseInt(positionPart.replace(/^P/i, ""), 10);
-  const level = parseInt(levelPart.replace(/^L/i, ""), 10);
-  if (!Number.isFinite(position) || !Number.isFinite(level)) return null;
+  let cursor = parts.length - 1;
 
-  if (parts.length === 4) {
-    const [rack, bay] = parts;
-    const bayNumber = parseInt(bay, 10);
-    if (!rack || !Number.isFinite(bayNumber)) return null;
-    return { rack, aisle: null, bay: bayNumber, level, position };
+  // Optional trailing position segment (-P#). Single-position slots omit it.
+  let position = 1;
+  let hasPosition = false;
+  if (/^P\d+$/.test(parts[cursor])) {
+    position = parseInt(parts[cursor].replace(/^P/, ""), 10);
+    if (!Number.isFinite(position)) return null;
+    hasPosition = true;
+    cursor -= 1;
   }
 
-  if (parts.length >= 5) {
-    const rack = parts.at(-5);
-    const aisle = parseInt(parts.at(-4) ?? "", 10);
-    const bay = parseInt(parts.at(-3) ?? "", 10);
-    if (!rack || !Number.isFinite(aisle) || !Number.isFinite(bay)) return null;
-    return { rack, aisle, bay, level, position };
+  // Level segment: L## (numeric) or a single A-Z letter (alpha).
+  const levelPart = parts[cursor];
+  let level: number;
+  let levelStyle: LevelStyle;
+  if (/^L\d+$/.test(levelPart)) {
+    level = parseInt(levelPart.replace(/^L/, ""), 10);
+    levelStyle = "numeric";
+  } else if (/^[A-Z]$/.test(levelPart)) {
+    level = letterToLevel(levelPart);
+    levelStyle = "alpha";
+  } else {
+    return null;
+  }
+  if (!Number.isFinite(level)) return null;
+  cursor -= 1;
+
+  // Bay segment (numeric) must sit directly before the level, with a rack before it.
+  if (cursor < 1) return null;
+  const bay = parseInt(parts[cursor], 10);
+  if (!Number.isFinite(bay)) return null;
+  cursor -= 1;
+
+  if (cursor === 0) {
+    // RACK-BAY-LEVEL[-POSITION]
+    return { rack: parts[0], aisle: null, bay, level, position, levelStyle, hasPosition };
   }
 
-  return null;
+  // Legacy form with a leading warehouse/zone token and an aisle: [..., RACK, AISLE, BAY, LEVEL, POSITION].
+  const aisle = parseInt(parts[cursor], 10);
+  const rack = parts[cursor - 1];
+  if (!rack || !Number.isFinite(aisle)) return null;
+  return { rack, aisle, bay, level, position, levelStyle, hasPosition };
+}
+
+/** Strip a rack location code down to its bay code (RACK-BAY), style-agnostic. */
+export function bayCodeFromLocationCode(code: string | null | undefined): string {
+  const parsed = parseRackLocationCode(String(code ?? ""));
+  if (parsed) return `${parsed.rack.toUpperCase()}-${String(parsed.bay).padStart(2, "0")}`;
+  return String(code ?? "").replace(/-L\d+.*$/i, "");
 }
 
 export function normalizeRackLocationCode(locationCode: string): string {
@@ -381,11 +454,17 @@ function readPositiveNumber(value: number | string | null | undefined): number |
 }
 
 function readLevelFromCode(code: string): number | null {
-  return readPositiveNumber(code.match(/(?:^|-)L(\d+)(?:-|$)/i)?.[1]);
+  const direct = readPositiveNumber(code.match(/(?:^|-)L(\d+)(?:-|$)/i)?.[1]);
+  if (direct !== null) return direct;
+  // Fall back to the full parser so letter-style levels (e.g. A-05-E) resolve too.
+  return readPositiveNumber(parseRackLocationCode(code)?.level ?? null);
 }
 
 function readPositionFromCode(code: string): number | null {
-  return readPositiveNumber(code.match(/(?:^|-)P(\d+)$/i)?.[1]);
+  const direct = readPositiveNumber(code.match(/(?:^|-)P(\d+)$/i)?.[1]);
+  if (direct !== null) return direct;
+  // Single-position codes omit -P#; treat a successfully parsed rack code as position 1.
+  return parseRackLocationCode(code) ? 1 : null;
 }
 
 export function getBayCellLevel(cell: BayOccupancyCell): number | null {

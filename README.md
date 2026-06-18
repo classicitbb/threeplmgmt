@@ -23,6 +23,12 @@ Warehouse Wizard is a production-oriented internal WMS app for a 3PL-style wareh
 5. Start the app:
    `npm run dev`
 
+## Local Launcher
+
+On Windows, double-click `Launch Warehouse Wizard.bat` from the project folder to build the site, start a local production preview, and open it in Chrome, Edge, or the default browser.
+
+To create a desktop shortcut for that launcher, right-click `Create Desktop Shortcut.ps1` and run it with PowerShell. The app window shows `LOCAL` when opened from the launcher or another local/private address, and `ONLINE` when opened from a hosted domain.
+
 ## Supabase Notes
 
 - The migrations create the required core tables, enums, helper functions, views, storage buckets, indexes, profile approval fields, and RLS policies.
