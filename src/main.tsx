@@ -4,6 +4,7 @@ import { registerSW } from "virtual:pwa-register";
 import App from "./App";
 import { AppErrorBoundary } from "@/components/error-boundary";
 import { installConsoleErrorTelemetry, installToastTelemetry, logErrorTelemetry, logSystemTelemetry } from "@/lib/system-telemetry";
+import { isActiveWorkInProgress } from "@/lib/active-work";
 import "./index.css";
 
 // ── Global error telemetry ────────────────────────────────────────────────────
@@ -85,15 +86,16 @@ if (!isInIframe && !isPreviewHost) {
       }, 30 * 60 * 1000);
     },
     onNeedRefresh() {
-      // If the tab is already in the background, apply silently — no disruption.
-      if (document.hidden) {
+      // If the tab is already in the background AND no work is in progress,
+      // apply silently — no disruption.
+      if (document.hidden && !isActiveWorkInProgress()) {
         updateSW(true);
         return;
       }
       // Show a non-intrusive toast. Also auto-apply the next time the user
-      // backgrounds the tab (e.g. locks their device between scan cycles).
+      // backgrounds the tab AND no active scan/confirm flow is in progress.
       const applyWhenHidden = () => {
-        if (document.hidden) {
+        if (document.hidden && !isActiveWorkInProgress()) {
           document.removeEventListener("visibilitychange", applyWhenHidden);
           updateSW(true);
         }
@@ -167,9 +169,21 @@ if (!isInIframe && !isPreviewHost) {
     }
     if (removedSomething) {
       const RELOAD_KEY = `__lovable_sw_reloaded_v_${String(__APP_VERSION__)}`;
-      if (!sessionStorage.getItem(RELOAD_KEY)) {
+      if (!sessionStorage.getItem(RELOAD_KEY) && !isActiveWorkInProgress()) {
         sessionStorage.setItem(RELOAD_KEY, "1");
         window.location.reload();
+      } else if (!sessionStorage.getItem(RELOAD_KEY)) {
+        // Defer reload until operator finishes current scan/confirm flow.
+        const tryReload = () => {
+          if (isActiveWorkInProgress()) return;
+          document.removeEventListener("visibilitychange", tryReload);
+          window.removeEventListener("focus", tryReload);
+          if (sessionStorage.getItem(RELOAD_KEY)) return;
+          sessionStorage.setItem(RELOAD_KEY, "1");
+          window.location.reload();
+        };
+        document.addEventListener("visibilitychange", tryReload);
+        window.addEventListener("focus", tryReload);
       }
     }
   })();
