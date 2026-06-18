@@ -608,7 +608,13 @@ function WarehouseNode({ warehouse, nodeKey }: { warehouse: WarehouseRow; nodeKe
             />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={(e) => e.stopPropagation()}>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8"
+                  aria-label={`Warehouse actions — ${warehouse.code}`}
+                  onClick={(e) => e.stopPropagation()}
+                >
                   <MoreHorizontal className="h-3.5 w-3.5" />
                 </Button>
               </DropdownMenuTrigger>
