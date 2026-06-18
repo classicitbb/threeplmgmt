@@ -2705,7 +2705,7 @@ export function LocationWizardDialog({
   defaultWarehouseId = "",
   defaultZoneId = "",
 }: {
-  trigger?: React.ReactNode;
+  trigger?: React.ReactNode | null;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   defaultWarehouseId?: string;
@@ -2834,12 +2834,14 @@ export function LocationWizardDialog({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        {trigger ?? <Button variant="outline">
-          <MapPinned data-icon="inline-start" />
-          Location wizard
-        </Button>}
-      </DialogTrigger>
+      {trigger !== null && (
+        <DialogTrigger asChild>
+          {trigger ?? <Button variant="outline">
+            <MapPinned data-icon="inline-start" />
+            Location wizard
+          </Button>}
+        </DialogTrigger>
+      )}
       <DialogContent className="max-h-[90vh] overflow-hidden sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Create locations by range</DialogTitle>
