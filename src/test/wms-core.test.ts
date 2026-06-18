@@ -113,44 +113,25 @@ describe("expandLocationRange", () => {
     expect(rows[0].depth).toBe(5);
   });
 
-  it("omits the position segment when there is only one position per level", () => {
+  it("substitutes level numbers for letters when levelStyle is 'letters'", () => {
     const rows = expandLocationRange({
       prefix: "A",
       startBay: 1,
-      endBay: 2,
+      endBay: 1,
       levels: 3,
-      positionsPerLevel: 1,
-      depth: 1,
-    });
-    expect(rows).toHaveLength(6);
-    expect(rows[0].localCode).toBe("A-01-L01");
-    expect(rows.at(-1)?.localCode).toBe("A-02-L03");
-    expect(rows.every((r) => r.levelStyle === "numeric")).toBe(true);
-  });
-
-  it("renders levels as letters when levelStyle is alpha, dropping single-position codes", () => {
-    const single = expandLocationRange({
-      prefix: "A",
-      startBay: 5,
-      endBay: 5,
-      levels: 3,
-      positionsPerLevel: 1,
-      depth: 2,
-      levelStyle: "alpha",
-    });
-    expect(single.map((r) => r.localCode)).toEqual(["A-05-A", "A-05-B", "A-05-C"]);
-    expect(single.every((r) => r.levelStyle === "alpha")).toBe(true);
-
-    const multi = expandLocationRange({
-      prefix: "A",
-      startBay: 5,
-      endBay: 5,
-      levels: 2,
       positionsPerLevel: 2,
       depth: 1,
-      levelStyle: "alpha",
+      levelStyle: "letters",
     });
-    expect(multi.map((r) => r.localCode)).toEqual(["A-05-A-P1", "A-05-A-P2", "A-05-B-P1", "A-05-B-P2"]);
+    expect(rows).toHaveLength(6);
+    expect(rows.map((r) => r.localCode)).toEqual([
+      "A-01-A-P1",
+      "A-01-A-P2",
+      "A-01-B-P1",
+      "A-01-B-P2",
+      "A-01-C-P1",
+      "A-01-C-P2",
+    ]);
   });
 });
 

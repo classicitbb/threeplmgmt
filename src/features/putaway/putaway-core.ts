@@ -9,7 +9,7 @@ import {
 } from "@/features/shared/core-types";
 import { normalizeRackLocationCode } from "@/features/setup/setup-core";
 
-export async function getPutawayTasks(userId?: string) {
+export async function getPutawayTasks(userId?: string, warehouseId?: string | null) {
   let query = db("putaway_tasks")
     .select("*, pallets(*, products(*)), locations: suggested_location_id(*)")
     .in("status", ["queued", "assigned", "in_progress", "exception"])
@@ -19,6 +19,12 @@ export async function getPutawayTasks(userId?: string) {
     // Show tasks assigned to this user OR unassigned (queue) so the
     // operator/manager can see and pick up open work.
     query = query.or(`assigned_user_id.eq.${userId},assigned_user_id.is.null`);
+  }
+
+  // When a specific warehouse is active, hide tasks that belong to other
+  // warehouses. A null/undefined warehouseId means "All warehouses".
+  if (warehouseId) {
+    query = query.eq("warehouse_id", warehouseId);
   }
 
   const { data, error } = await query;

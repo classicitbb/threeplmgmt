@@ -322,7 +322,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     if (route === "/putaway-tasks") return `${count} open Put-Away tasks`;
     return `${count} open tasks`;
   }, []);
-  const canSwitchWarehouses = roles.some((role) => ["admin", "warehouse_manager"].includes(role));
+  const canSwitchWarehouses = roles.some((role) => ["admin", "warehouse_manager", "developer"].includes(role));
+  const canSelectAllWarehouses = roles.some((role) => ["admin", "developer"].includes(role));
   const { data: headerOptions } = useQuery({
     queryKey: ["header-warehouse-options", canSwitchWarehouses],
     queryFn: () => fetchOptions(false),
@@ -343,7 +344,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       : warehouses;
   }, [headerOptions, profile?.id, roles]);
   const warehouseSwitchMutation = useMutation({
-    mutationFn: (warehouseId: string) => updateProfileDefaultWarehouse(profile?.id ?? "", warehouseId),
+    mutationFn: (warehouseId: string | null) => updateProfileDefaultWarehouse(profile?.id ?? "", warehouseId),
     onSuccess: async () => {
       await refreshProfile();
       await queryClient.invalidateQueries({ queryKey: ["dashboard-metrics"] });
@@ -420,7 +421,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     if (route === "/pick-lists") {
       void queryClient.prefetchQuery({
         queryKey: ["pick-lists"],
-        queryFn: listPickLists,
+        queryFn: () => listPickLists(),
       });
     }
   }, [profile?.default_warehouse_id, queryClient, roles, user?.id]);
@@ -614,14 +615,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <div className="flex items-center gap-2">
               {canSwitchWarehouses ? (
                 <Select
-                  value={profile?.default_warehouse_id ?? ""}
-                  onValueChange={(value) => warehouseSwitchMutation.mutate(value)}
+                  value={profile?.default_warehouse_id ?? (canSelectAllWarehouses ? "__all__" : "")}
+                  onValueChange={(value) => warehouseSwitchMutation.mutate(value === "__all__" ? null : value)}
                   disabled={warehouseSwitchMutation.isPending}
                 >
                   <SelectTrigger className="h-9 w-[13rem]">
                     <SelectValue placeholder="Select warehouse" />
                   </SelectTrigger>
                   <SelectContent>
+                    {canSelectAllWarehouses ? (
+                      <SelectItem value="__all__">All warehouses</SelectItem>
+                    ) : null}
                     {headerWarehouses.map((warehouse: any) => (
                       <SelectItem key={warehouse.id} value={warehouse.id}>
                         {warehouse.code ? `${warehouse.code} - ${warehouse.name}` : warehouse.name}

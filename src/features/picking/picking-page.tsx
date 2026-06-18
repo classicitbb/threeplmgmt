@@ -210,7 +210,11 @@ export function PickListsPage() {
   const clientTriggerRef = useRef<HTMLButtonElement | null>(null);
   const pickProductRefs = useRef<Record<number, ProductSearchHandle | null>>({});
   const { data: options } = useQuery({ queryKey: ["options"], queryFn: () => fetchOptions() });
-  const { data: pickLists = [] } = useQuery({ queryKey: ["pick-lists"], queryFn: listPickLists });
+  const activeWarehouseId = profile?.default_warehouse_id ?? null;
+  const { data: pickLists = [] } = useQuery({
+    queryKey: ["pick-lists", activeWarehouseId],
+    queryFn: () => listPickLists(activeWarehouseId),
+  });
   const cancelMutation = useMutation({
     mutationFn: ({ id, reason }: { id: string; reason?: string }) => cancelPickList(id, reason),
     onSuccess: () => {

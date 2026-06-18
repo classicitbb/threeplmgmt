@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { type QueryClient } from "@tanstack/react-query";
 import { flushOfflineQueue } from "@/lib/offline-queue";
+import { isActiveWorkInProgress } from "@/lib/active-work";
 
 /** Refresh data after this many ms of being backgrounded. */
 const BACKGROUND_STALE_MS = 2 * 60 * 1000;
@@ -29,6 +30,24 @@ export function useBackgroundSync(queryClient: QueryClient) {
       void flushOfflineQueue({ silent: true });
 
       if (hiddenDuration >= BACKGROUND_STALE_MS) {
+        if (isActiveWorkInProgress()) {
+          // Operator is mid put-away/pick/receive — do NOT remount their
+          // screen. Mark a curated set of read-only lists as stale so the
+          // next navigation gets fresh data, but don't trigger a refetch
+          // that could blank the active dialog.
+          const safeKeys = [
+            ["putaway-tasks"],
+            ["putaway-task-history"],
+            ["pick-lists"],
+            ["warehouse-bay-occupancy"],
+            ["dashboard-metrics"],
+            ["options"],
+          ] as const;
+          for (const key of safeKeys) {
+            void queryClient.invalidateQueries({ queryKey: key as unknown as string[], refetchType: "none" });
+          }
+          return;
+        }
         void queryClient.invalidateQueries();
       }
     };

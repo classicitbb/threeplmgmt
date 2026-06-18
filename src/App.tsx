@@ -17,6 +17,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { createAppQueryClient } from "@/lib/query-client";
 
 import { buildBayOccupancyGrid, confirmPickTask, formatDate, formatNumber, formatPickRackInstruction, getBayOccupancy, getInventoryDetail, getPickExecution, loginSchema, normalizeRackLocationCode, recordUserSignIn, refreshUserDeviceTrust, signUpSchema, RESOURCE_DEFINITIONS } from "@/lib/wms-core";
+import { beginActiveWork } from "@/lib/active-work";
 import { getOrCreateDeviceId, hasTrustedDeviceShortcut, isDesktopClient } from "@/lib/device-identity";
 import { cn } from "@/lib/utils";
 
@@ -1393,6 +1394,14 @@ function PickExecutionPage() {
     queryFn: async () => (await getPickExecution(pickListId)) as unknown as PickExecutionData,
     enabled: Boolean(pickListId),
   });
+
+  // While the operator is on a pick-execution screen, mark active work so
+  // background refresh and SW reloads defer until they navigate away.
+  useEffect(() => {
+    if (!pickListId) return;
+    const release = beginActiveWork();
+    return () => release();
+  }, [pickListId]);
 
   const tasks = data?.pickTasks ?? [];
   const taskLocationRefs = useRef<Record<string, HTMLInputElement | null>>({});
