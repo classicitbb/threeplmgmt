@@ -33,12 +33,15 @@ export function clampRegion(region: NormalizedScanRegion): NormalizedScanRegion 
 export function estimateContainerFaceFromFrame(width: number, height: number): ContainerFaceEstimate {
   const aspect = width > 0 && height > 0 ? width / height : 16 / 9;
   const containerType = aspect > 1.35 ? "standard" : "high-cube";
+  const faceHeight = 0.9;
+  const targetPhysicalRatio = containerType === "high-cube" ? 0.62 : 0.72;
+  const faceWidth = clamp(targetPhysicalRatio * faceHeight / aspect, 0.34, 0.84);
 
   return {
-    x: aspect > 1.35 ? 0.04 : 0.08,
-    y: 0.06,
-    width: aspect > 1.35 ? 0.92 : 0.84,
-    height: 0.88,
+    x: clamp((1 - faceWidth) / 2),
+    y: 0.05,
+    width: faceWidth,
+    height: faceHeight,
     detected: true,
     containerType,
   };
@@ -77,10 +80,10 @@ export function getContainerScanRegions(options: {
   }
 
   regions.push(
-    fromFace(face, "top-right-number-row", 0.54, 0.10, 0.40, 0.16),
-    fromFace(face, "expanded-upper-right", 0.46, 0.06, 0.50, 0.30),
-    fromFace(face, "upper-band", 0.08, 0.05, 0.88, 0.28),
-    fromFace(face, "right-door-panel", 0.50, 0.08, 0.46, 0.52),
+    fromFace(face, "top-right-number-row", 0.38, 0.09, 0.58, 0.13),
+    fromFace(face, "expanded-upper-right", 0.28, 0.05, 0.68, 0.25),
+    fromFace(face, "upper-band", 0.08, 0.04, 0.88, 0.24),
+    fromFace(face, "right-door-panel", 0.40, 0.06, 0.56, 0.54),
     {
       name: "full-frame-paper-fallback",
       x: 0,
