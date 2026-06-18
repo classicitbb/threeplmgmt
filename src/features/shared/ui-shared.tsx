@@ -1068,6 +1068,7 @@ const locationWizardSchema = z
     temperature_class: z.enum(["ambient", "cool", "frozen"]),
     mixed_sku_allowed: z.boolean(),
     mixed_lot_allowed: z.boolean(),
+    level_style: z.enum(["numeric", "letters"]).default("numeric"),
   })
   .refine((v) => v.end_bay >= v.start_bay, { path: ["end_bay"], message: "End bay must be ≥ start bay" });
 
