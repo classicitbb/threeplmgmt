@@ -113,10 +113,14 @@ export async function createPickListFlow(input: z.infer<typeof pickListSchema>) 
   return pickList;
 }
 
-export async function listPickLists() {
-  const { data, error } = await db("pick_lists")
+export async function listPickLists(warehouseId?: string | null) {
+  let query = db("pick_lists")
     .select("*, pick_tasks(*, pallets(pallet_barcode, pallet_code, quantity, available_quantity, products(*)), locations:location_id(code, aisle, bay, level, position))")
     .order("created_at", { ascending: false });
+  if (warehouseId) {
+    query = query.eq("warehouse_id", warehouseId);
+  }
+  const { data, error } = await query;
   if (error) throw error;
   return data ?? [];
 }
