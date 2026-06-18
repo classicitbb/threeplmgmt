@@ -368,7 +368,7 @@ function ZoneNode({
   warehouseCode: string;
   nodeKey: string;
 }) {
-  const { expandedNodes, toggleNode, setDialog, navigate } = useTCtx();
+  const { expandedNodes, toggleNode, setDialog } = useTCtx();
   const isOpen = expandedNodes.has(nodeKey);
   const zoneLabelCode = prefixedCode(warehouseCode, zone.code);
   const [wizardOpen, setWizardOpen] = useState(false);
