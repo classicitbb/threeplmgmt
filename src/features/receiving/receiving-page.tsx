@@ -6,7 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm, type UseFormReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { supabase } from "@/integrations/supabase/client";
-import { Activity, AlertCircle, AlertTriangle, ArrowLeftRight, BarChart3, Bot, Boxes, Building2, CheckCircle2, ChevronDown, ClipboardCheck, ClipboardList, CloudOff, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, HelpCircle, Home, Info, KeyRound, LayoutDashboard, Loader2, Lock, LockOpen, LogOut, Mail, Maximize2, MapPinned, Menu, Minimize2, Network, Package, PackageX, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, QrCode, RadioTower, RefreshCw, RotateCcw, Search, Settings, ShieldCheck, Star, Tags, Trash2, Truck, Upload, UserPlus, Users } from "lucide-react";
+import { Activity, AlertCircle, AlertTriangle, ArrowLeftRight, ArrowRight, BarChart3, Bot, Boxes, Building2, CalendarDays, CheckCircle2, ChevronDown, ClipboardCheck, ClipboardList, CloudOff, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, HelpCircle, Home, Info, KeyRound, LayoutDashboard, Loader2, Lock, LockOpen, LogOut, Mail, Maximize2, MapPinned, Menu, Minimize2, Network, Package, PackageX, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, QrCode, RadioTower, RefreshCw, RotateCcw, Search, Settings, ShieldCheck, Star, Tags, Trash2, Truck, Upload, UserPlus, Users } from "lucide-react";
 import {
   DndContext,
   KeyboardSensor,
@@ -140,6 +140,7 @@ import { type ProductSearchHandle } from "@/components/product-search";
 
 import { cn } from "@/lib/utils";
 import { extractIso6346ContainerNumber, normalizeContainerNumber, validateIso6346ContainerNumber } from "@/lib/container-number";
+import { getProductPalletQtyHint, type PalletQtyHint } from "@/lib/ai-assist";
 import { getOrCreateDeviceId } from "@/lib/device-identity";
 import { invalidateWarehouseData } from "@/lib/query-invalidation";
 import {
@@ -182,6 +183,9 @@ import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, For
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -204,10 +208,84 @@ import {
   productRequiresExpiry,
   remainderForLine,
   shouldRestrictToDefaultWarehouse,
-  useIsMobileEntry,
   resolveContainerScanValue,
   normalizeScannerText,
 } from "@/features/shared/ui-shared";
+
+function parseShipmentDate(value: string) {
+  if (!value) return undefined;
+  const [year, month, day] = value.split("-").map(Number);
+  if (!year || !month || !day) return undefined;
+  return new Date(year, month - 1, day);
+}
+
+function formatShipmentDate(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function ShipmentExpiryPicker({
+  value,
+  required,
+  invalid,
+  open,
+  triggerRef,
+  onOpenChange,
+  onChange,
+}: {
+  value: string;
+  required: boolean;
+  invalid: boolean;
+  open: boolean;
+  triggerRef: (node: HTMLButtonElement | null) => void;
+  onOpenChange: (open: boolean) => void;
+  onChange: (value: string) => void;
+}) {
+  const selected = parseShipmentDate(value);
+  return (
+    <Popover open={open} onOpenChange={onOpenChange}>
+      <PopoverTrigger asChild>
+        <Button
+          ref={triggerRef}
+          type="button"
+          variant="outline"
+          className={cn(
+            "h-9 w-full justify-start px-3 text-left font-normal sm:h-10",
+            !value && "text-muted-foreground",
+            required && invalid && "border-amber-500",
+          )}
+          aria-label="Expiry"
+          aria-invalid={invalid}
+        >
+          <CalendarDays className="mr-2 h-4 w-4 shrink-0 text-muted-foreground" />
+          {value || "dd/mm/yyyy"}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-[min(28rem,calc(100vw-2rem))] p-2 sm:w-auto sm:p-3">
+        <Calendar
+          mode="single"
+          selected={selected}
+          onSelect={(date) => {
+            if (!date) return;
+            onChange(formatShipmentDate(date));
+            onOpenChange(false);
+          }}
+          initialFocus
+          classNames={{
+            caption_label: "text-base font-semibold sm:text-sm",
+            head_cell: "w-11 rounded-md text-sm font-medium text-muted-foreground sm:w-9 sm:text-[0.8rem]",
+            cell: "h-11 w-11 p-0 text-center text-base sm:h-9 sm:w-9 sm:text-sm",
+            day: "inline-flex h-11 w-11 items-center justify-center rounded-md p-0 text-base font-medium hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring aria-selected:opacity-100 sm:h-9 sm:w-9 sm:text-sm",
+            day_selected: "bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground focus:bg-primary focus:text-primary-foreground",
+            day_today: "bg-accent text-accent-foreground ring-1 ring-primary/50",
+          }}
+        />
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 export function ReceivingPage() {
   const navigate = useNavigate();
@@ -232,12 +310,17 @@ export function ReceivingPage() {
     temperature_requirement: p.temperature_requirement,
   }));
   const packagingProfiles = options?.packagingProfiles ?? [];
-  const isMobileEntry = useIsMobileEntry();
   const productRefs = useRef<Record<string, ProductSearchHandle | null>>({});
+  const productCommitRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const totalRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const perPalletRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const palletCountRefs = useRef<Record<string, HTMLInputElement | null>>({});
-  const expiryRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const expiryRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const perPalletManualProductRefs = useRef<Record<string, string>>({});
+  const containerAutoAdvanceRef = useRef("");
+  const [palletQtyHints, setPalletQtyHints] = useState<Record<string, PalletQtyHint | null>>({});
+  const [pendingProductCommit, setPendingProductCommit] = useState<Record<string, boolean>>({});
+  const [openExpiryLineId, setOpenExpiryLineId] = useState<string | null>(null);
   const [shipmentOpen, setShipmentOpen] = useState(false);
   const [showShipmentMore, setShowShipmentMore] = useState(false);
   const [draftSearch, setDraftSearch] = useState("");
@@ -318,6 +401,22 @@ export function ReceivingPage() {
   const shipmentContainerMessage = shipmentContainerScanWarning ?? (shipmentContainerHasValue
     ? shipmentContainerValidation.message
     : "Enter a valid ISO 6346 container number. Example: MSKU1234565.");
+
+  useEffect(() => {
+    if (!shipmentOpen) return;
+    const timer = window.setTimeout(() => shipmentContainerInputRef.current?.focus(), 0);
+    return () => window.clearTimeout(timer);
+  }, [shipmentOpen]);
+
+  useEffect(() => {
+    if (!shipmentOpen || !shipmentContainerValidation.valid) return;
+    if (document.activeElement !== shipmentContainerInputRef.current) return;
+    if (containerAutoAdvanceRef.current === shipmentContainerValidation.normalized) return;
+    containerAutoAdvanceRef.current = shipmentContainerValidation.normalized;
+    const timer = window.setTimeout(() => shipmentPoInputRef.current?.focus(), 0);
+    return () => window.clearTimeout(timer);
+  }, [shipmentContainerValidation.normalized, shipmentContainerValidation.valid, shipmentOpen]);
+
   useEffect(() => {
     if (!printOpen || selectedDraftIds.size > 0) return;
     setSelectedDraftIds(new Set(printDrafts.map((draft) => draft.id)));
@@ -501,6 +600,11 @@ export function ReceivingPage() {
     setEditingDraft(null);
     setShipmentContainerTouched(false);
     setShipmentContainerScanWarning(null);
+    perPalletManualProductRefs.current = {};
+    containerAutoAdvanceRef.current = "";
+    setPalletQtyHints({});
+    setPendingProductCommit({});
+    setOpenExpiryLineId(null);
     setShipmentForm({
       receipt_type: "po",
       warehouse_id: currentWarehouseId,
@@ -518,6 +622,11 @@ export function ReceivingPage() {
     setEditingDraft(draft);
     setShipmentContainerTouched(Boolean(values.container_number));
     setShipmentContainerScanWarning(null);
+    perPalletManualProductRefs.current = {};
+    containerAutoAdvanceRef.current = "";
+    setPalletQtyHints({});
+    setPendingProductCommit({});
+    setOpenExpiryLineId(null);
     setShipmentForm({
       receipt_type: values.receipt_type,
       warehouse_id: values.warehouse_id,
@@ -550,6 +659,38 @@ export function ReceivingPage() {
     }));
   }
 
+  function focusFirstProductSearch() {
+    const firstLine = shipmentForm.lines[0];
+    if (!firstLine) return;
+    productRefs.current[firstLine.id]?.open();
+  }
+
+  async function selectShipmentProduct(line: ReceivingShipmentLineState, value: string) {
+    const product = productOptions.find((item) => item.id === value);
+    updateLine(line.id, {
+      product_id: value,
+      expiry_date: productRequiresExpiry(product) && !line.expiry_date ? defaultExpiryDate() : line.expiry_date,
+    });
+    setPendingProductCommit((current) => ({ ...current, [line.id]: Boolean(value) }));
+    if (value) setTimeout(() => productCommitRefs.current[line.id]?.focus(), 40);
+    setPalletQtyHints((current) => ({ ...current, [line.id]: null }));
+
+    const warehouseId = shipmentForm.warehouse_id || currentWarehouseId;
+    if (!value || !warehouseId) return;
+
+    const hint = await getProductPalletQtyHint(value, warehouseId);
+    setPalletQtyHints((current) => ({ ...current, [line.id]: hint }));
+    if (!hint || perPalletManualProductRefs.current[line.id] === value) return;
+
+    setShipmentForm((current) => ({
+      ...current,
+      lines: current.lines.map((currentLine) => {
+        if (currentLine.id !== line.id || currentLine.product_id !== value) return currentLine;
+        return distributeShipmentLine({ ...currentLine, quantity_per_pallet: hint.suggestedQty }, "perPallet");
+      }),
+    }));
+  }
+
   function focusShipmentField(lineId: string, field: "total" | "perPallet" | "count" | "expiry") {
     const target =
       field === "total" ? totalRefs.current[lineId] :
@@ -559,21 +700,25 @@ export function ReceivingPage() {
     setTimeout(() => target?.focus(), 40);
   }
 
-  function openDatePicker(input: HTMLInputElement | null) {
-    if (!input) return;
-    input.focus();
-    try {
-      input.showPicker?.();
-    } catch {
-      // Some browsers only allow showPicker from direct user gestures.
-    }
+  function openExpiryPicker(lineId: string) {
+    setOpenExpiryLineId(lineId);
+    setTimeout(() => expiryRefs.current[lineId]?.focus(), 40);
   }
 
   function moveToNextShipmentField(lineId: string, field: "product" | "total" | "perPallet" | "count") {
-    if (field === "product") { focusShipmentField(lineId, "total"); return; }
+    if (field === "product") {
+      setPendingProductCommit((current) => ({ ...current, [lineId]: false }));
+      focusShipmentField(lineId, "total");
+      return;
+    }
     if (field === "total") { focusShipmentField(lineId, "perPallet"); return; }
     if (field === "perPallet") { focusShipmentField(lineId, "count"); return; }
-    setTimeout(() => openDatePicker(expiryRefs.current[lineId]), 40);
+    openExpiryPicker(lineId);
+  }
+
+  function commitShipmentQuantity(lineId: string, field: "total" | "perPallet" | "count") {
+    updateLine(lineId, {}, field);
+    moveToNextShipmentField(lineId, field);
   }
 
   const canAddSkuLine = shipmentForm.lines.every((line) => Boolean(line.product_id) && Number(line.total_quantity) > 0);
@@ -597,6 +742,7 @@ export function ReceivingPage() {
     setShipmentContainerTouched(true);
     setShipmentContainerScanWarning(result.valid ? null : result.message);
     setShipmentForm((cur) => ({ ...cur, container_number: result.value }));
+    if (result.valid) setTimeout(() => shipmentPoInputRef.current?.focus(), 0);
     if (!result.valid) toast.warning(result.message);
   }
 
@@ -749,17 +895,44 @@ export function ReceivingPage() {
       </Card>
 
       <Dialog open={shipmentOpen} onOpenChange={(open) => { setShipmentOpen(open); if (!open) setEditingDraft(null); }}>
-        <DialogContent className="h-[calc(100dvh-0.75rem)] max-h-[calc(100dvh-0.75rem)] w-[calc(100vw-0.75rem)] overflow-hidden bg-card p-0 text-card-foreground sm:h-auto sm:max-h-[92vh] sm:max-w-[min(72rem,96vw)]">
+        <DialogContent
+          className="h-[calc(100dvh-0.75rem)] max-h-[calc(100dvh-0.75rem)] w-[calc(100vw-0.75rem)] overflow-hidden bg-card p-0 text-card-foreground sm:h-auto sm:max-h-[92vh] sm:max-w-[min(56rem,96vw)]"
+          onOpenAutoFocus={(event) => event.preventDefault()}
+        >
           <DialogHeader className="border-b border-border px-3 py-2 sm:px-4 sm:py-3">
             <DialogTitle>{editingDraft ? "Edit Draft Pallet" : "New Shipment"}</DialogTitle>
             <DialogDescription className="text-xs sm:text-sm">Container and PO come first, then one or more SKU lines with expiry and pallet distribution.</DialogDescription>
           </DialogHeader>
           <ScrollArea className="max-h-[calc(100dvh-8.75rem)] px-3 py-3 sm:max-h-[calc(92vh-150px)] sm:px-4 sm:py-4">
             <div className="grid gap-3 sm:gap-4">
-              <div className="grid grid-cols-2 items-start gap-2 sm:gap-3 md:grid-cols-3">
+              <div className="grid items-start gap-2 sm:gap-3">
+                <div className="grid gap-1.5">
+                  <ShipmentFieldLabel>Warehouse</ShipmentFieldLabel>
+                  <Select value={shipmentForm.warehouse_id || undefined} onValueChange={(value) => setShipmentForm((cur) => ({ ...cur, warehouse_id: value }))}>
+                    <SelectTrigger className="h-9 sm:h-10"><SelectValue placeholder="Select warehouse" /></SelectTrigger>
+                    <SelectContent>
+                      {warehouses.length === 0 ? <SelectItem value="__loading_warehouses" disabled>Loading warehouses...</SelectItem> : null}
+                      {warehouses.filter((w: any) => Boolean(w.id)).map((w: any) => <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
                 <div className="grid gap-1.5">
                   <ShipmentFieldLabel>Container number</ShipmentFieldLabel>
                   <div className="flex gap-2">
+                    <BarcodeScanButton
+                      className="h-9 self-start sm:h-10"
+                      title="Scan container number"
+                      buttonLabel="Scan container number"
+                      enableTextRecognition
+                      requireConfirm
+                      inputRef={shipmentContainerInputRef}
+                      statusText="Point your camera at the printed container number. It will turn green when a valid ISO 6346 code is recognized."
+                      validateScan={(raw) => {
+                        const result = resolveContainerScanValue(raw);
+                        return { valid: result.valid, value: result.value, message: result.message };
+                      }}
+                      onScan={applyShipmentContainerScan}
+                    />
                     <Input
                       ref={shipmentContainerInputRef}
                       className={cn(
@@ -767,15 +940,14 @@ export function ReceivingPage() {
                         shipmentContainerTouched && shipmentContainerInvalid && "border-destructive focus-visible:ring-destructive",
                         shipmentContainerValid && "border-green-500 focus-visible:ring-green-500",
                       )}
-                      autoFocus
                       value={shipmentForm.container_number}
+                      aria-label="Container number"
                       onBlur={() => setShipmentContainerTouched(true)}
                       onChange={(e) => setShipmentContainer(e.target.value)}
                       onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); shipmentPoInputRef.current?.focus(); } }}
                       aria-invalid={shipmentContainerInvalid}
                       aria-describedby="container-number-help"
                     />
-                    <BarcodeScanButton className="h-9 self-start sm:h-10" title="Scan container number" enableTextRecognition inputRef={shipmentContainerInputRef} onScan={applyShipmentContainerScan} />
                   </div>
                   <p
                     id="container-number-help"
@@ -789,17 +961,14 @@ export function ReceivingPage() {
                 </div>
                 <div className="grid gap-1.5">
                   <ShipmentFieldLabel>PO number</ShipmentFieldLabel>
-                  <Input ref={shipmentPoInputRef} className="h-9 sm:h-10" value={shipmentForm.po_number} onChange={(e) => setShipmentForm((cur) => ({ ...cur, po_number: e.target.value.toUpperCase(), reference_number: e.target.value.toUpperCase() }))} />
-                </div>
-                <div className="col-span-2 grid gap-1.5 md:col-span-1">
-                  <ShipmentFieldLabel>Warehouse</ShipmentFieldLabel>
-                  <Select value={shipmentForm.warehouse_id || undefined} onValueChange={(value) => setShipmentForm((cur) => ({ ...cur, warehouse_id: value }))}>
-                    <SelectTrigger className="h-9 sm:h-10"><SelectValue placeholder="Select warehouse" /></SelectTrigger>
-                    <SelectContent>
-                      {warehouses.length === 0 ? <SelectItem value="__loading_warehouses" disabled>Loading warehouses...</SelectItem> : null}
-                      {warehouses.filter((w: any) => Boolean(w.id)).map((w: any) => <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
+                  <Input
+                    ref={shipmentPoInputRef}
+                    className="h-9 sm:h-10"
+                    value={shipmentForm.po_number}
+                    aria-label="PO number"
+                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); focusFirstProductSearch(); } }}
+                    onChange={(e) => setShipmentForm((cur) => ({ ...cur, po_number: e.target.value.toUpperCase(), reference_number: e.target.value.toUpperCase() }))}
+                  />
                 </div>
               </div>
               <button type="button" className="w-fit text-sm font-medium text-primary underline-offset-2 hover:underline" onClick={() => setShowShipmentMore((v) => !v)}>
@@ -841,6 +1010,7 @@ export function ReceivingPage() {
                   const selectedProduct = productOptions.find((product) => product.id === line.product_id);
                   const expiryRequired = productRequiresExpiry(selectedProduct);
                   const allocatedQuantity = Math.max(0, Number(line.quantity_per_pallet || 0) * Number(line.pallet_count || 0));
+                  const productCommitPending = Boolean(pendingProductCommit[line.id] && line.product_id);
                   return (
                     <div key={line.id} className="grid gap-2 rounded-lg border border-border p-2 sm:gap-3 sm:p-3">
                       <div className="flex items-center justify-between gap-3">
@@ -851,103 +1021,144 @@ export function ReceivingPage() {
                           </Button>
                         )}
                       </div>
-                      <div className="grid grid-cols-3 gap-2 lg:grid-cols-[2fr_repeat(3,1fr)] lg:gap-3">
-                        <div className="col-span-3 grid gap-1.5 lg:col-span-1">
+                      <div className="grid gap-2 lg:gap-3">
+                        <div className="grid gap-1.5">
                           <ShipmentFieldLabel>Product</ShipmentFieldLabel>
-                          <ProductSearch
-                            ref={(node) => { productRefs.current[line.id] = node; }}
-                            value={line.product_id}
-                            options={productOptions}
-                            placeholder="Select SKU"
-                            onChange={(value) => {
-                              const product = productOptions.find((item) => item.id === value);
-                              updateLine(line.id, {
-                                product_id: value,
-                                expiry_date: productRequiresExpiry(product) && !line.expiry_date ? defaultExpiryDate() : line.expiry_date,
-                              });
-                            }}
-                            onSelectComplete={() => moveToNextShipmentField(line.id, "product")}
-                          />
+                          <div className="flex gap-2">
+                            <BarcodeScanButton
+                              className="h-9 self-start sm:h-10"
+                              title="Scan product"
+                              onScan={(value) => {
+                                const matched = productRefs.current[line.id]?.scanBarcode(value);
+                                if (!matched) toast.warning("No product matched that scan. Search results are open.");
+                              }}
+                            />
+                            <ProductSearch
+                              ref={(node) => { productRefs.current[line.id] = node; }}
+                              value={line.product_id}
+                              options={productOptions}
+                              placeholder="Select SKU"
+                              onChange={(value) => { void selectShipmentProduct(line, value); }}
+                            />
+                            <Button
+                              ref={(node) => { productCommitRefs.current[line.id] = node; }}
+                              type="button"
+                              variant={productCommitPending ? "default" : "outline"}
+                              size="icon"
+                              className={cn(
+                                "h-9 w-9 shrink-0 sm:h-10 sm:w-10",
+                                productCommitPending && "ring-2 ring-primary ring-offset-2 ring-offset-background",
+                              )}
+                              title="Commit product and move to Total received"
+                              aria-label="Commit product and move to Total received"
+                              data-pending-commit={productCommitPending ? "true" : "false"}
+                              disabled={!line.product_id}
+                              onClick={() => moveToNextShipmentField(line.id, "product")}
+                            >
+                              <ArrowRight className="h-4 w-4" />
+                            </Button>
+                          </div>
                         </div>
-                        <div className="grid gap-1.5">
-                          <ShipmentFieldLabel>Total received</ShipmentFieldLabel>
-                          <Input
-                            ref={(node) => { totalRefs.current[line.id] = node; }}
-                            className="h-9 sm:h-10"
-                            type="number"
-                            inputMode="numeric"
-                            pattern="[0-9]*"
-                            min={0}
-                            value={line.total_quantity}
-                            onFocus={(e) => e.currentTarget.select()}
-                            onKeyDown={(e) => { if (e.key === "Enter") moveToNextShipmentField(line.id, "total"); }}
-                            onChange={(e) => updateLine(line.id, { total_quantity: e.currentTarget.valueAsNumber || Number(e.currentTarget.value) || 0 }, "total")}
-                          />
-                        </div>
-                        <div className="grid gap-1.5">
-                          <ShipmentFieldLabel>Qty per pallet</ShipmentFieldLabel>
-                          <Input
-                            ref={(node) => { perPalletRefs.current[line.id] = node; }}
-                            className="h-9 sm:h-10"
-                            type="number"
-                            inputMode="numeric"
-                            pattern="[0-9]*"
-                            min={1}
-                            value={line.quantity_per_pallet}
-                            onFocus={(e) => e.currentTarget.select()}
-                            onKeyDown={(e) => { if (e.key === "Enter") moveToNextShipmentField(line.id, "perPallet"); }}
-                            onChange={(e) => updateLine(line.id, { quantity_per_pallet: e.currentTarget.valueAsNumber || Number(e.currentTarget.value) || 1 }, "perPallet")}
-                          />
-                        </div>
-                        <div className="grid gap-1.5">
-                          <ShipmentFieldLabel>Pallets</ShipmentFieldLabel>
-                          <Input
-                            ref={(node) => { palletCountRefs.current[line.id] = node; }}
-                            className="h-9 sm:h-10"
-                            type="number"
-                            inputMode="numeric"
-                            pattern="[0-9]*"
-                            min={1}
-                            value={line.pallet_count}
-                            onFocus={(e) => e.currentTarget.select()}
-                            onKeyDown={(e) => { if (e.key === "Enter") moveToNextShipmentField(line.id, "count"); }}
-                            onChange={(e) => updateLine(line.id, { pallet_count: e.currentTarget.valueAsNumber || Number(e.currentTarget.value) || 1 }, "count")}
-                          />
+                        <div className="grid gap-2 sm:grid-cols-3 md:gap-3">
+                          <div className="grid gap-1.5">
+                            <ShipmentFieldLabel>Total received</ShipmentFieldLabel>
+                            <Input
+                              ref={(node) => { totalRefs.current[line.id] = node; }}
+                              className="h-9 sm:h-10"
+                              type="number"
+                              inputMode="numeric"
+                              pattern="[0-9]*"
+                              min={0}
+                              value={line.total_quantity}
+                              aria-label="Total received"
+                              onFocus={(e) => e.currentTarget.select()}
+                              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commitShipmentQuantity(line.id, "total"); } }}
+                              onChange={(e) => updateLine(line.id, { total_quantity: e.currentTarget.value })}
+                            />
+                          </div>
+                          <div className="grid gap-1.5">
+                            <ShipmentFieldLabel>Qty per pallet</ShipmentFieldLabel>
+                            <Input
+                              ref={(node) => { perPalletRefs.current[line.id] = node; }}
+                              className="h-9 sm:h-10"
+                              type="number"
+                              inputMode="numeric"
+                              pattern="[0-9]*"
+                              min={1}
+                              value={line.quantity_per_pallet}
+                              aria-label="Qty per pallet"
+                              onFocus={(e) => e.currentTarget.select()}
+                              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commitShipmentQuantity(line.id, "perPallet"); } }}
+                              onChange={(e) => {
+                                if (line.product_id) perPalletManualProductRefs.current[line.id] = line.product_id;
+                                updateLine(line.id, { quantity_per_pallet: e.currentTarget.value });
+                              }}
+                            />
+                            {palletQtyHints[line.id] ? (
+                              <p className="text-xs text-muted-foreground">
+                                Suggested from {palletQtyHints[line.id]?.sampleCount} prior pallet{palletQtyHints[line.id]?.sampleCount === 1 ? "" : "s"}.
+                              </p>
+                            ) : null}
+                          </div>
+                          <div className="grid gap-1.5">
+                            <ShipmentFieldLabel>Pallets</ShipmentFieldLabel>
+                            <Input
+                              ref={(node) => { palletCountRefs.current[line.id] = node; }}
+                              className="h-9 sm:h-10"
+                              type="number"
+                              inputMode="numeric"
+                              pattern="[0-9]*"
+                              min={1}
+                              value={line.pallet_count}
+                              aria-label="Pallets"
+                              onFocus={(e) => e.currentTarget.select()}
+                              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commitShipmentQuantity(line.id, "count"); } }}
+                              onChange={(e) => updateLine(line.id, { pallet_count: e.currentTarget.value })}
+                            />
+                          </div>
                         </div>
                       </div>
-                      <div className="grid grid-cols-2 gap-2 md:grid-cols-4 md:gap-3">
+                      <div className="grid gap-2">
                         <div className="grid gap-1.5">
                           <ShipmentFieldLabel>Expiry{expiryRequired ? " *" : ""}</ShipmentFieldLabel>
-                          <Input
-                            ref={(node) => { expiryRefs.current[line.id] = node; }}
-                            className={cn("h-9 sm:h-10", expiryRequired && !line.expiry_date && "border-amber-500")}
-                            type="date"
+                          <ShipmentExpiryPicker
+                            triggerRef={(node) => { expiryRefs.current[line.id] = node; }}
                             required={expiryRequired}
-                            aria-invalid={expiryRequired && !line.expiry_date}
+                            invalid={expiryRequired && !line.expiry_date}
                             value={line.expiry_date}
-                            onClick={(e) => openDatePicker(e.currentTarget)}
-                            onFocus={(e) => isMobileEntry && openDatePicker(e.currentTarget)}
-                            onChange={(e) => updateLine(line.id, { expiry_date: e.target.value })}
+                            open={openExpiryLineId === line.id}
+                            onOpenChange={(open) => setOpenExpiryLineId(open ? line.id : null)}
+                            onChange={(value) => updateLine(line.id, { expiry_date: value })}
                           />
                         </div>
-                        <div className="grid gap-1.5">
-                          <ShipmentFieldLabel>Lot</ShipmentFieldLabel>
-                          <Input className="h-9 sm:h-10" value={line.lot_number} onChange={(e) => updateLine(line.id, { lot_number: normalizeScannerText(e.target.value) })} />
-                        </div>
-                        <div className="grid gap-1.5">
-                          <ShipmentFieldLabel>Batch</ShipmentFieldLabel>
-                          <Input className="h-9 sm:h-10" value={line.batch_number} onChange={(e) => updateLine(line.id, { batch_number: normalizeScannerText(e.target.value) })} />
-                        </div>
-                        <div className="col-span-2 grid gap-1.5 md:col-span-1">
-                          <ShipmentFieldLabel>Packaging</ShipmentFieldLabel>
-                          <Select value={line.packaging_profile_id || undefined} onValueChange={(value) => updateLine(line.id, { packaging_profile_id: value })}>
-                            <SelectTrigger className="h-9 sm:h-10"><SelectValue placeholder="Optional" /></SelectTrigger>
-                            <SelectContent>
-                              {packagingProfiles.length === 0 ? <SelectItem value="__no_packaging" disabled>No packaging profiles</SelectItem> : null}
-                              {packagingProfiles.filter((profile: any) => Boolean(profile.id)).map((profile: any) => <SelectItem key={profile.id} value={profile.id}>{profile.profile_name}</SelectItem>)}
-                            </SelectContent>
-                          </Select>
-                        </div>
+                        <Collapsible>
+                          <CollapsibleTrigger asChild>
+                            <Button type="button" variant="ghost" className="h-8 w-fit px-0 text-xs font-medium text-muted-foreground hover:bg-transparent hover:text-foreground">
+                              <ChevronDown className="mr-1 h-3.5 w-3.5" />
+                              Lot, batch, and packaging
+                            </Button>
+                          </CollapsibleTrigger>
+                          <CollapsibleContent className="grid gap-2 pt-1 md:grid-cols-3 md:gap-3">
+                            <div className="grid gap-1.5">
+                              <ShipmentFieldLabel>Lot</ShipmentFieldLabel>
+                              <Input className="h-9 sm:h-10" value={line.lot_number} onChange={(e) => updateLine(line.id, { lot_number: normalizeScannerText(e.target.value) })} />
+                            </div>
+                            <div className="grid gap-1.5">
+                              <ShipmentFieldLabel>Batch</ShipmentFieldLabel>
+                              <Input className="h-9 sm:h-10" value={line.batch_number} onChange={(e) => updateLine(line.id, { batch_number: normalizeScannerText(e.target.value) })} />
+                            </div>
+                            <div className="grid gap-1.5">
+                              <ShipmentFieldLabel>Packaging</ShipmentFieldLabel>
+                              <Select value={line.packaging_profile_id || undefined} onValueChange={(value) => updateLine(line.id, { packaging_profile_id: value })}>
+                                <SelectTrigger className="h-9 sm:h-10"><SelectValue placeholder="Optional" /></SelectTrigger>
+                                <SelectContent>
+                                  {packagingProfiles.length === 0 ? <SelectItem value="__no_packaging" disabled>No packaging profiles</SelectItem> : null}
+                                  {packagingProfiles.filter((profile: any) => Boolean(profile.id)).map((profile: any) => <SelectItem key={profile.id} value={profile.id}>{profile.profile_name}</SelectItem>)}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </CollapsibleContent>
+                        </Collapsible>
                       </div>
                       {remainder > 0 && (
                         <div className="grid gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">

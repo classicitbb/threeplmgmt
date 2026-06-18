@@ -69,6 +69,7 @@
     "sonner": "^1.7.4",
     "tailwind-merge": "^2.6.0",
     "tailwindcss-animate": "^1.0.7",
+    "tesseract.js": "^7.0.0",
     "vaul": "^0.9.9",
     "zod": "^3.25.76"
   },
@@ -82,7 +83,7 @@
     "@types/node": "^22.19.19",
     "@types/react": "^18.3.29",
     "@types/react-dom": "^18.3.7",
-    "@vitejs/plugin-react-swc": "^4.3.1",
+    "@vitejs/plugin-react": "^6.0.2",
     "autoprefixer": "^10.4.21",
     "eslint": "^9.32.0",
     "eslint-plugin-react-hooks": "^5.2.0",

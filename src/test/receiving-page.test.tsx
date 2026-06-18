@@ -38,6 +38,10 @@ const wmsMocks = vi.hoisted(() => {
   };
 });
 
+const aiMocks = vi.hoisted(() => ({
+  getProductPalletQtyHint: vi.fn(async () => null),
+}));
+
 class ResizeObserverStub {
   observe() {}
   unobserve() {}
@@ -55,12 +59,28 @@ vi.mock("@/components/pallet-label-page", () => ({
   },
 }));
 
+vi.mock("@/components/barcode-scan-button", () => ({
+  BarcodeScanButton: ({ title, buttonLabel, onScan }: { title?: string; buttonLabel?: string; onScan: (value: string) => void }) => (
+    <button type="button" aria-label={title} onClick={() => onScan(title === "Scan product" ? "FLOUR" : "MSKU 1234565")}>
+      {buttonLabel ?? title}
+    </button>
+  ),
+}));
+
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({
     profile: { default_warehouse_id: "wh-1" },
     roles: ["warehouse_manager"],
   }),
 }));
+
+vi.mock("@/lib/ai-assist", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/ai-assist")>();
+  return {
+    ...actual,
+    getProductPalletQtyHint: aiMocks.getProductPalletQtyHint,
+  };
+});
 
 vi.mock("@/lib/wms-core", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/wms-core")>();
@@ -83,6 +103,7 @@ describe("ReceivingPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     wmsMocks.listDraftReceipts.mockResolvedValue([]);
+    aiMocks.getProductPalletQtyHint.mockResolvedValue(null);
   });
 
   function renderReceivingPage() {
@@ -97,6 +118,12 @@ describe("ReceivingPage", () => {
     return queryClient;
   }
 
+  async function selectFlourProduct(dialog: HTMLElement) {
+    fireEvent.click(within(dialog).getByRole("combobox", { name: /select sku|FLOUR/i }));
+    const productOption = await screen.findByRole("option", { name: /FLOUR.*Flour/i });
+    fireEvent.click(productOption);
+  }
+
   it("opens the new shipment modal with visible form content", async () => {
     renderReceivingPage();
 
@@ -108,18 +135,130 @@ describe("ReceivingPage", () => {
     expect(screen.getByText("SKU line 1")).toBeInTheDocument();
   });
 
-  it("saves a shipment draft and opens the print dialog for Save & Receive", async () => {
-    wmsMocks.listDraftReceipts.mockResolvedValue([wmsMocks.draft] as never);
+  it("focuses container first, advances to PO, then opens product search on PO Enter", async () => {
     renderReceivingPage();
 
     fireEvent.click(await screen.findByRole("button", { name: /new shipment/i }));
     const dialog = await screen.findByRole("dialog");
-    const textboxes = within(dialog).getAllByRole("textbox");
-    fireEvent.change(textboxes[0], { target: { value: "MSKU1234565" } });
-    fireEvent.change(textboxes[1], { target: { value: "PO-1" } });
-    fireEvent.click(within(dialog).getAllByRole("combobox")[1]);
-    const productMatches = await screen.findAllByText(/FLOUR/i);
-    fireEvent.click(productMatches[productMatches.length - 1]);
+    const containerInput = within(dialog).getByLabelText("Container number");
+    const poInput = within(dialog).getByLabelText("PO number");
+
+    await waitFor(() => expect(containerInput).toHaveFocus());
+
+    fireEvent.change(containerInput, { target: { value: "MSKU1234565" } });
+    await waitFor(() => expect(poInput).toHaveFocus());
+
+    fireEvent.keyDown(poInput, { key: "Enter", code: "Enter" });
+    expect(await screen.findByPlaceholderText(/type sku, name, or scan barcode/i)).toBeInTheDocument();
+  });
+
+  it("places the container scanner left of the input and scan inserts then focuses PO", async () => {
+    renderReceivingPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: /new shipment/i }));
+    const dialog = await screen.findByRole("dialog");
+    const scanButton = within(dialog).getByRole("button", { name: "Scan container number" });
+    const containerInput = within(dialog).getByLabelText("Container number");
+    const poInput = within(dialog).getByLabelText("PO number");
+
+    expect(scanButton).toHaveTextContent("Scan container number");
+    expect(Boolean(scanButton.compareDocumentPosition(containerInput) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+
+    fireEvent.click(scanButton);
+
+    await waitFor(() => expect(containerInput).toHaveDisplayValue("MSKU1234565"));
+    await waitFor(() => expect(poInput).toHaveFocus());
+  });
+
+  it("places the product scanner left of product search", async () => {
+    renderReceivingPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: /new shipment/i }));
+    const dialog = await screen.findByRole("dialog");
+    const scanButton = within(dialog).getByRole("button", { name: "Scan product" });
+    const productSearch = within(dialog).getByRole("combobox", { name: /select sku/i });
+
+    expect(Boolean(scanButton.compareDocumentPosition(productSearch) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+  });
+
+  it("waits for the product commit arrow before moving to Total received", async () => {
+    renderReceivingPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: /new shipment/i }));
+    const dialog = await screen.findByRole("dialog");
+    await waitFor(() => expect(within(dialog).getByLabelText("Container number")).toHaveFocus());
+    await selectFlourProduct(dialog);
+
+    const totalInput = within(dialog).getByLabelText("Total received");
+    const commitButton = within(dialog).getByRole("button", { name: /commit product and move to total received/i });
+    expect(totalInput).not.toHaveFocus();
+    await waitFor(() => expect(commitButton).toHaveFocus());
+    expect(commitButton).toHaveAttribute("data-pending-commit", "true");
+
+    fireEvent.click(commitButton);
+    await waitFor(() => expect(totalInput).toHaveFocus());
+    expect(commitButton).toHaveAttribute("data-pending-commit", "false");
+  });
+
+  it("product scan selects product and focuses the highlighted commit arrow", async () => {
+    renderReceivingPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: /new shipment/i }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Scan product" }));
+
+    const commitButton = within(dialog).getByRole("button", { name: /commit product and move to total received/i });
+    await waitFor(() => expect(commitButton).toHaveFocus());
+    expect(commitButton).toHaveAttribute("data-pending-commit", "true");
+  });
+
+  it("lets operators type multi-digit quantities without resetting to one", async () => {
+    renderReceivingPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: /new shipment/i }));
+    const dialog = await screen.findByRole("dialog");
+    const totalInput = within(dialog).getByLabelText("Total received");
+    const perPalletInput = within(dialog).getByLabelText("Qty per pallet");
+
+    fireEvent.change(totalInput, { target: { value: "" } });
+    expect(totalInput).toHaveDisplayValue("");
+
+    fireEvent.change(totalInput, { target: { value: "100" } });
+    expect(totalInput).toHaveDisplayValue("100");
+    expect(perPalletInput).toHaveDisplayValue("1");
+
+    fireEvent.keyDown(totalInput, { key: "Enter", code: "Enter" });
+    await waitFor(() => expect(perPalletInput).toHaveFocus());
+  });
+
+  it("prefills learned quantity per pallet after one prior product observation", async () => {
+    aiMocks.getProductPalletQtyHint.mockResolvedValueOnce({ suggestedQty: 24, confidence: 0.05, sampleCount: 1 });
+    renderReceivingPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: /new shipment/i }));
+    const dialog = await screen.findByRole("dialog");
+    await selectFlourProduct(dialog);
+
+    await waitFor(() => expect(within(dialog).getByLabelText("Qty per pallet")).toHaveDisplayValue("24"));
+    expect(within(dialog).getByText("Suggested from 1 prior pallet.")).toBeInTheDocument();
+  });
+
+  it("saves a shipment draft and opens the print dialog for Save & Receive", async () => {
+    wmsMocks.listDraftReceipts
+      .mockResolvedValueOnce([] as never)
+      .mockResolvedValue([wmsMocks.draft] as never);
+    renderReceivingPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: /new shipment/i }));
+    const dialog = await screen.findByRole("dialog");
+    const containerInput = within(dialog).getByLabelText("Container number");
+    const poInput = within(dialog).getByLabelText("PO number");
+    fireEvent.change(containerInput, { target: { value: "MSKU1234565" } });
+    await waitFor(() => expect(poInput).toHaveFocus());
+    fireEvent.change(poInput, { target: { value: "PO-1" } });
+    await waitFor(() => expect(poInput).toHaveDisplayValue("PO-1"));
+    await selectFlourProduct(dialog);
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: /commit product and move to total received/i })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: /save & receive/i }));
 
     await waitFor(() => expect(wmsMocks.saveShipmentDrafts).toHaveBeenCalledTimes(1));

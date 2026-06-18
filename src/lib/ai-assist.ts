@@ -107,7 +107,7 @@ function trimSamples(samples: number[]): number[] {
 
 /**
  * Returns the learned pallet quantity suggestion for a product in a warehouse.
- * Returns null if there is not yet enough data (< 3 observations).
+ * Returns null if there is not yet an observation.
  */
 export async function getProductPalletQtyHint(
   productId: string,
@@ -124,11 +124,14 @@ export async function getProductPalletQtyHint(
     console.error("[ai-assist] getProductPalletQtyHint failed:", error);
     return null;
   }
-  if (!data || data.sample_count < 3) return null;
+  if (!data || data.sample_count < 1) return null;
 
   const value = data.hint_value as PalletQtyHintValue;
+  const suggestedQty = Number(value.mode_qty || value.p50_qty || value.samples?.[0] || 0);
+  if (!Number.isFinite(suggestedQty) || suggestedQty <= 0) return null;
+
   return {
-    suggestedQty: value.mode_qty,
+    suggestedQty,
     confidence: Number(data.confidence ?? 0),
     sampleCount: data.sample_count,
   };
