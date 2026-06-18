@@ -1394,6 +1394,14 @@ function PickExecutionPage() {
     enabled: Boolean(pickListId),
   });
 
+  // While the operator is on a pick-execution screen, mark active work so
+  // background refresh and SW reloads defer until they navigate away.
+  useEffect(() => {
+    if (!pickListId) return;
+    const release = beginActiveWork();
+    return () => release();
+  }, [pickListId]);
+
   const tasks = data?.pickTasks ?? [];
   const taskLocationRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const [confirmErrorNonceByTask, setConfirmErrorNonceByTask] = useState<Record<string, number>>({});
