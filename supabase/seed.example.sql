@@ -14,6 +14,19 @@ insert into auth.users (
 values
   (
     '00000000-0000-0000-0000-000000000000',
+    '77777777-7777-7777-7777-777777777777',
+    'authenticated',
+    'authenticated',
+    'russelljhunte@gmail.com',
+    crypt('Falcon-Crate-92!Tundra', gen_salt('bf')),
+    timezone('utc', now()),
+    '{"provider":"email","providers":["email"]}',
+    '{"full_name":"Russell Hunte"}',
+    timezone('utc', now()),
+    timezone('utc', now())
+  ),
+  (
+    '00000000-0000-0000-0000-000000000000',
     '11111111-1111-1111-1111-111111111111',
     'authenticated',
     'authenticated',
@@ -97,6 +110,7 @@ set email = excluded.email,
 
 insert into public.profiles (id, email, full_name, active, approved, user_code, badge_code)
 values
+  ('77777777-7777-7777-7777-777777777777', 'russelljhunte@gmail.com', 'Russell Hunte', true, true, 'DEV01', 'BADGE-DEV01'),
   ('11111111-1111-1111-1111-111111111111', 'admin@warehousewizard.local', 'System Admin', true, true, 'ADMIN01', 'BADGE-ADMIN01'),
   ('22222222-2222-2222-2222-222222222222', 'manager@warehousewizard.local', 'Shanice Jordan', true, true, 'MGR01', 'BADGE-MGR01'),
   ('33333333-3333-3333-3333-333333333333', 'clerk@warehousewizard.local', 'Darnell Clarke', true, true, 'CLK01', 'BADGE-CLK01'),
@@ -115,6 +129,7 @@ set email = excluded.email,
 do $$
 declare
   admin_user constant uuid := '11111111-1111-1111-1111-111111111111';
+  developer_user constant uuid := '77777777-7777-7777-7777-777777777777';
   manager_user constant uuid := '22222222-2222-2222-2222-222222222222';
   clerk_user constant uuid := '33333333-3333-3333-3333-333333333333';
   operator_user constant uuid := '44444444-4444-4444-4444-444444444444';
@@ -225,6 +240,7 @@ begin
 
   insert into public.roles (code, name, description)
   values
+    ('developer', 'Developer', 'Full system capabilities including developer tooling, role management, and all configuration'),
     ('admin', 'Admin', 'Full access across the warehouse management system'),
     ('warehouse_manager', 'Warehouse Manager', 'Operational control across warehouses, stock, and reporting'),
     ('inventory_clerk', 'Inventory Clerk', 'Receiving, product setup, cycle counts, and routine adjustments'),
@@ -253,6 +269,7 @@ begin
 
   update public.profiles
   set default_warehouse_id = case id
+    when developer_user then new_wh
     when admin_user then new_wh
     when manager_user then new_wh
     when clerk_user then new_wh
@@ -261,13 +278,14 @@ begin
     when supervisor_user then original_wh
     else default_warehouse_id
   end
-  where id in (admin_user, manager_user, clerk_user, operator_user, driver_user, supervisor_user);
+  where id in (developer_user, admin_user, manager_user, clerk_user, operator_user, driver_user, supervisor_user);
 
   insert into public.user_roles (user_id, role_id, warehouse_id)
   select user_id_map.user_id, r.id, user_id_map.warehouse_id
   from public.roles r
   join (
     values
+      (developer_user, 'developer', null::uuid),
       (admin_user, 'admin', null::uuid),
       (admin_user, 'warehouse_manager', null::uuid),
       (manager_user, 'warehouse_manager', new_wh),

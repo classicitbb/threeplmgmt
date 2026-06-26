@@ -599,7 +599,7 @@ function RequireAuth({
     return <Navigate to="/login" replace />;
   }
 
-  if (!auth.profile || !auth.profile.approved) {
+  if (!auth.profile || (!auth.profile.approved && !auth.roles.includes("developer"))) {
     return <PendingAccessShell />;
   }
 

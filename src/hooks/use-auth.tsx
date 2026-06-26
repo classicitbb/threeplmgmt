@@ -130,6 +130,25 @@ function buildDemoAuth(email: string) {
   return { session, user, profile, roles: demo.roles };
 }
 
+function normalizeDeveloperAccess(
+  profile: Tables<"profiles"> | null,
+  roles: RoleCode[],
+): Tables<"profiles"> | null {
+  if (!profile || !roles.includes("developer")) {
+    return profile;
+  }
+
+  if (profile.approved === true && profile.active === true) {
+    return profile;
+  }
+
+  return {
+    ...profile,
+    approved: true,
+    active: true,
+  };
+}
+
 async function fetchProfileBundle(userId: string) {
   const [{ data: profile }, { data: roleRows }] = await Promise.all([
     supabase.from("profiles").select("*").eq("id", userId).maybeSingle(),
@@ -174,7 +193,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     }
 
     const bundle = await fetchProfileBundle(currentUser.id);
-    setProfile(bundle.profile);
+    setProfile(normalizeDeveloperAccess(bundle.profile, bundle.roles));
     setRoles(bundle.roles);
   }, [user]);
 
@@ -218,7 +237,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
         if (!mounted) {
           return;
         }
-        setProfile(bundle.profile);
+        setProfile(normalizeDeveloperAccess(bundle.profile, bundle.roles));
         setRoles(bundle.roles);
       }
 
@@ -242,7 +261,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
           if (!mounted) {
             return;
           }
-          setProfile(bundle.profile);
+          setProfile(normalizeDeveloperAccess(bundle.profile, bundle.roles));
           setRoles(bundle.roles);
         })
         .finally(() => {
