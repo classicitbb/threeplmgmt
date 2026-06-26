@@ -2788,7 +2788,7 @@ export function LocationWizardDialog({
   const samplePositions = Math.max(form.watch("positions_per_level") ?? 1, 1);
   const samplePrefix = (form.watch("prefix") || "A").toUpperCase();
   const sampleBay = String(Math.max(form.watch("start_bay") ?? 1, 1)).padStart(2, "0");
-  const sampleLevelSeg = form.watch("level_letters") ? "B" : "L02";
+  const sampleLevelSeg = form.watch("level_style") === "letters" ? "B" : "L02";
   const samplePreview =
     samplePositions > 1
       ? `${samplePrefix}-${sampleBay}-${sampleLevelSeg}-P1`
@@ -2796,7 +2796,7 @@ export function LocationWizardDialog({
 
   const mutation = useMutation({
     mutationFn: async (values: LocationWizardValues) => {
-      const levelStyle: "numeric" | "alpha" = values.level_letters ? "alpha" : "numeric";
+      const levelStyle: "numeric" | "alpha" = values.level_style === "letters" ? "alpha" : "numeric";
 
       // Guard: a zone (and therefore each bay within it) must use a single level
       // style. Different zones in the same warehouse may differ. The DB trigger is
