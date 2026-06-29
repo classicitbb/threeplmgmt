@@ -2719,6 +2719,7 @@ export function LocationWizardDialog({
   defaultZoneId,
 }: LocationWizardDialogProps = {}) {
   const queryClient = useQueryClient();
+  const { profile } = useAuth();
   const { data: options } = useQuery({ queryKey: ["options", "location-wizard"], queryFn: () => fetchOptions() });
   const [internalOpen, setInternalOpen] = useState(false);
   const isControlled = openProp !== undefined;
@@ -2728,10 +2729,31 @@ export function LocationWizardDialog({
     onOpenChange?.(next);
   };
 
+  const resolvedDefaultWarehouseId = useMemo(() => {
+    const warehouses = options?.warehouses ?? [];
+    if (defaultWarehouseId && warehouses.some((warehouse: any) => warehouse.id === defaultWarehouseId)) {
+      return defaultWarehouseId;
+    }
+    const profileWarehouseId = profile?.default_warehouse_id;
+    if (profileWarehouseId && warehouses.some((warehouse: any) => warehouse.id === profileWarehouseId)) {
+      return profileWarehouseId;
+    }
+    return warehouses.length === 1 ? String((warehouses[0] as any).id ?? "") : "";
+  }, [defaultWarehouseId, options?.warehouses, profile?.default_warehouse_id]);
+
+  const resolvedDefaultZoneId = useMemo(() => {
+    if (!resolvedDefaultWarehouseId) return "";
+    const zones = (options?.zones ?? []).filter((zone: any) => zone.warehouse_id === resolvedDefaultWarehouseId);
+    if (defaultZoneId && zones.some((zone: any) => zone.id === defaultZoneId)) {
+      return defaultZoneId;
+    }
+    return zones.length > 0 ? String((zones[0] as any).id ?? "") : "";
+  }, [defaultZoneId, options?.zones, resolvedDefaultWarehouseId]);
+
   const buildDefaults = useCallback(
     (): LocationWizardValues => ({
-      warehouse_id: defaultWarehouseId ?? "",
-      zone_id: defaultZoneId ?? "",
+      warehouse_id: resolvedDefaultWarehouseId,
+      zone_id: resolvedDefaultZoneId,
       prefix: "A",
       start_bay: 1,
       end_bay: 10,
@@ -2745,7 +2767,7 @@ export function LocationWizardDialog({
       mixed_lot_allowed: false,
       level_style: "numeric",
     }),
-    [defaultWarehouseId, defaultZoneId],
+    [resolvedDefaultWarehouseId, resolvedDefaultZoneId],
   );
 
   const form = useForm<LocationWizardValues>({
@@ -2779,6 +2801,14 @@ export function LocationWizardDialog({
     (zone: any) => zone.warehouse_id === selectedWarehouseId,
   );
 
+  useEffect(() => {
+    if (!open || !selectedWarehouseId || form.getValues("zone_id") || filteredZones.length === 0) return;
+    const fallbackZoneId = resolvedDefaultZoneId || String((filteredZones[0] as any).id ?? "");
+    if (fallbackZoneId) {
+      form.setValue("zone_id", fallbackZoneId, { shouldValidate: true });
+    }
+  }, [filteredZones, form, open, resolvedDefaultZoneId, selectedWarehouseId]);
+
   const locationCount =
     Math.max((form.watch("end_bay") ?? 1) - (form.watch("start_bay") ?? 1) + 1, 0) *
     Math.max(form.watch("levels") ?? 1, 1) *
@@ -2797,6 +2827,7 @@ export function LocationWizardDialog({
   const mutation = useMutation({
     mutationFn: async (values: LocationWizardValues) => {
       const levelStyle: "numeric" | "alpha" = values.level_style === "letters" ? "alpha" : "numeric";
+      let hasLevelStyleColumn = true;
 
       // Guard: a zone (and therefore each bay within it) must use a single level
       // style. Different zones in the same warehouse may differ. The DB trigger is
@@ -2804,15 +2835,22 @@ export function LocationWizardDialog({
       const { data: existing, error: existingError } = await (supabase.from as any)("locations")
         .select("level_style, aisle, bay")
         .eq("zone_id", values.zone_id);
-      if (existingError) throw existingError;
-      const styleOf = (row: any): "numeric" | "alpha" => (row?.level_style === "alpha" ? "alpha" : "numeric");
-      const zoneConflict = (existing ?? []).some((row: any) => styleOf(row) !== levelStyle);
-      if (zoneConflict) {
-        const existingLabel = levelStyle === "alpha" ? "numbered (L01, L02\u2026)" : "lettered (A, B, C\u2026)";
-        throw new Error(
-          `This zone already uses ${existingLabel} levels. A zone and its bays must use one level style. ` +
-            `Turn the level-letters switch the other way, or pick a different zone.`,
-        );
+      if (existingError) {
+        const missingLevelStyleColumn =
+          (existingError as { code?: string; message?: string }).code === "42703" &&
+          String((existingError as { message?: string }).message ?? "").includes("level_style");
+        if (!missingLevelStyleColumn) throw existingError;
+        hasLevelStyleColumn = false;
+      } else {
+        const styleOf = (row: any): "numeric" | "alpha" => (row?.level_style === "alpha" ? "alpha" : "numeric");
+        const zoneConflict = (existing ?? []).some((row: any) => styleOf(row) !== levelStyle);
+        if (zoneConflict) {
+          const existingLabel = levelStyle === "alpha" ? "numbered (L01, L02\u2026)" : "lettered (A, B, C\u2026)";
+          throw new Error(
+            `This zone already uses ${existingLabel} levels. A zone and its bays must use one level style. ` +
+              `Turn the level-letters switch the other way, or pick a different zone.`,
+          );
+        }
       }
 
       const expanded = expandLocationRange({
@@ -2832,7 +2870,6 @@ export function LocationWizardDialog({
         bay: row.bay,
         level: row.level,
         position: row.position,
-        level_style: row.levelStyle,
         depth: row.depth,
         max_pallets: row.maxPallets,
         location_type: values.location_type,
@@ -2840,6 +2877,7 @@ export function LocationWizardDialog({
         mixed_sku_allowed: values.mixed_sku_allowed,
         mixed_lot_allowed: values.mixed_lot_allowed,
         status: "active",
+        ...(hasLevelStyleColumn ? { level_style: row.levelStyle } : {}),
       }));
 
       // Skip rows whose code already exists (unique constraint on locations.code).

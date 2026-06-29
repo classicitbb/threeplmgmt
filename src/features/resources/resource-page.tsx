@@ -213,7 +213,7 @@ export function ResourcePage({
   resource: ResourceDefinition;
 }) {
   const navigate = useNavigate();
-  const { roles: viewerRoles } = useAuth();
+  const { roles: viewerRoles, profile } = useAuth();
   const canHardDelete = viewerRoles.some((r) => ["admin", "developer"].includes(r));
   const cascadeSupported = ["warehouses", "zones", "locations", "products", "clients"].includes(resource.table);
   const [includeHidden, setIncludeHidden] = useState(false);
@@ -332,7 +332,7 @@ export function ResourcePage({
   const hasZoneRef = resource.fields.some((f) => f.name === "zone_id");
   const { data: zoneOptions = [] } = useQuery({
     queryKey: ["zones", "options-for-table"],
-    queryFn: () => listRecords("zones", "id, code, name"),
+    queryFn: () => listRecords("zones", "id, code, name, warehouse_id"),
     enabled: hasZoneRef,
   });
   const zoneMap = useMemo(() => {
@@ -349,6 +349,28 @@ export function ResourcePage({
     );
     return map;
   }, [zoneOptions]);
+
+  const locationWizardDefaultWarehouseId = useMemo(() => {
+    if (resource.table !== "locations") return undefined;
+    const rowWarehouseId = (data as Array<Record<string, unknown>>).find((row) => row.warehouse_id)?.warehouse_id;
+    if (rowWarehouseId) return String(rowWarehouseId);
+    const profileWarehouseId = profile?.default_warehouse_id;
+    if (profileWarehouseId && warehouseInfoMap.has(profileWarehouseId)) return profileWarehouseId;
+    if (warehouseOptions.length === 1) return String((warehouseOptions[0] as { id?: string }).id ?? "") || undefined;
+    return undefined;
+  }, [data, profile?.default_warehouse_id, resource.table, warehouseInfoMap, warehouseOptions]);
+
+  const locationWizardDefaultZoneId = useMemo(() => {
+    if (!locationWizardDefaultWarehouseId) return undefined;
+    const rowZoneId = (data as Array<Record<string, unknown>>).find(
+      (row) => row.warehouse_id === locationWizardDefaultWarehouseId && row.zone_id,
+    )?.zone_id;
+    if (rowZoneId) return String(rowZoneId);
+    const zone = (zoneOptions as Array<{ id: string; warehouse_id?: string | null }>).find(
+      (item) => item.warehouse_id === locationWizardDefaultWarehouseId,
+    );
+    return zone?.id;
+  }, [data, locationWizardDefaultWarehouseId, zoneOptions]);
 
   const filteredData = useMemo(() => {
     const q = filterQuery.trim().toLowerCase();
@@ -484,6 +506,8 @@ export function ResourcePage({
                 ) : null}
                 {resource.table === "locations" ? (
                   <LocationWizardDialog
+                    defaultWarehouseId={locationWizardDefaultWarehouseId}
+                    defaultZoneId={locationWizardDefaultZoneId}
                     trigger={
                       <DropdownMenuItem onSelect={(event) => event.preventDefault()}>
                         <MapPinned className="mr-2 h-4 w-4" />
@@ -567,7 +591,12 @@ export function ResourcePage({
                 </Button>
               ) : null}
               {resource.importable ? <ImportButton resource={resource} /> : null}
-              {resource.table === "locations" ? <LocationWizardDialog /> : null}
+              {resource.table === "locations" ? (
+                <LocationWizardDialog
+                  defaultWarehouseId={locationWizardDefaultWarehouseId}
+                  defaultZoneId={locationWizardDefaultZoneId}
+                />
+              ) : null}
               <ResourceFormDialog resource={resource} />
             </>
           )}
