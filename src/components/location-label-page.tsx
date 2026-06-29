@@ -9,6 +9,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { displayRackLocationCode } from "@/features/setup/setup-core";
 
 interface LocationLabelPageProps {
   code: string;
@@ -80,9 +81,11 @@ export function LocationLabelPage(props: LocationLabelPageProps) {
   const warehousePrefix = String(warehouseCode ?? "").trim();
   const zonePrefix = String(zoneCode ?? "").trim();
   const fullCodePrefix = warehousePrefix && zonePrefix ? `${warehousePrefix}-${zonePrefix}-` : "";
-  const fullCode = fullCodePrefix && !code.toUpperCase().startsWith(fullCodePrefix.toUpperCase())
-    ? `${fullCodePrefix}${code}`
-    : code;
+  const rawCode = String(code ?? "").trim();
+  const unprefixedCode = fullCodePrefix && rawCode.toUpperCase().startsWith(fullCodePrefix.toUpperCase())
+    ? rawCode.slice(fullCodePrefix.length)
+    : rawCode;
+  const labelCode = displayRackLocationCode(unprefixedCode);
   const locationParts = [
     aisle ? `Aisle ${aisle}` : null,
     bay ? `Bay ${bay}` : null,
@@ -99,7 +102,7 @@ export function LocationLabelPage(props: LocationLabelPageProps) {
     win.document.write(`<!DOCTYPE html>
 <html>
 <head>
-  <title>Location Label — ${escapeHtml(fullCode)}</title>
+  <title>Location Label — ${escapeHtml(labelCode)}</title>
   <meta charset="utf-8" />
   <style>
     @page { size: 114.3mm 50.8mm landscape; margin: 0; }
@@ -127,7 +130,7 @@ export function LocationLabelPage(props: LocationLabelPageProps) {
 </head>
 <body>
   <div class="meta">
-    <span class="location-code">${escapeHtml(fullCode)}</span>
+    <span class="location-code">${escapeHtml(labelCode)}</span>
     <div class="badges">
       <span class="badge temp-badge">${escapeHtml(tempLabel)}</span>
       ${typeLabel ? `<span class="badge type-badge">${escapeHtml(typeLabel)}</span>` : ""}
@@ -154,12 +157,12 @@ export function LocationLabelPage(props: LocationLabelPageProps) {
       </DialogTrigger>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle>Location Label — {fullCode}</DialogTitle>
+          <DialogTitle>Location Label — {labelCode}</DialogTitle>
         </DialogHeader>
 
         {/* Hidden machine-code render target for print capture */}
         <div id={`__loc-machine-${code}`} className="sr-only" aria-hidden>
-          <MachineCodePreview code={fullCode} />
+          <MachineCodePreview code={labelCode} />
         </div>
 
         {/* Preview */}
@@ -168,7 +171,7 @@ export function LocationLabelPage(props: LocationLabelPageProps) {
           style={{ fontFamily: "system-ui, sans-serif", aspectRatio: "2.25 / 1", gridTemplateColumns: "minmax(0, 1fr) 30%" }}
         >
           <div className="flex min-w-0 flex-col justify-center gap-2 border-l-8 pl-3" style={{ borderColor: accentColor }}>
-            <span className="break-words text-xl font-extrabold leading-tight tracking-tight">{fullCode}</span>
+            <span className="break-words text-xl font-extrabold leading-tight tracking-tight">{labelCode}</span>
             <div className="flex flex-wrap items-center gap-1">
               <span className="rounded-full px-2 py-0.5 text-[10px] font-semibold text-white whitespace-nowrap" style={{ background: accentColor }}>
                 {tempLabel}
@@ -190,7 +193,7 @@ export function LocationLabelPage(props: LocationLabelPageProps) {
             </p> : null}
           </div>
           <div className="flex items-center justify-center">
-            <MachineCodePreview code={fullCode} size={128} />
+            <MachineCodePreview code={labelCode} size={128} />
           </div>
         </div>
 

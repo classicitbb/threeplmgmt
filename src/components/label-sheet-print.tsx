@@ -21,6 +21,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
+import { displayRackLocationCode } from "@/features/setup/setup-core";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -95,6 +96,10 @@ function renderQrSvg(value: string) {
   return renderToStaticMarkup(<QRCodeSVG value={value} size={256} level="M" />);
 }
 
+function locationPrintCode(item: LabelSheetItem) {
+  return displayRackLocationCode(String(item.code ?? "").trim());
+}
+
 function accentFor(item: LabelSheetItem) {
   return TEMP_COLOURS[String(item.temperatureClass ?? "ambient")] ?? TEMP_COLOURS.ambient;
 }
@@ -162,11 +167,12 @@ function locationLabelHtml(item: LabelSheetItem) {
   const temp   = TEMP_LABELS[String(item.temperatureClass ?? "ambient")] ?? "Ambient";
   const type   = item.locationType ? (TYPE_LABELS[item.locationType] ?? item.locationType) : null;
   const parts  = locationLine(item);
-  const qr     = renderQrSvg(item.code);
+  const code   = locationPrintCode(item);
+  const qr     = renderQrSvg(code);
   return `
     <div class="loc">
       <div class="loc-meta" style="border-color:${accent}">
-        <div class="loc-code">${escapeHtml(item.code)}</div>
+        <div class="loc-code">${escapeHtml(code)}</div>
         <div class="loc-badges">
           <span class="badge tbadge" style="background:${accent}">${escapeHtml(temp)}</span>
           ${type ? `<span class="badge ybadge" style="border-color:${accent};color:${accent}">${escapeHtml(type)}</span>` : ""}

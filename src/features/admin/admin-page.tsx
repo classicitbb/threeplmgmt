@@ -1301,6 +1301,15 @@ export function SettingsPage() {
               </div>
               {[
                 {
+                  version: "1.23",
+                  date: "June 2026",
+                  changes: [
+                    "Location Labels: printed and previewed location labels now show only the local rack-bay-level code, while warehouse, zone, aisle, bay, level, type, and temperature remain available as label context",
+                    "Bin Locations: single-position rack labels omit the unnecessary P1 suffix; P1/P2 remains available only when a bay-level has multiple side-by-side positions",
+                    "Settings: creation workflows were QA checked in external Chrome with direct typed input rather than clipboard-based browser filling",
+                  ],
+                },
+                {
                   version: "1.22",
                   date: "June 2026",
                   changes: [
