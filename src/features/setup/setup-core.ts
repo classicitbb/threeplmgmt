@@ -272,7 +272,14 @@ export function expandLocationRange(input: LocationRangeInput): ExpandedLocation
           position,
           depth,
           maxPallets: depth,
-          localCode: `${input.prefix}-${String(bay).padStart(2, "0")}-${levelSegment}-P${position}`,
+          localCode: buildRackLocationCode({
+            rack: input.prefix,
+            bay,
+            level,
+            position,
+            levelStyle,
+            hasPosition: positions > 1,
+          }),
           levelStyle,
         });
       }
@@ -289,14 +296,14 @@ export interface RackLocationParts {
   position: number;
   /** Style the level segment was written in / should be rendered in. Defaults to numeric. */
   levelStyle?: LevelStyle;
-  /** Whether the code carries an explicit -P# position segment. Defaults to true. */
+  /** Whether the code carries an explicit -P# position segment. Defaults to position > 1. */
   hasPosition?: boolean;
 }
 
 function formatRackPositionCode(parts: RackLocationParts): string {
   const style: LevelStyle = parts.levelStyle === "alpha" ? "alpha" : "numeric";
   const base = `${parts.rack.toUpperCase()}-${String(parts.bay).padStart(2, "0")}-${formatLevelSegment(parts.level, style)}`;
-  const includePosition = parts.hasPosition ?? true;
+  const includePosition = parts.hasPosition ?? parts.position > 1;
   return includePosition ? `${base}-P${parts.position}` : base;
 }
 

@@ -707,7 +707,7 @@ function RackLocationCodeBuilder({
   const { data: existingAtPrefix = [] } = useQuery({
     queryKey: ["locations-prefix", prefixKey],
     queryFn: async () => {
-      const { data } = await supabase.from("locations").select("code").ilike("code", `${prefixKey}-%`);
+      const { data } = await supabase.from("locations").select("code").ilike("code", `${prefixKey}%`);
       return (data ?? []).map((r: any) => String(r.code));
     },
     enabled: Boolean(rack && aisle && bay && level),
@@ -2881,12 +2881,21 @@ export function LocationWizardDialog({
       }));
 
       // Skip rows whose code already exists (unique constraint on locations.code).
+      const candidateCodes = Array.from(new Set(rows.flatMap((row) => (
+        row.position === 1 && !String(row.code).match(/-P\d+$/i)
+          ? [row.code, `${row.code}-P1`]
+          : [row.code]
+      ))));
       const { data: existingRows } = await supabase
         .from("locations")
         .select("code")
-        .in("code", rows.map((r) => r.code));
-      const existingCodes = new Set((existingRows ?? []).map((r: any) => r.code));
-      const toInsert = rows.filter((r) => !existingCodes.has(r.code));
+        .in("code", candidateCodes);
+      const existingCodes = new Set((existingRows ?? []).map((r: any) => String(r.code).toUpperCase()));
+      const toInsert = rows.filter((row) => {
+        const code = String(row.code).toUpperCase();
+        const legacyP1 = row.position === 1 && !code.match(/-P\d+$/i) ? `${code}-P1` : "";
+        return !existingCodes.has(code) && (!legacyP1 || !existingCodes.has(legacyP1));
+      });
 
       let created = 0;
       if (toInsert.length > 0) {

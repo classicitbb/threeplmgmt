@@ -100,6 +100,19 @@ describe("expandLocationRange", () => {
     expect(rows.every((r) => r.maxPallets === 4 && r.depth === 4)).toBe(true);
   });
 
+  it("omits the position segment when each bay-level has one position", () => {
+    const rows = expandLocationRange({
+      prefix: "A",
+      startBay: 1,
+      endBay: 1,
+      levels: 2,
+      positionsPerLevel: 1,
+      depth: 2,
+    });
+    expect(rows.map((r) => r.localCode)).toEqual(["A-01-L01", "A-01-L02"]);
+    expect(rows.every((r) => r.position === 1)).toBe(true);
+  });
+
   it("clamps positions to 1–3 and levels to 1–6", () => {
     const rows = expandLocationRange({
       prefix: "B",
@@ -137,7 +150,8 @@ describe("expandLocationRange", () => {
 
 describe("rack location codes", () => {
   it("builds and normalizes four-code rack labels", () => {
-    expect(buildRackLocationCode({ rack: "A", aisle: 1, bay: 5, level: 5, position: 1 })).toBe("A-05-L05-P1");
+    expect(buildRackLocationCode({ rack: "A", aisle: 1, bay: 5, level: 5, position: 1 })).toBe("A-05-L05");
+    expect(buildRackLocationCode({ rack: "A", aisle: 1, bay: 5, level: 5, position: 1, hasPosition: true })).toBe("A-05-L05-P1");
     expect(normalizeRackLocationCode("WH3-A-1-05-L05-P1")).toBe("A-05-L05-P1");
   });
 

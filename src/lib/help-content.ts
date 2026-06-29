@@ -605,7 +605,7 @@ export const helpArticles: HelpArticle[] = [
     keywords: ["labels", "printing", "barcode", "qr", "reprint", "pallet label", "location label", "bay label", "zone label"],
     sections: [
       { title: "When Labels Matter", content: ["Labels connect the physical pallet, location, zone, or warehouse sign to the system record operators scan.", "Print labels immediately after receiving or master-data setup so the next workflow does not depend on hand-written identifiers."] },
-      { title: "Location and Bay Labels", content: ["Per-row rack location labels use the short location code such as A-05-L05-P1 because the warehouse is already selected and aisle remains structured context.", "Bay code labels remove the level and position so scanning the bay opens the bay grid. Bay and zone aisle sheets print on Avery 99 x 93 mm labels."] },
+      { title: "Location and Bay Labels", content: ["Per-row rack location labels use the short location code such as A-05-L05 for a single-position bay-level, or A-05-L05-P1/P2 when two side-by-side positions exist.", "Bay code labels remove the level and position so scanning the bay opens the bay grid. Bay and zone aisle sheets print on Avery 99 x 93 mm labels."] },
       { title: "Reprint Rules", content: ["Reprint when a barcode is damaged, unreadable, or missing; do not create a new pallet or location just to replace a label.", "If a location code is intentionally changed, reprint the physical label before sending operators to that rack."] },
     ],
   },
@@ -637,7 +637,7 @@ export const helpArticles: HelpArticle[] = [
     keywords: ["bin locations", "generation", "aisles", "bays", "levels", "capacity"],
     sections: [
       { title: "Templates", content: ["Location templates generate consistent codes and capacities across a zone. Codes should be readable in the aisle and sortable in the system.", "Rack location scan strings now store rack, bay, level, and position only. Warehouse, zone, and aisle remain structured fields used for filtering, bay selection, and warehouse layout."] },
-      { title: "Rack and Bay Codes", content: ["Rack labels identify the exact rack cell using codes such as A-05-L05-P1. The pick instruction still says the aisle in plain language when aisle helps the operator orient on the floor.", "Bay labels remove the level and position so scanning the bay code opens a selector for every active location in that bay. The selector still uses aisle, bay, level, depth, capacity, and status fields."] },
+      { title: "Rack and Bay Codes", content: ["Rack labels identify the exact rack cell using codes such as A-05-L05 for a single-position bay-level. P1/P2 is only included when a bay-level has two side-by-side positions. The pick instruction still says the aisle in plain language when aisle helps the operator orient on the floor.", "Bay labels remove the level and position so scanning the bay code opens a selector for every active location in that bay. The selector still uses aisle, bay, level, depth, capacity, and status fields."] },
       { title: "Import Template", content: ["Use the CSV template for bulk location creation when you already know the warehouse and zone IDs. Required fields prevent partial locations from entering directed work.", "Sequence fields should reflect walking and travel paths. Good sequencing removes motion waste by guiding put-away and picking through a sensible route."] },
     ],
     acronyms: {
