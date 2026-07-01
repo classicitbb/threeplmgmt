@@ -3,7 +3,7 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $root
 
-$port = if ($env:WAREHOUSE_WIZARD_PORT) { [int]$env:WAREHOUSE_WIZARD_PORT } else { 8080 }
+$port = if ($env:WAREHOUSE_WIZARD_PORT) { [int]$env:WAREHOUSE_WIZARD_PORT } else { 8088 }
 $url = "http://localhost:$port/"
 
 function Test-PortOpen {

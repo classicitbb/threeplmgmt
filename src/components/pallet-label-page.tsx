@@ -1,16 +1,18 @@
 import { QRCodeSVG } from "qrcode.react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { Printer } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
 
-interface PalletLabelPageProps {
+export interface PalletLabelPageProps {
   barcode: string;
   productSku?: string;
   productName?: string;
@@ -55,6 +57,18 @@ function hasValue(value: unknown) {
   return value != null && String(value).trim() !== "";
 }
 
+function formatLongDate(value: unknown) {
+  if (!hasValue(value)) return EMPTY_VALUE;
+  const raw = String(value).trim();
+  const parsed = raw.length === 10 ? new Date(`${raw}T00:00:00`) : new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return displayValue(value);
+  return new Intl.DateTimeFormat(undefined, { dateStyle: "long" }).format(parsed);
+}
+
+function formatPrintTimestamp(value: Date = new Date()) {
+  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(value);
+}
+
 function escapeHtml(value: unknown) {
   return displayValue(value)
     .replace(/&/g, "&amp;")
@@ -64,11 +78,21 @@ function escapeHtml(value: unknown) {
     .replace(/'/g, "&#39;");
 }
 
-function FieldBlock({ label, value, highlight }: { label: string; value: unknown; highlight?: boolean }) {
+function FieldBlock({
+  label,
+  value,
+  highlight,
+  valueClassName = "",
+}: {
+  label: string;
+  value: unknown;
+  highlight?: boolean;
+  valueClassName?: string;
+}) {
   return (
-    <div className={highlight ? "rounded-md border border-amber-500 bg-amber-50 px-3 py-2" : "rounded-md border border-slate-300 bg-white/70 px-3 py-2"}>
+    <div className={highlight ? "rounded-md border border-amber-500 bg-amber-50 px-3 py-2" : "rounded-md border border-slate-300 bg-white/80 px-3 py-2"}>
       <p className={highlight ? "text-[10px] font-bold uppercase tracking-wide text-amber-700" : "text-[10px] font-bold uppercase tracking-wide text-slate-500"}>{label}</p>
-      <p className="mt-1 min-h-5 break-words text-sm font-semibold text-slate-950">{displayValue(value)}</p>
+      <p className={`mt-1 min-h-5 break-words text-sm font-semibold text-slate-950 ${valueClassName}`}>{displayValue(value)}</p>
     </div>
   );
 }
@@ -78,12 +102,11 @@ function BarcodePreview({ code, size = 220 }: { code: string; size?: number }) {
   return (
     <div className="flex flex-col items-center gap-2">
       <QRCodeSVG value={code} size={size} bgColor="#ffffff" fgColor="#000000" level="H" />
-      <p className="font-mono text-sm font-semibold tracking-wider text-black">{code}</p>
     </div>
   );
 }
 
-export function PalletLabelPage(props: PalletLabelPageProps) {
+function getPalletLabelModel(props: PalletLabelPageProps) {
   const {
     barcode,
     productSku,
@@ -95,48 +118,37 @@ export function PalletLabelPage(props: PalletLabelPageProps) {
     containerNumber,
     poNumber,
     clientName,
-    warehouseName,
-    locationCode,
     receiptReference,
     packaging,
     draftSequence,
     draftCount,
     temperatureClass = "ambient",
-    trigger,
-    onPrinted,
   } = props;
 
   const accentColor = TEMP_COLOURS[temperatureClass] ?? TEMP_COLOURS.ambient;
   const tempLabel = TEMP_LABELS[temperatureClass] ?? temperatureClass;
   const safeBarcode = displayValue(barcode);
+  const displayExpiry = formatLongDate(expiryDate);
   const draftPosition = hasValue(draftSequence) && hasValue(draftCount) ? `${draftSequence}/${draftCount}` : draftSequence;
-  const fields = ([
-    ["Pallet barcode", safeBarcode],
-    ["Temperature", tempLabel],
-    ["SKU", productSku],
-    ["Product", productName],
-    ["Quantity", quantity],
-    ["Expiry", expiryDate],
-    ["Lot", lotNumber],
-    ["Batch", batchNumber],
-    ["Container", containerNumber],
-    ["PO", poNumber],
-    ["Client", clientName],
-    ["Warehouse", warehouseName],
-    ["Location", locationCode],
-    ["Receipt", receiptReference],
-    ["Packaging", packaging],
-    ["Draft", draftPosition],
-  ] as Array<[string, unknown]>).filter(([label, value]) => label === "Pallet barcode" || hasValue(value));
+  const detailBits = [
+    containerNumber ? `Container ${containerNumber}` : null,
+    poNumber ? `PO ${poNumber}` : null,
+    clientName ? `Client ${clientName}` : null,
+    lotNumber ? `Lot ${lotNumber}` : null,
+    batchNumber ? `Batch ${batchNumber}` : null,
+    packaging ? `Packaging ${packaging}` : null,
+    draftPosition ? `Draft ${draftPosition}` : null,
+  ].filter(Boolean) as string[];
+  const qrMarkup = renderToStaticMarkup(<QRCodeSVG value={safeBarcode} size={220} bgColor="#ffffff" fgColor="#000000" level="H" />);
 
-  function handlePrint() {
-    const barcodeEl = document.getElementById(`__pl-bc-${barcode}`);
-    const barcodeSvg = barcodeEl?.innerHTML ?? "";
+  return { accentColor, tempLabel, safeBarcode, displayExpiry, detailBits, qrMarkup };
+}
 
-    const win = window.open("", "_blank", "width=900,height=1100");
-    if (!win) return;
+export function buildPalletLabelPrintHtml(props: PalletLabelPageProps, printTimestamp = formatPrintTimestamp()) {
+  const { productSku, productName, quantity, receiptReference } = props;
+  const { accentColor, tempLabel, safeBarcode, displayExpiry, detailBits, qrMarkup } = getPalletLabelModel(props);
 
-    win.document.write(`<!DOCTYPE html>
+  return `<!DOCTYPE html>
 <html>
 <head>
   <title>Pallet Label — ${escapeHtml(safeBarcode)}</title>
@@ -144,70 +156,107 @@ export function PalletLabelPage(props: PalletLabelPageProps) {
   <style>
     @page { size: auto; margin: 0; }
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    html, body { width: 100%; min-height: 100%; background: #fff; }
-    body {
-      font-family: system-ui, -apple-system, sans-serif;
-      color: #000;
+    html, body { width: 100%; height: 100%; background: #fff; overflow: hidden; }
+    body { font-family: system-ui, -apple-system, sans-serif; color: #000; }
+    .page-fit {
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      background: #fff;
     }
     .sheet {
-      width: 8.5in;
-      min-height: 11in;
-      padding: 0.45in;
+      width: min(101.6mm, 100vw, calc(100vh * 2 / 3));
+      height: min(152.4mm, 100vh, calc(100vw * 3 / 2));
+      padding: min(5.5mm, 1.4cqw);
       display: flex;
       flex-direction: column;
-      gap: 0.22in;
+      gap: min(4mm, 1.15cqh);
       background: #ffffff;
-      border: 0.08in solid ${accentColor};
+      border: min(1.25mm, 0.35cqw) solid ${accentColor};
+      container-type: size;
+      overflow: hidden;
     }
-    .accent-bar { width: 100%; height: 0.08in; background: ${accentColor}; border-radius: 999px; }
-    .header { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.25in; }
-    .title { font-size: 16pt; font-weight: 800; text-transform: uppercase; color: ${accentColor}; }
-    .pallet-code { font-size: 42pt; font-weight: 900; letter-spacing: 0.01em; line-height: 1; }
-    .temp-badge { font-size: 14pt; font-weight: 800; padding: 0.08in 0.18in; border-radius: 999px; background: ${accentColor}; color: #fff; white-space: nowrap; }
-    .field-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.14in; }
-    .field { border: 1px solid #94a3b8; border-radius: 0.06in; background: rgba(255,255,255,0.75); padding: 0.1in; min-height: 0.62in; }
+    .accent-bar { width: 100%; height: min(3mm, 2cqh); background: ${accentColor}; border-radius: 999px; }
+    .header { display: flex; align-items: flex-start; justify-content: space-between; gap: min(6mm, 4cqw); }
+    .title { font-size: min(14pt, 3.5cqw); font-weight: 900; text-transform: uppercase; color: ${accentColor}; }
+    .pallet-code { font-size: min(29pt, 7.2cqw, 5.4cqh); font-weight: 900; letter-spacing: 0.01em; line-height: 1.05; word-break: break-word; }
+    .temp-badge { font-size: min(9.5pt, 2.4cqw); font-weight: 800; padding: min(2mm, 0.9cqh) min(4mm, 2.2cqw); border-radius: 999px; background: ${accentColor}; color: #fff; white-space: nowrap; }
+    .detail-line { font-size: min(8.5pt, 2.15cqw); color: #475569; line-height: 1.35; overflow-wrap: anywhere; }
+    .detail-line strong { color: #0f172a; }
+    .field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: min(2.5mm, 1.4cqh); }
+    .field { border: 1px solid #94a3b8; border-radius: min(1.8mm, 0.6cqw); background: rgba(255,255,255,0.9); padding: min(2.8mm, 1.7cqw); min-height: min(17mm, 11cqh); overflow: hidden; }
     .field.expiry { border-color: #f59e0b; background: #fffbeb; }
-    .field-label { color: #475569; text-transform: uppercase; font-size: 8.5pt; font-weight: 800; letter-spacing: 0.05em; }
+    .field-label { color: #475569; text-transform: uppercase; font-size: min(7.5pt, 1.9cqw); font-weight: 900; letter-spacing: 0.06em; }
     .field.expiry .field-label { color: #92400e; }
-    .field-value { margin-top: 0.05in; font-size: 14pt; line-height: 1.2; font-weight: 750; overflow-wrap: anywhere; }
-    .barcode-section { margin-top: auto; border: 2px solid ${accentColor}; background: #fff; border-radius: 0.08in; padding: 0.2in; }
-    .barcode-label { color: #475569; text-transform: uppercase; font-size: 9pt; font-weight: 800; letter-spacing: 0.05em; text-align: center; }
-    .barcode-wrap { display: flex; flex-direction: column; justify-content: center; align-items: center; min-height: 2.6in; padding-top: 0.12in; gap: 0.08in; }
-    .barcode-wrap svg { width: 2.4in; height: 2.4in; }
-    .barcode-text { font-family: 'Courier New', monospace; font-size: 16pt; font-weight: 800; letter-spacing: 0.04em; }
-    .footer { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #94a3b8; padding-top: 0.14in; }
-    .footer-text { font-size: 9pt; color: #475569; font-weight: 650; }
+    .field-value { margin-top: min(1.5mm, 0.9cqh); font-size: min(12.5pt, 3.2cqw); line-height: 1.2; font-weight: 750; overflow-wrap: anywhere; }
+    .field-value.expiry { font-size: min(14pt, 3.5cqw); font-weight: 900; letter-spacing: 0.01em; }
+    .barcode-section { margin-top: auto; border: min(1mm, 0.28cqw) solid ${accentColor}; background: #fff; border-radius: min(2mm, 0.7cqw); padding: min(4mm, 1.9cqh) min(3.5mm, 2.1cqw) min(3mm, 1.6cqh); display: flex; flex-direction: column; align-items: center; gap: min(1.5mm, 0.8cqh); overflow: hidden; }
+    .barcode-label { color: #475569; text-transform: uppercase; font-size: min(7.5pt, 1.9cqw); font-weight: 900; letter-spacing: 0.06em; text-align: center; }
+    .barcode-wrap { display: flex; flex-direction: column; justify-content: center; align-items: center; gap: min(1mm, 0.6cqh); }
+    .barcode-wrap svg { width: min(45mm, 52cqw, 31cqh); height: min(45mm, 52cqw, 31cqh); }
+    .barcode-text { font-family: 'Courier New', monospace; font-size: min(12.5pt, 3.1cqw); font-weight: 800; letter-spacing: 0.03em; }
+    .receipt-text { font-size: min(7.5pt, 1.9cqw); color: #475569; font-weight: 700; text-align: center; overflow-wrap: anywhere; }
+    .footer { display: flex; justify-content: space-between; align-items: center; gap: min(2mm, 1.2cqw); border-top: 0.5px solid #94a3b8; padding-top: min(2mm, 1.1cqh); flex-wrap: wrap; }
+    .footer-text { font-size: min(7.5pt, 1.85cqw); color: #475569; font-weight: 700; }
     @media print {
       body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      .sheet { width: 100vw; min-height: 100vh; }
     }
   </style>
 </head>
 <body>
-  <div class="sheet">
-    <div class="accent-bar"></div>
-    <div class="header">
-      <div>
-        <div class="title">Pallet Label</div>
-        <div class="pallet-code">${escapeHtml(safeBarcode)}</div>
+  <div class="page-fit">
+    <div class="sheet">
+      <div class="accent-bar"></div>
+      <div class="header">
+        <div>
+          <div class="title">Pallet Label</div>
+          <div class="pallet-code">${escapeHtml(safeBarcode)}</div>
+        </div>
+        <span class="temp-badge">${escapeHtml(tempLabel)}</span>
       </div>
-      <span class="temp-badge">${escapeHtml(tempLabel)}</span>
-    </div>
-    <div class="field-grid">
-      ${fields.map(([label, value]) => `<div class="field${label === "Expiry" ? " expiry" : ""}"><div class="field-label">${escapeHtml(label)}</div><div class="field-value">${escapeHtml(value)}</div></div>`).join("")}
-    </div>
-    <div class="barcode-section">
-      <div class="barcode-label">Scan QR code</div>
-      <div class="barcode-wrap">${barcodeSvg}<div class="barcode-text">${escapeHtml(safeBarcode)}</div></div>
-    </div>
-    <div class="footer">
-      <span class="footer-text">Warehouse Wizard</span>
-      <span class="footer-text">${escapeHtml(new Date().toLocaleString())}</span>
+      ${detailBits.length > 0 ? `<div class="detail-line">${detailBits.map((part) => `<span>${escapeHtml(part)}</span>`).join(" <strong>·</strong> ")}</div>` : ""}
+      <div class="field-grid">
+        <div class="field"><div class="field-label">SKU</div><div class="field-value">${escapeHtml(productSku)}</div></div>
+        <div class="field"><div class="field-label">Product</div><div class="field-value">${escapeHtml(productName)}</div></div>
+        <div class="field"><div class="field-label">Quantity</div><div class="field-value">${escapeHtml(quantity)}</div></div>
+        <div class="field expiry"><div class="field-label">Expiry</div><div class="field-value expiry">${escapeHtml(displayExpiry)}</div></div>
+      </div>
+      <div class="barcode-section">
+        <div class="barcode-label">Scan QR code</div>
+        <div class="barcode-wrap">${qrMarkup}</div>
+        ${hasValue(receiptReference) ? `<div class="receipt-text">Receipt ${escapeHtml(receiptReference)}</div>` : ""}
+      </div>
+      <div class="footer">
+        <span class="footer-text">Warehouse Wizard</span>
+        <span class="footer-text">${escapeHtml(printTimestamp)}</span>
+        <span class="footer-text">v${escapeHtml(__APP_VERSION__)}</span>
+      </div>
     </div>
   </div>
   <script>window.onload=()=>{window.print();window.close();}<\/script>
 </body>
-</html>`);
+</html>`;
+}
+
+export function PalletLabelPage(props: PalletLabelPageProps) {
+  const {
+    barcode,
+    productSku,
+    productName,
+    quantity,
+    receiptReference,
+    trigger,
+    onPrinted,
+  } = props;
+  const { accentColor, tempLabel, safeBarcode, displayExpiry, detailBits } = getPalletLabelModel(props);
+
+  function handlePrint() {
+    const win = window.open("", "_blank", "width=900,height=1100");
+    if (!win) return;
+
+    win.document.write(buildPalletLabelPrintHtml(props));
     win.document.close();
     void Promise.resolve(onPrinted?.());
   }
@@ -225,47 +274,57 @@ export function PalletLabelPage(props: PalletLabelPageProps) {
       <DialogContent className="max-h-[92vh] overflow-hidden sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>Pallet Label — {barcode}</DialogTitle>
+          <DialogDescription>Review the label layout before printing to the Zebra ZD421.</DialogDescription>
         </DialogHeader>
-
-        {/* Hidden barcode render target for print capture */}
-        <div id={`__pl-bc-${barcode}`} className="sr-only" aria-hidden>
-          <BarcodePreview code={barcode} />
-        </div>
 
         {/* Preview */}
         <div className="max-h-[68vh] overflow-auto rounded-lg bg-muted/30 p-3">
           <div
-            className="mx-auto flex aspect-[8.5/11] w-full max-w-[520px] flex-col gap-3 rounded-lg border-[6px] bg-white p-5 text-black shadow-sm"
+            className="mx-auto flex aspect-[2/3] w-full max-w-[380px] flex-col gap-3 rounded-lg border-[4px] bg-white p-4 text-black shadow-sm"
             style={{ borderColor: accentColor, fontFamily: "system-ui, sans-serif" }}
           >
-            <div className="h-2 w-full rounded-full" style={{ background: accentColor }} />
+            <div className="h-1.5 w-full rounded-full" style={{ background: accentColor }} />
 
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <p className="text-xs font-extrabold uppercase tracking-wide" style={{ color: accentColor }}>
+                <p className="text-[10px] font-extrabold uppercase tracking-[0.18em]" style={{ color: accentColor }}>
                   Pallet Label
                 </p>
-                <p className="break-words text-3xl font-black leading-tight tracking-tight">{safeBarcode}</p>
+                <p className="break-words text-[1.85rem] font-black leading-tight tracking-tight">{safeBarcode}</p>
               </div>
               <span
-                className="shrink-0 rounded-full px-3 py-1 text-xs font-bold text-white"
+                className="shrink-0 rounded-full px-3 py-1 text-[10px] font-bold text-white"
                 style={{ background: accentColor }}
               >
                 {displayValue(tempLabel)}
               </span>
             </div>
 
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-              {fields.map(([label, value]) => (
-                <FieldBlock key={label} label={label} value={value} highlight={label === "Expiry"} />
-              ))}
+            {detailBits.length > 0 && (
+              <p className="text-[11px] leading-4 text-slate-600">
+                {detailBits.join(" · ")}
+              </p>
+            )}
+
+            <div className="grid grid-cols-2 gap-2">
+              <FieldBlock label="SKU" value={productSku} />
+              <FieldBlock label="Product" value={productName} />
+              <FieldBlock label="Quantity" value={quantity} />
+              <FieldBlock label="Expiry" value={displayExpiry} highlight valueClassName="text-[15px] font-black tracking-wide" />
             </div>
 
             <div className="mt-auto rounded-md border-2 bg-white p-3" style={{ borderColor: accentColor }}>
-              <p className="text-center text-[10px] font-bold uppercase tracking-wide text-slate-500">Scan barcode</p>
-              <div className="flex justify-center py-3">
-                <BarcodePreview code={barcode} />
+              <p className="text-center text-[10px] font-bold uppercase tracking-wide text-slate-500">Scan QR code</p>
+              <div className="flex justify-center py-2">
+                <BarcodePreview code={barcode} size={150} />
               </div>
+              {hasValue(receiptReference) ? <p className="text-center text-[10px] font-semibold text-slate-500">Receipt {receiptReference}</p> : null}
+            </div>
+
+            <div className="grid grid-cols-3 gap-2 border-t border-slate-300 pt-2 text-[9px] font-semibold text-slate-500">
+              <span className="truncate">Warehouse Wizard</span>
+              <span className="truncate text-center">{formatPrintTimestamp()}</span>
+              <span className="truncate text-right">v{__APP_VERSION__}</span>
             </div>
           </div>
         </div>

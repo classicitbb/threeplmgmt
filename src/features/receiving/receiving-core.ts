@@ -370,9 +370,13 @@ export async function saveDraftReceipt(values: z.infer<typeof receivingSchema>):
 
 export async function saveShipmentDrafts(input: ShipmentDraftInput): Promise<{ groupId: string; draftIds: string[]; count: number }> {
   if (!input.warehouse_id) throw new Error("Select a warehouse before saving shipment drafts.");
-  const containerValidation = validateIso6346ContainerNumber(input.container_number);
-  if (!containerValidation.valid) throw new Error(containerValidation.message);
-  input = { ...input, container_number: containerValidation.normalized };
+  if (input.receipt_type === "other" && !input.container_number.trim()) {
+    input = { ...input, container_number: "" };
+  } else {
+    const containerValidation = validateIso6346ContainerNumber(input.container_number);
+    if (!containerValidation.valid) throw new Error(containerValidation.message);
+    input = { ...input, container_number: containerValidation.normalized };
+  }
   if (!input.lines.length) throw new Error("Add at least one SKU line.");
 
   const groupId = buildClientId("shipment");

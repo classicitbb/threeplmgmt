@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type KeyboardEvent, type KeyboardEventHandler, type ReactNode, type SetStateAction } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { QRCodeSVG } from "qrcode.react";
 import { Link, NavLink, useLocation, useNavigate, useSearchParams } from "react-router-dom";
@@ -232,6 +232,7 @@ function ShipmentExpiryPicker({
   invalid,
   open,
   triggerRef,
+  onKeyDown,
   onOpenChange,
   onChange,
 }: {
@@ -240,6 +241,7 @@ function ShipmentExpiryPicker({
   invalid: boolean;
   open: boolean;
   triggerRef: (node: HTMLButtonElement | null) => void;
+  onKeyDown?: KeyboardEventHandler<HTMLButtonElement>;
   onOpenChange: (open: boolean) => void;
   onChange: (value: string) => void;
 }) {
@@ -251,6 +253,7 @@ function ShipmentExpiryPicker({
           ref={triggerRef}
           type="button"
           variant="outline"
+          onKeyDown={onKeyDown}
           className={cn(
             "h-9 w-full justify-start px-3 text-left font-normal sm:h-10",
             !value && "text-muted-foreground",
@@ -321,6 +324,8 @@ export function ReceivingPage() {
   const [palletQtyHints, setPalletQtyHints] = useState<Record<string, PalletQtyHint | null>>({});
   const [pendingProductCommit, setPendingProductCommit] = useState<Record<string, boolean>>({});
   const [openExpiryLineId, setOpenExpiryLineId] = useState<string | null>(null);
+  const [openShipmentDetails, setOpenShipmentDetails] = useState<Record<string, boolean>>({});
+  const [shipmentEntryMode, setShipmentEntryMode] = useState<"shipment" | "pallet">("shipment");
   const [shipmentOpen, setShipmentOpen] = useState(false);
   const [showShipmentMore, setShowShipmentMore] = useState(false);
   const [draftSearch, setDraftSearch] = useState("");
@@ -358,6 +363,8 @@ export function ReceivingPage() {
   }, [clients]);
 
   const currentWarehouseId = shipmentForm.warehouse_id || defaultWarehouseId || (warehouses.length === 1 ? warehouses[0].id : "");
+  const activeWarehouse = warehouses.find((item: any) => item.id === (shipmentForm.warehouse_id || currentWarehouseId));
+  const activeClient = clients.find((item: any) => item.id === shipmentForm.client_id);
   const { data: drafts = [], refetch: refetchDrafts } = useQuery({
     queryKey: ["draft-receipts", currentWarehouseId],
     queryFn: () => listDraftReceipts(currentWarehouseId),
@@ -404,9 +411,15 @@ export function ReceivingPage() {
 
   useEffect(() => {
     if (!shipmentOpen) return;
-    const timer = window.setTimeout(() => shipmentContainerInputRef.current?.focus(), 0);
+    const timer = window.setTimeout(() => {
+      if (shipmentEntryMode === "pallet") {
+        focusFirstProductSearch();
+        return;
+      }
+      shipmentContainerInputRef.current?.focus();
+    }, 0);
     return () => window.clearTimeout(timer);
-  }, [shipmentOpen]);
+  }, [shipmentOpen, shipmentEntryMode]);
 
   useEffect(() => {
     if (!shipmentOpen || !shipmentContainerValidation.valid) return;
@@ -439,24 +452,34 @@ export function ReceivingPage() {
     }
   }, [drafts, printAfterSaveIds, printOpen]);
   const incompleteLine = shipmentForm.lines.find((line) => {
+    const selectedProduct = productOptions.find((product) => product.id === line.product_id);
     const remainder = remainderForLine(line);
     return !line.product_id ||
       Number(line.total_quantity) <= 0 ||
       Number(line.quantity_per_pallet) <= 0 ||
       Number(line.pallet_count) <= 0 ||
+      (productRequiresExpiry(selectedProduct) && !line.expiry_date) ||
       (remainder > 0 && !line.remainder_action);
   });
-  const saveBlockedReason = !shipmentForm.container_number.trim()
-    ? "Enter a container number before saving."
-    : !shipmentContainerValidation.valid
-      ? shipmentContainerValidation.message
-    : !shipmentForm.warehouse_id
-      ? "Select a warehouse before saving."
+  const saveBlockedReason = shipmentEntryMode === "pallet"
+    ? !shipmentForm.warehouse_id
+      ? "Select a warehouse before receiving the pallet."
       : incompleteLine
         ? remainderForLine(incompleteLine) > 0 && !incompleteLine.remainder_action
-          ? "Choose how to handle the leftover quantity before saving."
-          : "Enter a SKU and valid quantities before saving."
-        : "";
+          ? "Choose how to handle the leftover quantity before receiving the pallet."
+          : "Enter a SKU and valid quantities before receiving the pallet."
+        : ""
+    : !shipmentForm.container_number.trim()
+      ? "Enter a container number before saving."
+      : !shipmentContainerValidation.valid
+        ? shipmentContainerValidation.message
+        : !shipmentForm.warehouse_id
+          ? "Select a warehouse before saving."
+          : incompleteLine
+            ? remainderForLine(incompleteLine) > 0 && !incompleteLine.remainder_action
+              ? "Choose how to handle the leftover quantity before saving."
+              : "Enter a SKU and valid quantities before saving."
+            : "";
   const canSaveShipment = !saveBlockedReason;
 
   const saveShipmentMutation = useMutation({
@@ -604,6 +627,8 @@ export function ReceivingPage() {
   });
 
   function openNewShipment() {
+    setShipmentEntryMode("shipment");
+    setShowShipmentMore(false);
     setEditingDraft(null);
     setShipmentContainerTouched(false);
     setShipmentContainerScanWarning(null);
@@ -612,6 +637,7 @@ export function ReceivingPage() {
     setPalletQtyHints({});
     setPendingProductCommit({});
     setOpenExpiryLineId(null);
+    setOpenShipmentDetails({});
     setShipmentForm({
       receipt_type: "po",
       warehouse_id: currentWarehouseId,
@@ -624,8 +650,34 @@ export function ReceivingPage() {
     setShipmentOpen(true);
   }
 
+  function openNewPallet() {
+    setShipmentEntryMode("pallet");
+    setShowShipmentMore(false);
+    setEditingDraft(null);
+    setShipmentContainerTouched(false);
+    setShipmentContainerScanWarning(null);
+    perPalletManualProductRefs.current = {};
+    containerAutoAdvanceRef.current = "";
+    setPalletQtyHints({});
+    setPendingProductCommit({});
+    setOpenExpiryLineId(null);
+    setOpenShipmentDetails({});
+    setShipmentForm({
+      receipt_type: "other",
+      warehouse_id: currentWarehouseId,
+      client_id: clients.length === 1 ? clients[0].id : "",
+      container_number: "",
+      po_number: "",
+      reference_number: "",
+      lines: [newShipmentLine()],
+    });
+    setShipmentOpen(true);
+  }
+
   function openEditDraft(draft: DraftReceipt) {
     const values = draftToReceivingValues(draft);
+    setShipmentEntryMode("shipment");
+    setShowShipmentMore(false);
     setEditingDraft(draft);
     setShipmentContainerTouched(Boolean(values.container_number));
     setShipmentContainerScanWarning(null);
@@ -634,6 +686,7 @@ export function ReceivingPage() {
     setPalletQtyHints({});
     setPendingProductCommit({});
     setOpenExpiryLineId(null);
+    setOpenShipmentDetails({});
     setShipmentForm({
       receipt_type: values.receipt_type,
       warehouse_id: values.warehouse_id,
@@ -664,6 +717,18 @@ export function ReceivingPage() {
         return changed ? distributeShipmentLine(next, changed) : next;
       }),
     }));
+  }
+
+  function resetShipmentLine(lineId: string) {
+    setShipmentForm((current) => ({
+      ...current,
+      lines: current.lines.map((line) => (line.id === lineId ? { ...newShipmentLine(), id: line.id } : line)),
+    }));
+    setPendingProductCommit((current) => ({ ...current, [lineId]: false }));
+    setPalletQtyHints((current) => ({ ...current, [lineId]: null }));
+    setOpenExpiryLineId((current) => (current === lineId ? null : current));
+    setOpenShipmentDetails((current) => ({ ...current, [lineId]: false }));
+    delete perPalletManualProductRefs.current[lineId];
   }
 
   function focusFirstProductSearch() {
@@ -705,6 +770,39 @@ export function ReceivingPage() {
       field === "count" ? palletCountRefs.current[lineId] :
       expiryRefs.current[lineId];
     setTimeout(() => target?.focus(), 40);
+  }
+
+  function handleShipmentFieldKeyDown(
+    lineId: string,
+    field: "product" | "total" | "perPallet" | "count" | "expiry",
+    event: KeyboardEvent<HTMLElement>,
+  ) {
+    if (field === "expiry") {
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      if (field === "product") { focusShipmentField(lineId, "total"); return; }
+      if (field === "total") { focusShipmentField(lineId, "perPallet"); return; }
+      if (field === "perPallet") { focusShipmentField(lineId, "count"); return; }
+      if (field === "count") { focusShipmentField(lineId, "expiry"); }
+      return;
+    }
+    if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+      event.preventDefault();
+      if (field === "product") { focusShipmentField(lineId, "total"); return; }
+      if (field === "total") { focusShipmentField(lineId, "perPallet"); return; }
+      if (field === "perPallet") { focusShipmentField(lineId, "count"); return; }
+      if (field === "count") { focusShipmentField(lineId, "expiry"); }
+      return;
+    }
+    if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+      event.preventDefault();
+      if (field === "total") { productRefs.current[lineId]?.open(); return; }
+      if (field === "perPallet") { focusShipmentField(lineId, "total"); return; }
+      if (field === "count") { focusShipmentField(lineId, "perPallet"); return; }
+      if (field === "expiry") { focusShipmentField(lineId, "count"); }
+    }
   }
 
   function openExpiryPicker(lineId: string) {
@@ -830,10 +928,19 @@ export function ReceivingPage() {
             <Printer data-icon="inline-start" />
             Print drafts
           </Button>
-          <Button onClick={openNewShipment}>
-            <Plus data-icon="inline-start" />
-            New shipment
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button>
+                <Plus data-icon="inline-start" />
+                New
+                <ChevronDown className="ml-1 h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-44">
+              <DropdownMenuItem onSelect={() => openNewShipment()}>New shipment</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => openNewPallet()}>New pallet</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
@@ -925,111 +1032,142 @@ export function ReceivingPage() {
           onOpenAutoFocus={(event) => event.preventDefault()}
         >
           <DialogHeader className="border-b border-border px-3 py-2 sm:px-4 sm:py-3">
-            <DialogTitle>{editingDraft ? "Edit Draft Pallet" : "New Shipment"}</DialogTitle>
-            <DialogDescription className="text-xs sm:text-sm">Container and PO come first, then one or more SKU lines with expiry and pallet distribution.</DialogDescription>
+            <DialogTitle>{editingDraft ? "Edit Draft Pallet" : shipmentEntryMode === "pallet" ? "New Pallet" : "New Shipment"}</DialogTitle>
+            <DialogDescription className="text-xs sm:text-sm">
+              {shipmentEntryMode === "pallet"
+                ? "Standalone pallet receiving keeps warehouse and client fixed to the active context, then uses the SKU lines for quantities and expiry."
+                : "Container and PO come first, then one or more SKU lines with expiry and pallet distribution."}
+            </DialogDescription>
           </DialogHeader>
           <ScrollArea className="max-h-[calc(100dvh-8.75rem)] px-3 py-3 sm:max-h-[calc(92vh-150px)] sm:px-4 sm:py-4">
             <div className="grid gap-3 sm:gap-4">
-              <div className="grid items-start gap-2 sm:gap-3">
-                <div className="grid gap-1.5">
-                  <ShipmentFieldLabel>Warehouse</ShipmentFieldLabel>
-                  <Select value={shipmentForm.warehouse_id || undefined} onValueChange={(value) => setShipmentForm((cur) => ({ ...cur, warehouse_id: value }))}>
-                    <SelectTrigger className="h-9 sm:h-10"><SelectValue placeholder="Select warehouse" /></SelectTrigger>
-                    <SelectContent>
-                      {warehouses.length === 0 ? <SelectItem value="__loading_warehouses" disabled>Loading warehouses...</SelectItem> : null}
-                      {warehouses.filter((w: any) => Boolean(w.id)).map((w: any) => <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="grid gap-1.5">
-                  <ShipmentFieldLabel>Container number</ShipmentFieldLabel>
-                  <div className="flex gap-2">
-                    <BarcodeScanButton
-                      className="h-9 self-start sm:h-10"
-                      title="Scan container number"
-                      buttonLabel="Scan container number"
-                      enableTextRecognition
-                      requireConfirm
-                      scanMode="containerNumber"
-                      inputRef={shipmentContainerInputRef}
-                      statusText="Point your camera at the printed container number. It will turn green when a valid ISO 6346 code is recognized."
-                      getScanCandidates={collectIso6346ContainerCandidates}
-                      onScanTelemetry={logContainerScannerTelemetry}
-                      validateScan={(raw) => {
-                        const result = resolveContainerScanValue(raw);
-                        return { valid: result.valid, value: result.value, message: result.valid ? "Verify true" : result.message };
-                      }}
-                      onScan={applyShipmentContainerScan}
-                    />
-                    <Input
-                      ref={shipmentContainerInputRef}
-                      className={cn(
-                        "h-9 sm:h-10",
-                        shipmentContainerTouched && shipmentContainerInvalid && "border-destructive focus-visible:ring-destructive",
-                        shipmentContainerValid && "border-green-500 focus-visible:ring-green-500",
-                      )}
-                      value={shipmentForm.container_number}
-                      aria-label="Container number"
-                      onBlur={() => setShipmentContainerTouched(true)}
-                      onChange={(e) => setShipmentContainer(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); shipmentPoInputRef.current?.focus(); } }}
-                      aria-invalid={shipmentContainerInvalid}
-                      aria-describedby="container-number-help"
-                    />
+              {shipmentEntryMode === "pallet" ? (
+                <div className="grid gap-3 rounded-lg border border-dashed border-border bg-secondary/10 p-3">
+                  <div className="grid gap-1">
+                    <p className="text-sm font-medium text-foreground">Standalone pallet mode</p>
+                    <p className="text-xs text-muted-foreground">
+                      Warehouse and client follow the active context. Container and PO are not used for this receipt.
+                    </p>
                   </div>
-                  <p
-                    id="container-number-help"
-                    className={cn(
-                      "text-xs",
-                      shipmentContainerTouched && shipmentContainerInvalid ? "text-destructive" : shipmentContainerValid ? "text-green-500" : "text-muted-foreground",
-                    )}
-                  >
-                    {shipmentContainerMessage}
-                  </p>
-                </div>
-                <div className="grid gap-1.5">
-                  <ShipmentFieldLabel>PO number</ShipmentFieldLabel>
-                  <Input
-                    ref={shipmentPoInputRef}
-                    className="h-9 sm:h-10"
-                    value={shipmentForm.po_number}
-                    aria-label="PO number"
-                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); focusFirstProductSearch(); } }}
-                    onChange={(e) => setShipmentForm((cur) => ({ ...cur, po_number: e.target.value.toUpperCase(), reference_number: e.target.value.toUpperCase() }))}
-                  />
-                </div>
-              </div>
-              <button type="button" className="w-fit text-sm font-medium text-primary underline-offset-2 hover:underline" onClick={() => setShowShipmentMore((v) => !v)}>
-                {showShipmentMore ? "Hide" : "Show"} shipment options
-              </button>
-              {showShipmentMore && (
-                <div className="grid gap-3 rounded-lg border border-border bg-secondary/20 p-3 md:grid-cols-3">
-                  <div className="grid gap-1.5">
-                    <ShipmentFieldLabel>Receipt type</ShipmentFieldLabel>
-                    <Select value={shipmentForm.receipt_type} onValueChange={(value) => setShipmentForm((cur) => ({ ...cur, receipt_type: value as ReceivingShipmentFormState["receipt_type"] }))}>
-                      <SelectTrigger className="h-9 sm:h-10"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="po">Purchase Order</SelectItem>
-                        <SelectItem value="transfer">Transfer</SelectItem>
-                        <SelectItem value="other">Manual / Other</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="grid gap-1.5">
-                    <ShipmentFieldLabel>Client</ShipmentFieldLabel>
-                    <Select value={shipmentForm.client_id || undefined} onValueChange={(value) => setShipmentForm((cur) => ({ ...cur, client_id: value }))}>
-                      <SelectTrigger className="h-9 sm:h-10"><SelectValue placeholder="Select client" /></SelectTrigger>
-                      <SelectContent>
-                        {clients.length === 0 ? <SelectItem value="__no_clients" disabled>No clients available</SelectItem> : null}
-                        {clients.filter((client: any) => Boolean(client.id)).map((client: any) => <SelectItem key={client.id} value={client.id}>{client.code} · {client.name}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
+                  <div className="flex flex-wrap gap-2">
+                    <Badge variant="secondary">Warehouse {activeWarehouse?.name ?? (currentWarehouseId || "—")}</Badge>
+                    <Badge variant="secondary">Client {activeClient?.name ?? "No client"}</Badge>
                   </div>
                   <div className="grid gap-1.5">
                     <ShipmentFieldLabel>Reference</ShipmentFieldLabel>
-                    <Input className="h-9 sm:h-10" value={shipmentForm.reference_number} onChange={(e) => setShipmentForm((cur) => ({ ...cur, reference_number: normalizeScannerText(e.target.value) }))} />
+                    <Input
+                      className="h-9 sm:h-10"
+                      value={shipmentForm.reference_number}
+                      aria-label="Reference"
+                      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); focusFirstProductSearch(); } }}
+                      onChange={(e) => setShipmentForm((cur) => ({ ...cur, reference_number: normalizeScannerText(e.target.value) }))}
+                    />
                   </div>
                 </div>
+              ) : (
+                <>
+                  <div className="grid items-start gap-2 sm:gap-3">
+                    <div className="grid gap-1.5">
+                      <ShipmentFieldLabel>Warehouse</ShipmentFieldLabel>
+                      <Select value={shipmentForm.warehouse_id || undefined} onValueChange={(value) => setShipmentForm((cur) => ({ ...cur, warehouse_id: value }))}>
+                        <SelectTrigger className="h-9 sm:h-10"><SelectValue placeholder="Select warehouse" /></SelectTrigger>
+                        <SelectContent>
+                          {warehouses.length === 0 ? <SelectItem value="__loading_warehouses" disabled>Loading warehouses...</SelectItem> : null}
+                          {warehouses.filter((w: any) => Boolean(w.id)).map((w: any) => <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="grid gap-1.5">
+                      <ShipmentFieldLabel>Container number</ShipmentFieldLabel>
+                      <div className="flex gap-2">
+                        <BarcodeScanButton
+                          className="h-9 self-start sm:h-10"
+                          title="Scan container number"
+                          buttonLabel="Scan container number"
+                          enableTextRecognition
+                          requireConfirm
+                          scanMode="containerNumber"
+                          inputRef={shipmentContainerInputRef}
+                          statusText="Point your camera at the printed container number. It will turn green when a valid ISO 6346 code is recognized."
+                          getScanCandidates={collectIso6346ContainerCandidates}
+                          onScanTelemetry={logContainerScannerTelemetry}
+                          validateScan={(raw) => {
+                            const result = resolveContainerScanValue(raw);
+                            return { valid: result.valid, value: result.value, message: result.valid ? "Verify true" : result.message };
+                          }}
+                          onScan={applyShipmentContainerScan}
+                        />
+                        <Input
+                          ref={shipmentContainerInputRef}
+                          className={cn(
+                            "h-9 sm:h-10",
+                            shipmentContainerTouched && shipmentContainerInvalid && "border-destructive focus-visible:ring-destructive",
+                            shipmentContainerValid && "border-green-500 focus-visible:ring-green-500",
+                          )}
+                          value={shipmentForm.container_number}
+                          aria-label="Container number"
+                          onBlur={() => setShipmentContainerTouched(true)}
+                          onChange={(e) => setShipmentContainer(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); shipmentPoInputRef.current?.focus(); } }}
+                          aria-invalid={shipmentContainerInvalid}
+                          aria-describedby="container-number-help"
+                        />
+                      </div>
+                      <p
+                        id="container-number-help"
+                        className={cn(
+                          "text-xs",
+                          shipmentContainerTouched && shipmentContainerInvalid ? "text-destructive" : shipmentContainerValid ? "text-green-500" : "text-muted-foreground",
+                        )}
+                      >
+                        {shipmentContainerMessage}
+                      </p>
+                    </div>
+                    <div className="grid gap-1.5">
+                      <ShipmentFieldLabel>PO number</ShipmentFieldLabel>
+                      <Input
+                        ref={shipmentPoInputRef}
+                        className="h-9 sm:h-10"
+                        value={shipmentForm.po_number}
+                        aria-label="PO number"
+                        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); focusFirstProductSearch(); } }}
+                        onChange={(e) => setShipmentForm((cur) => ({ ...cur, po_number: e.target.value.toUpperCase(), reference_number: e.target.value.toUpperCase() }))}
+                      />
+                    </div>
+                  </div>
+                  <button type="button" className="w-fit text-sm font-medium text-primary underline-offset-2 hover:underline" onClick={() => setShowShipmentMore((v) => !v)}>
+                    {showShipmentMore ? "Hide" : "Show"} shipment options
+                  </button>
+                  {showShipmentMore && (
+                    <div className="grid gap-3 rounded-lg border border-border bg-secondary/20 p-3 md:grid-cols-3">
+                      <div className="grid gap-1.5">
+                        <ShipmentFieldLabel>Receipt type</ShipmentFieldLabel>
+                        <Select value={shipmentForm.receipt_type} onValueChange={(value) => setShipmentForm((cur) => ({ ...cur, receipt_type: value as ReceivingShipmentFormState["receipt_type"] }))}>
+                          <SelectTrigger className="h-9 sm:h-10"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="po">Purchase Order</SelectItem>
+                            <SelectItem value="transfer">Transfer</SelectItem>
+                            <SelectItem value="other">Manual / Other</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="grid gap-1.5">
+                        <ShipmentFieldLabel>Client</ShipmentFieldLabel>
+                        <Select value={shipmentForm.client_id || undefined} onValueChange={(value) => setShipmentForm((cur) => ({ ...cur, client_id: value }))}>
+                          <SelectTrigger className="h-9 sm:h-10"><SelectValue placeholder="Select client" /></SelectTrigger>
+                          <SelectContent>
+                            {clients.length === 0 ? <SelectItem value="__no_clients" disabled>No clients available</SelectItem> : null}
+                            {clients.filter((client: any) => Boolean(client.id)).map((client: any) => <SelectItem key={client.id} value={client.id}>{client.code} · {client.name}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="grid gap-1.5">
+                        <ShipmentFieldLabel>Reference</ShipmentFieldLabel>
+                        <Input className="h-9 sm:h-10" value={shipmentForm.reference_number} onChange={(e) => setShipmentForm((cur) => ({ ...cur, reference_number: normalizeScannerText(e.target.value) }))} />
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
 
               <div className="grid gap-3">
@@ -1043,11 +1181,24 @@ export function ReceivingPage() {
                     <div key={line.id} className="grid gap-2 rounded-lg border border-border p-2 sm:gap-3 sm:p-3">
                       <div className="flex items-center justify-between gap-3">
                         <p className="font-medium">SKU line {index + 1}</p>
-                        {!editingDraft && shipmentForm.lines.length > 1 && (
-                          <Button size="sm" variant="ghost" onClick={() => setShipmentForm((cur) => ({ ...cur, lines: cur.lines.filter((item) => item.id !== line.id) }))}>
-                            <Trash2 className="h-4 w-4" />
+                        <div className="flex items-center gap-1">
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            className="h-7 w-7"
+                            title="Reset SKU line"
+                            aria-label="Reset SKU line"
+                            onClick={() => resetShipmentLine(line.id)}
+                          >
+                            <RotateCcw className="h-4 w-4" />
                           </Button>
-                        )}
+                          {!editingDraft && shipmentForm.lines.length > 1 && (
+                            <Button size="sm" variant="ghost" onClick={() => setShipmentForm((cur) => ({ ...cur, lines: cur.lines.filter((item) => item.id !== line.id) }))}>
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          )}
+                        </div>
                       </div>
                       <div className="grid gap-2 lg:gap-3">
                         <div className="grid gap-1.5">
@@ -1066,6 +1217,7 @@ export function ReceivingPage() {
                               value={line.product_id}
                               options={productOptions}
                               placeholder="Select SKU"
+                              onSelectComplete={() => productCommitRefs.current[line.id]?.focus()}
                               onChange={(value) => { void selectShipmentProduct(line, value); }}
                             />
                             <Button
@@ -1100,7 +1252,7 @@ export function ReceivingPage() {
                               value={line.total_quantity}
                               aria-label="Total received"
                               onFocus={(e) => e.currentTarget.select()}
-                              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commitShipmentQuantity(line.id, "total"); } }}
+                              onKeyDown={(e) => handleShipmentFieldKeyDown(line.id, "total", e)}
                               onChange={(e) => updateLine(line.id, { total_quantity: e.currentTarget.value })}
                             />
                           </div>
@@ -1116,10 +1268,15 @@ export function ReceivingPage() {
                               value={line.quantity_per_pallet}
                               aria-label="Qty per pallet"
                               onFocus={(e) => e.currentTarget.select()}
-                              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commitShipmentQuantity(line.id, "perPallet"); } }}
+                              onKeyDown={(e) => handleShipmentFieldKeyDown(line.id, "perPallet", e)}
                               onChange={(e) => {
                                 if (line.product_id) perPalletManualProductRefs.current[line.id] = line.product_id;
-                                updateLine(line.id, { quantity_per_pallet: e.currentTarget.value });
+                                const nextValue = e.currentTarget.value;
+                                updateLine(
+                                  line.id,
+                                  { quantity_per_pallet: nextValue },
+                                  nextValue === "" ? undefined : "perPallet",
+                                );
                               }}
                             />
                             {palletQtyHints[line.id] ? (
@@ -1140,7 +1297,7 @@ export function ReceivingPage() {
                               value={line.pallet_count}
                               aria-label="Pallets"
                               onFocus={(e) => e.currentTarget.select()}
-                              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commitShipmentQuantity(line.id, "count"); } }}
+                              onKeyDown={(e) => handleShipmentFieldKeyDown(line.id, "count", e)}
                               onChange={(e) => updateLine(line.id, { pallet_count: e.currentTarget.value })}
                             />
                           </div>
@@ -1156,12 +1313,16 @@ export function ReceivingPage() {
                             value={line.expiry_date}
                             open={openExpiryLineId === line.id}
                             onOpenChange={(open) => setOpenExpiryLineId(open ? line.id : null)}
-                            onChange={(value) => updateLine(line.id, { expiry_date: value })}
+                            onKeyDown={(e) => handleShipmentFieldKeyDown(line.id, "expiry", e)}
+                            onChange={(value) => {
+                              updateLine(line.id, { expiry_date: value });
+                              setOpenExpiryLineId(null);
+                            }}
                           />
                         </div>
-                        <Collapsible>
+                        <Collapsible open={Boolean(openShipmentDetails[line.id])} onOpenChange={(open) => setOpenShipmentDetails((current) => ({ ...current, [line.id]: open }))}>
                           <CollapsibleTrigger asChild>
-                            <Button type="button" variant="ghost" className="h-8 w-fit px-0 text-xs font-medium text-muted-foreground hover:bg-transparent hover:text-foreground">
+                            <Button type="button" variant="ghost" tabIndex={-1} className="h-8 w-fit px-0 text-xs font-medium text-muted-foreground hover:bg-transparent hover:text-foreground">
                               <ChevronDown className="mr-1 h-3.5 w-3.5" />
                               Lot, batch, and packaging
                             </Button>
@@ -1169,16 +1330,34 @@ export function ReceivingPage() {
                           <CollapsibleContent className="grid gap-2 pt-1 md:grid-cols-3 md:gap-3">
                             <div className="grid gap-1.5">
                               <ShipmentFieldLabel>Lot</ShipmentFieldLabel>
-                              <Input className="h-9 sm:h-10" value={line.lot_number} onChange={(e) => updateLine(line.id, { lot_number: normalizeScannerText(e.target.value) })} />
+                              <Input
+                                tabIndex={-1}
+                                aria-label="Lot"
+                                className="h-9 sm:h-10"
+                                value={line.lot_number}
+                                onChange={(e) => updateLine(line.id, { lot_number: normalizeScannerText(e.target.value) })}
+                              />
                             </div>
                             <div className="grid gap-1.5">
                               <ShipmentFieldLabel>Batch</ShipmentFieldLabel>
-                              <Input className="h-9 sm:h-10" value={line.batch_number} onChange={(e) => updateLine(line.id, { batch_number: normalizeScannerText(e.target.value) })} />
+                              <Input
+                                tabIndex={-1}
+                                aria-label="Batch"
+                                className="h-9 sm:h-10"
+                                value={line.batch_number}
+                                onChange={(e) => updateLine(line.id, { batch_number: normalizeScannerText(e.target.value) })}
+                              />
                             </div>
                             <div className="grid gap-1.5">
                               <ShipmentFieldLabel>Packaging</ShipmentFieldLabel>
                               <Select value={line.packaging_profile_id || undefined} onValueChange={(value) => updateLine(line.id, { packaging_profile_id: value })}>
-                                <SelectTrigger className="h-9 sm:h-10"><SelectValue placeholder="Optional" /></SelectTrigger>
+                                <SelectTrigger
+                                  tabIndex={-1}
+                                  aria-label="Packaging"
+                                  className="h-9 sm:h-10"
+                                >
+                                  <SelectValue placeholder="Optional" />
+                                </SelectTrigger>
                                 <SelectContent>
                                   {packagingProfiles.length === 0 ? <SelectItem value="__no_packaging" disabled>No packaging profiles</SelectItem> : null}
                                   {packagingProfiles.filter((profile: any) => Boolean(profile.id)).map((profile: any) => <SelectItem key={profile.id} value={profile.id}>{profile.profile_name}</SelectItem>)}
@@ -1198,7 +1377,7 @@ export function ReceivingPage() {
                               ["manual", "Manage outside WMS"],
                               ["special", "Create special pallet"],
                             ].map(([value, label]) => (
-                              <label key={value} className="flex items-center gap-2 rounded-md border border-amber-300 bg-background px-3 py-2">
+                              <label key={value} className="flex items-center gap-2 rounded-md border border-red-600 bg-red-500 px-3 py-2 text-black shadow-sm">
                                 <input type="radio" name={`remainder-${line.id}`} checked={line.remainder_action === value} onChange={() => updateLine(line.id, { remainder_action: value as ReceivingShipmentLineState["remainder_action"] })} />
                                 {label}
                               </label>
@@ -1233,12 +1412,12 @@ export function ReceivingPage() {
             {!editingDraft && (
               <Button variant="outline" disabled={saveShipmentMutation.isPending || !canSaveShipment} onClick={() => saveShipment("new")}>
                 {saveShipmentMutation.isPending ? <Loader2 className="animate-spin" /> : null}
-                Save & New
+                {shipmentEntryMode === "pallet" ? "Receive & New" : "Save & New"}
               </Button>
             )}
             <Button disabled={saveShipmentMutation.isPending || !canSaveShipment} onClick={() => saveShipment("receive")}>
               {saveShipmentMutation.isPending ? <Loader2 className="animate-spin" /> : null}
-              {editingDraft ? "Save Draft" : "Save & Receive"}
+              {editingDraft ? "Save Draft" : shipmentEntryMode === "pallet" ? "Receive pallet" : "Save & Receive"}
             </Button>
           </DialogFooter>
         </DialogContent>
