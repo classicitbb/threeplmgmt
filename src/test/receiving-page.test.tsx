@@ -38,11 +38,11 @@ const wmsMocks = vi.hoisted(() => {
   };
 });
 
+type PalletQtyHintResult = { suggestedQty: number; confidence: number; sampleCount: number } | null;
 const aiMocks = vi.hoisted(() => ({
-  getProductPalletQtyHint: vi.fn<
-    [string, string | null | undefined],
-    Promise<{ suggestedQty: number; confidence: number; sampleCount: number } | null>
-  >(async () => null),
+  getProductPalletQtyHint: vi.fn(
+    async (_productId: string, _warehouseId?: string | null): Promise<{ suggestedQty: number; confidence: number; sampleCount: number } | null> => null,
+  ),
 }));
 
 class ResizeObserverStub {
