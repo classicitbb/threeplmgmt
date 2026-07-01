@@ -1295,6 +1295,7 @@ export function ReceivingPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setSelectedDraftIds(new Set(printDrafts.map((draft) => draft.id)))}>Select all shown</Button>
+            <Button variant="outline" disabled={selectedDraftIds.size === 0} onClick={() => setSelectedDraftIds(new Set())}>Deselect all</Button>
             <Button disabled={batchReceiveMutation.isPending || selectedPrintDrafts.length === 0} onClick={() => printAndReceiveDrafts(selectedPrintDrafts)}>
               {batchReceiveMutation.isPending ? <Loader2 className="animate-spin" /> : <Printer data-icon="inline-start" />}
               Print selected & send to Put-Away
