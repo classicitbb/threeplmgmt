@@ -17,13 +17,19 @@ import { writeSystemLog } from "@/features/system/system-core";
 
 /**
  * Splits a requested pick quantity across pallets in the order they're
- * given (caller is responsible for FEFO/FIFO sorting). Each pallet is only
- * allocated the smaller of its own available quantity and whatever is still
- * outstanding — never its full available quantity — so a product received
- * as 100 units on two 50-unit pallets and picked for 100 produces two
- * allocations of 50 each instead of one task trying (and failing) to take
- * the whole 100 off a single pallet. Exported so the split math can be unit
- * tested without touching Supabase.
+ * given (caller is responsible for FEFO/FIFO sorting).
+ *
+ * Pallets are whole-pallet-only: a pick task can never ask for less than a
+ * pallet's full available quantity, because operators cannot break a pallet
+ * down at pick time (see confirmPickTask's "partial picks are disabled"
+ * rule). So each candidate pallet is allocated in FULL, and pallets keep
+ * being added — in rotation order — until the accumulated quantity meets or
+ * exceeds what was requested. This means the total picked can exceed the
+ * requested quantity (e.g. 25 units requested off 50-unit pallets picks the
+ * whole 50; 75 requested off two 50-unit pallets picks both, 100 total; 80
+ * requested off four 25-unit pallets picks all four, 100 total) — that's
+ * expected, not a bug. Exported so the split math can be unit tested
+ * without touching Supabase.
  */
 export function allocatePickQuantities<T extends { available_quantity: number | null }>(
   sortedCandidates: T[],
@@ -34,10 +40,11 @@ export function allocatePickQuantities<T extends { available_quantity: number | 
   for (const candidate of sortedCandidates) {
     if (remaining <= 0) break;
     const available = Number(candidate.available_quantity ?? 0);
-    const allocated = Math.min(available, remaining);
-    if (allocated <= 0) continue;
-    allocations.push({ ...candidate, allocated_quantity: allocated });
-    remaining -= allocated;
+    if (available <= 0) continue;
+    // Always take the pallet's full available quantity — never a partial
+    // slice — even if that means picking more than what's outstanding.
+    allocations.push({ ...candidate, allocated_quantity: available });
+    remaining -= available;
   }
   return { allocations, short: remaining > 0 ? remaining : 0 };
 }
@@ -123,10 +130,10 @@ export async function createPickListFlow(input: z.infer<typeof pickListSchema>) 
         order_line_id: orderLine.id,
         pallet_id: candidate.pallet_id,
         location_id: candidate.location_id ?? null,
-        // Each task only requests the slice of this pallet needed to cover
-        // the remaining line quantity — see allocatePickQuantities — so a
-        // multi-pallet product is split across tasks instead of one task
-        // over-requesting a single pallet.
+        // Each task requests this pallet's FULL quantity — see
+        // allocatePickQuantities — so a multi-pallet product is split into
+        // one task per whole pallet, rolling up to the next full pallet
+        // when one alone doesn't cover the line quantity (may exceed it).
         requested_quantity: candidate.allocated_quantity,
         status: selection.short > 0 ? "exception" : "queued",
         short_reason: selection.short > 0 ? `Short by ${selection.short}` : null,
