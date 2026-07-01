@@ -417,10 +417,17 @@ export function ReceivingPage() {
     return () => window.clearTimeout(timer);
   }, [shipmentContainerValidation.normalized, shipmentContainerValidation.valid, shipmentOpen]);
 
+  const prevPrintOpenRef = useRef(false);
+  const prevPrintContainerRef = useRef(printContainer);
+
   useEffect(() => {
-    if (!printOpen || selectedDraftIds.size > 0) return;
+    const openedNow = printOpen && !prevPrintOpenRef.current;
+    const filterChanged = printContainer !== prevPrintContainerRef.current;
+    prevPrintOpenRef.current = printOpen;
+    prevPrintContainerRef.current = printContainer;
+    if (!printOpen || !(openedNow || filterChanged)) return;
     setSelectedDraftIds(new Set(printDrafts.map((draft) => draft.id)));
-  }, [printDrafts, printOpen, selectedDraftIds.size]);
+  }, [printDrafts, printOpen, printContainer]);
 
   useEffect(() => {
     if (!printOpen || printAfterSaveIds.length === 0) return;
