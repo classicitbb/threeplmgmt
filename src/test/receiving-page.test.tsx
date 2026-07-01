@@ -278,4 +278,36 @@ describe("ReceivingPage", () => {
       quantity: 1,
     })));
   });
+
+  it("deselect all clears every checkbox in the print dialog and keeps them cleared", async () => {
+    wmsMocks.listDraftReceipts.mockResolvedValue([wmsMocks.draft] as never);
+    renderReceivingPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: /^print drafts$/i }));
+    const dialog = await screen.findByRole("dialog", { name: /print draft labels/i });
+
+    const checkbox = await within(dialog).findByRole("checkbox");
+    await waitFor(() => expect(checkbox).toBeChecked());
+
+    const printButton = within(dialog).getByRole("button", { name: /print selected & send to put-away/i });
+    const deselectButton = within(dialog).getByRole("button", { name: /deselect all/i });
+    expect(printButton).toBeEnabled();
+    expect(deselectButton).toBeEnabled();
+
+    fireEvent.click(deselectButton);
+
+    // Regression: an effect used to re-select every draft whenever the
+    // selection count hit zero while the dialog was open, so the checkbox
+    // would flash unchecked and immediately snap back to checked. Assert it
+    // stays unchecked instead of only checking the instant after the click.
+    await waitFor(() => expect(checkbox).not.toBeChecked());
+    expect(checkbox).not.toBeChecked();
+    expect(deselectButton).toBeDisabled();
+    expect(printButton).toBeDisabled();
+
+    // Give any stray effect a chance to re-fire before asserting again.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(checkbox).not.toBeChecked();
+    expect(printButton).toBeDisabled();
+  });
 });
