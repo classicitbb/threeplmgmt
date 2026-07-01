@@ -429,7 +429,7 @@ export function PickListsPage() {
 
   return (
     <Fragment>
-    <Tabs className="flex flex-col gap-6" value={activeTab} onValueChange={setActiveTab}>
+    <Tabs className="flex flex-col gap-0" value={activeTab} onValueChange={setActiveTab}>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h2 className="text-xl font-semibold sm:text-2xl">Pick Lists</h2>
@@ -456,7 +456,7 @@ export function PickListsPage() {
         </TabsTrigger>
         <TabsTrigger value="create">Create Pick List</TabsTrigger>
       </TabsList>
-      <TabsContent value="lists" className="grid gap-4">
+      <TabsContent value="lists" className="mt-0 grid gap-4">
         {active.length === 0 && (
           <div className="rounded-lg border border-dashed border-border p-8 text-center">
             <ClipboardList className="mx-auto mb-3 h-8 w-8 text-muted-foreground" />
@@ -619,7 +619,7 @@ export function PickListsPage() {
           </details>
         )}
       </TabsContent>
-      <TabsContent value="create">
+      <TabsContent value="create" className="mt-0">
         <Card>
           <CardContent className="p-4 sm:p-6">
             <Form {...form}>

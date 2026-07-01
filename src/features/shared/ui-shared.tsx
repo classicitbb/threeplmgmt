@@ -11,6 +11,7 @@ import {
   DndContext,
   KeyboardSensor,
   PointerSensor,
+  TouchSensor,
   closestCenter,
   useSensor,
   useSensors,
@@ -193,6 +194,8 @@ import { Switch } from "@/components/ui/switch";
 import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+
+let dashboardLayoutLockedToastAt = 0;
 
 const baseFormSchema = z.record(z.any());
 export const appTitle = "Warehouse Wizard Enterprise WMS";
@@ -399,15 +402,28 @@ function SortableDashboardTile({
   className?: string;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: tile.id, disabled: !editMode });
+  const handleLockedPointerDownCapture = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (editMode) return;
+    const target = event.target as HTMLElement | null;
+    if (target?.closest("a,button,input,textarea,select,[role='button']")) return;
+    const now = Date.now();
+    if (now - dashboardLayoutLockedToastAt < 1200) return;
+    dashboardLayoutLockedToastAt = now;
+    toast.info("Unlock dashboard layout to reorder, resize, or hide tiles.");
+  }, [editMode]);
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.6 : 1,
+    touchAction: editMode ? "none" : undefined,
   };
 
   return (
-    <div ref={setNodeRef} style={style} className={cn(tile.size === "lg" ? "sm:col-span-2" : undefined, className)}>
-      <div className="group relative h-full">
+    <div ref={setNodeRef} style={style} className={cn(tile.size === "lg" ? "sm:col-span-2" : undefined, className)} onPointerDownCapture={handleLockedPointerDownCapture}>
+      <div
+        className={cn("group relative h-full", editMode && "cursor-grab active:cursor-grabbing")}
+        {...(editMode ? { ...attributes, ...listeners } : {})}
+      >
         {children}
         {editMode ? (
           <div className="absolute right-3 top-3 z-10 flex items-center gap-1 rounded-md bg-background/80 p-0.5 shadow-sm backdrop-blur">
@@ -3282,7 +3298,8 @@ export function DashboardPage() {
   }, [deviceId, dockDefaults, dockLayoutKey, floorDefaults, floorLayoutKey, officeDefaults, officeLayoutKey, profile?.id]);
 
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 220, tolerance: 8 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 

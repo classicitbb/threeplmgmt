@@ -329,6 +329,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     queryFn: () => fetchOptions(false),
     enabled: canSwitchWarehouses,
   });
+  const selectedWarehouseValue = profile?.default_warehouse_id ?? (canSelectAllWarehouses ? "__all__" : "");
   const headerWarehouses = useMemo(() => {
     const warehouses = headerOptions?.warehouses ?? [];
     if (roles.includes("admin")) return warehouses;
@@ -343,6 +344,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       ? warehouses.filter((warehouse: any) => assignedWarehouseIds.has(warehouse.id))
       : warehouses;
   }, [headerOptions, profile?.id, roles]);
+  const selectedWarehouseLabel = useMemo(() => {
+    if (selectedWarehouseValue === "__all__") return "All warehouses";
+    const warehouse = headerWarehouses.find((item: any) => item.id === selectedWarehouseValue);
+    return warehouse?.code ? `${warehouse.code} - ${warehouse.name}` : warehouse?.name ?? "Select warehouse";
+  }, [headerWarehouses, selectedWarehouseValue]);
   const warehouseSwitchMutation = useMutation({
     mutationFn: (warehouseId: string | null) => updateProfileDefaultWarehouse(profile?.id ?? "", warehouseId),
     onSuccess: async () => {
@@ -427,35 +433,25 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [profile?.default_warehouse_id, queryClient, roles, user?.id]);
 
   const navigation = (
-    <div
-      className={cn(
-        "flex h-full flex-col overflow-hidden bg-sidebar",
-        sidebarCollapsed ? "items-center px-1.5 py-3 bg-teal-500" : "px-3 py-3"
-      )}
-    >
+      <div
+        className={cn(
+          "flex h-full flex-col overflow-hidden bg-sidebar",
+          sidebarCollapsed ? "items-center px-1.5 py-3 bg-teal-500" : "px-2.5 py-3"
+        )}
+      >
       {/* Logo area */}
       <div className={cn(
         "mb-4 flex items-center justify-between gap-2 px-2",
         sidebarCollapsed && "justify-center px-0"
       )}>
         <div className="flex items-center gap-3 min-w-0">
-          <img src="/logo.png" alt="Warehouse Wizard" className="h-8 w-8 shrink-0 rounded-lg object-fill" />
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-black p-1">
+            <img src="/logo.png" alt="Warehouse Wizard" className="h-full w-full object-contain" />
+          </div>
           {!sidebarCollapsed && (
             <span className="truncate text-sm font-semibold text-foreground">Warehouse Wizard</span>
           )}
         </div>
-        {!sidebarCollapsed && (
-          <Button
-            className="h-7 w-7 shrink-0"
-            size="icon"
-            variant="ghost"
-            onClick={() => window.location.reload()}
-            aria-label="Hard refresh"
-            title="Hard refresh"
-          >
-            <RefreshCw className="h-3.5 w-3.5" />
-          </Button>
-        )}
       </div>
 
       <nav className="flex-1 overflow-y-auto">
@@ -470,8 +466,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 key={item.to}
                 className={({ isActive: navActive }) =>
                   cn(
-                    "group relative flex min-h-[3.375rem] items-center gap-2.5 rounded-md px-2.5 text-sm font-medium transition-all duration-100 active:scale-[0.96] active:transition-transform",
-                    sidebarCollapsed && "h-[3.375rem] w-11 justify-center p-0",
+                    "group relative flex min-h-[3.375rem] items-center gap-2 rounded-md px-2 text-sm font-medium transition-all duration-100 active:scale-[0.96] active:transition-transform",
+                    sidebarCollapsed && "h-11 min-h-11 w-11 justify-center p-0",
                     navActive || isActive
                       ? "bg-primary text-primary-foreground shadow-sm"
                       : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
@@ -522,7 +518,23 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       </nav>
 
-      {/* Collapse/expand toggle at bottom — landscape desktop only */}
+      {/* Sidebar footer — desktop only */}
+      <div className={cn("mt-2 hidden lg:landscape:flex", sidebarCollapsed ? "justify-center" : "justify-start")}>
+        <Button
+          className={cn(
+            "h-8 gap-1.5 shrink-0",
+            sidebarCollapsed ? "w-8 justify-center px-0" : "px-2.5",
+          )}
+          size={sidebarCollapsed ? "icon" : "sm"}
+          variant="ghost"
+          onClick={() => window.location.reload()}
+          aria-label="Hard refresh"
+          title="Hard refresh"
+        >
+          <RefreshCw className="h-3.5 w-3.5" />
+          {!sidebarCollapsed && <span className="text-xs">Refresh</span>}
+        </Button>
+      </div>
       <div className={cn("mt-2 hidden border-t border-sidebar-border pt-2 lg:landscape:flex", sidebarCollapsed ? "justify-center" : "justify-end")}>
         <Button
           className="h-8 w-8 shrink-0"
@@ -550,7 +562,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         {/* Mobile header */}
         <header className="col-span-full flex items-center justify-between border-b border-border bg-background/95 px-4 py-3 backdrop-blur lg:landscape:hidden">
           <div className="flex items-center gap-2">
-            <img src="/logo.png" alt="Warehouse Wizard" className="h-7 w-7 shrink-0 rounded-md object-fill" />
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-black p-1">
+              <img src="/logo.png" alt="Warehouse Wizard" className="h-full w-full object-contain" />
+            </div>
             <span className="text-sm font-semibold">{appTitle}</span>
             <span className="hidden text-[10px] font-medium text-muted-foreground sm:inline">v{__APP_VERSION__}</span>
           </div>
@@ -562,6 +576,33 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <span className="hidden max-w-[120px] truncate text-xs font-medium sm:inline">{displayName}</span>
             </div>
             <OfflineQueueBadge compact />
+            {canSwitchWarehouses ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    className="h-9 w-9 shrink-0"
+                    size="icon"
+                    variant="outline"
+                    aria-label={`Switch warehouse, current ${selectedWarehouseLabel}`}
+                    title={`Switch warehouse, current ${selectedWarehouseLabel}`}
+                  >
+                    <Building2 className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56">
+                  {canSelectAllWarehouses ? (
+                    <DropdownMenuItem onSelect={() => warehouseSwitchMutation.mutate(null)}>
+                      All warehouses
+                    </DropdownMenuItem>
+                  ) : null}
+                  {headerWarehouses.map((warehouse: any) => (
+                    <DropdownMenuItem key={warehouse.id} onSelect={() => warehouseSwitchMutation.mutate(warehouse.id)}>
+                      {warehouse.code ? `${warehouse.code} - ${warehouse.name}` : warehouse.name}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : null}
             <HelpSidebar pathname={pathname} />
             <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
               <SheetTrigger asChild>
@@ -585,10 +626,33 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   </div>
                   <div className="flex gap-2">
                     <ChangeOwnPasswordDialog onClose={() => setMobileMenuOpen(false)} />
-                    <Button className="h-8 flex-1 text-xs justify-start" variant="outline" size="sm" onClick={() => { window.location.reload(); }}>
-                      <RefreshCw className="mr-2 h-3 w-3" />
-                      Refresh
-                    </Button>
+                    {canSwitchWarehouses ? (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            className="h-8 w-8 shrink-0"
+                            size="icon"
+                            variant="outline"
+                            aria-label={`Switch warehouse, current ${selectedWarehouseLabel}`}
+                            title={`Switch warehouse, current ${selectedWarehouseLabel}`}
+                          >
+                            <Building2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-56">
+                          {canSelectAllWarehouses ? (
+                            <DropdownMenuItem onSelect={() => warehouseSwitchMutation.mutate(null)}>
+                              All warehouses
+                            </DropdownMenuItem>
+                          ) : null}
+                          {headerWarehouses.map((warehouse: any) => (
+                            <DropdownMenuItem key={warehouse.id} onSelect={() => warehouseSwitchMutation.mutate(warehouse.id)}>
+                              {warehouse.code ? `${warehouse.code} - ${warehouse.name}` : warehouse.name}
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    ) : null}
                     <Button className="h-8 flex-1 text-xs justify-start" variant="outline" size="sm" onClick={() => { setMobileMenuOpen(false); void signOut(); }}>
                       <LogOut className="mr-2 h-3 w-3" />
                       Sign out
