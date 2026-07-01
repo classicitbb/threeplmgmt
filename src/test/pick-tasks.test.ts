@@ -53,7 +53,7 @@ vi.mock("@/integrations/supabase/client", () => {
   };
 });
 
-import { confirmPickTask } from "@/lib/wms-core";
+import { confirmPickTask, PickQuantityAnomalyError } from "@/lib/wms-core";
 
 function seedPick({
   task = {},
@@ -161,5 +161,109 @@ describe("confirmPickTask", () => {
 
     expect(pickDb.updates.some((update) => update.table === "pick_tasks")).toBe(false);
     expect(pickDb.rpcs).toEqual([]);
+  });
+
+  describe("pick quantity anomaly override", () => {
+    it("throws a typed PickQuantityAnomalyError (not a generic error) when the pallet can't fulfil the pick and no override is given", async () => {
+      seedPick({ balance: { quantity: 5, available_quantity: 5 }, pallet: { quantity: 5, available_quantity: 5 } });
+
+      let caught: unknown;
+      try {
+        await confirmPickTask("pick-task-1", "A-01-L01-P1", "PBC-1", 6);
+      } catch (err) {
+        caught = err;
+      }
+
+      expect(caught).toBeInstanceOf(PickQuantityAnomalyError);
+      const error = caught as PickQuantityAnomalyError;
+      expect(error.availableQuantity).toBe(5);
+      expect(error.requestedQuantity).toBe(10); // task.requested_quantity from the default seed
+      expect(pickDb.updates).toEqual([]);
+      expect(pickDb.rpcs).toEqual([]);
+    });
+
+    it("lets the operator override a depleted pallet, completes the pick at the true available quantity, and logs a record-count warning for admins", async () => {
+      // Task originally requested 10, but by the time the operator scans it
+      // the pallet has already been debited down to 6 (e.g. by another pick
+      // or adjustment). The operator re-checks the physical pallet and
+      // overrides to complete the pick for the 6 that's actually there.
+      seedPick({
+        task: { requested_quantity: 10 },
+        balance: { quantity: 6, available_quantity: 6 },
+        pallet: { quantity: 6, available_quantity: 6 },
+      });
+
+      await confirmPickTask("pick-task-1", "A-01-L01-P1", "PBC-1", 10, undefined, true);
+
+      expect(pickDb.updates).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          table: "pick_tasks",
+          payload: expect.objectContaining({
+            confirmed_quantity: 6,
+            status: "exception",
+            short_reason: expect.stringContaining("6"),
+          }),
+        }),
+        expect.objectContaining({
+          table: "pallets",
+          payload: expect.objectContaining({ quantity: 0, available_quantity: 0 }),
+        }),
+        expect.objectContaining({
+          table: "inventory_balances",
+          payload: expect.objectContaining({ quantity: 0, available_quantity: 0 }),
+        }),
+      ]));
+
+      const auditCall = pickDb.rpcs.find((call) => call.name === "log_audit_event");
+      expect(auditCall).toMatchObject({
+        args: {
+          in_event_type: "pick",
+          in_metadata: expect.objectContaining({
+            confirmed_quantity: 6,
+            requested_quantity: 10,
+            override: true,
+          }),
+        },
+      });
+
+      const systemLogCall = pickDb.rpcs.find((call) => call.name === "write_system_log");
+      expect(systemLogCall).toBeDefined();
+      expect(systemLogCall?.args).toMatchObject({
+        in_log_type: "record_count",
+        in_severity: "warning",
+        in_record_count: 6,
+        in_details: expect.objectContaining({
+          requested_quantity: 10,
+          confirmed_quantity: 6,
+          shortfall: 4,
+        }),
+      });
+    });
+
+    it("rejects the override too when the pallet has no remaining stock at all", async () => {
+      seedPick({
+        task: { requested_quantity: 10 },
+        balance: { quantity: 0, available_quantity: 0 },
+        pallet: { quantity: 0, available_quantity: 0 },
+      });
+
+      await expect(
+        confirmPickTask("pick-task-1", "A-01-L01-P1", "PBC-1", 10, undefined, true),
+      ).rejects.toThrow("no remaining stock");
+
+      expect(pickDb.updates).toEqual([]);
+      expect(pickDb.rpcs).toEqual([]);
+    });
+
+    it("does not log an anomaly or mark an exception when the confirmed quantity matches the full pallet", async () => {
+      seedPick();
+
+      await confirmPickTask("pick-task-1", "A-01-L01-P1", "PBC-1", 10, undefined, true);
+
+      expect(pickDb.rpcs.some((call) => call.name === "write_system_log")).toBe(false);
+      expect(pickDb.updates).toEqual(expect.arrayContaining([
+        expect.objectContaining({ table: "pick_tasks", payload: expect.objectContaining({ status: "completed", short_reason: null }) }),
+      ]));
+    });
   });
 });

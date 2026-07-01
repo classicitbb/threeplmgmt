@@ -4,7 +4,7 @@ import { BrowserRouter, Navigate, NavLink, Outlet, Route, Routes, useLocation, u
 import { QueryClientProvider, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { ArrowLeft, Camera, CheckCircle2, Eye, EyeOff, HelpCircle, Keyboard, Loader2, LogOut, Mail, RefreshCw, ScanLine, Sparkles, Warehouse } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Camera, CheckCircle2, Eye, EyeOff, HelpCircle, Keyboard, Loader2, LogOut, Mail, RefreshCw, ScanLine, Sparkles, Warehouse } from "lucide-react";
 import { toast } from "sonner";
 import { z } from "zod";
 import { Analytics } from "@vercel/analytics/react";
@@ -16,7 +16,7 @@ import { enqueueOfflineWork, isLikelyNetworkError } from "@/lib/offline-queue";
 import { supabase } from "@/integrations/supabase/client";
 import { createAppQueryClient } from "@/lib/query-client";
 
-import { buildBayOccupancyGrid, confirmPickTask, formatDate, formatNumber, formatPickRackInstruction, getBayOccupancy, getInventoryDetail, getPickExecution, loginSchema, normalizeRackLocationCode, recordUserSignIn, refreshUserDeviceTrust, signUpSchema, RESOURCE_DEFINITIONS } from "@/lib/wms-core";
+import { buildBayOccupancyGrid, confirmPickTask, formatDate, formatNumber, formatPickRackInstruction, getBayOccupancy, getInventoryDetail, getPickExecution, loginSchema, normalizeRackLocationCode, PickQuantityAnomalyError, recordUserSignIn, refreshUserDeviceTrust, signUpSchema, RESOURCE_DEFINITIONS } from "@/lib/wms-core";
 import { beginActiveWork } from "@/lib/active-work";
 import { getOrCreateDeviceId, hasTrustedDeviceShortcut, isDesktopClient } from "@/lib/device-identity";
 import { cn } from "@/lib/utils";
@@ -1431,6 +1431,7 @@ function PickExecutionPage() {
   const tasks = data?.pickTasks ?? [];
   const taskLocationRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const [confirmErrorNonceByTask, setConfirmErrorNonceByTask] = useState<Record<string, number>>({});
+  const [pickAnomalyByTask, setPickAnomalyByTask] = useState<Record<string, { availableQuantity: number; requestedQuantity: number } | undefined>>({});
 
   const focusNextOpen = useCallback((justConfirmedId: string) => {
     const list = tasks;
@@ -1452,19 +1453,21 @@ function PickExecutionPage() {
       palletBarcode,
       quantity,
       shortReason,
+      override,
     }: {
       taskId: string;
       locationCode: string;
       palletBarcode: string;
       quantity: number;
       shortReason?: string;
+      override?: boolean;
     }) => {
       if (typeof navigator !== "undefined" && navigator.onLine === false) {
         await enqueueOfflineWork("pick", { taskId, pickListId, locationCode, palletBarcode, quantity, shortReason });
         return { queued: true as const };
       }
       try {
-        await confirmPickTask(taskId, locationCode, palletBarcode, quantity, shortReason);
+        await confirmPickTask(taskId, locationCode, palletBarcode, quantity, shortReason, override);
         return { queued: false as const };
       } catch (err) {
         if (isLikelyNetworkError(err)) {
@@ -1475,6 +1478,12 @@ function PickExecutionPage() {
       }
     },
     onSuccess: async (res, variables) => {
+      setPickAnomalyByTask((current) => {
+        if (!(variables.taskId in current)) return current;
+        const next = { ...current };
+        delete next[variables.taskId];
+        return next;
+      });
       if (res?.queued) {
         toast.message("Pick saved offline — will sync on reconnect", {
           description: `Task buffered locally.`,
@@ -1484,7 +1493,7 @@ function PickExecutionPage() {
         setTimeout(() => focusNextOpen(variables.taskId), 300);
         return;
       }
-      toast.success("Pick task confirmed");
+      toast.success(variables.override ? "Pick confirmed with override — anomaly logged for review" : "Pick task confirmed");
       try { navigator.vibrate?.([60, 40, 120]); } catch { /* noop */ }
       playPickSuccessTone();
       await Promise.all([
@@ -1505,6 +1514,20 @@ function PickExecutionPage() {
           ...current,
           [variables.taskId]: (current[variables.taskId] ?? 0) + 1,
         }));
+      }
+      if (error instanceof PickQuantityAnomalyError && variables?.taskId) {
+        setPickAnomalyByTask((current) => ({
+          ...current,
+          [variables.taskId]: {
+            availableQuantity: error.availableQuantity,
+            requestedQuantity: error.requestedQuantity,
+          },
+        }));
+        toast.warning(
+          `Only ${error.availableQuantity} available on this pallet (requested ${error.requestedQuantity}). Confirm the pallet and override to complete the pick for ${error.availableQuantity}.`,
+          { duration: 8000 },
+        );
+        return;
       }
       toast.error(error instanceof Error ? error.message : "Pick confirmation failed");
     },
@@ -1563,6 +1586,15 @@ function PickExecutionPage() {
             onConfirm={(payload) => mutation.mutate(payload)}
             isPending={mutation.isPending && mutation.variables?.taskId === task.id}
             confirmErrorNonce={confirmErrorNonceByTask[task.id] ?? 0}
+            anomaly={pickAnomalyByTask[task.id]}
+            onClearAnomaly={() => {
+              setPickAnomalyByTask((current) => {
+                if (!(task.id in current)) return current;
+                const next = { ...current };
+                delete next[task.id];
+                return next;
+              });
+            }}
             registerLocationRef={(el) => {
               taskLocationRefs.current[task.id] = el;
             }}
@@ -1699,6 +1731,8 @@ function PickTaskCard({
   onConfirm,
   isPending,
   confirmErrorNonce,
+  anomaly,
+  onClearAnomaly,
   registerLocationRef,
 }: {
   task: any;
@@ -1708,9 +1742,12 @@ function PickTaskCard({
     palletBarcode: string;
     quantity: number;
     shortReason?: string;
+    override?: boolean;
   }) => void;
   isPending: boolean;
   confirmErrorNonce: number;
+  anomaly?: { availableQuantity: number; requestedQuantity: number };
+  onClearAnomaly?: () => void;
   registerLocationRef: (el: HTMLInputElement | null) => void;
 }) {
   const form = useForm({
@@ -1801,6 +1838,7 @@ function PickTaskCard({
   function applyLocationScan(value: string) {
     const scanned = normalizeScannerText(value);
     if (!scanned) return;
+    onClearAnomaly?.();
     if (isBaySelectorCode(scanned)) {
       setBayScan(scanned);
       form.setValue("locationCode", "");
@@ -1928,7 +1966,10 @@ function PickTaskCard({
                         className="min-h-10 min-w-0 flex-1 transition-shadow duration-300"
                         disabled={lockForConfirm}
                         placeholder="Scan pallet barcode"
-                        onChange={(event) => field.onChange(normalizeScannerText(event.target.value.replace(/[\r\n]/g, "")))}
+                        onChange={(event) => {
+                          onClearAnomaly?.();
+                          field.onChange(normalizeScannerText(event.target.value.replace(/[\r\n]/g, "")));
+                        }}
                         onKeyDown={(event) => {
                           if (event.key === "Enter") {
                             event.preventDefault();
@@ -1965,6 +2006,34 @@ function PickTaskCard({
               <span className="text-xs font-medium text-muted-foreground">Full pallet qty</span>
               <span className="font-mono text-base font-semibold">{formatNumber(wholePalletQuantity)}</span>
             </div>
+            {anomaly ? (
+              <div className="lg:col-span-4 flex flex-col gap-2 rounded-md border border-amber-400 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-600 dark:bg-amber-950/40 dark:text-amber-200">
+                <p>
+                  <AlertTriangle className="mr-1 inline h-4 w-4" />
+                  This pallet has already been debited — only <span className="font-mono font-semibold">{formatNumber(anomaly.availableQuantity)}</span> is
+                  available now (requested <span className="font-mono font-semibold">{formatNumber(anomaly.requestedQuantity)}</span>). Re-check the physical
+                  pallet, then override to complete the pick for the actual quantity. This will log a record-count warning for admins and managers to review.
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-fit border-amber-500 text-amber-900 hover:bg-amber-100 dark:text-amber-200"
+                  disabled={isPending || !readyToConfirm}
+                  onClick={() =>
+                    onConfirm({
+                      taskId: task.id,
+                      locationCode: scannedLocation,
+                      palletBarcode: scannedPallet,
+                      quantity: anomaly.availableQuantity,
+                      override: true,
+                    })
+                  }
+                >
+                  {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                  Override & confirm {formatNumber(anomaly.availableQuantity)}
+                </Button>
+              </div>
+            ) : null}
             <Button
               ref={confirmRef}
               className={cn(

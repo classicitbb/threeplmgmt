@@ -13,6 +13,34 @@ import {
 import { normalizeRackLocationCode } from "@/features/setup/setup-core";
 import { upsertRecord } from "@/features/admin/admin-core";
 import { createLabelRecord } from "@/features/receiving/receiving-core";
+import { writeSystemLog } from "@/features/system/system-core";
+
+/**
+ * Splits a requested pick quantity across pallets in the order they're
+ * given (caller is responsible for FEFO/FIFO sorting). Each pallet is only
+ * allocated the smaller of its own available quantity and whatever is still
+ * outstanding — never its full available quantity — so a product received
+ * as 100 units on two 50-unit pallets and picked for 100 produces two
+ * allocations of 50 each instead of one task trying (and failing) to take
+ * the whole 100 off a single pallet. Exported so the split math can be unit
+ * tested without touching Supabase.
+ */
+export function allocatePickQuantities<T extends { available_quantity: number | null }>(
+  sortedCandidates: T[],
+  quantity: number,
+): { allocations: Array<T & { allocated_quantity: number }>; short: number } {
+  const allocations: Array<T & { allocated_quantity: number }> = [];
+  let remaining = quantity;
+  for (const candidate of sortedCandidates) {
+    if (remaining <= 0) break;
+    const available = Number(candidate.available_quantity ?? 0);
+    const allocated = Math.min(available, remaining);
+    if (allocated <= 0) continue;
+    allocations.push({ ...candidate, allocated_quantity: allocated });
+    remaining -= allocated;
+  }
+  return { allocations, short: remaining > 0 ? remaining : 0 };
+}
 
 async function selectPickCandidates(productId: string, warehouseId: string, quantity: number) {
   const { data: product } = await db("products").select("*").eq("id", productId).single();
@@ -25,22 +53,15 @@ async function selectPickCandidates(productId: string, warehouseId: string, quan
     .gt("available_quantity", 0);
   if (error) throw error;
 
-  const candidates = [...(data ?? [])].sort((left, right) => {
+  const sorted = [...(data ?? [])].sort((left, right) => {
     if (product?.rotation_method === "fefo") {
       return (left.expiry_date ?? "9999-12-31").localeCompare(right.expiry_date ?? "9999-12-31");
     }
     return String(left.received_at ?? "").localeCompare(String(right.received_at ?? ""));
   });
 
-  const chosen: any[] = [];
-  let remaining = quantity;
-  for (const candidate of candidates) {
-    if (remaining <= 0) break;
-    chosen.push(candidate);
-    remaining -= candidate.available_quantity;
-  }
-
-  return { candidates: chosen, short: remaining > 0 ? remaining : 0 };
+  const { allocations, short } = allocatePickQuantities(sorted, quantity);
+  return { candidates: allocations, short };
 }
 
 export async function createPickListFlow(input: z.infer<typeof pickListSchema>) {
@@ -102,7 +123,11 @@ export async function createPickListFlow(input: z.infer<typeof pickListSchema>) 
         order_line_id: orderLine.id,
         pallet_id: candidate.pallet_id,
         location_id: candidate.location_id ?? null,
-        requested_quantity: candidate.available_quantity,
+        // Each task only requests the slice of this pallet needed to cover
+        // the remaining line quantity — see allocatePickQuantities — so a
+        // multi-pallet product is split across tasks instead of one task
+        // over-requesting a single pallet.
+        requested_quantity: candidate.allocated_quantity,
         status: selection.short > 0 ? "exception" : "queued",
         short_reason: selection.short > 0 ? `Short by ${selection.short}` : null,
       });
@@ -154,7 +179,36 @@ export async function getPickExecution(pickListId: string) {
   };
 }
 
-export async function confirmPickTask(taskId: string, scannedLocation: string, scannedPallet: string, confirmedQuantity: number, shortReason?: string) {
+/**
+ * Thrown when the pallet backing a pick task can no longer fulfil the
+ * requested/confirmed quantity (e.g. it was depleted by another pick,
+ * transfer, or adjustment after this task was created). Callers can catch
+ * this specifically — via `instanceof` — to offer the operator an override
+ * rather than treating it as a generic failure. The message is also
+ * prefixed so any consumer that only sees a stringified error (e.g. the
+ * offline dead-letter queue) can still recognise it.
+ */
+export class PickQuantityAnomalyError extends Error {
+  readonly code = "PICK_QTY_ANOMALY" as const;
+  readonly availableQuantity: number;
+  readonly requestedQuantity: number;
+
+  constructor(message: string, availableQuantity: number, requestedQuantity: number) {
+    super(`PICK_QTY_ANOMALY: ${message}`);
+    this.name = "PickQuantityAnomalyError";
+    this.availableQuantity = availableQuantity;
+    this.requestedQuantity = requestedQuantity;
+  }
+}
+
+export async function confirmPickTask(
+  taskId: string,
+  scannedLocation: string,
+  scannedPallet: string,
+  confirmedQuantity: number,
+  shortReason?: string,
+  override = false,
+) {
   const { data: task, error: taskError } = await db("pick_tasks")
     .select("*")
     .eq("id", taskId)
@@ -192,21 +246,46 @@ export async function confirmPickTask(taskId: string, scannedLocation: string, s
 
   let nextBalanceQuantity = Number(balance.quantity ?? 0);
   let fullyDepleted = false;
+  let quantityAnomaly = false;
 
-  if (Number(confirmedQuantity) > 0) {
+  // effectiveQuantity is what actually gets debited/recorded. It starts as
+  // the caller's confirmedQuantity, but is clamped down to the pallet's true
+  // available quantity when an override resolves an anomaly below.
+  let effectiveQuantity = Number(confirmedQuantity);
+
+  if (effectiveQuantity > 0) {
+    const trueAvailable = Number(balance.available_quantity ?? 0);
     const wholePalletQuantity = Number(balance.available_quantity ?? pallet.available_quantity ?? task.requested_quantity ?? 0);
-    if (Number(confirmedQuantity) > Number(balance.available_quantity ?? 0)) {
-      throw new Error(`Cannot pick ${confirmedQuantity}; only ${balance.available_quantity ?? 0} available on this pallet.`);
-    }
-    if (Number(confirmedQuantity) !== wholePalletQuantity) {
+
+    if (effectiveQuantity > trueAvailable) {
+      // Someone/something else (another pick, transfer, or adjustment) has
+      // debited this pallet since the task was created or the screen was
+      // loaded, so the requested/confirmed quantity can no longer be
+      // fulfilled from this pallet alone.
+      if (!override) {
+        throw new PickQuantityAnomalyError(
+          `Cannot pick ${effectiveQuantity}; only ${trueAvailable} available on this pallet.`,
+          trueAvailable,
+          Number(task.requested_quantity ?? effectiveQuantity),
+        );
+      }
+      if (trueAvailable <= 0) {
+        throw new Error("This pallet has no remaining stock to pick. Cancel or reassign this pick task.");
+      }
+      // Operator re-scanned the pallet and confirmed the true remaining
+      // quantity — proceed with that instead of the stale/expected amount,
+      // and flag the discrepancy so it gets logged below.
+      effectiveQuantity = trueAvailable;
+      quantityAnomaly = true;
+    } else if (effectiveQuantity !== wholePalletQuantity) {
       throw new Error(`Partial picks are disabled. Confirm the full pallet quantity of ${wholePalletQuantity}.`);
     }
 
-    const nextAvailable = Math.max(balance.available_quantity - confirmedQuantity, 0);
+    const nextAvailable = Math.max(balance.available_quantity - effectiveQuantity, 0);
     const nextStatus: InventoryStatus = nextAvailable === 0 ? PICK_COMPLETED_INVENTORY_STATUS : "available";
     fullyDepleted = nextAvailable === 0;
-    const nextPalletQuantity = Math.max(Number(pallet.quantity ?? 0) - confirmedQuantity, 0);
-    nextBalanceQuantity = Math.max(Number(balance.quantity ?? 0) - confirmedQuantity, 0);
+    const nextPalletQuantity = Math.max(Number(pallet.quantity ?? 0) - effectiveQuantity, 0);
+    nextBalanceQuantity = Math.max(Number(balance.quantity ?? 0) - effectiveQuantity, 0);
 
     const palletUpdate = await db("pallets")
       .update(
@@ -249,11 +328,17 @@ export async function confirmPickTask(taskId: string, scannedLocation: string, s
     throwIfSupabaseError(balanceUpdate, "Could not debit picked inventory balance.");
   }
 
+  const requestedQuantity = Number(task.requested_quantity ?? 0);
+  const autoShortReason = quantityAnomaly && effectiveQuantity < requestedQuantity
+    ? `Override: pallet only had ${effectiveQuantity} available (requested ${requestedQuantity}).`
+    : null;
+  const finalShortReason = shortReason ?? autoShortReason;
+
   const taskUpdate = await db("pick_tasks")
     .update({
-      confirmed_quantity: confirmedQuantity,
-      short_reason: shortReason ?? null,
-      status: shortReason ? "exception" : "completed",
+      confirmed_quantity: effectiveQuantity,
+      short_reason: finalShortReason,
+      status: finalShortReason ? "exception" : "completed",
       completed_at: new Date().toISOString(),
     })
     .eq("id", taskId);
@@ -267,14 +352,42 @@ export async function confirmPickTask(taskId: string, scannedLocation: string, s
     in_warehouse_id: balance.warehouse_id,
     in_from_location_id: balance.location_id,
     in_metadata: {
-      confirmed_quantity: confirmedQuantity,
-      short_reason: shortReason ?? null,
+      confirmed_quantity: effectiveQuantity,
+      requested_quantity: requestedQuantity,
+      short_reason: finalShortReason,
       previous_quantity: Number(balance.quantity ?? 0),
       remaining_quantity: nextBalanceQuantity,
       location_cleared: fullyDepleted,
+      override: quantityAnomaly,
     } as any,
   });
   if (pickAudit.error) console.error("[submitPickTaskLine] log_audit_event failed:", pickAudit.error);
+
+  // Notify admins/managers of the pick anomaly via the System Log ("record
+  // count" category) so it can be reviewed alongside other inventory-count
+  // discrepancies. Non-blocking — the pick itself is already committed.
+  if (quantityAnomaly) {
+    const shortfall = Math.max(requestedQuantity - effectiveQuantity, 0);
+    await writeSystemLog({
+      log_type: "record_count",
+      severity: "warning",
+      title: `Pick quantity anomaly overridden — task ${task.task_number ?? taskId}`,
+      message: `Requested ${requestedQuantity}, but pallet ${pallet.pallet_barcode ?? pallet.id} only had ${effectiveQuantity} available at confirm time. Operator overrode the warning and completed the pick for ${effectiveQuantity}${shortfall > 0 ? ` (short by ${shortfall})` : ""}.`,
+      source: "picking",
+      table_name: "pick_tasks",
+      record_count: effectiveQuantity,
+      details: {
+        task_id: taskId,
+        task_number: task.task_number ?? null,
+        pick_list_id: task.pick_list_id ?? null,
+        pallet_id: pallet.id,
+        pallet_barcode: pallet.pallet_barcode ?? null,
+        requested_quantity: requestedQuantity,
+        confirmed_quantity: effectiveQuantity,
+        shortfall,
+      },
+    }).catch((err) => console.error("[confirmPickTask] writeSystemLog anomaly failed:", err));
+  }
 
   // Roll up the parent pick list if every sibling task is finished.
   if (task.pick_list_id) {
