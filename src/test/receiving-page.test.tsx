@@ -39,7 +39,10 @@ const wmsMocks = vi.hoisted(() => {
 });
 
 const aiMocks = vi.hoisted(() => ({
-  getProductPalletQtyHint: vi.fn(async () => null),
+  getProductPalletQtyHint: vi.fn<
+    [string, string | null | undefined],
+    Promise<{ suggestedQty: number; confidence: number; sampleCount: number } | null>
+  >(async () => null),
 }));
 
 class ResizeObserverStub {
