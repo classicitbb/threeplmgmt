@@ -35,6 +35,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { BarcodeScanButton } from "@/components/barcode-scan-button";
 import { HelpSidebar } from "@/components/help-sidebar";
+import { HintButton } from "@/components/hint-button";
 import NotFound from "./pages/NotFound";
 
 const queryClient = createAppQueryClient();
@@ -1574,8 +1575,13 @@ function PickExecutionPage() {
           <ArrowLeft className="h-4 w-4" /> Back
         </Button>
         <div>
-          <h2 className="text-2xl font-semibold">Pick Execution</h2>
-          <p className="text-sm text-muted-foreground">
+          <div className="flex items-center gap-2">
+            <h2 className="text-2xl font-semibold">Pick Execution</h2>
+            <HintButton label="Pick Execution hints">
+              Open the assigned list, scan location and pallet, then confirm quantity.
+            </HintButton>
+          </div>
+          <p className="hidden text-sm text-muted-foreground sm:block">
             Open the assigned list, scan location and pallet, then confirm quantity.
           </p>
         </div>

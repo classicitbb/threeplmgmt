@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { QRCodeSVG } from "qrcode.react";
 import { Link, NavLink, useLocation, useNavigate, useSearchParams } from "react-router-dom";
@@ -137,6 +137,7 @@ import {
 import { ProductSearch } from "@/components/product-search";
 import { PalletLabelPage } from "@/components/pallet-label-page";
 import { BarcodeScanButton } from "@/components/barcode-scan-button";
+import { HintButton } from "@/components/hint-button";
 import { type ProductSearchHandle } from "@/components/product-search";
 
 import { cn } from "@/lib/utils";
@@ -428,12 +429,17 @@ export function PickListsPage() {
   }
 
   return (
-    <Fragment>
+    <div className="contents">
     <Tabs className="flex flex-col gap-0" value={activeTab} onValueChange={setActiveTab}>
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div className="flex flex-col gap-3 pb-[3px] sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h2 className="text-xl font-semibold sm:text-2xl">Pick Lists</h2>
-          <p className="text-sm text-muted-foreground">Release outbound work and execute scan-confirmed picks.</p>
+          <div className="flex items-center gap-2">
+            <h2 className="text-xl font-semibold sm:text-2xl">Pick Lists</h2>
+            <HintButton label="Pick Lists hints">
+              Release outbound work and execute scan-confirmed picks.
+            </HintButton>
+          </div>
+          <p className="hidden text-sm text-muted-foreground sm:block">Release outbound work and execute scan-confirmed picks.</p>
         </div>
         <div className="flex min-w-0 gap-2 sm:min-w-80">
           <div className="relative min-w-0 flex-1">
@@ -490,22 +496,22 @@ export function PickListsPage() {
                   {pickList.notes || "Released outbound work"} · {completedCount}/{tasks.length} tasks done
                 </CardDescription>
               </CardHeader>
-              <CardContent className="grid gap-3">
+              <CardContent className="grid gap-0 px-0 pb-0 sm:gap-3 sm:px-6 sm:pb-6">
                 {tasks.map((task: any) => {
                   const product = task.pallets?.products as any;
                   return (
                     <div
                       key={task.id}
-                      className={`flex flex-wrap items-center gap-3 rounded-md border px-3 py-2 text-sm ${task.status === "exception" ? "border-destructive/50 bg-destructive/5" : "border-border"}`}
+                      className={`grid gap-2 border-y px-6 py-3 text-sm sm:flex sm:flex-wrap sm:items-center sm:gap-3 sm:rounded-md sm:border sm:px-3 sm:py-2 ${task.status === "exception" ? "border-destructive/50 bg-destructive/5" : "border-border"}`}
                     >
                       <div className="min-w-0 flex-1">
-                        <p className="font-medium truncate">{product?.name ?? "—"}</p>
+                        <p className="font-medium leading-5 sm:truncate">{product?.name ?? "—"}</p>
                         {product?.sku && <p className="font-mono text-xs text-muted-foreground">{product.sku}</p>}
                         {task.pallets?.pallet_barcode && (
                           <p className="font-mono text-xs text-muted-foreground">Pallet: {task.pallets.pallet_barcode}</p>
                         )}
                       </div>
-                      <div className="flex items-center gap-2 shrink-0">
+                      <div className="flex items-center justify-between gap-2 sm:shrink-0 sm:justify-start">
                         <span className="text-sm font-semibold">Qty {formatNumber(task.requested_quantity ?? task.quantity ?? 0)}</span>
                         <Badge variant={statusBadgeVariant(task.status)} className="text-xs">{task.status}</Badge>
                       </div>
@@ -515,7 +521,7 @@ export function PickListsPage() {
                     </div>
                   );
                 })}
-                <div className="flex flex-wrap gap-2 pt-1">
+                <div className="flex flex-wrap gap-2 px-6 py-3 sm:px-0 sm:py-0 sm:pt-1">
                   <Button asChild variant="outline" size="sm">
                     <Link
                       to={`/pick-lists/${pickList.id}`}
@@ -853,6 +859,6 @@ export function PickListsPage() {
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
-    </Fragment>
+    </div>
   );
 }

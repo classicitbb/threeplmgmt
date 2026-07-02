@@ -432,11 +432,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
   }, [profile?.default_warehouse_id, queryClient, roles, user?.id]);
 
-  const navigation = (
+  const renderNavigation = (compactTop = false) => (
       <div
         className={cn(
           "flex h-full flex-col overflow-hidden bg-sidebar",
-          sidebarCollapsed ? "items-center px-1.5 py-3 bg-teal-500" : "px-2.5 py-3"
+          sidebarCollapsed ? "items-center px-1.5 py-3 bg-teal-500" : compactTop ? "px-2.5 pb-3 pt-1" : "px-2.5 py-3"
         )}
       >
       {/* Logo area */}
@@ -632,13 +632,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     </Button>
                   </div>
                 </div>
-                <div className="flex-1 overflow-y-auto">{navigation}</div>
+                <div className="flex-1 overflow-y-auto">{renderNavigation(true)}</div>
               </SheetContent>
             </Sheet>
           </div>
         </header>
 
-        <aside className="hidden h-full overflow-hidden border-r border-border lg:landscape:block">{navigation}</aside>
+        <aside className="hidden h-full overflow-hidden border-r border-border lg:landscape:block">{renderNavigation()}</aside>
 
         <main className="flex min-h-0 min-w-0 flex-col overflow-hidden">
           {/* Desktop top bar — landscape only */}
@@ -678,7 +678,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
           <div
             className={cn(
-              "flex-1 min-h-0 min-w-0 px-4 pt-5 pb-[4.75rem] sm:px-5 lg:px-6 lg:landscape:pb-5",
+              "flex-1 min-h-0 min-w-0",
+              pathname === "/help"
+                ? "p-0 pb-14 lg:landscape:pb-0"
+                : "px-4 pt-5 pb-[4.75rem] sm:px-5 lg:px-6 lg:landscape:pb-5",
               pathname === "/inventory-search" ? "overflow-hidden" : "overflow-y-auto",
             )}
           >

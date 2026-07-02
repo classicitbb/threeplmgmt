@@ -269,16 +269,22 @@ export function InventorySearchPage() {
       <Card>
         <CardContent className="flex flex-col gap-2 p-3">
           <div className="flex flex-wrap items-stretch gap-2">
-            <div className="flex min-w-[17rem] flex-1 gap-2">
+            <div className="flex min-w-0 flex-1 gap-2 sm:min-w-[17rem]">
               <div className="relative min-w-0 flex-1">
                 <Search className="absolute left-3 top-3 text-muted-foreground" />
-                <Input type="search" className="min-w-0 pl-10" value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Search SKU, pallet, container, PO, or location" />
+                <Input type="search" className="min-w-0 pl-10 pr-16" value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Search SKU, pallet, container, PO, or location" />
+                <Button
+                  type="button"
+                  className="absolute right-1 top-1/2 h-7 -translate-y-1/2 px-2 text-xs"
+                  variant="ghost"
+                  onClick={clearInventoryFilters}
+                  disabled={!hasInventoryFilters}
+                >
+                  Clear
+                </Button>
               </div>
               <BarcodeScanButton title="Scan SKU, pallet, container, PO, or location barcode" onScan={(value) => setSearchTerm(normalizeScannerText(value))} />
             </div>
-            <Button className="h-9 min-w-20" variant="outline" onClick={clearInventoryFilters} disabled={!hasInventoryFilters}>
-              Clear
-            </Button>
           </div>
           {(options?.warehouses?.length ?? 0) > 1 && !restrictedToDefaultWarehouse ? (
             <div className="flex flex-wrap items-center gap-1.5">

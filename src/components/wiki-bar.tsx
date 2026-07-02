@@ -48,6 +48,7 @@ type HelpTocProps = {
 
 export function WikiBar({ articles, collapsed, onNavigate }: HelpTocProps) {
   const [expandedModules, setExpandedModules] = useState<Record<string, boolean>>({});
+  const [expandedArticles, setExpandedArticles] = useState<Record<string, boolean>>({});
   const [activeArticleId, setActiveArticleId] = useState<string | null>(null);
   const [activeSectionSlug, setActiveSectionSlug] = useState<string | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -64,6 +65,11 @@ export function WikiBar({ articles, collapsed, onNavigate }: HelpTocProps) {
       return next;
     });
   }, [articles]);
+
+  useEffect(() => {
+    if (!activeArticleId) return;
+    setExpandedArticles((prev) => ({ ...prev, [activeArticleId]: true }));
+  }, [activeArticleId]);
 
   // IntersectionObserver – track which article / section is in view
   useEffect(() => {
@@ -124,8 +130,8 @@ export function WikiBar({ articles, collapsed, onNavigate }: HelpTocProps) {
 
   const handleArticleClick = useCallback(
     (articleId: string) => {
+      setExpandedArticles((prev) => ({ ...prev, [articleId]: !prev[articleId] }));
       onNavigate(articleId);
-      setSheetOpen(false);
     },
     [onNavigate],
   );
@@ -165,15 +171,20 @@ export function WikiBar({ articles, collapsed, onNavigate }: HelpTocProps) {
                   <button
                     onClick={() => handleArticleClick(article.id)}
                     className={cn(
-                      "block w-full text-left px-2 py-1 rounded text-sm transition-colors",
+                      "flex w-full items-start gap-1 rounded px-2 py-1 text-left text-sm transition-colors",
                       activeArticleId === article.id
                         ? "font-semibold text-primary bg-primary/5"
                         : "text-foreground hover:bg-muted",
                     )}
                   >
-                    {article.title}
+                    {expandedArticles[article.id] ? (
+                      <ChevronDown className="mt-0.5 h-3 w-3 shrink-0" />
+                    ) : (
+                      <ChevronRight className="mt-0.5 h-3 w-3 shrink-0" />
+                    )}
+                    <span className="min-w-0 flex-1">{article.title}</span>
                   </button>
-                  {article.sections.length > 0 && (
+                  {expandedArticles[article.id] && article.sections.length > 0 && (
                     <div className="ml-3 space-y-0.5">
                       {article.sections.map((section) => {
                         const slug = sectionSlug(section.title);

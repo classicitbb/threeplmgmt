@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { HelpCircle } from "lucide-react";
+import { useState } from "react";
 
 import { useAuth } from "@/hooks/use-auth";
 import { STARTER_MODULES, type ModuleKey, useFeatureFlags } from "@/hooks/use-feature-flags";
@@ -28,6 +29,7 @@ function canShowArticle(article: HelpArticle, roles: string[], isEnabled: (key: 
 }
 
 export function HelpSidebar({ pathname }: { pathname: string }) {
+  const [open, setOpen] = useState(false);
   const help = getRouteHelp(pathname);
   const { roles } = useAuth();
   const { isEnabled } = useFeatureFlags();
@@ -37,7 +39,7 @@ export function HelpSidebar({ pathname }: { pathname: string }) {
     .filter((article) => canShowArticle(article, roles, isEnabled));
 
   return (
-    <Sheet>
+    <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
         <Button variant="outline">
           <HelpCircle data-icon="inline-start" />
@@ -92,7 +94,7 @@ export function HelpSidebar({ pathname }: { pathname: string }) {
                   </div>
                 ))}
                 <Button asChild className="w-full">
-                  <Link to="/help">Open Help Center</Link>
+                  <Link to="/help" onClick={() => setOpen(false)}>Open Help Center</Link>
                 </Button>
               </CardContent>
             </Card>

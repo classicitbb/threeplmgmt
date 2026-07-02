@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type KeyboardEvent, type KeyboardEventHandler, type ReactNode, type SetStateAction } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type KeyboardEvent, type KeyboardEventHandler, type SetStateAction } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { QRCodeSVG } from "qrcode.react";
 import { Link, NavLink, useLocation, useNavigate, useSearchParams } from "react-router-dom";
@@ -136,6 +136,7 @@ import {
 import { ProductSearch } from "@/components/product-search";
 import { PalletLabelPage } from "@/components/pallet-label-page";
 import { BarcodeScanButton, type ScanTelemetryEvent } from "@/components/barcode-scan-button";
+import { HintButton } from "@/components/hint-button";
 import { type ProductSearchHandle } from "@/components/product-search";
 
 import { cn } from "@/lib/utils";
@@ -224,33 +225,6 @@ function formatShipmentDate(date: Date) {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
-}
-
-function HintButton({ label, children }: { label: string; children: ReactNode }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <span className="relative inline-flex">
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon"
-        className="h-6 w-6 shrink-0 rounded-full border border-border bg-card/70 text-xs font-semibold text-muted-foreground hover:text-foreground"
-        aria-label={label}
-        aria-expanded={open}
-        onClick={() => setOpen((current) => !current)}
-      >
-        ?
-      </Button>
-      {open ? (
-        <span
-          role="tooltip"
-          className="absolute left-1/2 top-full z-50 mt-2 w-64 -translate-x-1/2 rounded-md border border-border bg-popover p-3 text-sm font-normal leading-5 text-popover-foreground shadow-md"
-        >
-        {children}
-        </span>
-      ) : null}
-    </span>
-  );
 }
 
 function ShipmentExpiryPicker({
@@ -947,24 +921,24 @@ export function ReceivingPage() {
           </div>
           <p className="hidden text-sm text-muted-foreground sm:block">Create shipment drafts by container, print labels, then receive selected pallets.</p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={() => { refetchDrafts(); void flushOfflineQueue(); }}>
+        <div className="grid grid-cols-3 gap-2 sm:flex sm:flex-wrap">
+          <Button className="min-w-0 px-2 text-xs sm:px-4 sm:text-sm" variant="outline" onClick={() => { refetchDrafts(); void flushOfflineQueue(); }}>
             <RefreshCw data-icon="inline-start" />
-            Sync / Refresh
+            <span className="truncate">Sync / Refresh</span>
           </Button>
-          <Button variant="outline" onClick={() => {
+          <Button className="min-w-0 px-2 text-xs sm:px-4 sm:text-sm" variant="outline" onClick={() => {
             setPrintContainer(draftSearch);
             setSelectedDraftIds(new Set(visibleDrafts.map((draft) => draft.id)));
             setPrintOpen(true);
           }}>
             <Printer data-icon="inline-start" />
-            Print drafts
+            <span className="truncate">Print drafts</span>
           </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button>
+              <Button className="min-w-0 px-2 text-xs sm:px-4 sm:text-sm">
                 <Plus data-icon="inline-start" />
-                New
+                <span className="truncate">New</span>
                 <ChevronDown className="ml-1 h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
