@@ -40,6 +40,8 @@ interface BarcodeScanButtonProps {
   validateScan?: (raw: string) => ScanValidationResult;
   getScanCandidates?: (raw: string) => string[];
   onScanTelemetry?: (event: ScanTelemetryEvent) => void;
+  onOpenChange?: (open: boolean) => void;
+  autoOpenSignal?: number;
   /** After scan is accepted, simulate Enter keydown on this input to advance focus. */
   inputRef?: RefObject<HTMLInputElement | null>;
 }
@@ -119,6 +121,8 @@ export function BarcodeScanButton({
   validateScan,
   getScanCandidates,
   onScanTelemetry,
+  onOpenChange,
+  autoOpenSignal,
   inputRef,
 }: BarcodeScanButtonProps) {
   const [open, setOpen] = useState(false);
@@ -143,6 +147,16 @@ export function BarcodeScanButton({
   const rejectedRegionsRef = useRef<ScanTelemetryEvent["rejectedRegions"]>([]);
   const failureLoggedRef = useRef(false);
   const pendingContainerSuccessRef = useRef<{ event: ScanTelemetryEvent; sample: ContainerScannerSuccessSample } | null>(null);
+
+  const updateOpen = useCallback((nextOpen: boolean) => {
+    setOpen(nextOpen);
+    onOpenChange?.(nextOpen);
+  }, [onOpenChange]);
+
+  useEffect(() => {
+    if (!autoOpenSignal || disabled) return;
+    updateOpen(true);
+  }, [autoOpenSignal, disabled, updateOpen]);
 
   const stopStream = useCallback(() => {
     if (rafRef.current != null) {
@@ -172,13 +186,13 @@ export function BarcodeScanButton({
     stopStream();
     setTimeout(() => {
       onScan(value);
-      setOpen(false);
+      updateOpen(false);
       if (inputRef?.current) {
         inputRef.current.focus();
         inputRef.current.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true, cancelable: true }));
       }
     }, 400);
-  }, [inputRef, onScan, onScanTelemetry, stopStream]);
+  }, [inputRef, onScan, onScanTelemetry, stopStream, updateOpen]);
 
   const emitScanTelemetry = useCallback((event: ScanTelemetryEvent) => {
     try {
@@ -467,14 +481,14 @@ export function BarcodeScanButton({
         className={cn("h-10 shrink-0", buttonLabel ? "px-3" : "w-10", className)}
         title={title}
         disabled={disabled}
-        onClick={() => setOpen(true)}
+        onClick={() => updateOpen(true)}
         aria-label={title}
       >
         <Camera className="h-4 w-4" />
         {buttonLabel ? <span>{buttonLabel}</span> : null}
       </Button>
 
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog open={open} onOpenChange={updateOpen}>
         <DialogContent className="p-4 sm:max-w-sm">
           <DialogHeader>
             <DialogTitle className="text-base">{title}</DialogTitle>

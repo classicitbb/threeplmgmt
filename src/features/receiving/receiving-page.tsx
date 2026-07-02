@@ -6,7 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm, type UseFormReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { supabase } from "@/integrations/supabase/client";
-import { Activity, AlertCircle, AlertTriangle, ArrowLeftRight, ArrowRight, BarChart3, Bot, Boxes, Building2, CalendarDays, CheckCircle2, ChevronDown, ClipboardCheck, ClipboardList, CloudOff, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, HelpCircle, Home, Info, KeyRound, LayoutDashboard, Loader2, Lock, LockOpen, LogOut, Mail, Maximize2, MapPinned, Menu, Minimize2, Network, Package, PackageX, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, QrCode, RadioTower, RefreshCw, RotateCcw, Search, Settings, ShieldCheck, Star, Tags, Trash2, Truck, Upload, UserPlus, Users } from "lucide-react";
+import { Activity, AlertCircle, AlertTriangle, ArrowLeftRight, ArrowRight, BarChart3, Bot, Boxes, Building2, CalendarDays, CheckCircle2, ChevronDown, ClipboardCheck, ClipboardList, CloudOff, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, Home, Info, KeyRound, LayoutDashboard, Loader2, Lock, LockOpen, LogOut, Mail, Maximize2, MapPinned, Menu, Minimize2, Network, Package, PackageX, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, QrCode, RadioTower, RefreshCw, RotateCcw, Search, Settings, ShieldCheck, Star, Tags, Trash2, Truck, Upload, UserPlus, Users } from "lucide-react";
 import {
   DndContext,
   KeyboardSensor,
@@ -226,6 +226,33 @@ function formatShipmentDate(date: Date) {
   return `${year}-${month}-${day}`;
 }
 
+function HintButton({ label, children }: { label: string; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <span className="relative inline-flex">
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="h-6 w-6 shrink-0 rounded-full border border-border bg-card/70 text-xs font-semibold text-muted-foreground hover:text-foreground"
+        aria-label={label}
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+      >
+        ?
+      </Button>
+      {open ? (
+        <span
+          role="tooltip"
+          className="absolute left-1/2 top-full z-50 mt-2 w-64 -translate-x-1/2 rounded-md border border-border bg-popover p-3 text-sm font-normal leading-5 text-popover-foreground shadow-md"
+        >
+        {children}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
 function ShipmentExpiryPicker({
   value,
   required,
@@ -255,9 +282,9 @@ function ShipmentExpiryPicker({
           variant="outline"
           onKeyDown={onKeyDown}
           className={cn(
-            "h-9 w-full justify-start px-3 text-left font-normal sm:h-10",
+            "h-9 w-full justify-start px-3 text-left font-normal focus-visible:border-ring focus-visible:ring-0 focus-visible:shadow-[inset_0_0_0_1px_hsl(var(--ring)),inset_0_0_0_9999px_hsl(var(--ring)/0.04)] sm:h-10",
             !value && "text-muted-foreground",
-            required && invalid && "border-amber-500",
+            required && invalid && "border-amber-500 focus-visible:border-amber-500 focus-visible:shadow-[inset_0_0_0_1px_rgb(245_158_11),inset_0_0_0_9999px_rgb(245_158_11/0.08)]",
           )}
           aria-label="Expiry"
           aria-invalid={invalid}
@@ -912,8 +939,13 @@ export function ReceivingPage() {
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h2 className="text-2xl font-semibold">Receiving</h2>
-          <p className="text-sm text-muted-foreground">Create shipment drafts by container, print labels, then receive selected pallets.</p>
+          <div className="flex items-center gap-2">
+            <h2 className="text-2xl font-semibold">Receiving</h2>
+            <HintButton label="Receiving hints">
+              Create shipment drafts by container, print labels, then receive selected pallets.
+            </HintButton>
+          </div>
+          <p className="hidden text-sm text-muted-foreground sm:block">Create shipment drafts by container, print labels, then receive selected pallets.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" onClick={() => { refetchDrafts(); void flushOfflineQueue(); }}>
@@ -964,10 +996,16 @@ export function ReceivingPage() {
 
       <Card className="min-h-0">
         <CardHeader>
-          <CardTitle className="text-base">Draft Pallets {drafts.length > 0 && <Badge variant="secondary">{drafts.length}</Badge>}</CardTitle>
-          <CardDescription>Use Print for labels, Edit for quantity/date corrections, and Receive when the physical pallet is confirmed.</CardDescription>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <span>Draft Pallets</span>
+            {drafts.length > 0 && <Badge variant="secondary">{drafts.length}</Badge>}
+            <HintButton label="Draft Pallets hints">
+              Use Print for labels, Edit for quantity/date corrections, and Receive when the physical pallet is confirmed.
+            </HintButton>
+          </CardTitle>
+          <CardDescription className="hidden sm:block">Use Print for labels, Edit for quantity/date corrections, and Receive when the physical pallet is confirmed.</CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-3">
+        <CardContent className="grid gap-0 px-0 pb-0 sm:gap-3 sm:px-6 sm:pb-6">
           {visibleDrafts.length === 0 ? (
             <p className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
               {drafts.length === 0 ? "No draft pallets yet." : `No drafts matched "${draftSearch}".`}
@@ -979,16 +1017,18 @@ export function ReceivingPage() {
             const warehouse = warehouses.find((item) => item.id === draft.warehouse_id);
             const packaging = packagingProfiles.find((item: any) => item.id === meta.packaging_profile_id);
             const barcode = draft.draft_pallet_barcode ?? meta.draft_pallet_barcode ?? draft.receipt_number;
+            const containerNumber = draft.container_number ?? meta.container_number;
+            const poNumber = draft.po_number ?? draft.reference_number ?? meta.po_number ?? meta.reference_number;
             return (
-              <div key={draft.id} className="grid gap-3 rounded-lg border border-border px-4 py-3 lg:grid-cols-[1fr_auto] lg:items-center">
+              <div key={draft.id} className="grid gap-3 border-y border-border px-6 py-3 sm:rounded-lg sm:border sm:px-4 lg:grid-cols-[1fr_auto] lg:items-center">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
-                    <p className="truncate text-sm font-medium">{product ? `${product.sku} · ${product.name}` : "Unknown product"}</p>
+                    <p className="min-w-0 text-sm font-medium leading-5 sm:truncate">{product ? `${product.sku} · ${product.name}` : "Unknown product"}</p>
                     <Badge variant="outline" className="font-mono">{barcode}</Badge>
                     {draft.draft_sequence && draft.draft_count ? <Badge variant="secondary">{draft.draft_sequence}/{draft.draft_count}</Badge> : null}
                   </div>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Container {draft.container_number ?? "—"} · PO {draft.po_number ?? draft.reference_number ?? "—"} · Qty {draft.quantity ?? "?"} · Exp {draft.expiry_date ? formatDate(draft.expiry_date) : "—"}
+                    Container {containerNumber ?? "—"} · PO {poNumber ?? "—"} · Qty {draft.quantity ?? "?"} · Exp {draft.expiry_date ? formatDate(draft.expiry_date) : "—"}
                   </p>
                   {draft.source_label && <p className="text-xs font-medium text-amber-700 dark:text-amber-300">Returned from {draft.source_label}</p>}
                 </div>
@@ -1028,7 +1068,7 @@ export function ReceivingPage() {
 
       <Dialog open={shipmentOpen} onOpenChange={(open) => { setShipmentOpen(open); if (!open) setEditingDraft(null); }}>
         <DialogContent
-          className="h-[calc(100dvh-0.75rem)] max-h-[calc(100dvh-0.75rem)] w-[calc(100vw-0.75rem)] overflow-hidden bg-card p-0 text-card-foreground sm:h-auto sm:max-h-[92vh] sm:max-w-[min(56rem,96vw)]"
+          className="h-[calc(100dvh-0.75rem)] max-h-[calc(100dvh-0.75rem)] w-[calc(100vw-0.75rem)] max-w-[calc(100vw-0.75rem)] overflow-hidden bg-card p-0 text-card-foreground sm:h-auto sm:max-h-[92vh] sm:max-w-[min(56rem,96vw)]"
           onOpenAutoFocus={(event) => event.preventDefault()}
         >
           <DialogHeader className="border-b border-border px-3 py-2 sm:px-4 sm:py-3">
@@ -1039,8 +1079,8 @@ export function ReceivingPage() {
                 : "Container and PO come first, then one or more SKU lines with expiry and pallet distribution."}
             </DialogDescription>
           </DialogHeader>
-          <ScrollArea className="max-h-[calc(100dvh-8.75rem)] px-3 py-3 sm:max-h-[calc(92vh-150px)] sm:px-4 sm:py-4">
-            <div className="grid gap-3 sm:gap-4">
+          <ScrollArea className="min-w-0 max-h-[calc(100dvh-8.75rem)] px-3 py-3 sm:max-h-[calc(92vh-150px)] sm:px-4 sm:py-4">
+            <div className="grid min-w-0 gap-3 sm:gap-4">
               {shipmentEntryMode === "pallet" ? (
                 <div className="grid gap-3 rounded-lg border border-dashed border-border bg-secondary/10 p-3">
                   <div className="grid gap-1">
@@ -1079,9 +1119,9 @@ export function ReceivingPage() {
                     </div>
                     <div className="grid gap-1.5">
                       <ShipmentFieldLabel>Container number</ShipmentFieldLabel>
-                      <div className="flex gap-2">
+                      <div className="grid min-w-0 gap-2 sm:flex sm:flex-nowrap">
                         <BarcodeScanButton
-                          className="h-9 self-start sm:h-10"
+                          className="h-9 w-full min-w-0 justify-center self-start sm:h-10 sm:w-auto sm:flex-none"
                           title="Scan container number"
                           buttonLabel="Scan container number"
                           enableTextRecognition
@@ -1100,9 +1140,9 @@ export function ReceivingPage() {
                         <Input
                           ref={shipmentContainerInputRef}
                           className={cn(
-                            "h-9 sm:h-10",
-                            shipmentContainerTouched && shipmentContainerInvalid && "border-destructive focus-visible:ring-destructive",
-                            shipmentContainerValid && "border-green-500 focus-visible:ring-green-500",
+                            "h-9 min-w-0 sm:h-10 sm:flex-1",
+                            shipmentContainerTouched && shipmentContainerInvalid && "border-destructive focus-visible:border-destructive focus-visible:shadow-[inset_0_0_0_1px_hsl(var(--destructive)),inset_0_0_0_9999px_hsl(var(--destructive)/0.08)]",
+                            shipmentContainerValid && "border-green-500 focus-visible:border-green-500 focus-visible:shadow-[inset_0_0_0_1px_rgb(34_197_94),inset_0_0_0_9999px_rgb(34_197_94/0.08)]",
                           )}
                           value={shipmentForm.container_number}
                           aria-label="Container number"
@@ -1116,7 +1156,7 @@ export function ReceivingPage() {
                       <p
                         id="container-number-help"
                         className={cn(
-                          "text-xs",
+                          "text-xs leading-4 break-words",
                           shipmentContainerTouched && shipmentContainerInvalid ? "text-destructive" : shipmentContainerValid ? "text-green-500" : "text-muted-foreground",
                         )}
                       >
@@ -1178,7 +1218,7 @@ export function ReceivingPage() {
                   const allocatedQuantity = Math.max(0, Number(line.quantity_per_pallet || 0) * Number(line.pallet_count || 0));
                   const productCommitPending = Boolean(pendingProductCommit[line.id] && line.product_id);
                   return (
-                    <div key={line.id} className="grid gap-2 rounded-lg border border-border p-2 sm:gap-3 sm:p-3">
+                    <div key={line.id} className="grid min-w-0 gap-2 rounded-lg border border-border p-2 sm:gap-3 sm:p-3">
                       <div className="flex items-center justify-between gap-3">
                         <p className="font-medium">SKU line {index + 1}</p>
                         <div className="flex items-center gap-1">
@@ -1200,26 +1240,28 @@ export function ReceivingPage() {
                           )}
                         </div>
                       </div>
-                      <div className="grid gap-2 lg:gap-3">
-                        <div className="grid gap-1.5">
+                      <div className="grid min-w-0 gap-2 lg:gap-3">
+                        <div className="grid min-w-0 gap-1.5">
                           <ShipmentFieldLabel>Product</ShipmentFieldLabel>
-                          <div className="flex gap-2">
+                          <div className="flex min-w-0 max-w-full flex-wrap gap-2 sm:flex-nowrap">
                             <BarcodeScanButton
-                              className="h-9 self-start sm:h-10"
+                              className="h-9 shrink-0 self-start sm:h-10"
                               title="Scan product"
                               onScan={(value) => {
                                 const matched = productRefs.current[line.id]?.scanBarcode(value);
                                 if (!matched) toast.warning("No product matched that scan. Search results are open.");
                               }}
                             />
-                            <ProductSearch
-                              ref={(node) => { productRefs.current[line.id] = node; }}
-                              value={line.product_id}
-                              options={productOptions}
-                              placeholder="Select SKU"
-                              onSelectComplete={() => productCommitRefs.current[line.id]?.focus()}
-                              onChange={(value) => { void selectShipmentProduct(line, value); }}
-                            />
+                            <div className="order-3 min-w-0 max-w-full flex-1 basis-full sm:order-none sm:basis-0">
+                              <ProductSearch
+                                ref={(node) => { productRefs.current[line.id] = node; }}
+                                value={line.product_id}
+                                options={productOptions}
+                                placeholder="Select SKU"
+                                onSelectComplete={() => productCommitRefs.current[line.id]?.focus()}
+                                onChange={(value) => { void selectShipmentProduct(line, value); }}
+                              />
+                            </div>
                             <Button
                               ref={(node) => { productCommitRefs.current[line.id] = node; }}
                               type="button"
@@ -1239,8 +1281,8 @@ export function ReceivingPage() {
                             </Button>
                           </div>
                         </div>
-                        <div className="grid gap-2 sm:grid-cols-3 md:gap-3">
-                          <div className="grid gap-1.5">
+                        <div className="grid min-w-0 gap-2 sm:grid-cols-3 md:gap-3">
+                          <div className="grid min-w-0 gap-1.5">
                             <ShipmentFieldLabel>Total received</ShipmentFieldLabel>
                             <Input
                               ref={(node) => { totalRefs.current[line.id] = node; }}
@@ -1256,7 +1298,7 @@ export function ReceivingPage() {
                               onChange={(e) => updateLine(line.id, { total_quantity: e.currentTarget.value })}
                             />
                           </div>
-                          <div className="grid gap-1.5">
+                          <div className="grid min-w-0 gap-1.5">
                             <ShipmentFieldLabel>Qty per pallet</ShipmentFieldLabel>
                             <Input
                               ref={(node) => { perPalletRefs.current[line.id] = node; }}
@@ -1285,7 +1327,7 @@ export function ReceivingPage() {
                               </p>
                             ) : null}
                           </div>
-                          <div className="grid gap-1.5">
+                          <div className="grid min-w-0 gap-1.5">
                             <ShipmentFieldLabel>Pallets</ShipmentFieldLabel>
                             <Input
                               ref={(node) => { palletCountRefs.current[line.id] = node; }}
@@ -1444,7 +1486,7 @@ export function ReceivingPage() {
                       setPrintContainerWarning(null);
                     }
                   }}
-                  className={cn(printContainerWarning && "border-destructive focus-visible:ring-destructive")}
+                  className={cn(printContainerWarning && "border-destructive focus-visible:border-destructive focus-visible:shadow-[inset_0_0_0_1px_hsl(var(--destructive)),inset_0_0_0_9999px_hsl(var(--destructive)/0.08)]")}
                   placeholder="Filter by container number"
                   aria-invalid={Boolean(printContainerWarning)}
                 />

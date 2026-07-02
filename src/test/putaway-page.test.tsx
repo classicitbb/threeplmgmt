@@ -102,10 +102,25 @@ vi.mock("@/lib/wms-core", async (importOriginal) => {
 describe("PutawayTasksPage scan-first flow", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    window.localStorage.clear();
+    setPointerCoarse(false);
     wmsMocks.getPutawayTasks.mockResolvedValue(openTasks);
     wmsMocks.getPutawayTaskHistory.mockResolvedValue([]);
     wmsMocks.confirmPutaway.mockResolvedValue(undefined);
   });
+
+  function setPointerCoarse(matches: boolean) {
+    vi.mocked(window.matchMedia).mockImplementation((query: string) => ({
+      matches,
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+  }
 
   function renderPutawayPage() {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -153,6 +168,31 @@ describe("PutawayTasksPage scan-first flow", () => {
     expect(prompt).not.toHaveClass("scan-prompt-halo");
     expect(input).not.toHaveClass("scan-prompt-input");
     expect(camera).not.toHaveClass("scan-prompt-camera");
+  });
+
+  it("asks mobile scanner users whether to open the scanner first next time", async () => {
+    setPointerCoarse(true);
+    renderPutawayPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: /scan pallet barcode/i }));
+    const cameraDialog = await screen.findByRole("dialog", { name: /scan pallet barcode/i });
+    fireEvent.click(within(cameraDialog).getByRole("button", { name: /close/i }));
+
+    expect(await screen.findByText("Open scanner first next time?")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Remember" }));
+
+    expect(window.localStorage.getItem("warehouseWizard.putaway.scannerFirst")).toBe("true");
+    expect(screen.queryByText("Open scanner first next time?")).not.toBeInTheDocument();
+  });
+
+  it("auto-opens the pallet scanner on mobile when remembered", async () => {
+    setPointerCoarse(true);
+    window.localStorage.setItem("warehouseWizard.putaway.scannerFirst", "true");
+    renderPutawayPage();
+
+    expect(await screen.findByRole("dialog", { name: /scan pallet barcode/i })).toBeInTheDocument();
+    expect(screen.queryByText("Open scanner first next time?")).not.toBeInTheDocument();
   });
 
   it("reveals only the matching task and opens the bay selector", async () => {

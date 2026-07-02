@@ -119,7 +119,7 @@ export const ProductSearch = forwardRef<ProductSearchHandle, Props>(function Pro
           aria-label={selected ? `Product ${selected.sku} ${selected.name}` : placeholder}
           disabled={disabled}
           className={cn(
-            "h-10 w-full justify-between font-normal",
+            "h-10 w-full min-w-0 max-w-full justify-between overflow-hidden font-normal focus-visible:border-ring focus-visible:ring-0 focus-visible:shadow-[inset_0_0_0_1px_hsl(var(--ring)),inset_0_0_0_9999px_hsl(var(--ring)/0.04)]",
             !selected && "text-muted-foreground",
             error && "border-destructive",
           )}

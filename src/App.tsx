@@ -2131,20 +2131,14 @@ function RuntimeModeBadge() {
     hostname.startsWith("192.168.") ||
     hostname.startsWith("10.") ||
     /^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname);
-  const label = isLocal ? "LOCAL" : "ONLINE";
+  if (!isLocal) return null;
 
   return (
     <div
-      className={cn(
-        "fixed bottom-16 right-2 z-[60] rounded-md border px-2 py-1 text-[10px] font-semibold tracking-wide shadow-sm lg:bottom-2",
-        isLocal
-          ? "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200"
-          : "border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200",
-      )}
-      title={`Warehouse Wizard is running ${isLocal ? "locally" : "online"}`}
-    >
-      {label}
-    </div>
+      className={cn("pointer-events-none fixed inset-x-0 bottom-0 z-[70] h-[3px] bg-orange-500")}
+      title="Warehouse Wizard is running locally"
+      aria-hidden="true"
+    />
   );
 }
 

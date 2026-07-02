@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { QRCodeSVG } from "qrcode.react";
 import { Link, NavLink, useLocation, useNavigate, useSearchParams } from "react-router-dom";
@@ -203,7 +203,7 @@ import {
 function ProfileMenu({ initials, displayName, onSignOut }: { initials: string; displayName: string; onSignOut: () => void }) {
   const [pwOpen, setPwOpen] = useState(false);
   return (
-    <>
+    <div className="contents">
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
@@ -230,7 +230,7 @@ function ProfileMenu({ initials, displayName, onSignOut }: { initials: string; d
         </DropdownMenuContent>
       </DropdownMenu>
       <ChangeOwnPasswordDialog open={pwOpen} onOpenChange={setPwOpen} hideTrigger />
-    </>
+    </div>
   );
 }
 
@@ -507,10 +507,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
             if (showSeparator) {
               return (
-                <Fragment key={item.to}>
+                <div key={item.to} className="contents">
                   <div className="my-1 border-t border-sidebar-border" />
                   {node}
-                </Fragment>
+                </div>
               );
             }
             return node;
@@ -576,33 +576,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <span className="hidden max-w-[120px] truncate text-xs font-medium sm:inline">{displayName}</span>
             </div>
             <OfflineQueueBadge compact />
-            {canSwitchWarehouses ? (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    className="h-9 w-9 shrink-0"
-                    size="icon"
-                    variant="outline"
-                    aria-label={`Switch warehouse, current ${selectedWarehouseLabel}`}
-                    title={`Switch warehouse, current ${selectedWarehouseLabel}`}
-                  >
-                    <Building2 className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-56">
-                  {canSelectAllWarehouses ? (
-                    <DropdownMenuItem onSelect={() => warehouseSwitchMutation.mutate(null)}>
-                      All warehouses
-                    </DropdownMenuItem>
-                  ) : null}
-                  {headerWarehouses.map((warehouse: any) => (
-                    <DropdownMenuItem key={warehouse.id} onSelect={() => warehouseSwitchMutation.mutate(warehouse.id)}>
-                      {warehouse.code ? `${warehouse.code} - ${warehouse.name}` : warehouse.name}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            ) : null}
             <HelpSidebar pathname={pathname} />
             <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
               <SheetTrigger asChild>
@@ -735,9 +708,20 @@ function MobileActionBar({
   const barItems = items.filter((item) => item.to !== "/help").slice(0, 5);
   if (barItems.length === 0) return null;
   const getNavBadgeCount = (route: AppRoute) => routeBadgeCounts[route] ?? 0;
+  const hostname = typeof window === "undefined" ? "" : window.location.hostname.toLowerCase();
+  const isLocalSession =
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname === "::1" ||
+    hostname.startsWith("192.168.") ||
+    hostname.startsWith("10.") ||
+    /^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname);
   return (
     <nav
-      className="fixed bottom-0 left-0 right-0 z-40 flex h-14 items-center justify-around border-t border-border bg-background/95 px-1 backdrop-blur lg:landscape:hidden"
+      className={cn(
+        "fixed bottom-0 left-0 right-0 z-40 flex h-14 items-center justify-around border-t bg-background/95 px-1 backdrop-blur lg:landscape:hidden",
+        isLocalSession ? "border-border" : "border-emerald-500",
+      )}
       aria-label="Primary mobile navigation"
     >
       {barItems.map((item) => {

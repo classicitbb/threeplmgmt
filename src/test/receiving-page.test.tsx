@@ -148,6 +148,13 @@ describe("ReceivingPage", () => {
     expect(screen.getByText("SKU line 1")).toBeInTheDocument();
   });
 
+  it("shows tappable hint buttons next to receiving section titles", async () => {
+    renderReceivingPage();
+
+    expect(await screen.findByRole("button", { name: "Receiving hints" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Draft Pallets hints" })).toBeInTheDocument();
+  });
+
   it("focuses container first, advances to PO, then opens product search on PO Enter", async () => {
     renderReceivingPage();
 
@@ -348,6 +355,35 @@ describe("ReceivingPage", () => {
       product_id: "prod-1",
       quantity: 1,
     })));
+  });
+
+  it("shows draft metadata container fallback and mobile-friendly draft row layout", async () => {
+    wmsMocks.listDraftReceipts.mockResolvedValue([{
+      ...wmsMocks.draft,
+      container_number: null,
+      po_number: null,
+      reference_number: null,
+      notes: JSON.stringify({
+        _draft: true,
+        product_id: "prod-1",
+        quantity: 1,
+        draft_pallet_barcode: "PLT-1",
+        container_number: "MSKU1234565",
+        po_number: "PO-META",
+      }),
+    }] as never);
+    renderReceivingPage();
+
+    const meta = await screen.findByText(/Container MSKU1234565 .* PO PO-META .* Qty 1/i);
+    expect(meta).toBeInTheDocument();
+
+    const title = screen.getByText("FLOUR · Flour");
+    expect(title).not.toHaveClass("truncate");
+    expect(title).toHaveClass("sm:truncate");
+
+    const row = meta.closest(".border-y");
+    expect(row).toHaveClass("border-y");
+    expect(row).toHaveClass("sm:rounded-lg");
   });
 
   it("deselect all clears every checkbox in the print dialog and keeps them cleared", async () => {

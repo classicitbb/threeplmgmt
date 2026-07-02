@@ -493,6 +493,13 @@ function markPutawayOccupancyCached(queryClient: ReturnType<typeof useQueryClien
   );
 }
 
+const PUTAWAY_SCANNER_FIRST_KEY = "warehouseWizard.putaway.scannerFirst";
+
+function loadPutawayScannerFirstPreference() {
+  if (typeof window === "undefined") return false;
+  return window.localStorage.getItem(PUTAWAY_SCANNER_FIRST_KEY) === "true";
+}
+
 export function PutawayTasksPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -517,6 +524,11 @@ export function PutawayTasksPage() {
   const [scanDialogOpen, setScanDialogOpen] = useState(false);
   const [scanQuery, setScanQuery] = useState("");
   const [scanError, setScanError] = useState("");
+  const [scannerFirstPreferred, setScannerFirstPreferred] = useState(loadPutawayScannerFirstPreference);
+  const [scannerPreferencePromptOpen, setScannerPreferencePromptOpen] = useState(false);
+  const [scannerPreferenceDismissed, setScannerPreferenceDismissed] = useState(false);
+  const [scannerPreferencePending, setScannerPreferencePending] = useState(false);
+  const [scannerAutoOpenSignal, setScannerAutoOpenSignal] = useState(0);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [flowCancelled, setFlowCancelled] = useState(false);
   const [openTasksExpanded, setOpenTasksExpanded] = useState(false);
@@ -769,11 +781,39 @@ export function PutawayTasksPage() {
   // Auto-focus first pallet field only when the manual task list is expanded on desktop.
   const isMobile = typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches;
   useEffect(() => {
+    if (!scanDialogOpen || !isMobile || !scannerFirstPreferred) return;
+    const timer = setTimeout(() => setScannerAutoOpenSignal((current) => current + 1), 180);
+    return () => clearTimeout(timer);
+  }, [isMobile, scanDialogOpen, scannerFirstPreferred]);
+
+  useEffect(() => {
     if (isMobile || isLoading || selectedTask || scanDialogOpen || activeTasks.length === 0) return;
     const firstId = activeTasks[0].id;
     const timer = setTimeout(() => palletRefs.current[firstId]?.focus(), 120);
     return () => clearTimeout(timer);
   }, [isLoading, activeTasks.length, isMobile, scanDialogOpen, selectedTask]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handlePutawayScannerOpenChange = useCallback((open: boolean) => {
+    if (!isMobile || scannerFirstPreferred || scannerPreferenceDismissed) return;
+    if (open) {
+      setScannerPreferencePending(true);
+      return;
+    }
+    if (scannerPreferencePending) {
+      setScannerPreferencePromptOpen(true);
+      setScannerPreferencePending(false);
+    }
+  }, [isMobile, scannerFirstPreferred, scannerPreferenceDismissed, scannerPreferencePending]);
+
+  const rememberPutawayScannerFirst = useCallback(() => {
+    setScannerFirstPreferred(true);
+    setScannerPreferencePromptOpen(false);
+    setScannerPreferenceDismissed(true);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(PUTAWAY_SCANNER_FIRST_KEY, "true");
+    }
+    toast.success("Put-Away will open the scanner first on this device.");
+  }, []);
 
   const scanPromptWaiting = scanDialogOpen && scanQuery.trim().length === 0;
 
@@ -786,8 +826,12 @@ export function PutawayTasksPage() {
           if (open) {
             setFlowCancelled(false);
             setScanError("");
+            setScannerPreferencePromptOpen(false);
+            setScannerPreferencePending(false);
             return;
           }
+          setScannerPreferencePromptOpen(false);
+          setScannerPreferencePending(false);
           if (!selectedTaskId) setFlowCancelled(true);
         }}
       >
@@ -828,10 +872,36 @@ export function PutawayTasksPage() {
               <BarcodeScanButton
                 title="Scan pallet barcode"
                 className={cn("h-12 w-12", scanPromptWaiting && "scan-prompt-camera")}
+                autoOpenSignal={scannerAutoOpenSignal}
+                onOpenChange={handlePutawayScannerOpenChange}
                 onScan={(value) => commitPalletScan(value)}
               />
             </div>
             </div>
+            {scannerPreferencePromptOpen ? (
+              <div className="rounded-md border border-primary/30 bg-primary/10 p-3 text-sm">
+                <p className="font-medium text-foreground">Open scanner first next time?</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  This device can open the camera scanner automatically whenever Put-Away asks for a pallet.
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button type="button" size="sm" onClick={rememberPutawayScannerFirst}>
+                    Remember
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      setScannerPreferencePromptOpen(false);
+                      setScannerPreferenceDismissed(true);
+                    }}
+                  >
+                    Not now
+                  </Button>
+                </div>
+              </div>
+            ) : null}
             {scanError ? (
               <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
                 {scanError}
