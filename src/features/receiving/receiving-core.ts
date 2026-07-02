@@ -269,6 +269,7 @@ export async function createReceiptFlow(input: z.infer<typeof receivingSchema>) 
 export type DraftReceipt = {
   id: string;
   receipt_number: string;
+  receipt_type: "po" | "transfer" | "return" | "manual" | "other" | null;
   reference_number: string | null;
   container_number: string | null;
   po_number: string | null;
@@ -377,6 +378,7 @@ export async function saveShipmentDrafts(input: ShipmentDraftInput): Promise<{ g
     if (!containerValidation.valid) throw new Error(containerValidation.message);
     input = { ...input, container_number: containerValidation.normalized };
   }
+  const entryMode = input.receipt_type === "other" && !input.container_number.trim() ? "pallet" : "shipment";
   if (!input.lines.length) throw new Error("Add at least one SKU line.");
 
   const groupId = buildClientId("shipment");
@@ -415,7 +417,10 @@ export async function saveShipmentDrafts(input: ShipmentDraftInput): Promise<{ g
         status: "draft",
         notes: JSON.stringify({
           _draft: true,
-          _shipment: true,
+          _shipment: entryMode === "shipment",
+          _standalone_pallet: entryMode === "pallet",
+          entry_mode: entryMode,
+          receipt_type: input.receipt_type,
           draft_pallet_barcode: draftBarcode,
           draft_group_id: groupId,
           draft_sequence: index + 1,
@@ -607,14 +612,14 @@ export async function createReturnedPalletDraft({
 
 export async function listDraftReceipts(warehouseId: string): Promise<DraftReceipt[]> {
   let { data, error } = await db("receipts")
-    .select("id, receipt_number, reference_number, container_number, po_number, draft_group_id, draft_pallet_barcode, draft_sequence, draft_count, warehouse_id, client_id, status, created_at, notes, receipt_lines(id, product_id, quantity, received_quantity, inventory_lots(expiry_date, lot_number, batch_number), pallets(id, pallet_barcode, quantity, status))")
+    .select("id, receipt_number, receipt_type, reference_number, container_number, po_number, draft_group_id, draft_pallet_barcode, draft_sequence, draft_count, warehouse_id, client_id, status, created_at, notes, receipt_lines(id, product_id, quantity, received_quantity, inventory_lots(expiry_date, lot_number, batch_number), pallets(id, pallet_barcode, quantity, status))")
     .in("status", ["draft", "queued"])
     .eq("warehouse_id", warehouseId)
     .order("created_at", { ascending: false })
     .limit(200);
   if (error && isMissingReceiptDraftColumn(error)) {
     ({ data, error } = await db("receipts")
-      .select("id, receipt_number, reference_number, warehouse_id, client_id, status, created_at, notes, receipt_lines(id, product_id, quantity, received_quantity, inventory_lots(expiry_date, lot_number, batch_number), pallets(id, pallet_barcode, quantity, status))")
+      .select("id, receipt_number, receipt_type, reference_number, warehouse_id, client_id, status, created_at, notes, receipt_lines(id, product_id, quantity, received_quantity, inventory_lots(expiry_date, lot_number, batch_number), pallets(id, pallet_barcode, quantity, status))")
       .in("status", ["draft", "queued"])
       .eq("warehouse_id", warehouseId)
       .order("created_at", { ascending: false })
@@ -622,7 +627,7 @@ export async function listDraftReceipts(warehouseId: string): Promise<DraftRecei
   }
   if (error) {
     ({ data, error } = await db("receipts")
-      .select("id, receipt_number, reference_number, warehouse_id, client_id, status, created_at, notes")
+      .select("id, receipt_number, receipt_type, reference_number, warehouse_id, client_id, status, created_at, notes")
       .in("status", ["draft", "queued"])
       .eq("warehouse_id", warehouseId)
       .order("created_at", { ascending: false })
@@ -643,6 +648,7 @@ export async function listDraftReceipts(warehouseId: string): Promise<DraftRecei
     const lot = Array.isArray(line?.inventory_lots) ? line.inventory_lots[0] : line?.inventory_lots;
     return {
       ...row,
+      receipt_type: row.receipt_type ?? meta.receipt_type ?? null,
       container_number: row.container_number ?? meta.container_number ?? null,
       po_number: row.po_number ?? meta.po_number ?? null,
       draft_group_id: row.draft_group_id ?? meta.draft_group_id ?? null,

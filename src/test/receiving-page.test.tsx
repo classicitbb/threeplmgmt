@@ -10,6 +10,7 @@ const wmsMocks = vi.hoisted(() => {
   const draft = {
     id: "draft-1",
     receipt_number: "RCT-1",
+    receipt_type: "po",
     reference_number: "PO-1",
     container_number: "MSKU1234565",
     po_number: "PO-1",
@@ -341,6 +342,75 @@ describe("ReceivingPage", () => {
     expect(wmsMocks.saveShipmentDrafts).toHaveBeenCalledWith(expect.objectContaining({
       receipt_type: "other",
       container_number: "",
+    }));
+  });
+
+  it("reopens standalone pallet drafts in pallet edit mode without container requirements", async () => {
+    wmsMocks.listDraftReceipts.mockResolvedValue([{
+      ...wmsMocks.draft,
+      receipt_type: "other",
+      reference_number: "PALLET-REF",
+      container_number: null,
+      po_number: null,
+      notes: JSON.stringify({
+        _draft: true,
+        _standalone_pallet: true,
+        entry_mode: "pallet",
+        receipt_type: "other",
+        product_id: "prod-1",
+        quantity: 1,
+        draft_pallet_barcode: "PLT-1",
+      }),
+    }] as never);
+    renderReceivingPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: /^edit$/i }));
+    const dialog = await screen.findByRole("dialog", { name: /edit draft pallet/i });
+
+    expect(within(dialog).queryByLabelText("Container number")).not.toBeInTheDocument();
+    expect(within(dialog).getByText(/standalone pallet mode/i)).toBeInTheDocument();
+    expect(within(dialog).queryByText(/enter a container number before saving/i)).not.toBeInTheDocument();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: /save draft/i }));
+
+    await waitFor(() => expect(wmsMocks.updateDraftReceipt).toHaveBeenCalledTimes(1));
+    expect(wmsMocks.updateDraftReceipt).toHaveBeenCalledWith("draft-1", expect.objectContaining({
+      receipt_type: "other",
+      container_number: "",
+      po_number: "",
+    }));
+  });
+
+  it("keeps shipment drafts in shipment edit mode with container fields", async () => {
+    wmsMocks.listDraftReceipts.mockResolvedValue([{
+      ...wmsMocks.draft,
+      receipt_type: "po",
+      notes: JSON.stringify({
+        _draft: true,
+        entry_mode: "shipment",
+        receipt_type: "po",
+        product_id: "prod-1",
+        quantity: 1,
+        draft_pallet_barcode: "PLT-1",
+        container_number: "MSKU1234565",
+        po_number: "PO-1",
+      }),
+    }] as never);
+    renderReceivingPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: /^edit$/i }));
+    const dialog = await screen.findByRole("dialog", { name: /edit draft pallet/i });
+
+    expect(within(dialog).getByLabelText("Container number")).toHaveDisplayValue("MSKU1234565");
+    expect(within(dialog).queryByText(/standalone pallet mode/i)).not.toBeInTheDocument();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: /save draft/i }));
+
+    await waitFor(() => expect(wmsMocks.updateDraftReceipt).toHaveBeenCalledTimes(1));
+    expect(wmsMocks.updateDraftReceipt).toHaveBeenCalledWith("draft-1", expect.objectContaining({
+      receipt_type: "po",
+      container_number: "MSKU1234565",
+      po_number: "PO-1",
     }));
   });
 

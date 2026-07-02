@@ -3966,10 +3966,14 @@ export function defaultExpiryDate() {
   return date.toISOString().slice(0, 10);
 }
 
+function normalizeDraftReceiptType(value: unknown): z.infer<typeof receivingSchema>["receipt_type"] {
+  return value === "po" || value === "transfer" || value === "other" ? value : "other";
+}
+
 export function draftToReceivingValues(draft: DraftReceipt): z.infer<typeof receivingSchema> {
   const meta = parseDraftMeta(draft.notes);
   return {
-    receipt_type: "other",
+    receipt_type: normalizeDraftReceiptType(draft.receipt_type ?? meta.receipt_type),
     reference_number: draft.reference_number ?? draft.po_number ?? "",
     container_number: draft.container_number ?? meta.container_number ?? "",
     po_number: draft.po_number ?? meta.po_number ?? "",

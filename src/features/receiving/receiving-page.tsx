@@ -227,6 +227,19 @@ function formatShipmentDate(date: Date) {
   return `${year}-${month}-${day}`;
 }
 
+type ShipmentEntryMode = "shipment" | "pallet";
+
+function inferDraftEntryMode(draft: DraftReceipt): ShipmentEntryMode {
+  const meta = parseDraftMeta(draft.notes);
+  const receiptType = draft.receipt_type ?? meta.receipt_type;
+  const containerNumber = String(draft.container_number ?? meta.container_number ?? "").trim();
+
+  if (meta.entry_mode === "pallet" || meta._standalone_pallet === true) return "pallet";
+  if (meta.entry_mode === "shipment") return "shipment";
+  if (receiptType === "other" && !containerNumber) return "pallet";
+  return "shipment";
+}
+
 function ShipmentExpiryPicker({
   value,
   required,
@@ -326,7 +339,7 @@ export function ReceivingPage() {
   const [pendingProductCommit, setPendingProductCommit] = useState<Record<string, boolean>>({});
   const [openExpiryLineId, setOpenExpiryLineId] = useState<string | null>(null);
   const [openShipmentDetails, setOpenShipmentDetails] = useState<Record<string, boolean>>({});
-  const [shipmentEntryMode, setShipmentEntryMode] = useState<"shipment" | "pallet">("shipment");
+  const [shipmentEntryMode, setShipmentEntryMode] = useState<ShipmentEntryMode>("shipment");
   const [shipmentOpen, setShipmentOpen] = useState(false);
   const [showShipmentMore, setShowShipmentMore] = useState(false);
   const [draftSearch, setDraftSearch] = useState("");
@@ -677,10 +690,11 @@ export function ReceivingPage() {
 
   function openEditDraft(draft: DraftReceipt) {
     const values = draftToReceivingValues(draft);
-    setShipmentEntryMode("shipment");
+    const draftEntryMode = inferDraftEntryMode(draft);
+    setShipmentEntryMode(draftEntryMode);
     setShowShipmentMore(false);
     setEditingDraft(draft);
-    setShipmentContainerTouched(Boolean(values.container_number));
+    setShipmentContainerTouched(draftEntryMode === "shipment" && Boolean(values.container_number));
     setShipmentContainerScanWarning(null);
     perPalletManualProductRefs.current = {};
     containerAutoAdvanceRef.current = "";
@@ -692,8 +706,8 @@ export function ReceivingPage() {
       receipt_type: values.receipt_type,
       warehouse_id: values.warehouse_id,
       client_id: values.client_id ?? "",
-      container_number: values.container_number ?? "",
-      po_number: values.po_number ?? "",
+      container_number: draftEntryMode === "pallet" ? "" : values.container_number ?? "",
+      po_number: draftEntryMode === "pallet" ? "" : values.po_number ?? "",
       reference_number: values.reference_number ?? "",
       lines: [{
         ...newShipmentLine(values.product_id),
@@ -943,8 +957,8 @@ export function ReceivingPage() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-44">
-              <DropdownMenuItem onSelect={() => openNewShipment()}>New shipment</DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => openNewPallet()}>New pallet</DropdownMenuItem>
+              <DropdownMenuItem className="min-h-10 px-3 py-2.5" onSelect={() => openNewShipment()}>New shipment</DropdownMenuItem>
+              <DropdownMenuItem className="min-h-10 px-3 py-2.5" onSelect={() => openNewPallet()}>New pallet</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
