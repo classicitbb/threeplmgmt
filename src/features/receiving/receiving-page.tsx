@@ -6,7 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm, type UseFormReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { supabase } from "@/integrations/supabase/client";
-import { Activity, AlertCircle, AlertTriangle, ArrowLeftRight, ArrowRight, BarChart3, Bot, Boxes, Building2, CalendarDays, CheckCircle2, ChevronDown, ClipboardCheck, ClipboardList, CloudOff, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, Home, Info, KeyRound, LayoutDashboard, Loader2, Lock, LockOpen, LogOut, Mail, Maximize2, MapPinned, Menu, Minimize2, Network, Package, PackageX, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, QrCode, RadioTower, RefreshCw, RotateCcw, Search, Settings, ShieldCheck, Star, Tags, Trash2, Truck, Upload, UserPlus, Users } from "lucide-react";
+import { Activity, AlertCircle, AlertTriangle, ArrowLeftRight, ArrowRight, BarChart3, Bot, Boxes, Building2, CalendarDays, CheckCircle2, ChevronDown, ClipboardCheck, ClipboardList, CloudOff, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, Home, Info, KeyRound, LayoutDashboard, Lock, LockOpen, LogOut, Mail, Maximize2, MapPinned, Menu, Minimize2, Network, Package, PackageX, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, QrCode, RadioTower, RefreshCw, RotateCcw, Search, Settings, ShieldCheck, Star, Tags, Trash2, Truck, Upload, UserPlus, Users } from "lucide-react";
 import {
   DndContext,
   KeyboardSensor,
@@ -227,6 +227,47 @@ function formatShipmentDate(date: Date) {
   return `${year}-${month}-${day}`;
 }
 
+function useTimedButtonProgress(active: boolean) {
+  const [progress, setProgress] = useState(0);
+
+  useEffect(() => {
+    if (!active) {
+      setProgress(0);
+      return;
+    }
+
+    setProgress((current) => current || 8);
+    const timer = window.setInterval(() => {
+      setProgress((current) => {
+        if (current < 60) return current + 8;
+        if (current < 86) return current + 4;
+        if (current < 94) return current + 1;
+        return current;
+      });
+    }, 450);
+
+    return () => window.clearInterval(timer);
+  }, [active]);
+
+  return active ? progress : 0;
+}
+
+function ButtonProgress({ value, label }: { value: number; label: string }) {
+  const boundedValue = Math.min(100, Math.max(3, Math.round(value)));
+
+  return (
+    <span className="relative z-10 inline-flex min-w-0 items-center gap-2" aria-live="polite">
+      <Progress
+        value={boundedValue}
+        className="h-1.5 w-14 shrink-0 bg-current/20 [&>div]:bg-current"
+        aria-label={`${label} progress`}
+      />
+      <span className="truncate">{label}</span>
+      <span className="font-mono text-[0.72rem] tabular-nums">{boundedValue}%</span>
+    </span>
+  );
+}
+
 type ShipmentEntryMode = "shipment" | "pallet";
 
 function inferDraftEntryMode(draft: DraftReceipt): ShipmentEntryMode {
@@ -354,6 +395,8 @@ export function ReceivingPage() {
   const [editingDraft, setEditingDraft] = useState<DraftReceipt | null>(null);
   const [lastResult, setLastResult] = useState<{ barcode: string; taskNumber: string; qty: number } | null>(null);
   const [printAfterSaveIds, setPrintAfterSaveIds] = useState<string[]>([]);
+  const [savingShipmentMode, setSavingShipmentMode] = useState<"receive" | "new" | null>(null);
+  const [batchReceiveProgress, setBatchReceiveProgress] = useState({ completed: 0, total: 0 });
   const [shipmentForm, setShipmentForm] = useState<ReceivingShipmentFormState>({
     receipt_type: "po",
     warehouse_id: defaultWarehouseId,
@@ -580,6 +623,7 @@ export function ReceivingPage() {
       }
     },
     onError: (error: any) => toast.error(error?.message ?? error?.details ?? "Shipment draft save failed"),
+    onSettled: () => setSavingShipmentMode(null),
   });
 
   const receiveMutation = useMutation({
@@ -600,8 +644,10 @@ export function ReceivingPage() {
   const batchReceiveMutation = useMutation({
     mutationFn: async (draftsToReceive: DraftReceipt[]) => {
       const results = [];
+      setBatchReceiveProgress({ completed: 0, total: draftsToReceive.length });
       for (const draft of draftsToReceive) {
         results.push(await completeReceiptFromDraft(draft.id, draftToReceivingValues(draft)));
+        setBatchReceiveProgress({ completed: results.length, total: draftsToReceive.length });
       }
       return results;
     },
@@ -623,7 +669,14 @@ export function ReceivingPage() {
       ]);
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Receiving failed"),
+    onSettled: () => setBatchReceiveProgress({ completed: 0, total: 0 }),
   });
+
+  const saveNewProgress = useTimedButtonProgress(saveShipmentMutation.isPending && savingShipmentMode === "new");
+  const saveReceiveProgress = useTimedButtonProgress(saveShipmentMutation.isPending && savingShipmentMode === "receive");
+  const printReceiveProgress = batchReceiveMutation.isPending
+    ? (batchReceiveProgress.completed / Math.max(batchReceiveProgress.total, 1)) * 100
+    : 0;
 
   function printAndReceiveDrafts(draftsToReceive: DraftReceipt[]) {
     printDraftLabels(draftsToReceive, productOptions, clients, warehouses, packagingProfiles, () => {
@@ -848,6 +901,7 @@ export function ReceivingPage() {
       toast.error(saveBlockedReason);
       return;
     }
+    setSavingShipmentMode(mode);
     saveShipmentMutation.mutate(mode);
   }
 
@@ -1440,14 +1494,20 @@ export function ReceivingPage() {
             )}
             <Button variant="outline" onClick={() => setShipmentOpen(false)}>Cancel</Button>
             {!editingDraft && (
-              <Button variant="outline" disabled={saveShipmentMutation.isPending || !canSaveShipment} onClick={() => saveShipment("new")}>
-                {saveShipmentMutation.isPending ? <Loader2 className="animate-spin" /> : null}
-                {shipmentEntryMode === "pallet" ? "Receive & New" : "Save & New"}
+              <Button className="relative overflow-hidden" variant="outline" disabled={saveShipmentMutation.isPending || !canSaveShipment} onClick={() => saveShipment("new")}>
+                {saveShipmentMutation.isPending && savingShipmentMode === "new" ? (
+                  <ButtonProgress value={saveNewProgress} label={shipmentEntryMode === "pallet" ? "Receiving" : "Saving"} />
+                ) : (
+                  shipmentEntryMode === "pallet" ? "Receive & New" : "Save & New"
+                )}
               </Button>
             )}
-            <Button disabled={saveShipmentMutation.isPending || !canSaveShipment} onClick={() => saveShipment("receive")}>
-              {saveShipmentMutation.isPending ? <Loader2 className="animate-spin" /> : null}
-              {editingDraft ? "Save Draft" : shipmentEntryMode === "pallet" ? "Receive pallet" : "Save & Receive"}
+            <Button className="relative overflow-hidden" disabled={saveShipmentMutation.isPending || !canSaveShipment} onClick={() => saveShipment("receive")}>
+              {saveShipmentMutation.isPending && savingShipmentMode === "receive" ? (
+                <ButtonProgress value={saveReceiveProgress} label={editingDraft ? "Saving" : shipmentEntryMode === "pallet" ? "Receiving" : "Saving"} />
+              ) : (
+                editingDraft ? "Save Draft" : shipmentEntryMode === "pallet" ? "Receive pallet" : "Save & Receive"
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1512,9 +1572,18 @@ export function ReceivingPage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setSelectedDraftIds(new Set(printDrafts.map((draft) => draft.id)))}>Select all shown</Button>
             <Button variant="outline" disabled={selectedDraftIds.size === 0} onClick={() => setSelectedDraftIds(new Set())}>Deselect all</Button>
-            <Button disabled={batchReceiveMutation.isPending || selectedPrintDrafts.length === 0} onClick={() => printAndReceiveDrafts(selectedPrintDrafts)}>
-              {batchReceiveMutation.isPending ? <Loader2 className="animate-spin" /> : <Printer data-icon="inline-start" />}
-              Print selected & send to Put-Away
+            <Button className="relative overflow-hidden" disabled={batchReceiveMutation.isPending || selectedPrintDrafts.length === 0} onClick={() => printAndReceiveDrafts(selectedPrintDrafts)}>
+              {batchReceiveMutation.isPending ? (
+                <ButtonProgress
+                  value={printReceiveProgress}
+                  label={`Sending ${batchReceiveProgress.completed}/${Math.max(batchReceiveProgress.total, selectedPrintDrafts.length)}`}
+                />
+              ) : (
+                <>
+                  <Printer data-icon="inline-start" />
+                  Print selected & send to Put-Away
+                </>
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
