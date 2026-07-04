@@ -1,5 +1,4 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
 import { QRCodeSVG } from "qrcode.react";
 import { Link, NavLink, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -139,7 +138,7 @@ import {
   type MoveValidationResult,
 } from "@/lib/wms-core";
 import { ProductSearch } from "@/components/product-search";
-import { PalletLabelPage } from "@/components/pallet-label-page";
+import { buildPalletLabelBatchPrintHtml, PalletLabelPage, type PalletLabelPageProps } from "@/components/pallet-label-page";
 import { BarcodeScanButton } from "@/components/barcode-scan-button";
 import { type ProductSearchHandle } from "@/components/product-search";
 
@@ -4000,10 +3999,6 @@ export function draftToReceivingValues(draft: DraftReceipt): z.infer<typeof rece
   };
 }
 
-function labelHasValue(value: unknown) {
-  return value != null && String(value).trim() !== "";
-}
-
 export function printDraftLabels(
   drafts: DraftReceipt[],
   products: Array<{ id: string; sku: string; name: string; temperature_requirement?: string | null }>,
@@ -4016,61 +4011,39 @@ export function printDraftLabels(
     toast.error("Select at least one draft label to print.");
     return false;
   }
-  const pages = drafts.map((draft) => {
+  const labels: PalletLabelPageProps[] = drafts.map((draft) => {
     const meta = parseDraftMeta(draft.notes);
     const product = products.find((p) => p.id === (draft.product_id ?? meta.product_id));
     const client = clients.find((item) => item.id === draft.client_id);
     const warehouse = warehouses.find((item) => item.id === draft.warehouse_id);
     const packaging = packagingProfiles.find((item) => item.id === meta.packaging_profile_id);
     const barcode = draft.draft_pallet_barcode ?? meta.draft_pallet_barcode ?? draft.receipt_number;
-    const qr = renderToStaticMarkup(<QRCodeSVG value={barcode} size={220} bgColor="#ffffff" fgColor="#000000" level="H" />);
-    const draftPosition = draft.draft_sequence && draft.draft_count ? `${draft.draft_sequence}/${draft.draft_count}` : "";
-    const fields = [
-      ["Pallet", barcode],
-      ["SKU", product?.sku ?? ""],
-      ["Product", product?.name ?? ""],
-      ["Qty", draft.quantity ?? meta.quantity ?? ""],
-      ["Expiry", draft.expiry_date ?? meta.expiry_date ?? ""],
-      ["Lot", draft.lot_number ?? meta.lot_number ?? ""],
-      ["Batch", draft.batch_number ?? meta.batch_number ?? ""],
-      ["Container", draft.container_number ?? meta.container_number ?? ""],
-      ["PO", draft.po_number ?? meta.po_number ?? ""],
-      ["Client", client?.name ?? ""],
-      ["Warehouse", warehouse ? `${warehouse.code ? `${warehouse.code} - ` : ""}${warehouse.name}` : ""],
-      ["Receipt", draft.reference_number ?? draft.receipt_number ?? ""],
-      ["Packaging", packaging?.name ?? packaging?.unit_name ?? packaging?.unit_of_measure ?? ""],
-      ["Draft", draftPosition],
-    ].filter(([label, value]) => label === "Pallet" || labelHasValue(value));
-    return `<section class="sheet">
-      <div class="header"><div><div class="title">Pallet Draft</div><div class="code">${barcode}</div></div>${draftPosition ? `<div class="badge">${draftPosition}</div>` : ""}</div>
-      <div class="grid">${fields.map(([label, value]) => `<div class="field${label === "Expiry" ? " expiry" : ""}"><span>${label}</span><strong>${String(value)}</strong></div>`).join("")}</div>
-      <div class="qr">${qr}<div>${barcode}</div></div>
-    </section>`;
-  }).join("");
+
+    return {
+      barcode,
+      productSku: product?.sku,
+      productName: product?.name,
+      quantity: Number(draft.quantity ?? meta.quantity ?? 1),
+      lotNumber: draft.lot_number ?? meta.lot_number,
+      batchNumber: draft.batch_number ?? meta.batch_number,
+      expiryDate: draft.expiry_date ?? meta.expiry_date,
+      containerNumber: draft.container_number ?? meta.container_number,
+      poNumber: draft.po_number ?? meta.po_number,
+      clientName: client?.name,
+      warehouseName: warehouse ? `${warehouse.code ? `${warehouse.code} - ` : ""}${warehouse.name}` : undefined,
+      receiptReference: draft.reference_number ?? draft.receipt_number,
+      packaging: packaging?.name ?? packaging?.unit_name ?? packaging?.unit_of_measure,
+      draftSequence: draft.draft_sequence,
+      draftCount: draft.draft_count,
+      temperatureClass: product?.temperature_requirement,
+    };
+  });
   const win = window.open("", "_blank", "width=900,height=1100");
   if (!win) {
     toast.error("Print window was blocked. Allow popups, then try again.");
     return false;
   }
-  win.document.write(`<!DOCTYPE html><html><head><title>Pallet draft labels</title><style>
-    @page { size: letter; margin: 0; }
-    * { box-sizing: border-box; }
-    body { margin: 0; font-family: system-ui, -apple-system, sans-serif; color: #0f172a; }
-    .sheet { page-break-after: always; width: 8.5in; min-height: 11in; padding: .45in; display: flex; flex-direction: column; gap: .22in; border: .08in solid #1f2937; }
-    .header { display: flex; justify-content: space-between; gap: .25in; align-items: flex-start; }
-    .title { font-size: 16pt; font-weight: 800; text-transform: uppercase; color: #1f2937; }
-    .code { font-size: 38pt; font-weight: 900; line-height: 1; }
-    .badge { font-size: 16pt; font-weight: 800; border: 2px solid #1f2937; border-radius: 999px; padding: .08in .18in; }
-    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .14in; }
-    .field { border: 1px solid #94a3b8; border-radius: .06in; padding: .1in; min-height: .62in; }
-    .field.expiry { border-color: #f59e0b; background: #fffbeb; }
-    .field span { display: block; color: #475569; text-transform: uppercase; font-size: 8.5pt; font-weight: 800; letter-spacing: .05em; }
-    .field.expiry span { color: #92400e; }
-    .field strong { display: block; margin-top: .05in; font-size: 15pt; overflow-wrap: anywhere; }
-    .qr { margin-top: auto; border: 2px solid #1f2937; border-radius: .08in; padding: .22in; display: flex; flex-direction: column; align-items: center; gap: .08in; font-family: "Courier New", monospace; font-size: 16pt; font-weight: 800; }
-    .qr svg { width: 2.45in; height: 2.45in; }
-    @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
-  </style></head><body>${pages}<script>window.onload=()=>{window.print();window.close();}<\/script></body></html>`);
+  win.document.write(buildPalletLabelBatchPrintHtml(labels));
   win.document.close();
   void Promise.resolve(onPrinted?.());
   return true;

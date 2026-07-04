@@ -144,19 +144,54 @@ function getPalletLabelModel(props: PalletLabelPageProps) {
   return { accentColor, tempLabel, safeBarcode, displayExpiry, detailBits, qrMarkup };
 }
 
-export function buildPalletLabelPrintHtml(props: PalletLabelPageProps, printTimestamp = formatPrintTimestamp()) {
+function renderPalletLabelSheet(props: PalletLabelPageProps, printTimestamp: string) {
   const { productSku, productName, quantity, receiptReference } = props;
   const { accentColor, tempLabel, safeBarcode, displayExpiry, detailBits, qrMarkup } = getPalletLabelModel(props);
+
+  return `<div class="page-fit">
+    <div class="sheet">
+      <div class="accent-bar"></div>
+      <div class="header">
+        <div>
+          <div class="title">Pallet Label</div>
+          <div class="pallet-code">${escapeHtml(safeBarcode)}</div>
+        </div>
+        <span class="temp-badge">${escapeHtml(tempLabel)}</span>
+      </div>
+      ${detailBits.length > 0 ? `<div class="detail-line">${detailBits.map((part) => `<span>${escapeHtml(part)}</span>`).join(" <strong>·</strong> ")}</div>` : ""}
+      <div class="field-grid">
+        <div class="field"><div class="field-label">SKU</div><div class="field-value">${escapeHtml(productSku)}</div></div>
+        <div class="field"><div class="field-label">Product</div><div class="field-value">${escapeHtml(productName)}</div></div>
+        <div class="field"><div class="field-label">Quantity</div><div class="field-value">${escapeHtml(quantity)}</div></div>
+        <div class="field expiry"><div class="field-label">Expiry</div><div class="field-value expiry">${escapeHtml(displayExpiry)}</div></div>
+      </div>
+      <div class="barcode-section">
+        <div class="barcode-label">Scan QR code</div>
+        <div class="barcode-wrap">${qrMarkup}</div>
+        ${hasValue(receiptReference) ? `<div class="receipt-text">Receipt ${escapeHtml(receiptReference)}</div>` : ""}
+      </div>
+      <div class="footer">
+        <span class="footer-text">Warehouse Wizard</span>
+        <span class="footer-text">${escapeHtml(printTimestamp)}</span>
+        <span class="footer-text">v${escapeHtml(__APP_VERSION__)}</span>
+      </div>
+    </div>
+  </div>`;
+}
+
+export function buildPalletLabelBatchPrintHtml(labels: PalletLabelPageProps[], printTimestamp = formatPrintTimestamp()) {
+  const firstBarcode = labels[0]?.barcode;
+  const title = labels.length === 1 && firstBarcode ? `Pallet Label — ${escapeHtml(firstBarcode)}` : "Pallet Labels";
 
   return `<!DOCTYPE html>
 <html>
 <head>
-  <title>Pallet Label — ${escapeHtml(safeBarcode)}</title>
+  <title>${title}</title>
   <meta charset="utf-8" />
   <style>
     @page { size: auto; margin: 0; }
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    html, body { width: 100%; height: 100%; background: #fff; overflow: hidden; }
+    html, body { width: 100%; min-height: 100%; background: #fff; overflow: visible; }
     body { font-family: system-ui, -apple-system, sans-serif; color: #000; }
     .page-fit {
       width: 100vw;
@@ -165,7 +200,10 @@ export function buildPalletLabelPrintHtml(props: PalletLabelPageProps, printTime
       justify-content: center;
       align-items: flex-start;
       background: #fff;
+      break-after: page;
+      page-break-after: always;
     }
+    .page-fit:last-child { break-after: auto; page-break-after: auto; }
     .sheet {
       width: min(101.6mm, 100vw, calc(100vh * 2 / 3));
       height: min(152.4mm, 100vh, calc(100vw * 3 / 2));
@@ -206,38 +244,14 @@ export function buildPalletLabelPrintHtml(props: PalletLabelPageProps, printTime
   </style>
 </head>
 <body>
-  <div class="page-fit">
-    <div class="sheet">
-      <div class="accent-bar"></div>
-      <div class="header">
-        <div>
-          <div class="title">Pallet Label</div>
-          <div class="pallet-code">${escapeHtml(safeBarcode)}</div>
-        </div>
-        <span class="temp-badge">${escapeHtml(tempLabel)}</span>
-      </div>
-      ${detailBits.length > 0 ? `<div class="detail-line">${detailBits.map((part) => `<span>${escapeHtml(part)}</span>`).join(" <strong>·</strong> ")}</div>` : ""}
-      <div class="field-grid">
-        <div class="field"><div class="field-label">SKU</div><div class="field-value">${escapeHtml(productSku)}</div></div>
-        <div class="field"><div class="field-label">Product</div><div class="field-value">${escapeHtml(productName)}</div></div>
-        <div class="field"><div class="field-label">Quantity</div><div class="field-value">${escapeHtml(quantity)}</div></div>
-        <div class="field expiry"><div class="field-label">Expiry</div><div class="field-value expiry">${escapeHtml(displayExpiry)}</div></div>
-      </div>
-      <div class="barcode-section">
-        <div class="barcode-label">Scan QR code</div>
-        <div class="barcode-wrap">${qrMarkup}</div>
-        ${hasValue(receiptReference) ? `<div class="receipt-text">Receipt ${escapeHtml(receiptReference)}</div>` : ""}
-      </div>
-      <div class="footer">
-        <span class="footer-text">Warehouse Wizard</span>
-        <span class="footer-text">${escapeHtml(printTimestamp)}</span>
-        <span class="footer-text">v${escapeHtml(__APP_VERSION__)}</span>
-      </div>
-    </div>
-  </div>
+  ${labels.map((label) => renderPalletLabelSheet(label, printTimestamp)).join("")}
   <script>window.onload=()=>{window.print();window.close();}<\/script>
 </body>
 </html>`;
+}
+
+export function buildPalletLabelPrintHtml(props: PalletLabelPageProps, printTimestamp = formatPrintTimestamp()) {
+  return buildPalletLabelBatchPrintHtml([props], printTimestamp);
 }
 
 export function PalletLabelPage(props: PalletLabelPageProps) {

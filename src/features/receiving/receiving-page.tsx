@@ -1,6 +1,4 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type KeyboardEvent, type KeyboardEventHandler, type SetStateAction } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
-import { QRCodeSVG } from "qrcode.react";
 import { Link, NavLink, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm, type UseFormReturn } from "react-hook-form";
@@ -256,7 +254,7 @@ function ButtonProgress({ value, label }: { value: number; label: string }) {
   const boundedValue = Math.min(100, Math.max(3, Math.round(value)));
 
   return (
-    <span className="relative z-10 inline-flex min-w-0 items-center gap-2" aria-live="polite">
+    <div className="relative z-10 inline-flex min-w-0 items-center gap-2" aria-live="polite">
       <Progress
         value={boundedValue}
         className="h-1.5 w-14 shrink-0 bg-current/20 [&>div]:bg-current"
@@ -264,7 +262,7 @@ function ButtonProgress({ value, label }: { value: number; label: string }) {
       />
       <span className="truncate">{label}</span>
       <span className="font-mono text-[0.72rem] tabular-nums">{boundedValue}%</span>
-    </span>
+    </div>
   );
 }
 
