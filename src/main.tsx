@@ -77,6 +77,48 @@ const isPreviewHost =
     window.location.hostname.includes("id-preview--"));
 
 if (!isInIframe && !isPreviewHost) {
+  // One-shot cache/SW purge per app version. Ensures returning users on the
+  // published app get a fresh shell after a deploy, even if a prior SW
+  // precached stale bundles. Runs before re-registering the current SW.
+  const PURGE_KEY = `__ww_cache_purged_v_${String(__APP_VERSION__)}`;
+  if (!sessionStorage.getItem(PURGE_KEY)) {
+    void (async () => {
+      let removed = false;
+      try {
+        if ("serviceWorker" in navigator) {
+          const regs = await navigator.serviceWorker.getRegistrations();
+          if (regs.length > 0) {
+            removed = true;
+            await Promise.all(regs.map((r) => r.unregister().catch(() => false)));
+          }
+        }
+        if ("caches" in window) {
+          const names = await caches.keys();
+          if (names.length > 0) {
+            removed = true;
+            await Promise.all(names.map((n) => caches.delete(n).catch(() => false)));
+          }
+        }
+      } catch {
+        /* no-op */
+      }
+      sessionStorage.setItem(PURGE_KEY, "1");
+      if (removed && !isActiveWorkInProgress()) {
+        window.location.reload();
+        return;
+      }
+      if (removed) {
+        const tryReload = () => {
+          if (isActiveWorkInProgress()) return;
+          document.removeEventListener("visibilitychange", tryReload);
+          window.removeEventListener("focus", tryReload);
+          window.location.reload();
+        };
+        document.addEventListener("visibilitychange", tryReload);
+        window.addEventListener("focus", tryReload);
+      }
+    })();
+  }
   const updateSW = registerSW({
     onRegisteredSW(_swUrl, registration) {
       if (!registration) return;
