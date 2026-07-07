@@ -148,7 +148,7 @@ function renderPalletLabelSheet(props: PalletLabelPageProps, printTimestamp: str
   const { productSku, productName, quantity, receiptReference } = props;
   const { accentColor, tempLabel, safeBarcode, displayExpiry, detailBits, qrMarkup } = getPalletLabelModel(props);
 
-  return `<div class="page-fit">
+  return `<div class="page-fit" style="--accent: ${accentColor}">
     <div class="sheet">
       <div class="accent-bar"></div>
       <div class="header">
@@ -212,15 +212,15 @@ export function buildPalletLabelBatchPrintHtml(labels: PalletLabelPageProps[], p
       flex-direction: column;
       gap: min(4mm, 1.15cqh);
       background: #ffffff;
-      border: min(1.25mm, 0.35cqw) solid ${accentColor};
+      border: min(1.25mm, 0.35cqw) solid var(--accent);
       container-type: size;
       overflow: hidden;
     }
-    .accent-bar { width: 100%; height: min(3mm, 2cqh); background: ${accentColor}; border-radius: 999px; }
+    .accent-bar { width: 100%; height: min(3mm, 2cqh); background: var(--accent); border-radius: 999px; }
     .header { display: flex; align-items: flex-start; justify-content: space-between; gap: min(6mm, 4cqw); }
-    .title { font-size: min(14pt, 3.5cqw); font-weight: 900; text-transform: uppercase; color: ${accentColor}; }
+    .title { font-size: min(14pt, 3.5cqw); font-weight: 900; text-transform: uppercase; color: var(--accent); }
     .pallet-code { font-size: min(29pt, 7.2cqw, 5.4cqh); font-weight: 900; letter-spacing: 0.01em; line-height: 1.05; word-break: break-word; }
-    .temp-badge { font-size: min(9.5pt, 2.4cqw); font-weight: 800; padding: min(2mm, 0.9cqh) min(4mm, 2.2cqw); border-radius: 999px; background: ${accentColor}; color: #fff; white-space: nowrap; }
+    .temp-badge { font-size: min(9.5pt, 2.4cqw); font-weight: 800; padding: min(2mm, 0.9cqh) min(4mm, 2.2cqw); border-radius: 999px; background: var(--accent); color: #fff; white-space: nowrap; }
     .detail-line { font-size: min(8.5pt, 2.15cqw); color: #475569; line-height: 1.35; overflow-wrap: anywhere; }
     .detail-line strong { color: #0f172a; }
     .field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: min(2.5mm, 1.4cqh); }
@@ -230,7 +230,7 @@ export function buildPalletLabelBatchPrintHtml(labels: PalletLabelPageProps[], p
     .field.expiry .field-label { color: #92400e; }
     .field-value { margin-top: min(1.5mm, 0.9cqh); font-size: min(12.5pt, 3.2cqw); line-height: 1.2; font-weight: 750; overflow-wrap: anywhere; }
     .field-value.expiry { font-size: min(14pt, 3.5cqw); font-weight: 900; letter-spacing: 0.01em; }
-    .barcode-section { margin-top: auto; border: min(1mm, 0.28cqw) solid ${accentColor}; background: #fff; border-radius: min(2mm, 0.7cqw); padding: min(4mm, 1.9cqh) min(3.5mm, 2.1cqw) min(3mm, 1.6cqh); display: flex; flex-direction: column; align-items: center; gap: min(1.5mm, 0.8cqh); overflow: hidden; }
+    .barcode-section { margin-top: auto; border: min(1mm, 0.28cqw) solid var(--accent); background: #fff; border-radius: min(2mm, 0.7cqw); padding: min(4mm, 1.9cqh) min(3.5mm, 2.1cqw) min(3mm, 1.6cqh); display: flex; flex-direction: column; align-items: center; gap: min(1.5mm, 0.8cqh); overflow: hidden; }
     .barcode-label { color: #475569; text-transform: uppercase; font-size: min(7.5pt, 1.9cqw); font-weight: 900; letter-spacing: 0.06em; text-align: center; }
     .barcode-wrap { display: flex; flex-direction: column; justify-content: center; align-items: center; gap: min(1mm, 0.6cqh); }
     .barcode-wrap svg { width: min(45mm, 52cqw, 31cqh); height: min(45mm, 52cqw, 31cqh); }
