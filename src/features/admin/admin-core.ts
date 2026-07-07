@@ -270,10 +270,13 @@ export async function adminUpdateUserPin(profileId: string, pin: string) {
 }
 
 export async function refreshUserDeviceTrust(deviceId: string) {
+  // Trusted-device shortcut is a mobile-only feature; the edge function
+  // rejects desktop clients with 403. Skip the call entirely on desktop.
+  if (isDesktopClient()) return;
   const { error } = await supabase.functions.invoke("trust-device", {
     body: {
       deviceId,
-      isDesktop: isDesktopClient(),
+      isDesktop: false,
     },
   });
   if (error) throw new Error((error as any).message ?? "Device trust update failed");
