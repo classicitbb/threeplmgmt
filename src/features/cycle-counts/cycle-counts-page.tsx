@@ -10,6 +10,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { OFFLINE_WORK_MESSAGE, assertOnline, useNetworkStatus } from "@/hooks/use-network-status";
 import { isLikelyNetworkError } from "@/lib/offline-queue";
 import {
+  acceptCycleCountExceptionLine,
   archiveCancelledCycleCount,
   approveCycleCountLine,
   closeCycleCount,
@@ -23,6 +24,7 @@ import {
   listCycleCounts,
   listMyCycleCountLines,
   rejectCycleCountLine,
+  returnCycleCountExceptionLine,
   submitCycleCountLine,
   ROLE_LABELS,
   type RoleCode,
@@ -231,6 +233,27 @@ export function CycleCountsPage() {
     onError: (error) => toast.error(error instanceof Error ? error.message : "Reject failed"),
   });
 
+  const acceptExceptionMutation = useMutation({
+    mutationFn: ({ lineId, reason }: { lineId: string; reason: string }) => runOnlineCycleCountCommit(() => acceptCycleCountExceptionLine(lineId, reason)),
+    onSuccess: async (_data, variables) => {
+      setApprovalReason((current) => ({ ...current, [variables.lineId]: "" }));
+      toast.success("Exception reviewed");
+      await queryClient.invalidateQueries({ queryKey: ["cycle-counts"] });
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Exception review failed"),
+  });
+
+  const returnExceptionMutation = useMutation({
+    mutationFn: ({ lineId, reason }: { lineId: string; reason: string }) => runOnlineCycleCountCommit(() => returnCycleCountExceptionLine(lineId, reason)),
+    onSuccess: async (_data, variables) => {
+      setApprovalReason((current) => ({ ...current, [variables.lineId]: "" }));
+      toast.info("Exception returned to blind entry");
+      await queryClient.invalidateQueries({ queryKey: ["cycle-counts"] });
+      await queryClient.invalidateQueries({ queryKey: ["cycle-count-lines", "assigned"] });
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Return failed"),
+  });
+
   const closeMutation = useMutation({
     mutationFn: (countId: string) => runOnlineCycleCountCommit(() => closeCycleCount(countId)),
     onSuccess: async () => {
@@ -272,7 +295,7 @@ export function CycleCountsPage() {
   const reviewLines = useMemo(
     () => (counts as any[]).flatMap((count) =>
       (count.cycle_count_lines ?? [])
-        .filter((line: any) => lineStatus(line) === "variance_hold")
+        .filter((line: any) => lineStatus(line) === "variance_hold" || (lineStatus(line) === "exception" && !line.approved_at))
         .map((line: any) => ({ ...line, count })),
     ),
     [counts],
@@ -471,18 +494,21 @@ export function CycleCountsPage() {
         {isSupervisor && (
           <TabsContent value="approvals" className="mt-4 grid gap-3">
             {reviewLines.length === 0 ? (
-              <EmptyState title="No variances waiting" body="Over-threshold recounts appear here for approval or rejection." />
+              <EmptyState title="No reviews waiting" body="Over-threshold recounts and count exceptions appear here for supervisor action." />
             ) : reviewLines.map((line: any) => {
               const reason = approvalReason[line.id] ?? "";
+              const isException = lineStatus(line) === "exception";
               return (
                 <Card key={line.id} className="border-amber-500/60">
                   <CardHeader className="pb-3">
                     <CardTitle className="flex flex-wrap items-center justify-between gap-2 text-base">
                       <span>{line.count.count_number} · {line.products?.sku ?? "Product"}</span>
-                      <Badge variant="destructive">Variance hold</Badge>
+                      <Badge variant="destructive">{isException ? "Exception review" : "Variance hold"}</Badge>
                     </CardTitle>
                     <CardDescription>
-                      {locationLabel(line.locations)} · first {formatNumber(line.first_count_qty)} · recount {formatNumber(line.recount_qty)} · expected {formatNumber(line.expected_quantity)}
+                      {isException
+                        ? `${locationLabel(line.locations)} · expected ${formatNumber(line.expected_quantity)} · ${line.exception_reason ?? line.notes ?? "No reason recorded"}`
+                        : `${locationLabel(line.locations)} · first ${formatNumber(line.first_count_qty)} · recount ${formatNumber(line.recount_qty)} · expected ${formatNumber(line.expected_quantity)}`}
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="grid gap-3">
@@ -493,17 +519,32 @@ export function CycleCountsPage() {
                     <Textarea
                       value={reason}
                       onChange={(event) => setApprovalReason((current) => ({ ...current, [line.id]: event.target.value }))}
-                      placeholder="Approval or rejection reason"
+                      placeholder={isException ? "Supervisor exception review note" : "Approval or rejection reason"}
                     />
                     <div className="flex flex-wrap gap-2">
-                      <Button disabled={!online || approveMutation.isPending || reason.trim().length < 3} onClick={() => approveMutation.mutate({ lineId: line.id, reason })}>
-                        <ShieldCheck className="mr-2 h-4 w-4" />
-                        Approve and post
-                      </Button>
-                      <Button variant="outline" disabled={!online || rejectMutation.isPending || reason.trim().length < 3} onClick={() => rejectMutation.mutate({ lineId: line.id, reason })}>
-                        <XCircle className="mr-2 h-4 w-4" />
-                        Reject for recount
-                      </Button>
+                      {isException ? (
+                        <>
+                          <Button disabled={!online || acceptExceptionMutation.isPending || reason.trim().length < 3} onClick={() => acceptExceptionMutation.mutate({ lineId: line.id, reason })}>
+                            <ShieldCheck className="mr-2 h-4 w-4" />
+                            Accept exception
+                          </Button>
+                          <Button variant="outline" disabled={!online || returnExceptionMutation.isPending || reason.trim().length < 3} onClick={() => returnExceptionMutation.mutate({ lineId: line.id, reason })}>
+                            <XCircle className="mr-2 h-4 w-4" />
+                            Return to blind entry
+                          </Button>
+                        </>
+                      ) : (
+                        <>
+                          <Button disabled={!online || approveMutation.isPending || reason.trim().length < 3} onClick={() => approveMutation.mutate({ lineId: line.id, reason })}>
+                            <ShieldCheck className="mr-2 h-4 w-4" />
+                            Approve and post
+                          </Button>
+                          <Button variant="outline" disabled={!online || rejectMutation.isPending || reason.trim().length < 3} onClick={() => rejectMutation.mutate({ lineId: line.id, reason })}>
+                            <XCircle className="mr-2 h-4 w-4" />
+                            Reject for recount
+                          </Button>
+                        </>
+                      )}
                     </div>
                   </CardContent>
                 </Card>

@@ -428,6 +428,56 @@ export async function rejectCycleCountLine(lineId: string, reason: string) {
   await updateCountHeaderStatus(line.cycle_count_id);
 }
 
+export async function acceptCycleCountExceptionLine(lineId: string, reason: string) {
+  const userId = await currentUserId();
+  if (!reason.trim()) throw new Error("Exception review note is required.");
+
+  const { data: line, error } = await db("cycle_count_lines")
+    .select("cycle_count_id, line_status")
+    .eq("id", lineId)
+    .single();
+  if (error) throw new Error(formatSupabaseError(error, "Could not load exception line."));
+  if (line.line_status !== "exception") throw new Error("Only exception lines can be accepted.");
+
+  const update = await db("cycle_count_lines")
+    .update({
+      approved_by: userId,
+      approved_at: new Date().toISOString(),
+      status: "completed",
+      notes: reason,
+    } as any)
+    .eq("id", lineId)
+    .eq("line_status", "exception");
+  throwIfSupabaseError(update, "Could not accept exception line.");
+  await updateCountHeaderStatus(line.cycle_count_id);
+}
+
+export async function returnCycleCountExceptionLine(lineId: string, reason: string) {
+  if (!reason.trim()) throw new Error("Return reason is required.");
+
+  const { data: line, error } = await db("cycle_count_lines")
+    .select("cycle_count_id, line_status")
+    .eq("id", lineId)
+    .single();
+  if (error) throw new Error(formatSupabaseError(error, "Could not load exception line."));
+  if (line.line_status !== "exception") throw new Error("Only exception lines can be returned.");
+
+  const update = await db("cycle_count_lines")
+    .update({
+      assigned_user_id: null,
+      approved_by: null,
+      approved_at: null,
+      exception_reason: reason,
+      notes: reason,
+      line_status: "queued",
+      status: "queued",
+    } as any)
+    .eq("id", lineId)
+    .eq("line_status", "exception");
+  throwIfSupabaseError(update, "Could not return exception line to blind entry.");
+  await updateCountHeaderStatus(line.cycle_count_id);
+}
+
 export async function flagCycleCountLineException(lineId: string, reason: string) {
   if (!reason.trim()) throw new Error("A reason is required to flag a count exception.");
   const { data: line, error } = await db("cycle_count_lines")
@@ -525,15 +575,17 @@ export async function archiveCancelledCycleCount(countId: string) {
 
 async function updateCountHeaderStatus(countId: string) {
   const { data: lines, error } = await db("cycle_count_lines")
-    .select("line_status")
+    .select("line_status, approved_at")
     .eq("cycle_count_id", countId);
   if (error) {
     console.warn("[cycle-counts] status refresh skipped:", formatSupabaseError(error, "Could not refresh count status."));
     return;
   }
 
-  const statuses = (lines ?? []).map((line: any) => line.line_status);
-  const nextStatus = statuses.some((status: string) => ["variance_hold", "exception"].includes(status))
+  const rows = lines ?? [];
+  const statuses = rows.map((line: any) => line.line_status);
+  const needsReview = rows.some((line: any) => line.line_status === "variance_hold" || (line.line_status === "exception" && !line.approved_at));
+  const nextStatus = needsReview
     ? "review"
     : statuses.every((status: string) => TERMINAL_LINE_STATUSES.has(status))
       ? "approved"

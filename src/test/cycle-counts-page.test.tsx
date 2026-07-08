@@ -30,6 +30,8 @@ const cycleCountMocks = vi.hoisted(() => ({
   flagCycleCountLineException: vi.fn(async () => undefined),
   approveCycleCountLine: vi.fn(async () => undefined),
   rejectCycleCountLine: vi.fn(async () => undefined),
+  acceptCycleCountExceptionLine: vi.fn(async () => undefined),
+  returnCycleCountExceptionLine: vi.fn(async () => undefined),
   closeCycleCount: vi.fn(async () => undefined),
   discardDraftCycleCount: vi.fn(async () => undefined),
   archiveCancelledCycleCount: vi.fn(async () => undefined),
@@ -67,6 +69,8 @@ vi.mock("@/lib/wms-core", async (importOriginal) => {
     flagCycleCountLineException: cycleCountMocks.flagCycleCountLineException,
     approveCycleCountLine: cycleCountMocks.approveCycleCountLine,
     rejectCycleCountLine: cycleCountMocks.rejectCycleCountLine,
+    acceptCycleCountExceptionLine: cycleCountMocks.acceptCycleCountExceptionLine,
+    returnCycleCountExceptionLine: cycleCountMocks.returnCycleCountExceptionLine,
     closeCycleCount: cycleCountMocks.closeCycleCount,
     discardDraftCycleCount: cycleCountMocks.discardDraftCycleCount,
     archiveCancelledCycleCount: cycleCountMocks.archiveCancelledCycleCount,
@@ -147,5 +151,47 @@ describe("CycleCountsPage", () => {
 
     expect(await screen.findByRole("dialog", { name: /create count/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /freeze and create count/i })).toBeInTheDocument();
+  });
+
+  it("keeps role preview developer-only", async () => {
+    authState.roles = ["warehouse_manager"];
+
+    renderCycleCountsPage();
+
+    expect(await screen.findByRole("button", { name: /new count/i })).toBeInTheDocument();
+    expect(screen.queryByText("Developer")).not.toBeInTheDocument();
+  });
+
+  it("shows exception lines in approvals for supervisor action", async () => {
+    authState.roles = ["warehouse_supervisor"];
+    cycleCountMocks.listCycleCounts.mockResolvedValue([{
+      id: "count-1",
+      count_number: "CCT-108082026122300",
+      status: "review",
+      scope: "spot",
+      freeze_expires_at: null,
+      inventory_freezes: [],
+      cycle_count_lines: [{
+        id: "line-2",
+        line_status: "exception",
+        expected_quantity: 10,
+        variance_quantity: -10,
+        variance_percent: 100,
+        exception_reason: "Blocked location",
+        products: { sku: "FLOUR", name: "Flour" },
+        locations: { code: "A-01-L01" },
+      }],
+    }] as never);
+
+    renderCycleCountsPage();
+
+    const approvalsTab = await screen.findByRole("tab", { name: /approvals/i });
+    fireEvent.mouseDown(approvalsTab);
+    fireEvent.click(approvalsTab);
+
+    expect(await screen.findByText(/exception review/i)).toBeInTheDocument();
+    expect(screen.getByText(/blocked location/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /accept exception/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /return to blind entry/i })).toBeDisabled();
   });
 });
