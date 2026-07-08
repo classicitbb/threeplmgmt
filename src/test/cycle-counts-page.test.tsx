@@ -6,6 +6,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CycleCountsPage } from "@/components/wms-ui";
 
 const networkState = vi.hoisted(() => ({ online: true }));
+const authState = vi.hoisted(() => ({
+  roles: ["warehouse_operator"],
+  profile: { id: "user-1" },
+}));
 const cycleCountMocks = vi.hoisted(() => ({
   fetchOptions: vi.fn(async () => ({
     warehouses: [{ id: "wh-1", name: "Main Warehouse" }],
@@ -27,12 +31,14 @@ const cycleCountMocks = vi.hoisted(() => ({
   approveCycleCountLine: vi.fn(async () => undefined),
   rejectCycleCountLine: vi.fn(async () => undefined),
   closeCycleCount: vi.fn(async () => undefined),
+  discardDraftCycleCount: vi.fn(async () => undefined),
+  archiveCancelledCycleCount: vi.fn(async () => undefined),
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({
-    roles: ["warehouse_operator"],
-    profile: { id: "user-1" },
+    roles: authState.roles,
+    profile: authState.profile,
   }),
 }));
 
@@ -62,6 +68,8 @@ vi.mock("@/lib/wms-core", async (importOriginal) => {
     approveCycleCountLine: cycleCountMocks.approveCycleCountLine,
     rejectCycleCountLine: cycleCountMocks.rejectCycleCountLine,
     closeCycleCount: cycleCountMocks.closeCycleCount,
+    discardDraftCycleCount: cycleCountMocks.discardDraftCycleCount,
+    archiveCancelledCycleCount: cycleCountMocks.archiveCancelledCycleCount,
   };
 });
 
@@ -81,6 +89,15 @@ describe("CycleCountsPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     networkState.online = true;
+    authState.roles = ["warehouse_operator"];
+    authState.profile = { id: "user-1" };
+    cycleCountMocks.listCycleCounts.mockResolvedValue([]);
+    cycleCountMocks.listMyCycleCountLines.mockResolvedValue([{
+      id: "line-1",
+      line_status: "queued",
+      products: { sku: "FLOUR", name: "Flour" },
+      locations: { code: "A-01-L01" },
+    }]);
     window.localStorage.clear();
   });
 
@@ -107,5 +124,28 @@ describe("CycleCountsPage", () => {
 
     expect(screen.getByRole("button", { name: /submit blind count/i })).toBeDisabled();
     expect(cycleCountMocks.submitCycleCountLine).not.toHaveBeenCalled();
+  });
+
+  it("lets developers preview supervisor count controls from a popup with status filters", async () => {
+    authState.roles = ["developer"];
+    cycleCountMocks.listCycleCounts.mockResolvedValue([{
+      id: "count-1",
+      count_number: "CCT-108082026122300",
+      status: "draft",
+      scope: "spot",
+      freeze_expires_at: null,
+      cycle_count_lines: [],
+      inventory_freezes: [],
+    }] as never);
+
+    renderCycleCountsPage();
+
+    expect(await screen.findByRole("button", { name: /new count/i })).toBeInTheDocument();
+    expect(screen.getByText("All statuses")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /new count/i }));
+
+    expect(await screen.findByRole("dialog", { name: /create count/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /freeze and create count/i })).toBeInTheDocument();
   });
 });

@@ -12,6 +12,8 @@ import { upsertRecord } from "@/features/admin/admin-core";
 import { releaseCycleCountFreezes } from "@/features/cycle-counts/freeze-core";
 
 const TERMINAL_LINE_STATUSES = new Set(["adjusted", "reconciled", "exception"]);
+const CANCELLED_ARCHIVE_NOTE = "[archived] Cancelled count archived by supervisor.";
+const CYCLE_COUNT_NUMBER_TIMESTAMP_DIGITS = 14;
 
 function addHours(date: Date, hours: number) {
   return new Date(date.getTime() + hours * 60 * 60 * 1000);
@@ -27,6 +29,41 @@ async function currentUserId() {
 function variancePercent(expectedQuantity: number, varianceQuantity: number) {
   if (expectedQuantity === 0) return varianceQuantity === 0 ? 0 : 100;
   return Math.abs((varianceQuantity / expectedQuantity) * 100);
+}
+
+function cycleCountTimestamp(date = new Date()) {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return [
+    pad(date.getDate()),
+    pad(date.getMonth() + 1),
+    date.getFullYear(),
+    pad(date.getHours()),
+    pad(date.getMinutes()),
+    pad(date.getSeconds()),
+  ].join("");
+}
+
+function cycleCountSequence(countNumber: string | null | undefined) {
+  const value = String(countNumber ?? "");
+  if (!value.startsWith("CCT-")) return null;
+  const body = value.slice("CCT-".length);
+  if (body.length <= CYCLE_COUNT_NUMBER_TIMESTAMP_DIGITS) return null;
+  const sequence = Number(body.slice(0, -CYCLE_COUNT_NUMBER_TIMESTAMP_DIGITS));
+  return Number.isInteger(sequence) && sequence > 0 ? sequence : null;
+}
+
+async function buildCycleCountNumber() {
+  const { data, error } = await db("cycle_counts")
+    .select("count_number")
+    .like("count_number", "CCT-%");
+  if (error) throw new Error(formatSupabaseError(error, "Could not build cycle-count number."));
+
+  const nextSequence = (data ?? [])
+    .map((row: any) => cycleCountSequence(row.count_number))
+    .filter((sequence: number | null): sequence is number => sequence !== null)
+    .reduce((max: number, sequence: number) => Math.max(max, sequence), 0) + 1;
+
+  return `CCT-${nextSequence}${cycleCountTimestamp()}`;
 }
 
 function isReviewRequired(input: {
@@ -97,7 +134,7 @@ export async function createCycleCountFlow(input: z.infer<typeof cycleCountSchem
   const freezeExpiresAt = addHours(now, Number.isFinite(freezeHours) && freezeHours > 0 ? freezeHours : 4).toISOString();
 
   const count = await upsertRecord("cycle_counts", {
-    count_number: buildPalletCode("CNT"),
+    count_number: await buildCycleCountNumber(),
     warehouse_id: payload.warehouse_id,
     zone_id: payload.zone_id || null,
     location_id: payload.location_id || null,
@@ -426,6 +463,64 @@ export async function closeCycleCount(countId: string) {
     .update({ status: "closed" } as any)
     .eq("id", countId);
   throwIfSupabaseError(update, "Could not close cycle count.");
+}
+
+export async function discardDraftCycleCount(countId: string) {
+  await currentUserId();
+  const { data: count, error } = await db("cycle_counts")
+    .select("id, status")
+    .eq("id", countId)
+    .single();
+  if (error) throw new Error(formatSupabaseError(error, "Could not load draft count."));
+  if (count.status !== "draft") throw new Error("Only draft cycle counts can be discarded.");
+
+  await releaseCycleCountFreezes(countId);
+
+  const update = await db("cycle_counts")
+    .update({
+      status: "cancelled",
+      notes: "Draft count discarded by supervisor.",
+      updated_at: new Date().toISOString(),
+    } as any)
+    .eq("id", countId)
+    .eq("status", "draft");
+  throwIfSupabaseError(update, "Could not discard draft count.");
+}
+
+export async function archiveCancelledCycleCount(countId: string) {
+  const userId = await currentUserId();
+  const { data: count, error } = await db("cycle_counts")
+    .select("id, status, notes")
+    .eq("id", countId)
+    .single();
+  if (error) throw new Error(formatSupabaseError(error, "Could not load cancelled count."));
+  if (count.status !== "cancelled") throw new Error("Only cancelled cycle counts can be archived.");
+  if (String(count.notes ?? "").includes(CANCELLED_ARCHIVE_NOTE)) return;
+
+  await releaseCycleCountFreezes(countId);
+
+  const archivedAt = new Date().toISOString();
+  const update = await db("cycle_counts")
+    .update({
+      archived_at: archivedAt,
+      archived_by: userId,
+      updated_at: archivedAt,
+    } as any)
+    .eq("id", countId)
+    .eq("status", "cancelled");
+  if (!update.error) return;
+
+  const message = formatSupabaseError(update.error, "Could not archive cancelled count.");
+  if (!message.includes("archived_at") && !message.includes("archived_by") && !message.includes("42703")) {
+    throw new Error(message);
+  }
+
+  const fallbackNote = [count.notes, CANCELLED_ARCHIVE_NOTE].filter(Boolean).join("\n");
+  const fallback = await db("cycle_counts")
+    .update({ notes: fallbackNote, updated_at: archivedAt } as any)
+    .eq("id", countId)
+    .eq("status", "cancelled");
+  throwIfSupabaseError(fallback, "Could not archive cancelled count.");
 }
 
 async function updateCountHeaderStatus(countId: string) {

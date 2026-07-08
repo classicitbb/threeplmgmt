@@ -1187,7 +1187,11 @@ begin
       created_by
     )
     values (
-      format('CNT-%04s', count_index),
+      format(
+        'CCT-%s%s',
+        count_index,
+        to_char(timezone('America/Barbados', now()) + make_interval(secs => count_index), 'DDMMYYYYHH24MISS')
+      ),
       case when count_index <= 3 then new_wh else wildey_wh end,
       case
         when count_index = 1 then new_cr1
@@ -1252,7 +1256,11 @@ begin
     values (
       'count_sheet',
       cycle_count_id,
-      format('CNT-%04s', count_index),
+      format(
+        'CCT-%s%s',
+        count_index,
+        to_char(timezone('America/Barbados', now()) + make_interval(secs => count_index), 'DDMMYYYYHH24MISS')
+      ),
       clerk_user,
       0,
       timezone('utc', now())
