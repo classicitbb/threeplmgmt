@@ -42,6 +42,10 @@ const developerGrantorMigration = readFileSync(
   path.resolve(process.cwd(), "supabase/migrations/20260708183000_developer_role_grantor_controls.sql"),
   "utf8",
 );
+const preventSelfDisableMigration = readFileSync(
+  path.resolve(process.cwd(), "supabase/migrations/20260708184500_prevent_self_disable.sql"),
+  "utf8",
+);
 
 describe("init_wms migration", () => {
   it("creates the core warehouse tables", () => {
@@ -156,5 +160,15 @@ describe("developer role grantor controls migration", () => {
     expect(developerGrantorMigration).toContain("CREATE OR REPLACE FUNCTION public.enforce_developer_role_unassigner()");
     expect(developerGrantorMigration).toContain("auth.uid() IS DISTINCT FROM OLD.assigned_by");
     expect(developerGrantorMigration).toContain("Only the developer who assigned this role can unassign it");
+  });
+});
+
+describe("self-disable prevention migration", () => {
+  it("blocks users from deactivating their own profile", () => {
+    expect(preventSelfDisableMigration).toContain("CREATE OR REPLACE FUNCTION public.prevent_self_disable()");
+    expect(preventSelfDisableMigration).toContain("OLD.id = auth.uid()");
+    expect(preventSelfDisableMigration).toContain("NEW.active = false");
+    expect(preventSelfDisableMigration).toContain("Users cannot disable their own account");
+    expect(preventSelfDisableMigration).toContain("CREATE TRIGGER trg_prevent_self_disable");
   });
 });

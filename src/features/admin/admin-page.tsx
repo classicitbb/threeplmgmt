@@ -800,9 +800,10 @@ function UserProfileRow({
   ) => void;
   onToggleActive: () => void;
 }) {
-  const { roles: viewerRoles } = useAuth();
+  const { profile: viewerProfile, roles: viewerRoles } = useAuth();
   const targetIsDeveloper = userRoles.some((ur: any) => (ur.roles as { code?: string } | null)?.code === "developer");
   const canChangePassword = viewerRoles.includes("developer") || !targetIsDeveloper;
+  const isSelf = viewerProfile?.id === profile.id;
 
   const [open, setOpen] = useState(false);
   const fallbackWarehouseId = !profile.default_warehouse_id && warehouses.length === 1 ? warehouses[0]?.id ?? "" : "";
@@ -859,7 +860,7 @@ function UserProfileRow({
       return;
     }
     onSave(
-      { profileId: profile.id, ...values },
+      { profileId: profile.id, ...values, active: isSelf ? true : values.active },
       {
         newPassword: trimmedPassword || undefined,
         badgePin: trimmedBadgePin || undefined,
@@ -907,14 +908,16 @@ function UserProfileRow({
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-8 text-xs"
-            onClick={onToggleActive}
-          >
-            {profile.active ? "Disable" : "Enable"}
-          </Button>
+          {!isSelf && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-8 text-xs"
+              onClick={onToggleActive}
+            >
+              {profile.active ? "Disable" : "Enable"}
+            </Button>
+          )}
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
               <Button size="sm" variant="outline" className="h-8 text-xs">Edit</Button>
@@ -971,14 +974,20 @@ function UserProfileRow({
                     </div>
                   </div>
                   <div className="grid gap-2 sm:grid-cols-2">
-                    <label className="flex cursor-pointer items-center gap-3 rounded-lg border border-border px-3 py-2.5 text-sm hover:bg-accent">
+                    <label className={cn(
+                      "flex items-center gap-3 rounded-lg border border-border px-3 py-2.5 text-sm",
+                      isSelf ? "cursor-not-allowed opacity-70" : "cursor-pointer hover:bg-accent",
+                    )}>
                       <Checkbox
                         checked={values.active}
-                        onCheckedChange={(c) => setValues((v) => ({ ...v, active: Boolean(c) }))}
+                        disabled={isSelf}
+                        onCheckedChange={(c) => {
+                          if (!isSelf) setValues((v) => ({ ...v, active: Boolean(c) }));
+                        }}
                       />
                       <div>
                         <p className="font-medium">Active</p>
-                        <p className="text-xs text-muted-foreground">Can sign in</p>
+                        <p className="text-xs text-muted-foreground">{isSelf ? "You cannot disable your own account" : "Can sign in"}</p>
                       </div>
                     </label>
                     <label className="flex cursor-pointer items-center gap-3 rounded-lg border border-border px-3 py-2.5 text-sm hover:bg-accent">
