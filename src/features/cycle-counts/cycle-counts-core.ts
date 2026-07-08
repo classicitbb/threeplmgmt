@@ -127,7 +127,7 @@ export async function createCycleCountFlow(input: z.infer<typeof cycleCountSchem
     ? (balances ?? []).filter((balance: any) => ["A", "B", "C"].includes(balance.products?.velocity_class ?? "C"))
     : (balances ?? []);
 
-  const locationIds = Array.from(new Set(filteredBalances.map((balance: any) => balance.location_id).filter(Boolean)));
+  const locationIds = Array.from(new Set(filteredBalances.map((balance: any) => balance.location_id).filter(Boolean))) as string[];
   const claimedLocationIds = new Set<string>();
   const skippedLocations: string[] = [];
 
