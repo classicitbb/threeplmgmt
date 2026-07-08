@@ -350,8 +350,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         item.roles.some((role) => roles.includes(role)) &&
         (!item.moduleKey || isEnabled(item.moduleKey as ModuleKey)),
     )
-    // Help is always pinned as the last sidebar entry, regardless of module order.
-    .sort((a, b) => (a.to === "/help" ? 1 : 0) - (b.to === "/help" ? 1 : 0));
+    // Settings and Help stay pinned below the module list.
+    .sort((a, b) => {
+      const pinnedOrder: Partial<Record<AppRoute, number>> = { "/settings": 1, "/help": 2 };
+      return (pinnedOrder[a.to] ?? 0) - (pinnedOrder[b.to] ?? 0);
+    });
   const canAccessPutaway = items.some((item) => item.to === "/putaway-tasks");
   const canAccessReceiving = items.some((item) => item.to === "/receiving");
   const canAccessPickLists = items.some((item) => item.to === "/pick-lists");

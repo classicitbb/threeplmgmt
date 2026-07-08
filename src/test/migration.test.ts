@@ -38,6 +38,10 @@ const cleanSlateResetMigration = readFileSync(
   path.resolve(process.cwd(), "supabase/migrations/20260606090000_harden_reset_all_clean_slate.sql"),
   "utf8",
 );
+const developerGrantorMigration = readFileSync(
+  path.resolve(process.cwd(), "supabase/migrations/20260708183000_developer_role_grantor_controls.sql"),
+  "utf8",
+);
 
 describe("init_wms migration", () => {
   it("creates the core warehouse tables", () => {
@@ -141,5 +145,16 @@ describe("clean slate reset migration", () => {
     expect(cleanSlateResetMigration).toContain("public.user_device_trust");
     expect(cleanSlateResetMigration).toContain("public.email_send_log");
     expect(cleanSlateResetMigration).toContain("grant execute on function public.reset_wms_data() to authenticated");
+  });
+});
+
+describe("developer role grantor controls migration", () => {
+  it("tracks the role grantor and limits developer unassignment to that grantor", () => {
+    expect(developerGrantorMigration).toContain("ADD COLUMN IF NOT EXISTS assigned_by");
+    expect(developerGrantorMigration).toContain("CREATE OR REPLACE FUNCTION public.set_user_role_assigned_by()");
+    expect(developerGrantorMigration).toContain("NEW.assigned_by := auth.uid()");
+    expect(developerGrantorMigration).toContain("CREATE OR REPLACE FUNCTION public.enforce_developer_role_unassigner()");
+    expect(developerGrantorMigration).toContain("auth.uid() IS DISTINCT FROM OLD.assigned_by");
+    expect(developerGrantorMigration).toContain("Only the developer who assigned this role can unassign it");
   });
 });

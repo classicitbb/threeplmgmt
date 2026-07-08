@@ -358,7 +358,7 @@ export function MobileActionBar() {
 
 function UsersRolesPageImpl() {
   const queryClient = useQueryClient();
-  const { roles } = useAuth();
+  const { profile: viewerProfile, roles } = useAuth();
   const canOperateRoles = roles.some((r) => ["developer", "admin"].includes(r));
   const canOperateDeveloperRole = roles.includes("developer");
   const [includeHidden, setIncludeHidden] = useState(false);
@@ -548,6 +548,9 @@ function UsersRolesPageImpl() {
                   .filter((userRole: any) => canOperateDeveloperRole || (userRole.roles as { code?: string } | null)?.code !== "developer")
                   .map((userRole: any) => {
                     const profile = profiles.find((p) => p.id === userRole.user_id);
+                    const role = userRole.roles as { code?: string; name?: string } | null;
+                    const isDeveloperRole = role?.code === "developer";
+                    const canUnassignDeveloperRole = isDeveloperRole && userRole.assigned_by === viewerProfile?.id;
                     return (
                       <div key={userRole.id} className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2.5">
                         <div className="flex min-w-0 items-center gap-2.5">
@@ -563,9 +566,28 @@ function UsersRolesPageImpl() {
                         </div>
                         <div className="flex shrink-0 items-center gap-2">
                           <Badge variant={userRole.is_hidden ? "secondary" : "default"} className="text-xs">
-                            {(userRole.roles as { name?: string } | null)?.name ?? "Role"}
+                            {role?.name ?? "Role"}
                           </Badge>
-                          {canOperateRoles && (
+                          {canOperateRoles && isDeveloperRole ? (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 text-xs"
+                              disabled={!canUnassignDeveloperRole}
+                              title={canUnassignDeveloperRole ? "Unassign developer role" : "Only the developer who assigned this role can unassign it"}
+                              onClick={async () => {
+                                try {
+                                  await removeUserRoleAssignment(userRole.id);
+                                  toast.success("Role unassigned");
+                                  await invalidateOptions();
+                                } catch (error) {
+                                  toast.error(error instanceof Error ? error.message : "Role unassign failed");
+                                }
+                              }}
+                            >
+                              Unassign
+                            </Button>
+                          ) : canOperateRoles ? (
                             <Button
                               size="sm"
                               variant="ghost"
@@ -574,7 +596,7 @@ function UsersRolesPageImpl() {
                             >
                               {userRole.is_hidden ? "Restore" : "Revoke"}
                             </Button>
-                          )}
+                          ) : null}
                         </div>
                       </div>
                     );
