@@ -833,7 +833,13 @@ function LoginPage() {
         if (verifyError) throw verifyError;
       } else {
         await auth.signIn(identifier, values.password);
-        await refreshUserDeviceTrust(getOrCreateDeviceId());
+        // Device-trust refresh is best-effort — never fail login if the
+        // trust-device edge function is unreachable (CORS/network/etc).
+        try {
+          await refreshUserDeviceTrust(getOrCreateDeviceId());
+        } catch (trustError) {
+          console.warn("[login] device trust refresh skipped:", trustError);
+        }
       }
       await recordUserSignIn(method);
     },
