@@ -1332,6 +1332,29 @@ export function SettingsPage() {
               </div>
               {[
                 {
+                  version: "1.25",
+                  date: "July 2026",
+                  changes: [
+                    "Cycle Counts: supervisor review now separates over-threshold variances from count exceptions, with required notes before approving, rejecting, accepting, or returning a line to blind entry",
+                    "Cycle Counts: count numbers now use the CCT sequence format, cancelled counts can be archived, and count lists distinguish review, approved, cancelled, and archived work",
+                    "Inventory freezes: cycle-count close, cancel, and review paths now preserve freeze relationships and release held stock consistently after count decisions",
+                    "Dashboard resilience: older databases without dashboard preference tables now load with safe defaults instead of breaking the Command Center",
+                    "Users & Roles: Developer role assignments now remember the original grantor, and only that developer can remove the Developer role later",
+                    "Account safety: users can no longer disable their own account; the edit control and database trigger both enforce the guardrail",
+                  ],
+                },
+                {
+                  version: "1.24",
+                  date: "July 2026",
+                  changes: [
+                    "Floor connectivity safety: live put-away, pick, receiving, and cycle-count commits now freeze immediately when a device goes offline instead of replaying stale work later",
+                    "Task resume: put-away, pick execution, receiving entry, and cycle-count text entry now keep the operator's local position on the device through reconnects",
+                    "Put-Away: reconnect now refreshes live task, pallet, and location state and can force a safe reselect or task reset when the warehouse record has changed",
+                    "System Log: critical RF disconnect entries now raise a dismissible red supervisor toast that requires typing ACK before acknowledgement",
+                    "Offline queue safety: legacy buffered commit items are moved to dead-letter review instead of being auto-posted back into live warehouse state",
+                  ],
+                },
+                {
                   version: "1.23",
                   date: "June 2026",
                   changes: [
