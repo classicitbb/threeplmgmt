@@ -20,7 +20,7 @@ export async function getDashboardMetrics(warehouseId?: string | null, enabledMo
     db("pick_lists").select("id, pick_list_number, warehouse_id, status, created_at").in("status", ["draft", "queued", "assigned", "in_progress", "exception"]),
     db("move_tasks").select("id, task_number, warehouse_id, status, created_at").in("status", ["queued", "assigned", "in_progress", "exception"]),
     db("transfers").select("id, transfer_number, source_warehouse_id, destination_warehouse_id, status, created_at").in("status", ["draft", "queued", "assigned", "in_progress", "exception"]),
-    db("cycle_counts").select("id, count_number, warehouse_id, status, created_at").in("status", ["queued", "assigned", "in_progress", "exception"]),
+    db("cycle_counts").select("id, count_number, warehouse_id, status, created_at").in("status", ["draft", "frozen", "counting", "review"]),
     db("staging_loads").select("id, route_code, status, created_at, pick_lists(warehouse_id)").in("status", ["ready", "called", "loading", "blocked"]),
     db("replenishment_tasks").select("id, task_number, warehouse_id, status, created_at").in("status", ["queued", "assigned", "in_progress", "exception"]),
     db("audit_events").select("id, warehouse_id").order("created_at", { ascending: false }).limit(50),
