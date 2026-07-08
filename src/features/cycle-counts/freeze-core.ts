@@ -28,7 +28,7 @@ export class FrozenBinError extends Error {
 
 export async function getActiveFreeze(locationId: string, opts?: { palletId?: string | null }): Promise<ActiveFreeze | null> {
   let query = db("inventory_freezes")
-    .select("*, cycle_counts(count_number, initiated_by)")
+    .select("*")
     .eq("status", "active")
     .order("frozen_at", { ascending: false })
     .limit(1);
@@ -41,7 +41,18 @@ export async function getActiveFreeze(locationId: string, opts?: { palletId?: st
 
   const { data, error } = await query.maybeSingle();
   if (error) throw new Error(formatSupabaseError(error, "Freeze lookup failed"));
-  return (data ?? null) as ActiveFreeze | null;
+  if (!data) return null;
+
+  const { data: count, error: countError } = await db("cycle_counts")
+    .select("count_number, initiated_by")
+    .eq("id", data.cycle_count_id)
+    .maybeSingle();
+  if (countError) throw new Error(formatSupabaseError(countError, "Freeze lookup failed"));
+
+  return {
+    ...data,
+    cycle_counts: count ?? null,
+  } as ActiveFreeze;
 }
 
 export async function assertNotFrozen(locationId: string | null | undefined, opts?: { palletId?: string | null }): Promise<void> {

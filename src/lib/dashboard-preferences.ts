@@ -1,6 +1,10 @@
 import { supabase } from "@/integrations/supabase/client";
 
 const db = supabase.from.bind(supabase) as (table: string) => any;
+const DASHBOARD_PREFERENCE_TABLES = [
+  "dashboard_tile_visibility",
+  "dashboard_device_tile_layout",
+];
 
 export type DashboardModeKey = "floor" | "dock" | "office";
 export type DashboardCardSize = "sm" | "lg";
@@ -16,6 +20,16 @@ export type DashboardTileDefinition<ModuleKey extends string = string> = Dashboa
 };
 
 export type DashboardVisibilityMap = Record<string, boolean>;
+
+function isMissingDashboardPreferenceTable(error: unknown) {
+  if (!error || typeof error !== "object") return false;
+  const value = error as { code?: string; message?: string };
+  const message = value.message ?? "";
+  return (
+    (value.code === "PGRST205" || value.code === "42P01") &&
+    DASHBOARD_PREFERENCE_TABLES.some((table) => message.includes(table))
+  );
+}
 
 export function sanitizeDashboardLayout(
   layout: unknown,
@@ -67,6 +81,7 @@ export async function loadDashboardTileVisibility(userId: string, mode: Dashboar
     .select("tile_id, visible")
     .eq("user_id", userId)
     .eq("mode", mode);
+  if (isMissingDashboardPreferenceTable(error)) return {};
   if (error) throw error;
   const rows = (data ?? []) as Array<{ tile_id: string; visible: boolean }>;
   return rows.reduce<DashboardVisibilityMap>((current, row) => {
@@ -91,6 +106,7 @@ export async function saveDashboardTileVisibility(
     },
     { onConflict: "user_id,mode,tile_id" },
   );
+  if (isMissingDashboardPreferenceTable(error)) return;
   if (error) throw error;
 }
 
@@ -105,6 +121,7 @@ export async function loadDashboardDeviceLayout(
     .eq("device_id", deviceId)
     .eq("mode", mode)
     .maybeSingle();
+  if (isMissingDashboardPreferenceTable(error)) return undefined;
   if (error) throw error;
   return data?.layout;
 }
@@ -125,5 +142,6 @@ export async function saveDashboardDeviceLayout(
     },
     { onConflict: "user_id,device_id,mode" },
   );
+  if (isMissingDashboardPreferenceTable(error)) return;
   if (error) throw error;
 }

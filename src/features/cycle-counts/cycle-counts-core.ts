@@ -187,11 +187,45 @@ export async function createCycleCountFlow(input: z.infer<typeof cycleCountSchem
 }
 
 export async function listCycleCounts() {
-  const { data, error } = await db("cycle_counts")
-    .select("*, inventory_freezes(*), cycle_count_lines(*, products(*), locations(code, aisle, bay, level, position))")
+  const { data: counts, error } = await db("cycle_counts")
+    .select("*")
     .order("created_at", { ascending: false });
   if (error) throw new Error(formatSupabaseError(error, "Failed to load cycle counts."));
-  return data ?? [];
+
+  const countRows = counts ?? [];
+  const countIds = countRows.map((count: any) => count.id).filter(Boolean);
+  if (countIds.length === 0) return [];
+
+  const [{ data: freezes, error: freezeError }, { data: lines, error: lineError }] = await Promise.all([
+    db("inventory_freezes")
+      .select("*")
+      .in("cycle_count_id", countIds),
+    db("cycle_count_lines")
+      .select("*, products(*), locations(code, aisle, bay, level, position)")
+      .in("cycle_count_id", countIds),
+  ]);
+  if (freezeError) throw new Error(formatSupabaseError(freezeError, "Failed to load cycle count freezes."));
+  if (lineError) throw new Error(formatSupabaseError(lineError, "Failed to load cycle count lines."));
+
+  const freezesByCount = new Map<string, any[]>();
+  for (const freeze of freezes ?? []) {
+    const rows = freezesByCount.get(freeze.cycle_count_id) ?? [];
+    rows.push(freeze);
+    freezesByCount.set(freeze.cycle_count_id, rows);
+  }
+
+  const linesByCount = new Map<string, any[]>();
+  for (const line of lines ?? []) {
+    const rows = linesByCount.get(line.cycle_count_id) ?? [];
+    rows.push(line);
+    linesByCount.set(line.cycle_count_id, rows);
+  }
+
+  return countRows.map((count: any) => ({
+    ...count,
+    inventory_freezes: freezesByCount.get(count.id) ?? [],
+    cycle_count_lines: linesByCount.get(count.id) ?? [],
+  }));
 }
 
 export async function listMyCycleCountLines() {
