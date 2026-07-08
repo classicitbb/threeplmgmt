@@ -5,6 +5,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppShell } from "@/components/wms-ui";
 
+const networkState = vi.hoisted(() => ({ online: true }));
+const sonnerMocks = vi.hoisted(() => ({
+  success: vi.fn(),
+  error: vi.fn(),
+  message: vi.fn(),
+  custom: vi.fn(),
+  dismiss: vi.fn(),
+}));
+
 const wmsMocks = vi.hoisted(() => ({
   getPutawayTasks: vi.fn(async () => [
     { id: "task-1", status: "queued" },
@@ -15,16 +24,31 @@ const wmsMocks = vi.hoisted(() => ({
     openPickLists: 4,
   })),
   fetchOptions: vi.fn(async () => ({ warehouses: [], userRoles: [] })),
+  listSystemLogs: vi.fn(async () => []),
+  writeSystemLog: vi.fn(async () => "log-1"),
+  resolveSystemLog: vi.fn(async () => undefined),
+}));
+
+vi.mock("sonner", () => ({
+  toast: sonnerMocks,
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({
-    profile: { full_name: "Alex Manager" },
+    profile: { full_name: "Alex Manager", default_warehouse_id: "wh-1" },
     roles: ["warehouse_manager"],
     signOut: vi.fn(),
-    user: { id: "user-1" },
+    user: { id: "user-1", email: "alex@example.com" },
     refreshProfile: vi.fn(),
   }),
+}));
+
+vi.mock("@/hooks/use-network-status", () => ({
+  useNetworkStatus: () => ({ online: networkState.online }),
+}));
+
+vi.mock("@/lib/device-identity", () => ({
+  getOrCreateDeviceId: () => "device-1",
 }));
 
 vi.mock("@/lib/wms-core", async (importOriginal) => {
@@ -34,6 +58,9 @@ vi.mock("@/lib/wms-core", async (importOriginal) => {
     fetchOptions: wmsMocks.fetchOptions,
     getDashboardMetrics: wmsMocks.getDashboardMetrics,
     getPutawayTasks: wmsMocks.getPutawayTasks,
+    listSystemLogs: wmsMocks.listSystemLogs,
+    writeSystemLog: wmsMocks.writeSystemLog,
+    resolveSystemLog: wmsMocks.resolveSystemLog,
   };
 });
 
@@ -64,9 +91,32 @@ vi.mock("@/hooks/use-feature-flags", () => ({
   }),
 }));
 
+function renderShell(queryClient?: QueryClient) {
+  const client = queryClient ?? new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+    },
+  });
+
+  return {
+    client,
+    ...render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={["/dashboard"]}>
+          <AppShell>
+            <div>Content</div>
+          </AppShell>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    ),
+  };
+}
+
 describe("AppShell", () => {
   beforeEach(() => {
+    networkState.online = true;
     vi.clearAllMocks();
+    window.sessionStorage.clear();
     wmsMocks.getPutawayTasks.mockResolvedValue([
       { id: "task-1", status: "queued" },
       { id: "task-2", status: "assigned" },
@@ -75,28 +125,11 @@ describe("AppShell", () => {
       openReceipts: 3,
       openPickLists: 4,
     } as never);
+    wmsMocks.listSystemLogs.mockResolvedValue([] as never);
   });
 
-  const renderAppShell = () => {
-    const queryClient = new QueryClient({
-      defaultOptions: {
-        queries: { retry: false },
-      },
-    });
-
-    return render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={["/dashboard"]}>
-          <AppShell>
-            <div>Content</div>
-          </AppShell>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
-  };
-
   it("shows only navigation allowed for the current role", () => {
-    renderAppShell();
+    renderShell();
 
     expect(screen.getAllByText("Dashboard").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Warehouses").length).toBeGreaterThan(0);
@@ -105,7 +138,7 @@ describe("AppShell", () => {
   });
 
   it("keeps the page title compact and uses a dedicated scroll container for body content", () => {
-    const { container } = renderAppShell();
+    const { container } = renderShell();
 
     expect(screen.getByText("Warehouse Wizard Enterprise WMS")).toBeInTheDocument();
     expect(screen.queryByText("2-warehouse, scan-first control room")).not.toBeInTheDocument();
@@ -117,7 +150,7 @@ describe("AppShell", () => {
   });
 
   it("shows workflow counts on navigation badges", async () => {
-    const { container } = renderAppShell();
+    const { container } = renderShell();
 
     await waitFor(() => expect(wmsMocks.getPutawayTasks).toHaveBeenCalled());
     await waitFor(() => expect(wmsMocks.getDashboardMetrics).toHaveBeenCalled());
@@ -128,7 +161,7 @@ describe("AppShell", () => {
   });
 
   it("marks the active route icon with the accent colour", () => {
-    const { container } = renderAppShell();
+    const { container } = renderShell();
 
     const activeIcons = Array.from(container.querySelectorAll('[data-active-icon="true"]'));
     expect(activeIcons.length).toBeGreaterThan(0);
@@ -136,5 +169,43 @@ describe("AppShell", () => {
 
     const inactiveIcons = Array.from(container.querySelectorAll('[data-active-icon="false"]'));
     expect(inactiveIcons.some((icon) => icon.getAttribute("class")?.includes("text-accent"))).toBe(false);
+  });
+
+  it("writes one critical system log when connectivity drops", async () => {
+    const { client, rerender } = renderShell();
+
+    networkState.online = false;
+    rerender(
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={["/dashboard"]}>
+          <AppShell>
+            <div>Content</div>
+          </AppShell>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(wmsMocks.writeSystemLog).toHaveBeenCalledTimes(1));
+    expect(wmsMocks.writeSystemLog).toHaveBeenCalledWith(expect.objectContaining({
+      source: "rf.offline_disconnect",
+      severity: "critical",
+      title: "RF device offline — commits frozen",
+    }));
+  });
+
+  it("raises a supervisor acknowledgement toast for unresolved offline alerts", async () => {
+    wmsMocks.listSystemLogs.mockResolvedValue([
+      {
+        id: "offline-log-1",
+        title: "RF device offline — commits frozen",
+        message: "Operator lost connectivity.",
+        created_at: "2026-07-08T12:00:00.000Z",
+        source: "rf.offline_disconnect",
+      },
+    ] as never);
+
+    renderShell();
+
+    await waitFor(() => expect(sonnerMocks.custom).toHaveBeenCalledTimes(1));
   });
 });

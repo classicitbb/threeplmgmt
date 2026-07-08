@@ -27,17 +27,8 @@ import { z } from "zod";
 
 import { useAuth } from "@/hooks/use-auth";
 import { useFeatureFlags, MODULE_LABELS, STARTER_MODULES, type ModuleKey } from "@/hooks/use-feature-flags";
-import { assertOnline, useNetworkStatus } from "@/hooks/use-network-status";
-import {
-  enqueueOfflineWork,
-  flushOfflineQueue,
-  installOfflineAutoReplay,
-  isLikelyNetworkError,
-  useOfflineQueue,
-  useDeadLetterQueue,
-
-  type FailedWorkItem,
-} from "@/lib/offline-queue";
+import { OFFLINE_WORK_MESSAGE, assertOnline, useNetworkStatus } from "@/hooks/use-network-status";
+import { isLikelyNetworkError } from "@/lib/offline-queue";
 import { useBackgroundSync } from "@/hooks/use-background-sync";
 import {
   NAVIGATION,
@@ -192,6 +183,11 @@ import { Switch } from "@/components/ui/switch";
 import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  clearReceivingResumeSnapshot,
+  loadReceivingResumeSnapshot,
+  saveReceivingResumeSnapshot,
+} from "@/lib/floor-task-resume";
 
 
 import {
@@ -346,7 +342,7 @@ function ShipmentExpiryPicker({
 export function ReceivingPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const online = useNetworkStatus();
+  const { online } = useNetworkStatus();
   const { roles, profile } = useAuth();
   const restrictedToDefaultWarehouse = shouldRestrictToDefaultWarehouse(roles);
   const { data: options } = useQuery({
@@ -395,6 +391,8 @@ export function ReceivingPage() {
   const [printAfterSaveIds, setPrintAfterSaveIds] = useState<string[]>([]);
   const [savingShipmentMode, setSavingShipmentMode] = useState<"receive" | "new" | null>(null);
   const [batchReceiveProgress, setBatchReceiveProgress] = useState({ completed: 0, total: 0 });
+  const hydratedResumeRef = useRef(false);
+  const wasOfflineRef = useRef(!online);
   const [shipmentForm, setShipmentForm] = useState<ReceivingShipmentFormState>({
     receipt_type: "po",
     warehouse_id: defaultWarehouseId,
@@ -417,6 +415,25 @@ export function ReceivingPage() {
     setShipmentForm((current) => clients.length === 1 && !current.client_id ? { ...current, client_id: clients[0].id } : current);
   }, [clients]);
 
+  useEffect(() => {
+    if (hydratedResumeRef.current) return;
+    if (!profile?.id) return;
+    hydratedResumeRef.current = true;
+    const snapshot = loadReceivingResumeSnapshot<ReceivingShipmentFormState>({ userId: profile.id });
+    if (!snapshot) return;
+    setShipmentEntryMode(snapshot.shipmentEntryMode ?? "shipment");
+    setShipmentOpen(Boolean(snapshot.shipmentOpen));
+    setShowShipmentMore(Boolean(snapshot.showShipmentMore));
+    setShipmentContainerTouched(Boolean(snapshot.shipmentContainerTouched));
+    setDraftSearch(snapshot.draftSearch ?? "");
+    setPrintOpen(Boolean(snapshot.printOpen));
+    setPrintContainer(snapshot.printContainer ?? "");
+    setSelectedDraftIds(new Set(snapshot.selectedDraftIds ?? []));
+    if (snapshot.shipmentForm) {
+      setShipmentForm(snapshot.shipmentForm);
+    }
+  }, [profile?.id]);
+
   const currentWarehouseId = shipmentForm.warehouse_id || defaultWarehouseId || (warehouses.length === 1 ? warehouses[0].id : "");
   const activeWarehouse = warehouses.find((item: any) => item.id === (shipmentForm.warehouse_id || currentWarehouseId));
   const activeClient = clients.find((item: any) => item.id === shipmentForm.client_id);
@@ -425,6 +442,60 @@ export function ReceivingPage() {
     queryFn: () => listDraftReceipts(currentWarehouseId),
     enabled: Boolean(currentWarehouseId),
   });
+
+  useEffect(() => {
+    if (!profile?.id) return;
+    const hasResumeState =
+      shipmentOpen ||
+      printOpen ||
+      draftSearch.trim().length > 0 ||
+      selectedDraftIds.size > 0;
+    if (editingDraft || !hasResumeState) {
+      clearReceivingResumeSnapshot();
+      return;
+    }
+    saveReceivingResumeSnapshot({
+      userId: profile.id,
+      shipmentEntryMode,
+      shipmentOpen,
+      showShipmentMore,
+      shipmentContainerTouched,
+      draftSearch,
+      printOpen,
+      printContainer,
+      selectedDraftIds: Array.from(selectedDraftIds),
+      shipmentForm,
+      updatedAt: Date.now(),
+    });
+  }, [
+    draftSearch,
+    editingDraft,
+    printContainer,
+    printOpen,
+    profile?.id,
+    selectedDraftIds,
+    shipmentContainerTouched,
+    shipmentEntryMode,
+    shipmentForm,
+    shipmentOpen,
+    showShipmentMore,
+  ]);
+
+  useEffect(() => {
+    if (!online) {
+      wasOfflineRef.current = true;
+      return;
+    }
+    if (!wasOfflineRef.current) return;
+    wasOfflineRef.current = false;
+    void Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["draft-receipts"] }),
+      queryClient.invalidateQueries({ queryKey: ["dashboard-metrics"] }),
+      queryClient.invalidateQueries({ queryKey: ["putaway-tasks"] }),
+      queryClient.invalidateQueries({ queryKey: ["inventory-search"] }),
+    ]);
+    toast.message("Connection restored. Refreshing live receiving state before the next post.");
+  }, [online, queryClient]);
 
   const draftSearchTerm = draftSearch.trim().toLowerCase();
   const visibleDrafts = useMemo(() => {
@@ -539,6 +610,7 @@ export function ReceivingPage() {
 
   const saveShipmentMutation = useMutation({
     mutationFn: async (mode: "receive" | "new") => {
+      assertOnline();
       const lines = shipmentForm.lines.map((line) => ({
         product_id: line.product_id,
         client_id: shipmentForm.client_id || undefined,
@@ -562,38 +634,45 @@ export function ReceivingPage() {
         const product = productOptions.find((item) => item.id === missingExpiry.product_id);
         throw new Error(`${product?.sku ?? "Selected product"} requires an expiry date.`);
       }
-      if (editingDraft) {
-        const line = shipmentForm.lines[0];
-        await updateDraftReceipt(editingDraft.id, {
+      try {
+        if (editingDraft) {
+          const line = shipmentForm.lines[0];
+          await updateDraftReceipt(editingDraft.id, {
+            receipt_type: shipmentForm.receipt_type,
+            reference_number: shipmentForm.reference_number || shipmentForm.po_number,
+            container_number: shipmentForm.container_number,
+            po_number: shipmentForm.po_number,
+            warehouse_id: shipmentForm.warehouse_id,
+            client_id: shipmentForm.client_id,
+            product_id: line.product_id,
+            packaging_profile_id: line.packaging_profile_id,
+            quantity: Number(line.total_quantity),
+            lot_number: line.lot_number,
+            batch_number: line.batch_number,
+            expiry_date: line.expiry_date,
+            pallet_barcode: editingDraft.draft_pallet_barcode ?? undefined,
+            draft_group_id: editingDraft.draft_group_id ?? undefined,
+            draft_sequence: editingDraft.draft_sequence ?? undefined,
+            draft_count: editingDraft.draft_count ?? undefined,
+          });
+          return { mode, count: 1, edited: true, draftIds: [editingDraft.id], containerNumber: shipmentForm.container_number };
+        }
+        const result = await saveShipmentDrafts({
           receipt_type: shipmentForm.receipt_type,
-          reference_number: shipmentForm.reference_number || shipmentForm.po_number,
+          warehouse_id: shipmentForm.warehouse_id,
+          client_id: shipmentForm.client_id || undefined,
           container_number: shipmentForm.container_number,
           po_number: shipmentForm.po_number,
-          warehouse_id: shipmentForm.warehouse_id,
-          client_id: shipmentForm.client_id,
-          product_id: line.product_id,
-          packaging_profile_id: line.packaging_profile_id,
-          quantity: Number(line.total_quantity),
-          lot_number: line.lot_number,
-          batch_number: line.batch_number,
-          expiry_date: line.expiry_date,
-          pallet_barcode: editingDraft.draft_pallet_barcode ?? undefined,
-          draft_group_id: editingDraft.draft_group_id ?? undefined,
-          draft_sequence: editingDraft.draft_sequence ?? undefined,
-          draft_count: editingDraft.draft_count ?? undefined,
+          reference_number: shipmentForm.reference_number,
+          lines,
         });
-        return { mode, count: 1, edited: true, draftIds: [editingDraft.id], containerNumber: shipmentForm.container_number };
+        return { mode, count: result.count, edited: false, draftIds: result.draftIds, containerNumber: shipmentForm.container_number };
+      } catch (error) {
+        if (isLikelyNetworkError(error)) {
+          throw new Error(OFFLINE_WORK_MESSAGE);
+        }
+        throw error;
       }
-      const result = await saveShipmentDrafts({
-        receipt_type: shipmentForm.receipt_type,
-        warehouse_id: shipmentForm.warehouse_id,
-        client_id: shipmentForm.client_id || undefined,
-        container_number: shipmentForm.container_number,
-        po_number: shipmentForm.po_number,
-        reference_number: shipmentForm.reference_number,
-        lines,
-      });
-      return { mode, count: result.count, edited: false, draftIds: result.draftIds, containerNumber: shipmentForm.container_number };
     },
     onSuccess: async (result) => {
       toast.success(result.edited ? "Draft updated" : `${result.count} pallet draft${result.count === 1 ? "" : "s"} saved`);
@@ -625,7 +704,17 @@ export function ReceivingPage() {
   });
 
   const receiveMutation = useMutation({
-    mutationFn: (draft: DraftReceipt) => completeReceiptFromDraft(draft.id, draftToReceivingValues(draft)),
+    mutationFn: async (draft: DraftReceipt) => {
+      assertOnline();
+      try {
+        return await completeReceiptFromDraft(draft.id, draftToReceivingValues(draft));
+      } catch (error) {
+        if (isLikelyNetworkError(error)) {
+          throw new Error(OFFLINE_WORK_MESSAGE);
+        }
+        throw error;
+      }
+    },
     onSuccess: async (result, draft) => {
       toast.success(`Pallet ${result.palletBarcode} ready — putaway task ${result.putawayTaskNumber} queued.`);
       setLastResult({ barcode: result.palletBarcode, taskNumber: result.putawayTaskNumber, qty: Number(draft.quantity ?? 0) });
@@ -641,13 +730,21 @@ export function ReceivingPage() {
 
   const batchReceiveMutation = useMutation({
     mutationFn: async (draftsToReceive: DraftReceipt[]) => {
+      assertOnline();
       const results = [];
       setBatchReceiveProgress({ completed: 0, total: draftsToReceive.length });
-      for (const draft of draftsToReceive) {
-        results.push(await completeReceiptFromDraft(draft.id, draftToReceivingValues(draft)));
-        setBatchReceiveProgress({ completed: results.length, total: draftsToReceive.length });
+      try {
+        for (const draft of draftsToReceive) {
+          results.push(await completeReceiptFromDraft(draft.id, draftToReceivingValues(draft)));
+          setBatchReceiveProgress({ completed: results.length, total: draftsToReceive.length });
+        }
+        return results;
+      } catch (error) {
+        if (isLikelyNetworkError(error)) {
+          throw new Error(OFFLINE_WORK_MESSAGE);
+        }
+        throw error;
       }
-      return results;
     },
     onSuccess: async (results) => {
       const count = results.length;
@@ -677,6 +774,12 @@ export function ReceivingPage() {
     : 0;
 
   function printAndReceiveDrafts(draftsToReceive: DraftReceipt[]) {
+    try {
+      assertOnline();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : OFFLINE_WORK_MESSAGE);
+      return;
+    }
     printDraftLabels(draftsToReceive, productOptions, clients, warehouses, packagingProfiles, () => {
       batchReceiveMutation.mutate(draftsToReceive);
     });
@@ -898,6 +1001,12 @@ export function ReceivingPage() {
       toast.error(saveBlockedReason);
       return;
     }
+    try {
+      assertOnline();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : OFFLINE_WORK_MESSAGE);
+      return;
+    }
     setSavingShipmentMode(mode);
     saveShipmentMutation.mutate(mode);
   }
@@ -960,7 +1069,8 @@ export function ReceivingPage() {
     <div className="flex min-h-full flex-col gap-6">
       {!online && (
         <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
-          Connection is unstable. Finish scan work already in progress, then move to better signal and use Sync/Refresh before starting new receiving batches.
+          <p className="font-medium">This device is offline. Receiving posts are frozen.</p>
+          <p className="mt-1">Keep your shipment entry on this device, reconnect, and refresh live state before saving or receiving pallets.</p>
         </div>
       )}
       {lastResult && (
@@ -987,9 +1097,20 @@ export function ReceivingPage() {
           <p className="hidden text-sm text-muted-foreground sm:block">Create shipment drafts by container, print labels, then receive selected pallets.</p>
         </div>
         <div className="grid grid-cols-3 gap-2 sm:flex sm:flex-wrap">
-          <Button className="min-w-0 px-2 text-xs sm:px-4 sm:text-sm" variant="outline" onClick={() => { refetchDrafts(); void flushOfflineQueue(); }}>
+          <Button
+            className="min-w-0 px-2 text-xs sm:px-4 sm:text-sm"
+            variant="outline"
+            onClick={() => {
+              void Promise.all([
+                refetchDrafts(),
+                queryClient.invalidateQueries({ queryKey: ["dashboard-metrics"] }),
+                queryClient.invalidateQueries({ queryKey: ["putaway-tasks"] }),
+                queryClient.invalidateQueries({ queryKey: ["inventory-search"] }),
+              ]);
+            }}
+          >
             <RefreshCw data-icon="inline-start" />
-            <span className="truncate">Sync / Refresh</span>
+            <span className="truncate">Refresh live state</span>
           </Button>
           <Button className="min-w-0 px-2 text-xs sm:px-4 sm:text-sm" variant="outline" onClick={() => {
             setPrintContainer(draftSearch);
@@ -1090,7 +1211,7 @@ export function ReceivingPage() {
                     draftCount={draft.draft_count}
                     temperatureClass={product?.temperature_requirement}
                     onPrinted={async () => { await receiveMutation.mutateAsync(draft); }}
-                    trigger={<Button size="sm" variant="outline" disabled={receiveMutation.isPending}><Printer data-icon="inline-start" />Print & Receive</Button>}
+                    trigger={<Button size="sm" variant="outline" disabled={!online || receiveMutation.isPending}><Printer data-icon="inline-start" />Print & Receive</Button>}
                   />
                   <Button size="sm" variant="outline" onClick={() => openEditDraft(draft)}><Pencil data-icon="inline-start" />Edit</Button>
                   {draft.status === "draft" && (
@@ -1491,7 +1612,7 @@ export function ReceivingPage() {
             )}
             <Button variant="outline" onClick={() => setShipmentOpen(false)}>Cancel</Button>
             {!editingDraft && (
-              <Button className="relative overflow-hidden" variant="outline" disabled={saveShipmentMutation.isPending || !canSaveShipment} onClick={() => saveShipment("new")}>
+              <Button className="relative overflow-hidden" variant="outline" disabled={!online || saveShipmentMutation.isPending || !canSaveShipment} onClick={() => saveShipment("new")}>
                 {saveShipmentMutation.isPending && savingShipmentMode === "new" ? (
                   <ButtonProgress value={saveNewProgress} label={shipmentEntryMode === "pallet" ? "Receiving" : "Saving"} />
                 ) : (
@@ -1499,7 +1620,7 @@ export function ReceivingPage() {
                 )}
               </Button>
             )}
-            <Button className="relative overflow-hidden" disabled={saveShipmentMutation.isPending || !canSaveShipment} onClick={() => saveShipment("receive")}>
+            <Button className="relative overflow-hidden" disabled={!online || saveShipmentMutation.isPending || !canSaveShipment} onClick={() => saveShipment("receive")}>
               {saveShipmentMutation.isPending && savingShipmentMode === "receive" ? (
                 <ButtonProgress value={saveReceiveProgress} label={editingDraft ? "Saving" : shipmentEntryMode === "pallet" ? "Receiving" : "Saving"} />
               ) : (
@@ -1569,7 +1690,7 @@ export function ReceivingPage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setSelectedDraftIds(new Set(printDrafts.map((draft) => draft.id)))}>Select all shown</Button>
             <Button variant="outline" disabled={selectedDraftIds.size === 0} onClick={() => setSelectedDraftIds(new Set())}>Deselect all</Button>
-            <Button className="relative overflow-hidden" disabled={batchReceiveMutation.isPending || selectedPrintDrafts.length === 0} onClick={() => printAndReceiveDrafts(selectedPrintDrafts)}>
+            <Button className="relative overflow-hidden" disabled={!online || batchReceiveMutation.isPending || selectedPrintDrafts.length === 0} onClick={() => printAndReceiveDrafts(selectedPrintDrafts)}>
               {batchReceiveMutation.isPending ? (
                 <ButtonProgress
                   value={printReceiveProgress}

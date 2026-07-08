@@ -1,429 +1,474 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
-import { QRCodeSVG } from "qrcode.react";
-import { Link, NavLink, useLocation, useNavigate, useSearchParams } from "react-router-dom";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useForm, type UseFormReturn } from "react-hook-form";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { supabase } from "@/integrations/supabase/client";
-import { Activity, AlertCircle, AlertTriangle, ArrowLeftRight, BarChart3, Bot, Boxes, Building2, CheckCircle2, ChevronDown, ClipboardCheck, ClipboardList, CloudOff, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, HelpCircle, Home, Info, KeyRound, LayoutDashboard, Loader2, Lock, LockOpen, LogOut, Mail, Maximize2, MapPinned, Menu, Minimize2, Network, Package, PackageX, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, QrCode, RadioTower, RefreshCw, RotateCcw, Search, Settings, ShieldCheck, Star, Tags, Trash2, Truck, Upload, UserPlus, Users } from "lucide-react";
-import {
-  DndContext,
-  KeyboardSensor,
-  PointerSensor,
-  closestCenter,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from "@dnd-kit/core";
-import {
-  SortableContext,
-  arrayMove,
-  rectSortingStrategy,
-  sortableKeyboardCoordinates,
-  useSortable,
-} from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { AlertTriangle, CheckCircle2, ClipboardCheck, Lock, Plus, RefreshCw, ShieldCheck, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { z } from "zod";
 
 import { useAuth } from "@/hooks/use-auth";
-import { useFeatureFlags, MODULE_LABELS, STARTER_MODULES, type ModuleKey } from "@/hooks/use-feature-flags";
-import { assertOnline, useNetworkStatus } from "@/hooks/use-network-status";
+import { OFFLINE_WORK_MESSAGE, assertOnline, useNetworkStatus } from "@/hooks/use-network-status";
+import { isLikelyNetworkError } from "@/lib/offline-queue";
 import {
-  enqueueOfflineWork,
-  flushOfflineQueue,
-  installOfflineAutoReplay,
-  isLikelyNetworkError,
-  useOfflineQueue,
-  useDeadLetterQueue,
-
-  type FailedWorkItem,
-} from "@/lib/offline-queue";
-import { useBackgroundSync } from "@/hooks/use-background-sync";
-import {
-  NAVIGATION,
-  ROLE_LABELS,
-  ROLE_DESCRIPTIONS,
-  type AdminInviteUserInput,
-  type AppRoute,
-  type FieldDefinition,
-  type ResourceDefinition,
-  type DraftReceipt,
-  type BayOccupancyCell,
-  adminInviteUser,
-  adminDeleteUser,
-  adminUpdateUserPin,
-  adminUpdateUserPassword,
-  buildBayOccupancyGrid,
-  updateOwnPassword,
-  changePalletStatus,
-  confirmPutaway,
+  approveCycleCountLine,
+  closeCycleCount,
   createCycleCountFlow,
-  createPickListFlow,
-  getPickableStockSummary,
-  createTransferFlow,
-  cancelPickList,
-  deleteClientVariable,
-  deleteResourceCascade,
-  dispatchTransfer,
   cycleCountSchema,
-  resetWmsData,
-  removeUserRoleAssignment,
-  downloadCsv,
-  downloadCsvTemplate,
   fetchOptions,
+  flagCycleCountLineException,
   formatDate,
   formatNumber,
-  getDashboardMetrics,
-  getInventoryDetail,
-  getPickExecution,
-  getBinOccupancy,
-  getBayOccupancy,
-  getWarehouseBayOccupancy,
-  type WarehouseBayGroup,
-  logPutawayBaySelection,
-  getPutawayTasks,
-  getPutawayTaskHistory,
-  getReportData,
-  parseCsvForResource,
-  commitImportRows,
-  type ImportPreview,
-  listClientVariables,
-  listDraftReceipts,
-  saveShipmentDrafts,
-  updateDraftReceipt,
-  completeReceiptFromDraft,
-  deleteDraftReceipt,
-  listSystemLogs,
-  listUserActivities,
   listCycleCounts,
-  listPickLists,
-  listRecords,
-  listStatusPallets,
-  listTransfers,
-  pickListSchema,
-  receivingSchema,
-  receiveTransfer,
-  resolveSystemLog,
-  searchInventory,
-  setProfileActive,
-  snapshotRecordCounts,
-  updateProfileDetails,
-  updateProfileDefaultWarehouse,
-  statusChangeSchema,
-  setResourceVisibility,
-  setUserRoleVisibility,
+  listMyCycleCountLines,
+  rejectCycleCountLine,
   submitCycleCountLine,
-  transferSchema,
-  updateRecord,
-  upsertClientVariable,
-  upsertRecord,
-  writeSystemLog,
-  cancelTransfer,
-  flagCountLineException,
-  revertPutawayToDraft,
-  listMoveTasks,
-  completeDirectMove,
-  completeMoveTask,
-  cancelMoveTask,
-  expandLocationRange,
-  buildRackLocationCode,
-  suggestNextRackPosition,
-  validateMoveDestination,
-  type MoveValidationResult,
 } from "@/lib/wms-core";
-import { ProductSearch } from "@/components/product-search";
-import { PalletLabelPage } from "@/components/pallet-label-page";
-import { BarcodeScanButton } from "@/components/barcode-scan-button";
-import { type ProductSearchHandle } from "@/components/product-search";
-
-import { cn } from "@/lib/utils";
-import { extractIso6346ContainerNumber, normalizeContainerNumber, validateIso6346ContainerNumber } from "@/lib/container-number";
-import { getOrCreateDeviceId } from "@/lib/device-identity";
-import { invalidateWarehouseData } from "@/lib/query-invalidation";
 import {
-  filterDashboardTileDefinitions,
-  hiddenDashboardTiles,
-  loadDashboardDeviceLayout,
-  loadDashboardTileVisibility,
-  sanitizeDashboardLayout,
-  saveDashboardDeviceLayout,
-  saveDashboardTileVisibility,
-  visibleDashboardTiles,
-  type DashboardCardSize,
-  type DashboardTileConfig,
-  type DashboardTileDefinition,
-  type DashboardVisibilityMap,
-} from "@/lib/dashboard-preferences";
-import {
-  buildCsvReportRows,
-  buildEnterpriseDashboard,
-  type DashboardMode,
-  type DockHandoffLoad,
-  type EnterpriseDashboardSnapshot,
-  type WarehouseBrainRecommendation,
-} from "@/lib/enterprise-wms";
-import { HelpSidebar } from "@/components/help-sidebar";
-import { ZoneLabelPage } from "@/components/zone-label-page";
-import { LocationLabelPage } from "@/components/location-label-page";
-import { BayLocationCodesPrintDialog, LabelSheetPrintDialog, type LabelSheetItem } from "@/components/label-sheet-print";
-import { WarehouseStructureTab } from "@/components/warehouse-tree-view";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+  clearCycleCountResumeSnapshot,
+  loadCycleCountResumeSnapshot,
+  saveCycleCountResumeSnapshot,
+} from "@/lib/floor-task-resume";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-// removed unused dropdown-menu and drawer imports
-import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Switch } from "@/components/ui/switch";
-import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
+const supervisorRoles = new Set(["developer", "admin", "warehouse_manager", "warehouse_supervisor"]);
 
-import {
-  SelectField,
-  TextField,
-  statusBadgeVariant,
-} from "@/features/shared/ui-shared";
+function lineStatus(line: any) {
+  return line.line_status ?? line.status ?? "queued";
+}
+
+function countStatusVariant(status: string) {
+  if (["approved", "closed", "reconciled", "adjusted"].includes(status)) return "default";
+  if (["review", "variance_hold", "exception", "recount"].includes(status)) return "destructive";
+  if (["counting", "frozen", "queued", "counted"].includes(status)) return "secondary";
+  return "outline";
+}
+
+function locationLabel(location: any) {
+  return location?.code ?? [location?.aisle, location?.bay, location?.level, location?.position].filter(Boolean).join("-") ?? "Unassigned bin";
+}
 
 export function CycleCountsPage() {
+  const auth = useAuth();
   const queryClient = useQueryClient();
-  const { data: options } = useQuery({ queryKey: ["options"], queryFn: () => fetchOptions() });
-  const { data: counts = [] } = useQuery({ queryKey: ["cycle-counts"], queryFn: listCycleCounts });
-  // Per-line "can't count" exception state
-  const [exState, setExState] = useState<Record<string, { open: boolean; reason: string }>>({});
+  const { online } = useNetworkStatus();
+  const isSupervisor = auth.roles.some((role) => supervisorRoles.has(role));
+  const [entryQty, setEntryQty] = useState<Record<string, string>>({});
+  const [exceptionReason, setExceptionReason] = useState<Record<string, string>>({});
+  const [approvalReason, setApprovalReason] = useState<Record<string, string>>({});
+  const resumeHydratedRef = useRef(false);
+  const wasOfflineRef = useRef(!online);
+  const resumeUserId = auth.profile?.id ?? null;
+
+  const { data: options } = useQuery({ queryKey: ["options", "cycle-counts"], queryFn: () => fetchOptions() });
+  const { data: counts = [] } = useQuery({
+    queryKey: ["cycle-counts"],
+    queryFn: listCycleCounts,
+    enabled: isSupervisor,
+  });
+  const { data: assignedLines = [] } = useQuery({
+    queryKey: ["cycle-count-lines", "assigned"],
+    queryFn: listMyCycleCountLines,
+  });
 
   const form = useForm<z.infer<typeof cycleCountSchema>>({
     resolver: zodResolver(cycleCountSchema),
-    defaultValues: { scope: "spot", variance_threshold_percent: 5 },
+    defaultValues: {
+      scope: "spot",
+      variance_threshold_percent: 5,
+      freeze_hours: 4,
+      assigned_user_id: "",
+    },
   });
 
+  useEffect(() => {
+    if (resumeHydratedRef.current) return;
+    if (!resumeUserId) return;
+    resumeHydratedRef.current = true;
+    const snapshot = loadCycleCountResumeSnapshot({ userId: resumeUserId });
+    if (!snapshot) return;
+    setEntryQty(snapshot.entryQty ?? {});
+    setExceptionReason(snapshot.exceptionReason ?? {});
+    setApprovalReason(snapshot.approvalReason ?? {});
+  }, [resumeUserId]);
+
+  useEffect(() => {
+    if (!resumeUserId) return;
+    const hasResumeState =
+      Object.values(entryQty).some((value) => value.trim().length > 0) ||
+      Object.values(exceptionReason).some((value) => value.trim().length > 0) ||
+      Object.values(approvalReason).some((value) => value.trim().length > 0);
+    if (!hasResumeState) {
+      clearCycleCountResumeSnapshot();
+      return;
+    }
+    saveCycleCountResumeSnapshot({
+      userId: resumeUserId,
+      entryQty,
+      exceptionReason,
+      approvalReason,
+      updatedAt: Date.now(),
+    });
+  }, [approvalReason, entryQty, exceptionReason, resumeUserId]);
+
+  useEffect(() => {
+    if (!online) {
+      wasOfflineRef.current = true;
+      return;
+    }
+    if (!wasOfflineRef.current) return;
+    wasOfflineRef.current = false;
+    void Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["cycle-counts"] }),
+      queryClient.invalidateQueries({ queryKey: ["cycle-count-lines", "assigned"] }),
+      queryClient.invalidateQueries({ queryKey: ["options", "cycle-counts"] }),
+    ]);
+    toast.message("Connection restored. Refreshing live cycle-count state before the next post.");
+  }, [online, queryClient]);
+
+  async function runOnlineCycleCountCommit<T>(operation: () => Promise<T>) {
+    assertOnline();
+    try {
+      return await operation();
+    } catch (error) {
+      if (isLikelyNetworkError(error)) {
+        throw new Error(OFFLINE_WORK_MESSAGE);
+      }
+      throw error;
+    }
+  }
+
   const createMutation = useMutation({
-    mutationFn: async (values: z.infer<typeof cycleCountSchema>) => createCycleCountFlow(values),
-    onSuccess: async () => {
-      toast.success("Count sheet generated");
+    mutationFn: (values: z.infer<typeof cycleCountSchema>) => runOnlineCycleCountCommit(() => createCycleCountFlow(values)),
+    onSuccess: async (result: any) => {
+      toast.success(`Count created with ${result.claimed_line_count ?? 0} line(s)`);
+      form.reset({ scope: "spot", variance_threshold_percent: 5, freeze_hours: 4, assigned_user_id: "" });
       await queryClient.invalidateQueries({ queryKey: ["cycle-counts"] });
+      await queryClient.invalidateQueries({ queryKey: ["cycle-count-lines", "assigned"] });
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Count creation failed"),
   });
 
   const submitMutation = useMutation({
-    mutationFn: async ({ lineId, quantity }: { lineId: string; quantity: number }) =>
-      submitCycleCountLine(lineId, quantity),
+    mutationFn: ({ lineId, quantity }: { lineId: string; quantity: number }) => runOnlineCycleCountCommit(() => submitCycleCountLine(lineId, quantity)),
     onSuccess: async (_data, variables) => {
-      // Re-fetch to show variance badge immediately
+      setEntryQty((current) => ({ ...current, [variables.lineId]: "" }));
+      toast.success("Blind count submitted");
       await queryClient.invalidateQueries({ queryKey: ["cycle-counts"] });
-      toast.success(`Count submitted for line`);
-      void variables;
+      await queryClient.invalidateQueries({ queryKey: ["cycle-count-lines", "assigned"] });
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Submit failed"),
   });
 
   const exceptionMutation = useMutation({
-    mutationFn: async ({ lineId, reason }: { lineId: string; reason: string }) =>
-      flagCountLineException(lineId, reason),
+    mutationFn: ({ lineId, reason }: { lineId: string; reason: string }) => runOnlineCycleCountCommit(() => flagCycleCountLineException(lineId, reason)),
     onSuccess: async (_data, variables) => {
-      setExState((s) => ({ ...s, [variables.lineId]: { open: false, reason: "" } }));
-      toast.warning("Count line flagged as exception — supervisor review required");
+      setExceptionReason((current) => ({ ...current, [variables.lineId]: "" }));
+      toast.warning("Line flagged for supervisor review");
       await queryClient.invalidateQueries({ queryKey: ["cycle-counts"] });
+      await queryClient.invalidateQueries({ queryKey: ["cycle-count-lines", "assigned"] });
     },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Flag failed"),
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Exception update failed"),
   });
 
-  const active = (counts as any[]).filter((c) => !["completed", "cancelled"].includes(c.status));
-  const done = (counts as any[]).filter((c) => ["completed", "cancelled"].includes(c.status));
+  const approveMutation = useMutation({
+    mutationFn: ({ lineId, reason }: { lineId: string; reason: string }) => runOnlineCycleCountCommit(() => approveCycleCountLine(lineId, reason)),
+    onSuccess: async (_data, variables) => {
+      setApprovalReason((current) => ({ ...current, [variables.lineId]: "" }));
+      toast.success("Variance approved and posted");
+      await queryClient.invalidateQueries({ queryKey: ["cycle-counts"] });
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Approval failed"),
+  });
+
+  const rejectMutation = useMutation({
+    mutationFn: ({ lineId, reason }: { lineId: string; reason: string }) => runOnlineCycleCountCommit(() => rejectCycleCountLine(lineId, reason)),
+    onSuccess: async (_data, variables) => {
+      setApprovalReason((current) => ({ ...current, [variables.lineId]: "" }));
+      toast.info("Line returned for recount");
+      await queryClient.invalidateQueries({ queryKey: ["cycle-counts"] });
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Reject failed"),
+  });
+
+  const closeMutation = useMutation({
+    mutationFn: (countId: string) => runOnlineCycleCountCommit(() => closeCycleCount(countId)),
+    onSuccess: async () => {
+      toast.success("Cycle count closed and freezes released");
+      await queryClient.invalidateQueries({ queryKey: ["cycle-counts"] });
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Close failed"),
+  });
+
+  const reviewLines = useMemo(
+    () => (counts as any[]).flatMap((count) =>
+      (count.cycle_count_lines ?? [])
+        .filter((line: any) => lineStatus(line) === "variance_hold")
+        .map((line: any) => ({ ...line, count })),
+    ),
+    [counts],
+  );
 
   return (
-    <div className="grid min-w-0 gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
-      <Card className="min-w-0">
-        <CardHeader>
-          <CardTitle>Create Count</CardTitle>
-          <CardDescription>Generate location, zone, SKU, or spot counts with approval thresholds.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Form {...form}>
-            <form className="grid gap-4" onSubmit={form.handleSubmit((values) => createMutation.mutate(values))}>
-              <SelectField form={form} name="warehouse_id" label="Warehouse" options={(options?.warehouses ?? []).map((warehouse) => ({ label: warehouse.name, value: warehouse.id }))} />
-              <SelectField form={form} name="scope" label="Scope" options={[
-                { label: "Location", value: "location" },
-                { label: "Zone", value: "zone" },
-                { label: "SKU", value: "sku" },
-                { label: "Spot", value: "spot" },
-              ]} />
-              <SelectField form={form} name="zone_id" label="Zone" options={(options?.zones ?? []).map((zone) => ({ label: zone.name, value: zone.id }))} />
-              <SelectField form={form} name="location_id" label="Location" options={(options?.locations ?? []).map((location) => ({ label: location.code, value: location.id }))} />
-              <SelectField form={form} name="product_id" label="Product" options={(options?.products ?? []).map((product) => ({ label: product.sku, value: product.id }))} />
-              <TextField form={form} name="variance_threshold_percent" label="Variance threshold %" type="number" />
-              <Button className="w-full sm:w-auto" type="submit" disabled={createMutation.isPending}>
-                {createMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                Generate count
-              </Button>
-            </form>
-          </Form>
-        </CardContent>
-      </Card>
+    <div className="grid min-w-0 gap-5">
+      {!online && (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
+          <p className="font-medium">This device is offline. Cycle-count posts are frozen.</p>
+          <p className="mt-1">Keep entered quantities and reasons on this device, reconnect, and refresh live state before submitting or approving.</p>
+        </div>
+      )}
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-normal">Cycle Counts</h1>
+          <p className="text-sm text-muted-foreground">Blind counting with bin freezes, recounts, and supervisor approval.</p>
+        </div>
+        <Badge variant="outline" className="gap-1.5">
+          <Lock className="h-3.5 w-3.5" />
+          Hard-freeze counted bins
+        </Badge>
+      </div>
 
-      <div className="grid min-w-0 content-start gap-4">
-        {active.length === 0 && done.length === 0 && (
-          <div className="rounded-lg border border-dashed border-border p-8 text-center">
-            <ClipboardCheck className="mx-auto mb-3 h-8 w-8 text-muted-foreground" />
-            <p className="font-medium">No active counts</p>
-            <p className="mt-1 text-sm text-muted-foreground">Generate a count sheet from the form to start a cycle count.</p>
-          </div>
-        )}
-        {active.map((count: any) => {
-          const lines: any[] = count.cycle_count_lines ?? [];
-          const threshold = count.variance_threshold_percent ?? 5;
-          const exceptionLines = lines.filter((l) => l.status === "exception").length;
-          return (
-            <Card key={count.id} className={exceptionLines > 0 ? "border-amber-500/60" : ""}>
+      <Tabs defaultValue={isSupervisor ? "manage" : "entry"} className="min-w-0">
+        <TabsList className="flex h-auto flex-wrap justify-start">
+          {isSupervisor && <TabsTrigger value="manage">Create & Monitor</TabsTrigger>}
+          <TabsTrigger value="entry">Blind Entry</TabsTrigger>
+          {isSupervisor && <TabsTrigger value="approvals">Approvals</TabsTrigger>}
+        </TabsList>
+
+        {isSupervisor && (
+          <TabsContent value="manage" className="mt-4 grid min-w-0 gap-4 xl:grid-cols-[minmax(320px,420px)_minmax(0,1fr)]">
+            <Card>
               <CardHeader>
-                <CardTitle className="flex flex-wrap items-center justify-between gap-3">
-                  <span className="min-w-0 font-mono text-base break-all">{count.count_number}</span>
-                  <div className="flex items-center gap-2">
-                    {exceptionLines > 0 && (
-                      <Badge variant="outline" className="border-amber-500 text-amber-700 dark:text-amber-400">
-                        <AlertTriangle className="mr-1 h-3 w-3" />
-                        {exceptionLines} flagged
-                      </Badge>
-                    )}
-                    <Badge variant={statusBadgeVariant(count.status)}>{count.status}</Badge>
-                  </div>
-                </CardTitle>
-                <CardDescription>
-                  Scope: {count.scope} · Threshold: ±{threshold}% · {lines.filter((l) => l.status === "completed").length}/{lines.length} lines done
-                </CardDescription>
+                <CardTitle className="flex items-center gap-2 text-lg"><Plus className="h-4 w-4" /> Create Count</CardTitle>
+                <CardDescription>Supervisors create a frozen bin claim before counters enter quantities.</CardDescription>
               </CardHeader>
-              <CardContent className="grid gap-3">
-                {lines.map((line: any) => {
-                  const product = line.products as any;
-                  const loc = line.locations as any;
-                  const counted = line.counted_quantity ?? line.expected_quantity;
-                  const variance = line.variance_quantity ?? 0;
-                  const varPct = line.variance_percent ?? 0;
-                  const overThreshold = Math.abs(varPct) > threshold && line.status === "completed";
-                  const es = exState[line.id] ?? { open: false, reason: "" };
-                  const isException = line.status === "exception";
-
-                  return (
-                    <div
-                      key={line.id}
-                      className={`rounded-md border px-3 py-2 grid gap-2 text-sm ${isException ? "border-amber-500/50 bg-amber-50 dark:bg-amber-950/20" : overThreshold ? "border-destructive/40 bg-destructive/5" : "border-border"}`}
-                    >
-                      {/* Product + location header */}
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          {product?.name && <p className="font-medium truncate">{product.name}</p>}
-                          {product?.sku && <p className="font-mono text-xs text-muted-foreground">{product.sku}</p>}
-                          {loc?.code && <p className="text-xs text-muted-foreground">Location: {loc.code}</p>}
-                        </div>
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          {overThreshold && (
-                            <Badge variant="destructive" className="text-xs">
-                              {variance > 0 ? "+" : ""}{variance} ({varPct.toFixed(1)}%)
-                            </Badge>
-                          )}
-                          <Badge variant={statusBadgeVariant(line.status)} className="text-xs">{line.status}</Badge>
-                        </div>
-                      </div>
-
-                      {/* Count input */}
-                      {!isException && (
-                        <div className="flex items-center gap-2">
-                          <span className="text-muted-foreground shrink-0">Expected {formatNumber(line.expected_quantity)}</span>
-                          <Input
-                            className="w-28"
-                            defaultValue={counted}
-                            type="number"
-                            onBlur={(e) => {
-                              const val = Number(e.target.value);
-                              if (!isNaN(val)) submitMutation.mutate({ lineId: line.id, quantity: val });
-                            }}
-                          />
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="text-amber-600 hover:text-amber-700 hover:bg-amber-50"
-                            title="Flag as unable to count"
-                            onClick={() => setExState((s) => ({ ...s, [line.id]: { open: true, reason: "" } }))}
-                          >
-                            <AlertTriangle className="h-3.5 w-3.5" />
-                          </Button>
-                        </div>
-                      )}
-                      {isException && (
-                        <p className="text-xs text-amber-700 dark:text-amber-400">
-                          <AlertTriangle className="inline mr-1 h-3 w-3" />
-                          {(line as any).notes ?? "Flagged — supervisor review required"}
-                        </p>
-                      )}
-
-                      {/* Exception panel */}
-                      {es.open && (
-                        <div className="rounded border border-amber-400/40 bg-amber-50 dark:bg-amber-950/30 p-2 grid gap-2">
-                          <p className="text-xs font-medium text-amber-800 dark:text-amber-300">Why can't this line be counted?</p>
-                          <Input
-                            placeholder="e.g. Location blocked, pallet damaged, goods in use"
-                            value={es.reason}
-                            onChange={(e) => setExState((s) => ({ ...s, [line.id]: { ...es, reason: e.target.value } }))}
-                          />
-                          <div className="flex gap-2">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="border-amber-500 text-amber-700"
-                              disabled={!es.reason.trim() || exceptionMutation.isPending}
-                              onClick={() => exceptionMutation.mutate({ lineId: line.id, reason: es.reason })}
-                            >
-                              Flag exception
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => setExState((s) => ({ ...s, [line.id]: { open: false, reason: "" } }))}
-                            >
-                              Cancel
-                            </Button>
-                          </div>
-                        </div>
-                      )}
+              <CardContent>
+                <form className="grid gap-3" onSubmit={form.handleSubmit((values) => createMutation.mutate(values))}>
+                  <Select value={form.watch("warehouse_id") ?? ""} onValueChange={(value) => form.setValue("warehouse_id", value, { shouldValidate: true })}>
+                    <SelectTrigger><SelectValue placeholder="Warehouse" /></SelectTrigger>
+                    <SelectContent>
+                      {(options?.warehouses ?? []).map((warehouse: any) => <SelectItem key={warehouse.id} value={warehouse.id}>{warehouse.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                  <Select value={form.watch("scope")} onValueChange={(value: any) => form.setValue("scope", value, { shouldValidate: true })}>
+                    <SelectTrigger><SelectValue placeholder="Scope" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="spot">Spot/bin</SelectItem>
+                      <SelectItem value="location">Location</SelectItem>
+                      <SelectItem value="zone">Zone/aisle sweep</SelectItem>
+                      <SelectItem value="sku">SKU</SelectItem>
+                      <SelectItem value="abc">ABC scheduled class</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Select value={form.watch("zone_id") || "none"} onValueChange={(value) => form.setValue("zone_id", value === "none" ? "" : value)}>
+                    <SelectTrigger><SelectValue placeholder="Zone" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Any zone</SelectItem>
+                      {(options?.zones ?? []).map((zone: any) => <SelectItem key={zone.id} value={zone.id}>{zone.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                  <Select value={form.watch("location_id") || "none"} onValueChange={(value) => form.setValue("location_id", value === "none" ? "" : value)}>
+                    <SelectTrigger><SelectValue placeholder="Location" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Any location</SelectItem>
+                      {(options?.locations ?? []).map((location: any) => <SelectItem key={location.id} value={location.id}>{location.code}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                  <Select value={form.watch("product_id") || "none"} onValueChange={(value) => form.setValue("product_id", value === "none" ? "" : value)}>
+                    <SelectTrigger><SelectValue placeholder="Product" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Any product</SelectItem>
+                      {(options?.products ?? []).map((product: any) => <SelectItem key={product.id} value={product.id}>{product.sku}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                  <Select value={form.watch("assigned_user_id") || "none"} onValueChange={(value) => form.setValue("assigned_user_id", value === "none" ? "" : value)}>
+                    <SelectTrigger><SelectValue placeholder="Assign counter" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Unassigned queue</SelectItem>
+                      {(options?.profiles ?? []).map((profile: any) => (
+                        <SelectItem key={profile.id} value={profile.id}>{profile.full_name ?? profile.email ?? profile.id}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="grid gap-1.5">
+                      <Label htmlFor="variance_threshold_percent">Variance %</Label>
+                      <Input id="variance_threshold_percent" type="number" step="0.1" {...form.register("variance_threshold_percent")} />
                     </div>
-                  );
-                })}
+                    <div className="grid gap-1.5">
+                      <Label htmlFor="freeze_hours">Freeze hours</Label>
+                      <Input id="freeze_hours" type="number" min={1} max={168} {...form.register("freeze_hours")} />
+                    </div>
+                  </div>
+                  <Button type="submit" disabled={!online || createMutation.isPending}>
+                    {createMutation.isPending ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <ClipboardCheck className="mr-2 h-4 w-4" />}
+                    Freeze and create count
+                  </Button>
+                </form>
               </CardContent>
             </Card>
-          );
-        })}
-        {done.length > 0 && (
-          <details className="group">
-            <summary className="cursor-pointer list-none rounded-md px-3 py-2 text-sm text-muted-foreground hover:text-foreground">
-              <span className="group-open:hidden">▶ Show {done.length} completed / cancelled</span>
-              <span className="hidden group-open:inline">▼ Hide completed / cancelled</span>
-            </summary>
-            <div className="mt-2 grid gap-2">
-              {done.map((c: any) => (
-                <div key={c.id} className="flex items-center justify-between rounded-md border border-border px-3 py-2 text-sm opacity-60">
-                  <span className="font-mono text-xs">{c.count_number}</span>
-                  <Badge variant={statusBadgeVariant(c.status)} className="text-xs">{c.status}</Badge>
-                </div>
-              ))}
+
+            <div className="grid content-start gap-3">
+              {(counts as any[]).length === 0 ? (
+                <EmptyState title="No counts yet" body="Create a count to claim bins and generate blind entry work." />
+              ) : (counts as any[]).map((count: any) => {
+                const lines = count.cycle_count_lines ?? [];
+                const openFreezes = (count.inventory_freezes ?? []).filter((freeze: any) => freeze.status === "active");
+                const doneLines = lines.filter((line: any) => ["reconciled", "adjusted", "exception"].includes(lineStatus(line))).length;
+                return (
+                  <Card key={count.id}>
+                    <CardHeader className="pb-3">
+                      <CardTitle className="flex flex-wrap items-center justify-between gap-2 text-base">
+                        <span className="font-mono">{count.count_number}</span>
+                        <Badge variant={countStatusVariant(count.status) as any}>{count.status}</Badge>
+                      </CardTitle>
+                      <CardDescription>
+                        {count.scope} · {doneLines}/{lines.length} lines resolved · {openFreezes.length} active freeze(s) · expires {formatDate(count.freeze_expires_at)}
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="grid gap-2">
+                      {count.notes && <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">{count.notes}</p>}
+                      {lines.slice(0, 8).map((line: any) => (
+                        <div key={line.id} className="flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm">
+                          <div className="min-w-0">
+                            <p className="truncate font-medium">{line.products?.sku ?? "Product"} · {locationLabel(line.locations)}</p>
+                            <p className="text-xs text-muted-foreground">Expected {formatNumber(line.expected_quantity)} · variance {formatNumber(line.variance_quantity)} ({Number(line.variance_percent ?? 0).toFixed(1)}%)</p>
+                          </div>
+                          <Badge variant={countStatusVariant(lineStatus(line)) as any}>{lineStatus(line)}</Badge>
+                        </div>
+                      ))}
+                      {lines.length > 8 && <p className="text-xs text-muted-foreground">Showing 8 of {lines.length} lines.</p>}
+                      {count.status === "approved" && (
+                        <Button size="sm" onClick={() => closeMutation.mutate(count.id)} disabled={!online || closeMutation.isPending}>
+                          <CheckCircle2 className="mr-2 h-4 w-4" />
+                          Close and release freezes
+                        </Button>
+                      )}
+                    </CardContent>
+                  </Card>
+                );
+              })}
             </div>
-          </details>
+          </TabsContent>
         )}
-      </div>
+
+        <TabsContent value="entry" className="mt-4 grid gap-3">
+          {assignedLines.length === 0 ? (
+            <EmptyState title="No assigned lines" body="Assigned blind count work appears here. Expected quantities are not shown." />
+          ) : assignedLines.map((line: any) => {
+            const status = lineStatus(line);
+            const qtyValue = entryQty[line.id] ?? "";
+            const reason = exceptionReason[line.id] ?? "";
+            return (
+              <Card key={line.id}>
+                <CardHeader className="pb-3">
+                  <CardTitle className="flex flex-wrap items-center justify-between gap-2 text-base">
+                    <span>{line.products?.sku ?? "Product"} · {locationLabel(line.locations)}</span>
+                    <Badge variant={countStatusVariant(status) as any}>{status}</Badge>
+                  </CardTitle>
+                  <CardDescription>{line.products?.name ?? "Blind count"} · assigned cycle-count line</CardDescription>
+                </CardHeader>
+                <CardContent className="grid gap-3 sm:grid-cols-[minmax(160px,260px)_1fr]">
+                  <div className="grid gap-2">
+                    <Label htmlFor={`qty-${line.id}`}>{status === "recount" ? "Recount quantity" : "Count quantity"}</Label>
+                    <Input
+                      id={`qty-${line.id}`}
+                      inputMode="decimal"
+                      type="number"
+                      min="0"
+                      value={qtyValue}
+                      onChange={(event) => setEntryQty((current) => ({ ...current, [line.id]: event.target.value }))}
+                    />
+                    <Button
+                      disabled={!online || submitMutation.isPending || qtyValue.trim() === ""}
+                      onClick={() => submitMutation.mutate({ lineId: line.id, quantity: Number(qtyValue) })}
+                    >
+                      Submit blind count
+                    </Button>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor={`exception-${line.id}`}>Cannot count reason</Label>
+                    <Textarea
+                      id={`exception-${line.id}`}
+                      value={reason}
+                      onChange={(event) => setExceptionReason((current) => ({ ...current, [line.id]: event.target.value }))}
+                      placeholder="Blocked location, damaged pallet, unsafe access..."
+                    />
+                    <Button
+                      variant="outline"
+                      disabled={!online || exceptionMutation.isPending || reason.trim().length < 3}
+                      onClick={() => exceptionMutation.mutate({ lineId: line.id, reason })}
+                    >
+                      <AlertTriangle className="mr-2 h-4 w-4" />
+                      Flag exception
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </TabsContent>
+
+        {isSupervisor && (
+          <TabsContent value="approvals" className="mt-4 grid gap-3">
+            {reviewLines.length === 0 ? (
+              <EmptyState title="No variances waiting" body="Over-threshold recounts appear here for approval or rejection." />
+            ) : reviewLines.map((line: any) => {
+              const reason = approvalReason[line.id] ?? "";
+              return (
+                <Card key={line.id} className="border-amber-500/60">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="flex flex-wrap items-center justify-between gap-2 text-base">
+                      <span>{line.count.count_number} · {line.products?.sku ?? "Product"}</span>
+                      <Badge variant="destructive">Variance hold</Badge>
+                    </CardTitle>
+                    <CardDescription>
+                      {locationLabel(line.locations)} · first {formatNumber(line.first_count_qty)} · recount {formatNumber(line.recount_qty)} · expected {formatNumber(line.expected_quantity)}
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="grid gap-3">
+                    <div className="flex flex-wrap gap-2 text-sm">
+                      <Badge variant="outline">Qty variance {formatNumber(line.variance_quantity)}</Badge>
+                      <Badge variant="outline">{Number(line.variance_percent ?? 0).toFixed(1)}%</Badge>
+                    </div>
+                    <Textarea
+                      value={reason}
+                      onChange={(event) => setApprovalReason((current) => ({ ...current, [line.id]: event.target.value }))}
+                      placeholder="Approval or rejection reason"
+                    />
+                    <div className="flex flex-wrap gap-2">
+                      <Button disabled={!online || approveMutation.isPending || reason.trim().length < 3} onClick={() => approveMutation.mutate({ lineId: line.id, reason })}>
+                        <ShieldCheck className="mr-2 h-4 w-4" />
+                        Approve and post
+                      </Button>
+                      <Button variant="outline" disabled={!online || rejectMutation.isPending || reason.trim().length < 3} onClick={() => rejectMutation.mutate({ lineId: line.id, reason })}>
+                        <XCircle className="mr-2 h-4 w-4" />
+                        Reject for recount
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </TabsContent>
+        )}
+      </Tabs>
     </div>
   );
 }
 
-// ── Location Moves Page ────────────────────────────────────────────────────────
+function EmptyState({ title, body }: { title: string; body: string }) {
+  return (
+    <div className="rounded-lg border border-dashed border-border p-8 text-center">
+      <ClipboardCheck className="mx-auto mb-3 h-8 w-8 text-muted-foreground" />
+      <p className="font-medium">{title}</p>
+      <p className="mt-1 text-sm text-muted-foreground">{body}</p>
+    </div>
+  );
+}

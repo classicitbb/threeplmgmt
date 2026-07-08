@@ -3,13 +3,13 @@ import { useCallback, useEffect, useSyncExternalStore } from "react";
 import { confirmPickTask, confirmPutaway } from "@/lib/wms-core";
 
 /**
- * Offline work queue.
+ * Legacy offline work queue.
  *
- * Buffers high-value warehouse-floor actions (putaway confirmation, pick task
- * confirmation) to IndexedDB when the device cannot reach the backend, then
- * replays them in order on reconnect or on explicit retry. The goal is that
- * an operator who walks into a dead spot can keep scanning, then sync with a
- * single tap when their connection returns — no app restart required.
+ * Older builds buffered warehouse-floor commits to IndexedDB for later replay.
+ * The approved reconnect model no longer allows that: live warehouse commits
+ * must be re-validated against server truth after reconnect, not replayed from
+ * a stale snapshot. Any legacy queued items are therefore migrated into the
+ * dead-letter store for operator review instead of being auto-submitted.
  *
  * Business-logic failures during replay (e.g. task already completed, location
  * mismatch) are moved to a "dead-letter" store rather than silently dropped,
@@ -18,9 +18,11 @@ import { confirmPickTask, confirmPutaway } from "@/lib/wms-core";
  */
 
 const DB_NAME = "ww-offline-queue";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const STORE = "work";
 const DEAD_LETTER_STORE = "dead-letter";
+const LEGACY_REPLAY_DISABLED_MESSAGE =
+  "Offline replay was disabled for safety. Reopen this task online and re-validate against live warehouse state before posting.";
 
 export type OfflineWorkKind = "putaway" | "pick";
 
@@ -160,8 +162,32 @@ async function ensureInit() {
         tx<OfflineWorkItem[]>(STORE, "readonly", (store) => reqToPromise(store.getAll() as IDBRequest<OfflineWorkItem[]>)),
         tx<FailedWorkItem[]>(DEAD_LETTER_STORE, "readonly", (store) => reqToPromise(store.getAll() as IDBRequest<FailedWorkItem[]>)),
       ]);
-      setCache(rows ?? []);
-      setDeadLetterCache(dlRows ?? []);
+      const liveRows = rows ?? [];
+      const existingDeadLetters = dlRows ?? [];
+      if (liveRows.length > 0) {
+        const migrated = liveRows.map<FailedWorkItem>((item) => ({
+          id: item.id,
+          kind: item.kind,
+          payload: item.payload,
+          createdAt: item.createdAt,
+          failedAt: Date.now(),
+          error: LEGACY_REPLAY_DISABLED_MESSAGE,
+          attempts: item.attempts,
+        }));
+        if (hasIndexedDB()) {
+          try {
+            await tx(DEAD_LETTER_STORE, "readwrite", (store) => Promise.all(migrated.map((item) => reqToPromise(store.put(item)))));
+            await tx(STORE, "readwrite", (store) => reqToPromise(store.clear()));
+          } catch (err) {
+            console.error("[offline-queue] legacy queue migration failed", err);
+          }
+        }
+        setCache([]);
+        setDeadLetterCache([...existingDeadLetters, ...migrated]);
+      } else {
+        setCache([]);
+        setDeadLetterCache(existingDeadLetters);
+      }
     } catch (err) {
       console.error("[offline-queue] init failed", err);
     } finally {

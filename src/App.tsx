@@ -12,12 +12,14 @@ import { QRCodeSVG } from "qrcode.react";
 
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
 import { FeatureFlagContext, useFeatureFlagState } from "@/hooks/use-feature-flags";
-import { enqueueOfflineWork, isLikelyNetworkError } from "@/lib/offline-queue";
+import { OFFLINE_WORK_MESSAGE, assertOnline, useNetworkStatus } from "@/hooks/use-network-status";
+import { isLikelyNetworkError } from "@/lib/offline-queue";
 import { supabase } from "@/integrations/supabase/client";
 import { createAppQueryClient } from "@/lib/query-client";
 
 import { buildBayOccupancyGrid, confirmPickTask, formatDate, formatNumber, formatPickRackInstruction, getBayOccupancy, getInventoryDetail, getPickExecution, loginSchema, normalizeRackLocationCode, PickQuantityAnomalyError, recordUserSignIn, refreshUserDeviceTrust, signUpSchema, RESOURCE_DEFINITIONS } from "@/lib/wms-core";
 import { beginActiveWork } from "@/lib/active-work";
+import { clearPickTaskResumeSnapshot, loadPickTaskResumeSnapshot, savePickTaskResumeSnapshot } from "@/lib/floor-task-resume";
 import { getOrCreateDeviceId, hasTrustedDeviceShortcut, isDesktopClient } from "@/lib/device-identity";
 import { cn } from "@/lib/utils";
 
@@ -82,6 +84,17 @@ const ProtectedShell = lazy(() =>
 );
 
 const RELEASE_HISTORY = [
+  {
+    version: "1.24",
+    date: "July 2026",
+    changes: [
+      "Floor connectivity safety: live put-away, pick, receiving, and cycle-count commits now freeze immediately when a device goes offline instead of replaying stale work later",
+      "Task resume: put-away, pick execution, receiving entry, and cycle-count text entry now keep the operator's local position on the device through reconnects",
+      "Put-Away: reconnect now refreshes live task, pallet, and location state and can force a safe reselect or task reset when the warehouse record has changed",
+      "System Log: critical RF disconnect entries now raise a dismissible red supervisor toast that requires typing ACK before acknowledgement",
+      "Offline queue safety: legacy buffered commit items are moved to dead-letter review instead of being auto-posted back into live warehouse state",
+    ],
+  },
   {
     version: "1.23",
     date: "June 2026",
@@ -1421,6 +1434,7 @@ function PickExecutionPage() {
   const { pickListId = "" } = useParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { online } = useNetworkStatus();
   const { data } = useQuery<PickExecutionData>({
     queryKey: ["pick-execution", pickListId],
     queryFn: async () => (await getPickExecution(pickListId)) as unknown as PickExecutionData,
@@ -1453,7 +1467,6 @@ function PickExecutionPage() {
   }, [tasks]);
 
   const mutation = useMutation({
-    meta: { offlineQueueable: true },
     mutationFn: async ({
       taskId,
       locationCode,
@@ -1469,37 +1482,23 @@ function PickExecutionPage() {
       shortReason?: string;
       override?: boolean;
     }) => {
-      if (typeof navigator !== "undefined" && navigator.onLine === false) {
-        await enqueueOfflineWork("pick", { taskId, pickListId, locationCode, palletBarcode, quantity, shortReason });
-        return { queued: true as const };
-      }
+      assertOnline();
       try {
         await confirmPickTask(taskId, locationCode, palletBarcode, quantity, shortReason, override);
-        return { queued: false as const };
       } catch (err) {
         if (isLikelyNetworkError(err)) {
-          await enqueueOfflineWork("pick", { taskId, pickListId, locationCode, palletBarcode, quantity, shortReason });
-          return { queued: true as const };
+          throw new Error(OFFLINE_WORK_MESSAGE);
         }
         throw err;
       }
     },
-    onSuccess: async (res, variables) => {
+    onSuccess: async (_, variables) => {
       setPickAnomalyByTask((current) => {
         if (!(variables.taskId in current)) return current;
         const next = { ...current };
         delete next[variables.taskId];
         return next;
       });
-      if (res?.queued) {
-        toast.message("Pick saved offline — will sync on reconnect", {
-          description: `Task buffered locally.`,
-          duration: 5000,
-        });
-        try { navigator.vibrate?.([40, 30, 40]); } catch { /* noop */ }
-        setTimeout(() => focusNextOpen(variables.taskId), 300);
-        return;
-      }
       toast.success(variables.override ? "Pick confirmed with override — anomaly logged for review" : "Pick task confirmed");
       try { navigator.vibrate?.([60, 40, 120]); } catch { /* noop */ }
       playPickSuccessTone();
@@ -1591,6 +1590,12 @@ function PickExecutionPage() {
             Open the assigned list, scan location and pallet, then confirm quantity.
           </p>
         </div>
+        {!online ? (
+          <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
+            <p className="font-medium">This device is offline. Live pick confirmations are frozen.</p>
+            <p className="mt-1 text-xs sm:text-sm">Your scan position stays on this device. Reconnect before you post the pick so the app can validate against live stock.</p>
+          </div>
+        ) : null}
         {tasks.map((task) => (
           <PickTaskCard
             key={task.id}
@@ -1790,10 +1795,44 @@ function PickTaskCard({
   const scannedPallet = String(form.watch("palletBarcode") ?? "").trim();
   const readyToConfirm = Boolean(scannedLocation && scannedPallet);
   const lockForConfirm = confirmPrompt && readyToConfirm;
+  const pickListId = String(task.pick_list_id ?? "");
+
+  useEffect(() => {
+    if (!isOpen) {
+      clearPickTaskResumeSnapshot(task.id, pickListId);
+      return;
+    }
+    const snapshot = loadPickTaskResumeSnapshot(task.id, pickListId);
+    if (!snapshot) return;
+    form.reset({
+      locationCode: snapshot.locationCode ?? "",
+      palletBarcode: snapshot.palletBarcode ?? "",
+      quantity: task.requested_quantity,
+      shortReason: "",
+    });
+    setBayScan(snapshot.bayScan ?? "");
+    setConfirmPrompt(Boolean(snapshot.confirmPrompt && snapshot.locationCode && snapshot.palletBarcode));
+  }, [form, isOpen, pickListId, task.id, task.requested_quantity]);
 
   useEffect(() => {
     if (confirmErrorNonce > 0) setConfirmPrompt(false);
   }, [confirmErrorNonce]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      clearPickTaskResumeSnapshot(task.id, pickListId);
+      return;
+    }
+    savePickTaskResumeSnapshot({
+      taskId: task.id,
+      pickListId,
+      locationCode: scannedLocation,
+      palletBarcode: scannedPallet,
+      bayScan,
+      confirmPrompt,
+      updatedAt: Date.now(),
+    });
+  }, [bayScan, confirmPrompt, isOpen, pickListId, scannedLocation, scannedPallet, task.id]);
 
   if (!isOpen) {
     const tone =

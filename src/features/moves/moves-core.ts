@@ -11,6 +11,7 @@ import {
 import { writeSystemLog } from "@/features/system/system-core";
 import { upsertRecord } from "@/features/admin/admin-core";
 import { normalizeRackLocationCode } from "@/features/setup/setup-core";
+import { assertNotFrozen, getActiveFreeze } from "@/features/cycle-counts/freeze-core";
 
 const MOVE_LOCATION_SELECT =
   "id, code, status, max_pallets, temperature_class, mixed_sku_allowed, mixed_lot_allowed, max_height, zone_id, warehouse_id";
@@ -141,6 +142,8 @@ export async function createMoveTask(palletBarcode: string, toLocationCode: stri
 
   const toLocation = await resolveMoveLocation(toLocationCode);
   if (!toLocation) throw new Error(`Location not found: ${toLocationCode}`);
+  await assertNotFrozen(pallet.current_location_id, { palletId: pallet.id });
+  await assertNotFrozen(toLocation.id, { palletId: pallet.id });
 
   await upsertRecord("move_tasks", {
     task_number: buildPalletCode("MOV"),
@@ -205,6 +208,19 @@ export async function validateMoveDestination(
     return {
       valid: false,
       reason: `Location ${locationCode.toUpperCase()} is ${location.status ?? "inactive"} — moves are not permitted`,
+      warnings,
+    };
+  }
+
+  const [sourceFreeze, destinationFreeze] = await Promise.all([
+    pallet.current_location_id ? getActiveFreeze(pallet.current_location_id, { palletId: pallet.id }) : Promise.resolve(null),
+    getActiveFreeze(location.id, { palletId: pallet.id }),
+  ]);
+  if (sourceFreeze || destinationFreeze) {
+    const freeze = sourceFreeze ?? destinationFreeze;
+    return {
+      valid: false,
+      reason: `Location is locked by cycle count ${freeze?.cycle_counts?.count_number ?? freeze?.cycle_count_id}. Notify a supervisor before moving this pallet.`,
       warnings,
     };
   }
@@ -305,6 +321,8 @@ export async function completeDirectMove(palletBarcode: string, locationCode: st
 
   const toLocation = await resolveMoveLocation(locationCode);
   if (!toLocation) throw new Error(`Location not found: ${locationCode}`);
+  await assertNotFrozen(pallet.current_location_id, { palletId: pallet.id });
+  await assertNotFrozen(toLocation.id, { palletId: pallet.id });
   const warehouseId = getMoveWarehouseId(pallet, toLocation);
   if (!warehouseId) throw new Error("Destination warehouse could not be resolved for this move");
 
@@ -368,6 +386,8 @@ export async function completeMoveTask(taskId: string, scannedPalletBarcode: str
 
   const toLocation = await resolveMoveLocation(scannedLocationCode);
   if (!toLocation) throw new Error(`Location not found: ${scannedLocationCode}`);
+  await assertNotFrozen(pallet.current_location_id, { palletId: pallet.id });
+  await assertNotFrozen(toLocation.id, { palletId: pallet.id });
   const warehouseId = getMoveWarehouseId(pallet, toLocation, task.warehouse_id);
   if (!warehouseId) throw new Error("Destination warehouse could not be resolved for this move");
 

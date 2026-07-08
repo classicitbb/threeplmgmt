@@ -29,18 +29,9 @@ import { z } from "zod";
 
 import { useAuth } from "@/hooks/use-auth";
 import { useFeatureFlags, MODULE_LABELS, STARTER_MODULES, type ModuleKey } from "@/hooks/use-feature-flags";
-import { assertOnline, useNetworkStatus } from "@/hooks/use-network-status";
-import {
-  enqueueOfflineWork,
-  flushOfflineQueue,
-  installOfflineAutoReplay,
-  isLikelyNetworkError,
-  useOfflineQueue,
-  useDeadLetterQueue,
-
-  type FailedWorkItem,
-} from "@/lib/offline-queue";
+import { useNetworkStatus } from "@/hooks/use-network-status";
 import { useBackgroundSync } from "@/hooks/use-background-sync";
+import { isActiveWorkInProgress } from "@/lib/active-work";
 import {
   NAVIGATION,
   ROLE_LABELS,
@@ -200,6 +191,96 @@ import {
   shouldRestrictToDefaultWarehouse,
 } from "@/features/shared/ui-shared";
 
+const OFFLINE_SYSTEM_LOG_SOURCE = "rf.offline_disconnect";
+const OFFLINE_ALERT_CHALLENGE = "ACK";
+const OFFLINE_ALERT_SESSION_KEY = "warehouseWizard.offlineAlert.current";
+
+type OfflineSupervisorAlert = {
+  id: string;
+  title: string;
+  message: string | null;
+  created_at: string;
+  source: string | null;
+  details?: Record<string, unknown> | null;
+};
+
+function readOfflineAlertSession() {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.sessionStorage.getItem(OFFLINE_ALERT_SESSION_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function writeOfflineAlertSession(value: string) {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(OFFLINE_ALERT_SESSION_KEY, value);
+  } catch {
+    // ignore storage failures
+  }
+}
+
+function clearOfflineAlertSession() {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.removeItem(OFFLINE_ALERT_SESSION_KEY);
+  } catch {
+    // ignore storage failures
+  }
+}
+
+function OfflineSupervisorAlertToastCard({
+  alert,
+  onAcknowledge,
+}: {
+  alert: OfflineSupervisorAlert;
+  onAcknowledge: () => Promise<void>;
+}) {
+  const [challenge, setChallenge] = useState("");
+  const [pending, setPending] = useState(false);
+
+  return (
+    <div className="w-[min(28rem,calc(100vw-2rem))] rounded-lg border border-red-500 bg-red-950 px-4 py-3 text-red-50 shadow-2xl">
+      <div className="flex items-start gap-3">
+        <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-red-300" />
+        <div className="min-w-0 flex-1">
+          <p className="font-semibold">{alert.title}</p>
+          <p className="mt-1 text-sm text-red-100">{alert.message ?? "A warehouse-floor device lost connectivity and is frozen for live commits."}</p>
+          <p className="mt-2 text-xs text-red-200">
+            Type <span className="font-mono font-semibold">{OFFLINE_ALERT_CHALLENGE}</span> to acknowledge and dismiss this alert.
+          </p>
+          <div className="mt-3 flex gap-2">
+            <Input
+              value={challenge}
+              onChange={(event) => setChallenge(event.target.value.toUpperCase())}
+              className="h-9 border-red-400/60 bg-red-900 text-red-50 placeholder:text-red-300"
+              placeholder={OFFLINE_ALERT_CHALLENGE}
+            />
+            <Button
+              type="button"
+              size="sm"
+              className="shrink-0 bg-red-100 text-red-950 hover:bg-red-200"
+              disabled={pending || challenge.trim() !== OFFLINE_ALERT_CHALLENGE}
+              onClick={async () => {
+                setPending(true);
+                try {
+                  await onAcknowledge();
+                } finally {
+                  setPending(false);
+                }
+              }}
+            >
+              {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Acknowledge"}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ProfileMenu({ initials, displayName, onSignOut }: { initials: string; displayName: string; onSignOut: () => void }) {
   const [pwOpen, setPwOpen] = useState(false);
   return (
@@ -234,40 +315,21 @@ function ProfileMenu({ initials, displayName, onSignOut }: { initials: string; d
   );
 }
 
-function OfflineQueueBadge({ compact = false }: { compact?: boolean }) {
-  const { count, syncing } = useOfflineQueue();
-  if (count === 0 && !syncing) return null;
-  const label = syncing ? "Syncing…" : `${count} queued`;
-  const handleClick = async () => {
-    if (syncing) return;
-    if (typeof navigator !== "undefined" && navigator.onLine === false) {
-      toast.error("Still offline — reconnect to a network, then tap again.");
-      return;
-    }
-    const result = await flushOfflineQueue();
-    if (result.remaining === 0 && result.succeeded > 0) {
-      toast.success(`Synced ${result.succeeded} buffered action${result.succeeded === 1 ? "" : "s"}.`);
-    } else if (result.remaining > 0) {
-      toast.warning(`${result.remaining} item${result.remaining === 1 ? "" : "s"} still pending — will retry on next reconnect.`);
-    }
-  };
+function OfflineFreezeBadge({ compact = false }: { compact?: boolean }) {
+  const { online } = useNetworkStatus();
+  if (online) return null;
   return (
-    <Button
-      type="button"
-      size="sm"
-      variant="outline"
-      onClick={handleClick}
-      disabled={syncing}
+    <div
       className={cn(
-        "h-9 gap-1.5 border-amber-400/60 bg-amber-50 text-amber-900 hover:bg-amber-100 dark:bg-amber-950/40 dark:text-amber-100 dark:hover:bg-amber-900/50",
+        "inline-flex h-9 items-center gap-1.5 rounded-md border border-amber-400/60 bg-amber-50 px-3 text-sm font-medium text-amber-900 dark:bg-amber-950/40 dark:text-amber-100",
         compact && "px-2 text-[11px]",
       )}
-      title="Buffered work waiting for reconnect"
+      title="This device is offline. Live warehouse commits are frozen until reconnect."
     >
-      {syncing ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <CloudOff className="h-3.5 w-3.5" />}
-      <span className={cn(compact && "hidden sm:inline")}>{label}</span>
-      {!compact && count > 0 && !syncing ? <span className="text-xs opacity-70">tap to sync</span> : null}
-    </Button>
+      <CloudOff className="h-3.5 w-3.5" />
+      <span className={cn(compact && "hidden sm:inline")}>Offline</span>
+      {!compact ? <span className="text-xs opacity-80">commits frozen</span> : null}
+    </div>
   );
 }
 
@@ -277,13 +339,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const queryClient = useQueryClient();
   const { isEnabled } = useFeatureFlags();
   const { online } = useNetworkStatus();
-  useEffect(() => {
-    installOfflineAutoReplay();
-  }, []);
   useBackgroundSync(queryClient);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const networkStatusSeenRef = useRef(false);
+  const shownOfflineAlertIdsRef = useRef<Set<string>>(new Set());
   const items = NAVIGATION
     .filter(
       (item) =>
@@ -324,10 +384,24 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, []);
   const canSwitchWarehouses = roles.some((role) => ["admin", "warehouse_manager", "developer"].includes(role));
   const canSelectAllWarehouses = roles.some((role) => ["admin", "developer"].includes(role));
+  const canAcknowledgeOfflineAlerts = roles.some((role) =>
+    ["developer", "admin", "warehouse_manager", "warehouse_supervisor"].includes(role),
+  );
   const { data: headerOptions } = useQuery({
     queryKey: ["header-warehouse-options", canSwitchWarehouses],
     queryFn: () => fetchOptions(false),
     enabled: canSwitchWarehouses,
+  });
+  const { data: offlineSupervisorAlerts = [] } = useQuery<OfflineSupervisorAlert[]>({
+    queryKey: ["system-logs", "offline-disconnect-alerts"],
+    queryFn: async () => {
+      const rows = await listSystemLogs({ severity: "critical", resolved: false, limit: 20 });
+      return (rows as OfflineSupervisorAlert[]).filter((row) => row.source === OFFLINE_SYSTEM_LOG_SOURCE);
+    },
+    enabled: canAcknowledgeOfflineAlerts && online,
+    staleTime: 5_000,
+    refetchInterval: 15_000,
+    meta: { suppressGlobalError: true },
   });
   const selectedWarehouseValue = profile?.default_warehouse_id ?? (canSelectAllWarehouses ? "__all__" : "");
   const headerWarehouses = useMemo(() => {
@@ -381,16 +455,78 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       return;
     }
     if (online) {
-      toast.success("Connection restored. Refreshing live data.");
-      void flushOfflineQueue({ silent: true }).finally(() => {
-        void queryClient.invalidateQueries();
-      });
+      clearOfflineAlertSession();
+      toast.success("Connection restored. Refreshing live warehouse state.");
+      if (isActiveWorkInProgress()) {
+        void queryClient.invalidateQueries({ refetchType: "none" });
+        return;
+      }
+      void queryClient.invalidateQueries();
       return;
     }
-    toast.message("Connection lost. Keep finishing scan work already open; it will sync when signal returns.", {
+    if (!readOfflineAlertSession() && user?.id) {
+      const happenedAt = new Date().toISOString();
+      writeOfflineAlertSession(happenedAt);
+      void (async () => {
+        try {
+          const deviceId = getOrCreateDeviceId();
+          await writeSystemLog({
+            log_type: "infrastructure",
+            severity: "critical",
+            title: "RF device offline — commits frozen",
+            message: `${profile?.full_name?.trim() || user.email || "Unknown operator"} lost connectivity on ${pathname}. The device is frozen for live warehouse commits until reconnect.`,
+            source: OFFLINE_SYSTEM_LOG_SOURCE,
+            details: {
+              alert_kind: "offline_disconnect",
+              happened_at: happenedAt,
+              route: pathname,
+              device_id: deviceId,
+              user_id: user.id,
+              user_email: user.email ?? null,
+              user_name: profile?.full_name ?? null,
+              warehouse_id: profile?.default_warehouse_id ?? null,
+            },
+          });
+        } catch (error) {
+          clearOfflineAlertSession();
+          console.error("[offline-alert] writeSystemLog failed:", error);
+        }
+      })();
+    }
+    toast.message("Connection lost. This device is frozen for live commits until reconnect. Your current task position stays on this device.", {
       duration: 6000,
     });
-  }, [online, queryClient]);
+  }, [online, pathname, profile?.default_warehouse_id, profile?.full_name, queryClient, user?.email, user?.id]);
+
+  useEffect(() => {
+    for (const alert of offlineSupervisorAlerts) {
+      if (shownOfflineAlertIdsRef.current.has(alert.id)) continue;
+      shownOfflineAlertIdsRef.current.add(alert.id);
+      toast.custom(
+        () => (
+          <OfflineSupervisorAlertToastCard
+            alert={alert}
+            onAcknowledge={async () => {
+              await resolveSystemLog(alert.id);
+              toast.dismiss(`offline-alert-${alert.id}`);
+              await queryClient.invalidateQueries({ queryKey: ["system-logs", "offline-disconnect-alerts"] });
+            }}
+          />
+        ),
+        {
+          id: `offline-alert-${alert.id}`,
+          duration: Infinity,
+        },
+      );
+    }
+    const activeIds = new Set(offlineSupervisorAlerts.map((alert) => alert.id));
+    shownOfflineAlertIdsRef.current.forEach((id) => {
+      if (!activeIds.has(id)) {
+        shownOfflineAlertIdsRef.current.delete(id);
+        toast.dismiss(`offline-alert-${id}`);
+      }
+    });
+  }, [offlineSupervisorAlerts, queryClient]);
 
   const prefetchRouteData = useCallback((route: AppRoute) => {
     const warehouseId = profile?.default_warehouse_id;
@@ -575,7 +711,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </Avatar>
               <span className="hidden max-w-[120px] truncate text-xs font-medium sm:inline">{displayName}</span>
             </div>
-            <OfflineQueueBadge compact />
+            <OfflineFreezeBadge compact />
             <HelpSidebar pathname={pathname} />
             <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
               <SheetTrigger asChild>
@@ -672,7 +808,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 </Select>
               ) : null}
               <HelpSidebar pathname={pathname} />
-              <OfflineQueueBadge />
+              <OfflineFreezeBadge />
               <ProfileMenu initials={initials} displayName={displayName} onSignOut={() => void signOut()} />
             </div>
           </div>

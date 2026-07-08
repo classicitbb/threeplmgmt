@@ -45,6 +45,7 @@ const aiMocks = vi.hoisted(() => ({
     async (_productId: string, _warehouseId?: string | null): Promise<{ suggestedQty: number; confidence: number; sampleCount: number } | null> => null,
   ),
 }));
+const networkState = vi.hoisted(() => ({ online: true }));
 
 class ResizeObserverStub {
   observe() {}
@@ -73,10 +74,23 @@ vi.mock("@/components/barcode-scan-button", () => ({
 
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({
-    profile: { default_warehouse_id: "wh-1" },
+    profile: { id: "user-1", default_warehouse_id: "wh-1" },
     roles: ["warehouse_manager"],
   }),
 }));
+
+vi.mock("@/hooks/use-network-status", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/hooks/use-network-status")>();
+  return {
+    ...actual,
+    useNetworkStatus: () => ({ online: networkState.online }),
+    assertOnline: () => {
+      if (!networkState.online) {
+        throw new Error(actual.OFFLINE_WORK_MESSAGE);
+      }
+    },
+  };
+});
 
 vi.mock("@/lib/ai-assist", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/ai-assist")>();
@@ -106,8 +120,10 @@ vi.mock("@/lib/wms-core", async (importOriginal) => {
 describe("ReceivingPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    networkState.online = true;
     wmsMocks.listDraftReceipts.mockResolvedValue([]);
     aiMocks.getProductPalletQtyHint.mockResolvedValue(null);
+    window.localStorage.clear();
   });
 
   function renderReceivingPage() {
@@ -425,6 +441,25 @@ describe("ReceivingPage", () => {
       product_id: "prod-1",
       quantity: 1,
     })));
+  });
+
+  it("freezes receiving posts while offline and keeps the form local", async () => {
+    networkState.online = false;
+    renderReceivingPage();
+
+    expect(await screen.findByText(/this device is offline\. receiving posts are frozen\./i)).toBeInTheDocument();
+
+    const dialog = await openShipmentDialog();
+    const containerInput = within(dialog).getByLabelText("Container number");
+    const poInput = within(dialog).getByLabelText("PO number");
+
+    fireEvent.change(containerInput, { target: { value: "MSKU1234565" } });
+    fireEvent.change(poInput, { target: { value: "PO-1" } });
+    await selectFlourProduct(dialog);
+
+    expect(within(dialog).getByRole("button", { name: /save & receive/i })).toBeDisabled();
+    expect(within(dialog).getByRole("button", { name: /save & new/i })).toBeDisabled();
+    expect(wmsMocks.saveShipmentDrafts).not.toHaveBeenCalled();
   });
 
   it("shows draft metadata container fallback and mobile-friendly draft row layout", async () => {

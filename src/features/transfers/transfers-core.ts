@@ -239,7 +239,7 @@ export async function cancelTransfer(transferId: string, reason: string) {
 export async function flagCountLineException(lineId: string, reason: string) {
   if (!reason.trim()) throw new Error("A reason is required to flag a count exception.");
   await db("cycle_count_lines")
-    .update({ status: "exception", notes: reason } as any)
+    .update({ status: "exception", line_status: "exception", exception_reason: reason, notes: reason } as any)
     .eq("id", lineId);
 
   await (supabase.rpc as any)("log_audit_event", {
