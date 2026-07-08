@@ -358,6 +358,9 @@ export const RESOURCE_DEFINITIONS: Record<string, ResourceDefinition> = {
       { name: "city", label: "City", type: "text" },
       { name: "country", label: "Country", type: "text" },
       { name: "has_cool_zone", label: "Has cool zone", type: "boolean" },
+      { name: "variance_value_floor", label: "Variance value floor", type: "number", description: "Cycle-count variances at or above this value require review." },
+      { name: "supervisor_approval_cap", label: "Supervisor approval cap", type: "number", description: "Cycle-count adjustment value supervisors can approve before manager escalation." },
+      { name: "freeze_default_hours", label: "Freeze default hours", type: "number", description: "Default auto-expiry window for cycle-count bin freezes." },
       { name: "active", label: "Active", type: "boolean" },
     ],
   },
@@ -448,6 +451,12 @@ export const RESOURCE_DEFINITIONS: Record<string, ResourceDefinition> = {
       { name: "description", label: "Description", type: "textarea" },
       { name: "client_owner_id", label: "Client", type: "select", required: true },
       { name: "product_family", label: "Family", type: "text" },
+      { name: "velocity_class", label: "ABC class", type: "select", options: [
+        { label: "A", value: "A" },
+        { label: "B", value: "B" },
+        { label: "C", value: "C" },
+      ] },
+      { name: "unit_cost", label: "Unit cost", type: "number", description: "Used for cycle-count variance value review thresholds." },
       { name: "temperature_requirement", label: "Temperature", type: "select", options: tempOptions, required: true },
       { name: "lot_tracked", label: "Lot tracked", type: "boolean" },
       { name: "batch_tracked", label: "Batch tracked", type: "boolean" },
@@ -552,11 +561,13 @@ export const transferSchema = z.object({
 
 export const cycleCountSchema = z.object({
   warehouse_id: z.string().uuid(),
-  scope: z.enum(["location", "zone", "sku", "spot"]),
+  scope: z.enum(["location", "zone", "sku", "spot", "abc"]),
   location_id: z.string().uuid().optional().or(z.literal("")),
   zone_id: z.string().uuid().optional().or(z.literal("")),
   product_id: z.string().uuid().optional().or(z.literal("")),
   variance_threshold_percent: z.coerce.number().min(0).max(100).default(5),
+  freeze_hours: z.coerce.number().positive().max(168).default(4),
+  assigned_user_id: z.string().uuid().optional().or(z.literal("")),
 });
 
 export const statusChangeSchema = z.object({

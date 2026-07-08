@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
-export const OFFLINE_WORK_MESSAGE = "Connection lost. Work was not posted. Reconnect and try again.";
+export const OFFLINE_WORK_MESSAGE =
+  "Connection lost. This device is frozen for live commits. Reconnect, refresh live state, and confirm again.";
 
 export function isAppOnline() {
   return typeof navigator === "undefined" || navigator.onLine !== false;

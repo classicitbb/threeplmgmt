@@ -283,6 +283,28 @@ Four surfaces, built with the app's existing shadcn/ui + react-hook-form + tanst
 
 ---
 
+### Prototype screenshots
+
+Non-functional mockups rendered in the app's own dark theme (teal primary / amber accent), stored alongside this spec in `/docs/`:
+
+**1 — Manager: create & monitor**
+
+![Manager create & monitor](prototype-1-manager-create-monitor.png)
+
+**2 — Counter: blind entry (mobile)**
+
+![Counter blind entry](prototype-2-counter-blind-entry.png)
+
+**3 — Supervisor: approval queue** (note the three states: approvable, manager-required over 1,000, and disabled "you counted this line")
+
+![Supervisor approval queue](prototype-3-supervisor-approval-queue.png)
+
+**4 — Operations: frozen-bin warning** (shown inside Picking)
+
+![Frozen bin warning](prototype-4-frozen-bin-warning.png)
+
+---
+
 ## 9. Build plan (segmented, non-truncating)
 
 Per project rules — features segmented by page, complete files, no truncation:
@@ -306,17 +328,16 @@ All settled — these are the defaults the module ships with. Every one is store
 | Variance trigger | **Percent OR value floor** | A line enters the review/approval path if the variance exceeds `variance_threshold_percent` **or** the value floor, whichever hits first. |
 | Value floor | **500** (app currency) | A variance worth ≥ 500 is always reviewed even if the % is small (catches low-%, high-value swings). |
 | Supervisor approval cap | **1,000** | Supervisors approve adjustments valued **≤ 1,000**. Above 1,000 escalates to Manager+. |
-| Variance reason | **Free text** | Counter/approver types the reason on an exception or over-threshold line. No fixed dropdown. (A reason taxonomy can be layered on later for reporting if wanted.) |
+| Variance reason | **Free text** | Counter/approver types the reason on an exception or over-threshold line. No fixed dropdown. |
 | Freeze auto-expiry | **4 hours** (default, per-count configurable) | An `active` freeze auto-releases after 4h, un-holds the stock, and alerts the count's supervisor. |
 | ABC cadence | **A = 30d · B = 90d · C = 180d** | Default `frequency_days` per velocity class when seeding `cycle_count_schedules`. |
 
 ### Where these live
 
 - `variance_threshold_percent` — already on `cycle_counts` (and `cycle_count_schedules`).
-- `variance_value_floor`, `supervisor_approval_cap`, `freeze_default_hours` — add to a warehouse-level settings row (the app already has a client-variables / settings mechanism; reuse it rather than a new table).
-- Variance value = `variance_quantity × unit_cost`. **Requires a unit cost on the product/lot.** If cost isn't yet captured, either (a) add `products.unit_cost`, or (b) fall back to the quantity floor until cost data exists. Flag for confirmation before build.
-- ABC `frequency_days` — seeded per class in `cycle_count_schedules`, editable in the schedule UI.
+- `variance_value_floor`, `supervisor_approval_cap`, `freeze_default_hours` — warehouse-level settings (reuse the existing client-variables/settings mechanism, not a new table).
+- Variance value = `variance_quantity × products.unit_cost`.
 
 ### Resolved dependency — unit cost
 
-Confirmed by inspection: **no cost/price column exists** on `products`, `inventory_lots`, or `inventory_balances`. Decision: **add `products.unit_cost numeric(14,2)` in the migration**, expose it on the product form and CSV import. Variance value = `variance_quantity × products.unit_cost`. Until a product has a cost, that line's value floor is treated as not-met (falls back to the % threshold only), so missing costs never block a count — they just don't trip the value floor. No remaining data dependencies; the spec is coding-ready.
+Confirmed by inspection: **no cost/price column exists** on `products`, `inventory_lots`, or `inventory_balances`. Decision: **add `products.unit_cost numeric(14,2)`** in the migration, exposed on the product form and CSV import. Until a product has a cost, that line's value floor is treated as not-met (falls back to the % threshold only), so missing costs never block a count. No remaining data dependencies; the spec is coding-ready.

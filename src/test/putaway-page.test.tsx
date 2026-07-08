@@ -101,6 +101,7 @@ vi.mock("@/lib/wms-core", async (importOriginal) => {
 
 describe("PutawayTasksPage scan-first flow", () => {
   beforeEach(() => {
+    vi.restoreAllMocks();
     vi.clearAllMocks();
     window.localStorage.clear();
     setPointerCoarse(false);
@@ -239,6 +240,22 @@ describe("PutawayTasksPage scan-first flow", () => {
     expect(await screen.findByText(/No open Put-Away task found for pallet MISSING/)).toBeInTheDocument();
     expect(screen.queryByText(/SKU-1/)).not.toBeInTheDocument();
     expect(screen.queryByText(/SKU-2/)).not.toBeInTheDocument();
+  });
+
+  it("freezes confirmation while offline instead of queueing stale work", async () => {
+    vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+    renderPutawayPage();
+
+    await enterPallet("PLT-1");
+    const bayDialog = await screen.findByRole("dialog", { name: /select a bay/i });
+    fireEvent.click(within(bayDialog).getByRole("button", { name: /close/i }));
+
+    const locationInput = await screen.findByPlaceholderText("Scan location barcode");
+    fireEvent.change(locationInput, { target: { value: "LOC-1" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Confirm Put-Away$/i }));
+
+    await screen.findByText(/live put-away confirmations are frozen/i);
+    expect(wmsMocks.confirmPutaway).not.toHaveBeenCalled();
   });
 
   it("clears the current task and invalidates warehouse data after confirm", async () => {

@@ -14,6 +14,7 @@ import { normalizeRackLocationCode } from "@/features/setup/setup-core";
 import { upsertRecord } from "@/features/admin/admin-core";
 import { createLabelRecord } from "@/features/receiving/receiving-core";
 import { writeSystemLog } from "@/features/system/system-core";
+import { assertNotFrozen } from "@/features/cycle-counts/freeze-core";
 
 /**
  * Splits a requested pick quantity across pallets in the order they're
@@ -60,7 +61,15 @@ async function selectPickCandidates(productId: string, warehouseId: string, quan
     .gt("available_quantity", 0);
   if (error) throw error;
 
-  const sorted = [...(data ?? [])].sort((left, right) => {
+  const { data: freezes, error: freezeError } = await db("inventory_freezes")
+    .select("location_id")
+    .eq("warehouse_id", warehouseId)
+    .eq("status", "active");
+  if (freezeError) throw freezeError;
+  const frozenLocationIds = new Set((freezes ?? []).map((freeze: any) => freeze.location_id).filter(Boolean));
+  const availableCandidates = (data ?? []).filter((candidate: any) => !candidate.location_id || !frozenLocationIds.has(candidate.location_id));
+
+  const sorted = [...availableCandidates].sort((left, right) => {
     if (product?.rotation_method === "fefo") {
       return (left.expiry_date ?? "9999-12-31").localeCompare(right.expiry_date ?? "9999-12-31");
     }
@@ -250,6 +259,7 @@ export async function confirmPickTask(
   if (location.data && normalizeRackLocationCode(location.data.code) !== normalizeRackLocationCode(scannedLocation)) {
     throw new Error("Scanned location does not match the suggested pick location.");
   }
+  await assertNotFrozen(balance.location_id, { palletId: pallet.id });
 
   let nextBalanceQuantity = Number(balance.quantity ?? 0);
   let fullyDepleted = false;

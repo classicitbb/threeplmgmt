@@ -29,19 +29,15 @@ import { z } from "zod";
 
 import { useAuth } from "@/hooks/use-auth";
 import { useFeatureFlags, MODULE_LABELS, STARTER_MODULES, type ModuleKey } from "@/hooks/use-feature-flags";
-import { assertOnline, useNetworkStatus } from "@/hooks/use-network-status";
-import {
-  enqueueOfflineWork,
-  flushOfflineQueue,
-  installOfflineAutoReplay,
-  isLikelyNetworkError,
-  useOfflineQueue,
-  useDeadLetterQueue,
-
-  type FailedWorkItem,
-} from "@/lib/offline-queue";
-import { useBackgroundSync } from "@/hooks/use-background-sync";
+import { OFFLINE_WORK_MESSAGE, assertOnline, useNetworkStatus } from "@/hooks/use-network-status";
+import { isLikelyNetworkError } from "@/lib/offline-queue";
 import { beginActiveWork } from "@/lib/active-work";
+import {
+  clearPutawayResumeSnapshot,
+  loadPutawayResumeSnapshot,
+  savePutawayResumeSnapshot,
+  type PutawayResumeScanState,
+} from "@/lib/floor-task-resume";
 import {
   NAVIGATION,
   ROLE_LABELS,
@@ -86,6 +82,7 @@ import {
   logPutawayBaySelection,
   getPutawayTasks,
   getPutawayTaskHistory,
+  revalidatePutawayTaskPosition,
   getReportData,
   parseCsvForResource,
   commitImportRows,
@@ -504,6 +501,7 @@ export function PutawayTasksPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const { user, roles, profile } = useAuth();
+  const { online } = useNetworkStatus();
   // Managers and above see all open tasks; operators/clerks only see their own + unassigned
   const canSeeAllTasks = roles.some((r) => ["developer", "admin", "warehouse_manager", "warehouse_supervisor"].includes(r));
   const putawayUserId = canSeeAllTasks ? undefined : user?.id;
@@ -516,7 +514,7 @@ export function PutawayTasksPage() {
     queryKey: ["putaway-task-history", putawayUserId],
     queryFn: () => getPutawayTaskHistory(putawayUserId),
   });
-  const [scanState, setScanState] = useState<Record<string, { pallet: string; location: string; override: boolean; reason: string }>>({});
+  const [scanState, setScanState] = useState<Record<string, PutawayResumeScanState>>({});
   const [bayScanState, setBayScanState] = useState<Record<string, string>>({});
   const [violations, setViolations] = useState<Record<string, string>>({});
   const [bayBrowserOpen, setBayBrowserOpen] = useState<Record<string, boolean>>({});
@@ -532,13 +530,114 @@ export function PutawayTasksPage() {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [flowCancelled, setFlowCancelled] = useState(false);
   const [openTasksExpanded, setOpenTasksExpanded] = useState(false);
+  const [resumeHydrated, setResumeHydrated] = useState(false);
+  const [pendingReconnectValidation, setPendingReconnectValidation] = useState(false);
+  const [resumeNotice, setResumeNotice] = useState<{ mode: "reselect" | "reset-task"; summary: string } | null>(null);
   const scanInputRef = useRef<HTMLInputElement | null>(null);
   const palletRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const locationRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const confirmRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const previousOnlineRef = useRef(online);
   const [completedIds, setCompletedIds] = useState<Set<string>>(new Set());
   const [revertedIds, setRevertedIds] = useState<Set<string>>(new Set());
   const [returnTask, setReturnTask] = useState<any | null>(null);
+
+  const clearSelectedTaskState = useCallback((taskId?: string | null) => {
+    if (!taskId) return;
+    setScanState((current) => {
+      if (!(taskId in current)) return current;
+      const next = { ...current };
+      delete next[taskId];
+      return next;
+    });
+    setViolations((current) => {
+      if (!(taskId in current)) return current;
+      const next = { ...current };
+      delete next[taskId];
+      return next;
+    });
+    setBayScanState((current) => {
+      if (!(taskId in current)) return current;
+      const next = { ...current };
+      delete next[taskId];
+      return next;
+    });
+  }, []);
+
+  const resetPutawaySelection = useCallback((taskId?: string | null) => {
+    clearSelectedTaskState(taskId);
+    setSelectedTaskId(null);
+    setTaskSearch("");
+    setScanQuery("");
+    setScanError("");
+    setFlowCancelled(false);
+    setOpenTasksExpanded(false);
+  }, [clearSelectedTaskState]);
+
+  useEffect(() => {
+    if (resumeHydrated) return;
+    const snapshot = loadPutawayResumeSnapshot({
+      userId: user?.id ?? null,
+      warehouseId: activeWarehouseId,
+    });
+    if (snapshot) {
+      setSelectedTaskId(snapshot.selectedTaskId);
+      setTaskSearch(snapshot.taskSearch);
+      setScanQuery(snapshot.scanQuery);
+      setScanState(snapshot.scanState ?? {});
+      setBayScanState(snapshot.bayScanState ?? {});
+      setOpenTasksExpanded(snapshot.openTasksExpanded ?? false);
+      setFlowCancelled(false);
+      if (snapshot.selectedTaskId && online) {
+        setPendingReconnectValidation(true);
+      }
+    }
+    setResumeHydrated(true);
+  }, [activeWarehouseId, online, resumeHydrated, user?.id]);
+
+  useEffect(() => {
+    if (!resumeHydrated) return;
+    const hasPosition =
+      Boolean(selectedTaskId) ||
+      Object.keys(scanState).length > 0 ||
+      Object.keys(bayScanState).length > 0 ||
+      taskSearch.trim().length > 0 ||
+      scanQuery.trim().length > 0;
+    if (!hasPosition) {
+      clearPutawayResumeSnapshot();
+      return;
+    }
+    savePutawayResumeSnapshot({
+      userId: user?.id ?? null,
+      warehouseId: activeWarehouseId,
+      selectedTaskId,
+      taskSearch,
+      scanQuery,
+      scanState,
+      bayScanState,
+      openTasksExpanded,
+      updatedAt: Date.now(),
+    });
+  }, [
+    activeWarehouseId,
+    bayScanState,
+    openTasksExpanded,
+    resumeHydrated,
+    scanQuery,
+    scanState,
+    selectedTaskId,
+    taskSearch,
+    user?.id,
+  ]);
+
+  useEffect(() => {
+    const wasOnline = previousOnlineRef.current;
+    previousOnlineRef.current = online;
+    if (!resumeHydrated || !selectedTaskId) return;
+    if (!wasOnline && online) {
+      setPendingReconnectValidation(true);
+    }
+  }, [online, resumeHydrated, selectedTaskId]);
 
   const revertMutation = useMutation({
     mutationFn: ({ taskId }: { taskId: string; openReceiving?: boolean }) => revertPutawayToDraft(taskId),
@@ -546,12 +645,8 @@ export function PutawayTasksPage() {
       toast.success("Task saved as draft");
       setReturnTask(null);
       setRevertedIds((prev) => new Set([...prev, vars.taskId]));
-      setSelectedTaskId(null);
-      setTaskSearch("");
-      setScanQuery("");
-      setScanError("");
-      setFlowCancelled(false);
-      setOpenTasksExpanded(false);
+      setResumeNotice(null);
+      resetPutawaySelection(vars.taskId);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["putaway-tasks"] }),
         queryClient.invalidateQueries({ queryKey: ["putaway-task-history"] }),
@@ -563,58 +658,20 @@ export function PutawayTasksPage() {
   });
 
   const mutation = useMutation({
-    meta: { offlineQueueable: true },
-    mutationFn: async ({ taskId, pallet, location, override, reason }: { taskId: string; pallet: string; location: string; override?: boolean; reason?: string }) =>
-    {
-      // If we're offline at submit time, buffer immediately — no network call.
-      if (typeof navigator !== "undefined" && navigator.onLine === false) {
-        await enqueueOfflineWork("putaway", { taskId, pallet, location, override, reason });
-        return { queued: true as const };
-      }
+    mutationFn: async ({ taskId, pallet, location, override, reason }: { taskId: string; pallet: string; location: string; override?: boolean; reason?: string }) => {
+      assertOnline();
       try {
         await confirmPutaway(taskId, pallet, location, { override, overrideReason: reason });
-        return { queued: false as const };
       } catch (err) {
-        // Network drop mid-submit → buffer and surface as queued, not as a failure.
         if (isLikelyNetworkError(err)) {
-          await enqueueOfflineWork("putaway", { taskId, pallet, location, override, reason });
-          return { queued: true as const };
+          throw new Error(OFFLINE_WORK_MESSAGE);
         }
         throw err;
       }
     },
-    onSuccess: async (result, vars) => {
-      if (result?.queued) {
-        playBarcodeBeep();
-        toast.message("Saved offline — will sync when reconnected", {
-          description: `Pallet ${vars.pallet} → ${vars.location} buffered locally.`,
-          duration: 6000,
-        });
-        setCompletedIds((prev) => new Set([...prev, vars.taskId]));
-        setScanState((current) => {
-          const next = { ...current };
-          delete next[vars.taskId];
-          return next;
-        });
-        setViolations((current) => {
-          const next = { ...current };
-          delete next[vars.taskId];
-          return next;
-        });
-        setBayScanState((current) => {
-          const next = { ...current };
-          delete next[vars.taskId];
-          return next;
-        });
-        setSelectedTaskId(null);
-        setTaskSearch("");
-        setScanQuery("");
-        setScanError("");
-        setFlowCancelled(false);
-        setOpenTasksExpanded(false);
-        return;
-      }
+    onSuccess: async (_, vars) => {
       playBarcodeBeep();
+      setResumeNotice(null);
       toast.success(vars.override ? "Put-Away locked in with override" : "Put-Away locked in", {
         description: `Pallet ${vars.pallet} stored at ${vars.location}.`,
         duration: 7000,
@@ -622,27 +679,7 @@ export function PutawayTasksPage() {
       });
       markPutawayOccupancyCached(queryClient, vars.location);
       setCompletedIds((prev) => new Set([...prev, vars.taskId]));
-      setScanState((current) => {
-        const next = { ...current };
-        delete next[vars.taskId];
-        return next;
-      });
-      setViolations((current) => {
-        const next = { ...current };
-        delete next[vars.taskId];
-        return next;
-      });
-      setBayScanState((current) => {
-        const next = { ...current };
-        delete next[vars.taskId];
-        return next;
-      });
-      setSelectedTaskId(null);
-      setTaskSearch("");
-      setScanQuery("");
-      setScanError("");
-      setFlowCancelled(false);
-      setOpenTasksExpanded(false);
+      resetPutawaySelection(vars.taskId);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["putaway-tasks"] }),
         queryClient.invalidateQueries({ queryKey: ["putaway-task-history"] }),
@@ -667,6 +704,72 @@ export function PutawayTasksPage() {
   const openPutawayStatuses = new Set(["queued", "assigned", "in_progress", "exception"]);
   const pendingTasks = data.filter((task: any) => openPutawayStatuses.has(task.status) && !completedIds.has(task.id) && !revertedIds.has(task.id));
   const selectedTask = selectedTaskId ? pendingTasks.find((task: any) => task.id === selectedTaskId) ?? null : null;
+
+  useEffect(() => {
+    if (!pendingReconnectValidation || !resumeHydrated || !online || !selectedTaskId) return;
+    const localState = scanState[selectedTaskId];
+    let cancelled = false;
+
+    const validate = async () => {
+      try {
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: ["putaway-tasks"] }),
+          queryClient.invalidateQueries({ queryKey: ["putaway-task-history"] }),
+          queryClient.invalidateQueries({ queryKey: ["inventory-search"] }),
+          queryClient.invalidateQueries({ queryKey: ["dashboard-metrics"] }),
+        ]);
+        const result = await revalidatePutawayTaskPosition({
+          taskId: selectedTaskId,
+          scannedPalletBarcode: localState?.pallet,
+          scannedLocationCode: localState?.location,
+        });
+        if (cancelled) return;
+        if (result.status === "reset-task") {
+          setResumeNotice({ mode: "reset-task", summary: result.summary });
+          resetPutawaySelection(selectedTaskId);
+          toast.warning(result.summary, { duration: 8000 });
+          return;
+        }
+        if (result.status === "reselect") {
+          setResumeNotice({ mode: "reselect", summary: result.summary });
+          setScanState((current) => ({
+            ...current,
+            [selectedTaskId]: {
+              ...(current[selectedTaskId] ?? { pallet: "", location: "", override: false, reason: "" }),
+              location: "",
+            },
+          }));
+          setBayScanState((current) => {
+            if (!(selectedTaskId in current)) return current;
+            const next = { ...current };
+            delete next[selectedTaskId];
+            return next;
+          });
+          toast.warning(result.summary, { duration: 8000 });
+          setTimeout(() => locationRefs.current[selectedTaskId]?.focus(), 80);
+          return;
+        }
+        setResumeNotice(null);
+      } finally {
+        if (!cancelled) {
+          setPendingReconnectValidation(false);
+        }
+      }
+    };
+
+    void validate();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    online,
+    pendingReconnectValidation,
+    queryClient,
+    resetPutawaySelection,
+    resumeHydrated,
+    scanState,
+    selectedTaskId,
+  ]);
 
   // Mark active work while an operator has a pallet+task locked in. Background
   // refresh and SW reloads will defer until this is released so the in-flight
@@ -714,6 +817,7 @@ export function PutawayTasksPage() {
 
     const palletCode = getConfirmPalletCode(match, value);
     setSelectedTaskId(match.id);
+    setResumeNotice(null);
     setTaskSearch(value);
     setScanQuery(value);
     setScanError("");
@@ -765,12 +869,20 @@ export function PutawayTasksPage() {
       setScanDialogOpen(false);
       setSelectedTaskId(null);
       setFlowCancelled(false);
+      setResumeNotice(null);
       return;
     }
     if (!selectedTask && !flowCancelled) {
       setScanDialogOpen(true);
     }
   }, [flowCancelled, isLoading, pendingTasks.length, selectedTask]);
+
+  useEffect(() => {
+    if (!resumeHydrated || isLoading || !online || !selectedTaskId) return;
+    if (!selectedTask) {
+      setPendingReconnectValidation(true);
+    }
+  }, [isLoading, online, resumeHydrated, selectedTask, selectedTaskId]);
 
   useEffect(() => {
     if (!scanDialogOpen) return;
@@ -953,6 +1065,25 @@ export function PutawayTasksPage() {
           </Button>
         </div>
       </div>
+      {!online ? (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
+          <p className="font-medium">This device is offline. Live Put-Away confirmations are frozen.</p>
+          <p className="mt-1 text-xs sm:text-sm">Your current task position stays on this device. When the signal returns, the app will refresh live bin state before it lets you confirm.</p>
+        </div>
+      ) : null}
+      {resumeNotice ? (
+        <div
+          className={cn(
+            "rounded-lg border px-4 py-3 text-sm",
+            resumeNotice.mode === "reset-task"
+              ? "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200"
+              : "border-cyan-300 bg-cyan-50 text-cyan-950 dark:border-cyan-700 dark:bg-cyan-950/40 dark:text-cyan-100",
+          )}
+        >
+          <p className="font-medium">{resumeNotice.mode === "reset-task" ? "Task changed while you were offline" : "Target changed while you were offline"}</p>
+          <p className="mt-1">{resumeNotice.summary}</p>
+        </div>
+      ) : null}
       <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto pr-1">
         {!selectedTask && pendingTasks.length > 0 ? (
           <details
