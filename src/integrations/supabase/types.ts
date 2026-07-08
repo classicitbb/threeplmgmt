@@ -227,54 +227,97 @@ export type Database = {
       }
       cycle_count_lines: {
         Row: {
+          adjustment_id: string | null
+          approved_at: string | null
+          approved_by: string | null
+          assigned_user_id: string | null
           counted_quantity: number | null
           created_at: string
           created_by: string | null
           cycle_count_id: string
+          exception_reason: string | null
           expected_quantity: number
+          first_count_qty: number | null
+          first_counted_at: string | null
+          first_counted_by: string | null
           id: string
+          line_status: Database["public"]["Enums"]["count_line_status"]
           location_id: string | null
           notes: string | null
           pallet_id: string | null
           product_id: string | null
+          recount_qty: number | null
+          recounted_at: string | null
+          recounted_by: string | null
           status: Database["public"]["Enums"]["task_status"]
           updated_at: string
           variance_percent: number | null
           variance_quantity: number | null
         }
         Insert: {
+          adjustment_id?: string | null
+          approved_at?: string | null
+          approved_by?: string | null
+          assigned_user_id?: string | null
           counted_quantity?: number | null
           created_at?: string
           created_by?: string | null
           cycle_count_id: string
+          exception_reason?: string | null
           expected_quantity?: number
+          first_count_qty?: number | null
+          first_counted_at?: string | null
+          first_counted_by?: string | null
           id?: string
+          line_status?: Database["public"]["Enums"]["count_line_status"]
           location_id?: string | null
           notes?: string | null
           pallet_id?: string | null
           product_id?: string | null
+          recount_qty?: number | null
+          recounted_at?: string | null
+          recounted_by?: string | null
           status?: Database["public"]["Enums"]["task_status"]
           updated_at?: string
           variance_percent?: number | null
           variance_quantity?: number | null
         }
         Update: {
+          adjustment_id?: string | null
+          approved_at?: string | null
+          approved_by?: string | null
+          assigned_user_id?: string | null
           counted_quantity?: number | null
           created_at?: string
           created_by?: string | null
           cycle_count_id?: string
+          exception_reason?: string | null
           expected_quantity?: number
+          first_count_qty?: number | null
+          first_counted_at?: string | null
+          first_counted_by?: string | null
           id?: string
+          line_status?: Database["public"]["Enums"]["count_line_status"]
           location_id?: string | null
           notes?: string | null
           pallet_id?: string | null
           product_id?: string | null
+          recount_qty?: number | null
+          recounted_at?: string | null
+          recounted_by?: string | null
           status?: Database["public"]["Enums"]["task_status"]
           updated_at?: string
           variance_percent?: number | null
           variance_quantity?: number | null
         }
         Relationships: [
+          {
+            foreignKeyName: "cycle_count_lines_adjustment_id_fkey"
+            columns: ["adjustment_id"]
+            isOneToOne: false
+            referencedRelation: "stock_adjustments"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "cycle_count_lines_cycle_count_id_fkey"
             columns: ["cycle_count_id"]
@@ -312,17 +355,78 @@ export type Database = {
           },
         ]
       }
+      cycle_count_schedules: {
+        Row: {
+          active: boolean
+          created_at: string
+          created_by: string
+          frequency_days: number
+          id: string
+          name: string
+          next_run_at: string
+          variance_threshold_percent: number
+          velocity_class: string | null
+          warehouse_id: string
+          zone_id: string | null
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          created_by: string
+          frequency_days: number
+          id?: string
+          name: string
+          next_run_at: string
+          variance_threshold_percent?: number
+          velocity_class?: string | null
+          warehouse_id: string
+          zone_id?: string | null
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          created_by?: string
+          frequency_days?: number
+          id?: string
+          name?: string
+          next_run_at?: string
+          variance_threshold_percent?: number
+          velocity_class?: string | null
+          warehouse_id?: string
+          zone_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cycle_count_schedules_warehouse_id_fkey"
+            columns: ["warehouse_id"]
+            isOneToOne: false
+            referencedRelation: "warehouses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cycle_count_schedules_zone_id_fkey"
+            columns: ["zone_id"]
+            isOneToOne: false
+            referencedRelation: "zones"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       cycle_counts: {
         Row: {
           assigned_user_id: string | null
           count_number: string
           created_at: string
           created_by: string | null
+          freeze_expires_at: string | null
           id: string
+          initiated_by: string | null
           location_id: string | null
           notes: string | null
+          schedule_id: string | null
           scope: Database["public"]["Enums"]["count_scope"]
-          status: Database["public"]["Enums"]["task_status"]
+          snapshot_at: string | null
+          status: Database["public"]["Enums"]["count_status"]
           updated_at: string
           variance_threshold_percent: number
           warehouse_id: string
@@ -333,11 +437,15 @@ export type Database = {
           count_number: string
           created_at?: string
           created_by?: string | null
+          freeze_expires_at?: string | null
           id?: string
+          initiated_by?: string | null
           location_id?: string | null
           notes?: string | null
+          schedule_id?: string | null
           scope?: Database["public"]["Enums"]["count_scope"]
-          status?: Database["public"]["Enums"]["task_status"]
+          snapshot_at?: string | null
+          status?: Database["public"]["Enums"]["count_status"]
           updated_at?: string
           variance_threshold_percent?: number
           warehouse_id: string
@@ -348,11 +456,15 @@ export type Database = {
           count_number?: string
           created_at?: string
           created_by?: string | null
+          freeze_expires_at?: string | null
           id?: string
+          initiated_by?: string | null
           location_id?: string | null
           notes?: string | null
+          schedule_id?: string | null
           scope?: Database["public"]["Enums"]["count_scope"]
-          status?: Database["public"]["Enums"]["task_status"]
+          snapshot_at?: string | null
+          status?: Database["public"]["Enums"]["count_status"]
           updated_at?: string
           variance_threshold_percent?: number
           warehouse_id?: string
@@ -371,6 +483,13 @@ export type Database = {
             columns: ["location_id"]
             isOneToOne: false
             referencedRelation: "locations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cycle_counts_schedule_id_fkey"
+            columns: ["schedule_id"]
+            isOneToOne: false
+            referencedRelation: "cycle_count_schedules"
             referencedColumns: ["id"]
           },
           {
@@ -835,6 +954,87 @@ export type Database = {
           },
         ]
       }
+      inventory_freezes: {
+        Row: {
+          created_at: string
+          created_by: string
+          cycle_count_id: string
+          expires_at: string
+          frozen_at: string
+          id: string
+          location_id: string | null
+          pallet_id: string | null
+          released_at: string | null
+          released_by: string | null
+          status: Database["public"]["Enums"]["freeze_status"]
+          warehouse_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          cycle_count_id: string
+          expires_at: string
+          frozen_at?: string
+          id?: string
+          location_id?: string | null
+          pallet_id?: string | null
+          released_at?: string | null
+          released_by?: string | null
+          status?: Database["public"]["Enums"]["freeze_status"]
+          warehouse_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          cycle_count_id?: string
+          expires_at?: string
+          frozen_at?: string
+          id?: string
+          location_id?: string | null
+          pallet_id?: string | null
+          released_at?: string | null
+          released_by?: string | null
+          status?: Database["public"]["Enums"]["freeze_status"]
+          warehouse_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "inventory_freezes_cycle_count_id_fkey"
+            columns: ["cycle_count_id"]
+            isOneToOne: false
+            referencedRelation: "cycle_counts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "inventory_freezes_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "location_occupancy_view"
+            referencedColumns: ["location_id"]
+          },
+          {
+            foreignKeyName: "inventory_freezes_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "locations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "inventory_freezes_pallet_id_fkey"
+            columns: ["pallet_id"]
+            isOneToOne: false
+            referencedRelation: "pallets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "inventory_freezes_warehouse_id_fkey"
+            columns: ["warehouse_id"]
+            isOneToOne: false
+            referencedRelation: "warehouses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       inventory_lots: {
         Row: {
           batch_number: string | null
@@ -944,6 +1144,7 @@ export type Database = {
           layout_x: number | null
           layout_y: number | null
           level: number | null
+          level_style: string
           location_type: Database["public"]["Enums"]["location_type"]
           max_height: number | null
           max_length: number | null
@@ -977,6 +1178,7 @@ export type Database = {
           layout_x?: number | null
           layout_y?: number | null
           level?: number | null
+          level_style?: string
           location_type?: Database["public"]["Enums"]["location_type"]
           max_height?: number | null
           max_length?: number | null
@@ -1010,6 +1212,7 @@ export type Database = {
           layout_x?: number | null
           layout_y?: number | null
           level?: number | null
+          level_style?: string
           location_type?: Database["public"]["Enums"]["location_type"]
           max_height?: number | null
           max_length?: number | null
@@ -1780,7 +1983,9 @@ export type Database = {
           sku: string
           stackable: boolean
           temperature_requirement: Database["public"]["Enums"]["temperature_class"]
+          unit_cost: number | null
           updated_at: string
+          velocity_class: string
           weight: number | null
           width: number | null
         }
@@ -1805,7 +2010,9 @@ export type Database = {
           sku: string
           stackable?: boolean
           temperature_requirement?: Database["public"]["Enums"]["temperature_class"]
+          unit_cost?: number | null
           updated_at?: string
+          velocity_class?: string
           weight?: number | null
           width?: number | null
         }
@@ -1830,7 +2037,9 @@ export type Database = {
           sku?: string
           stackable?: boolean
           temperature_requirement?: Database["public"]["Enums"]["temperature_class"]
+          unit_cost?: number | null
           updated_at?: string
+          velocity_class?: string
           weight?: number | null
           width?: number | null
         }
@@ -2847,11 +3056,14 @@ export type Database = {
           country: string | null
           created_at: string
           created_by: string | null
+          freeze_default_hours: number
           has_cool_zone: boolean
           id: string
           is_hidden: boolean
           name: string
+          supervisor_approval_cap: number
           updated_at: string
+          variance_value_floor: number
         }
         Insert: {
           active?: boolean
@@ -2862,11 +3074,14 @@ export type Database = {
           country?: string | null
           created_at?: string
           created_by?: string | null
+          freeze_default_hours?: number
           has_cool_zone?: boolean
           id?: string
           is_hidden?: boolean
           name: string
+          supervisor_approval_cap?: number
           updated_at?: string
+          variance_value_floor?: number
         }
         Update: {
           active?: boolean
@@ -2877,11 +3092,14 @@ export type Database = {
           country?: string | null
           created_at?: string
           created_by?: string | null
+          freeze_default_hours?: number
           has_cool_zone?: boolean
           id?: string
           is_hidden?: boolean
           name?: string
+          supervisor_approval_cap?: number
           updated_at?: string
+          variance_value_floor?: number
         }
         Relationships: []
       }
@@ -3125,6 +3343,10 @@ export type Database = {
       admin_update_user_pin:
         | { Args: { in_pin: string; in_user_id: string }; Returns: undefined }
         | { Args: { in_pin: string; in_user_id: string }; Returns: undefined }
+      assert_location_not_frozen: {
+        Args: { in_location_id: string; in_pallet_id?: string }
+        Returns: undefined
+      }
       delete_client_cascade: { Args: { in_id: string }; Returns: Json }
       delete_email: {
         Args: { message_id: number; queue_name: string }
@@ -3150,6 +3372,10 @@ export type Database = {
       }
       has_any_role: {
         Args: { _roles: Database["public"]["Enums"]["app_role_code"][] }
+        Returns: boolean
+      }
+      has_min_role: {
+        Args: { _minimum_role: string; _user_id: string }
         Returns: boolean
       }
       has_role: { Args: { _role: string; _user_id: string }; Returns: boolean }
@@ -3207,7 +3433,25 @@ export type Database = {
         | "warehouse_operator"
         | "dispatch_driver"
         | "dev"
-      count_scope: "location" | "zone" | "sku" | "spot"
+      count_line_status:
+        | "queued"
+        | "counted"
+        | "recount"
+        | "variance_hold"
+        | "approved"
+        | "adjusted"
+        | "reconciled"
+        | "exception"
+      count_scope: "location" | "zone" | "sku" | "spot" | "abc"
+      count_status:
+        | "draft"
+        | "frozen"
+        | "counting"
+        | "review"
+        | "approved"
+        | "closed"
+        | "cancelled"
+      freeze_status: "active" | "released" | "expired" | "overridden"
       integration_job_status:
         | "queued"
         | "running"
@@ -3397,7 +3641,27 @@ export const Constants = {
         "dispatch_driver",
         "dev",
       ],
-      count_scope: ["location", "zone", "sku", "spot"],
+      count_line_status: [
+        "queued",
+        "counted",
+        "recount",
+        "variance_hold",
+        "approved",
+        "adjusted",
+        "reconciled",
+        "exception",
+      ],
+      count_scope: ["location", "zone", "sku", "spot", "abc"],
+      count_status: [
+        "draft",
+        "frozen",
+        "counting",
+        "review",
+        "approved",
+        "closed",
+        "cancelled",
+      ],
+      freeze_status: ["active", "released", "expired", "overridden"],
       integration_job_status: [
         "queued",
         "running",
