@@ -30,26 +30,32 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      # GitHub's ubuntu-latest runners preset ANDROID_HOME/ANDROID_SDK_ROOT
+      # to their own bundled SDK (/usr/local/lib/android/sdk) regardless of
+      # which actions run — that's the runner image's baseline, not
+      # something android-actions/setup-android added. Bubblewrap manages
+      # its own separate SDK install and Gradle refuses to build when both
+      # an ambient and a Bubblewrap-owned SDK path are present at once
+      # ("Several environment variables ... contain different paths to the
+      # SDK"). Clearing these here removes the ambient runner default so
+      # Bubblewrap's own ~/.bubblewrap/android_sdk is the only one Gradle sees.
+      ANDROID_HOME: ""
+      ANDROID_SDK_ROOT: ""
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "17"
-          # No `cache: gradle` here — that option scans the checked-out repo
-          # for *.gradle*/gradle-wrapper.properties to build a cache key, but
-          # this repo doesn't commit a Gradle project (Bubblewrap generates
-          # one fresh into android-twa/build/ on every run, see below), so
-          # the scan finds nothing and setup-java errors out instead of
-          # just skipping. Caching ~/.gradle manually (keyed off something
-          # stable, e.g. the pinned Bubblewrap CLI version) is a reasonable
-          # follow-up if build times become annoying.
-
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      # No actions/setup-java or android-actions/setup-android here.
+      # Bubblewrap manages its own JDK 17 + Android SDK (downloaded to
+      # ~/.bubblewrap/ the first time it runs, via the "Do you want
+      # Bubblewrap to install the JDK/SDK?" prompts our `yes |` answers
+      # "Yes" to below) — that's intentional and recommended by Bubblewrap
+      # itself. Running setup-java/setup-android as well sets ANDROID_HOME
+      # and ANDROID_SDK_ROOT to a *different* SDK install than Bubblewrap's
+      # own, and Gradle refuses to build when those two env vars disagree
+      # ("Several environment variables ... contain different paths to the
+      # SDK"). Letting Bubblewrap own its toolchain end to end avoids that.
 
       - name: Set up Node (for the Bubblewrap CLI)
         uses: actions/setup-node@v4
