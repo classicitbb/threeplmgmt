@@ -6,7 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm, type UseFormReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { supabase } from "@/integrations/supabase/client";
-import { Activity, AlertCircle, AlertTriangle, ArrowLeftRight, BarChart3, Bot, Boxes, Building2, Camera, CheckCircle2, ChevronDown, ClipboardCheck, ClipboardList, CloudOff, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, HelpCircle, Home, Info, KeyRound, LayoutDashboard, Loader2, Lock, LockOpen, LogOut, Mail, Maximize2, MapPinned, Menu, Minimize2, Network, Package, PackageX, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, QrCode, RadioTower, RefreshCw, RotateCcw, Search, Settings, ShieldCheck, Star, Tags, Trash2, Truck, Upload, UserPlus, Users } from "lucide-react";
+import { Activity, AlertCircle, AlertTriangle, ArrowLeftRight, BarChart3, Bot, Boxes, Building2, Camera, CheckCircle2, ChevronDown, ClipboardCheck, ClipboardList, CloudOff, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, Home, Info, KeyRound, LayoutDashboard, Loader2, Lock, LockOpen, LogOut, Mail, Maximize2, MapPinned, Menu, Minimize2, Network, Package, PackageX, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, QrCode, RadioTower, RefreshCw, RotateCcw, Search, Settings, ShieldCheck, Star, Tags, Trash2, Truck, Upload, UserPlus, Users } from "lucide-react";
 import {
   DndContext,
   KeyboardSensor,
@@ -134,6 +134,7 @@ import {
 import { ProductSearch } from "@/components/product-search";
 import { PalletLabelPage } from "@/components/pallet-label-page";
 import { BarcodeScanButton } from "@/components/barcode-scan-button";
+import { HintButton } from "@/components/hint-button";
 import { type ProductSearchHandle } from "@/components/product-search";
 
 import { cn } from "@/lib/utils";
@@ -186,7 +187,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
 import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 
 import {
@@ -992,19 +992,9 @@ export function PutawayTasksPage() {
               <DialogDescription className="sr-only">
                 Scan or type the pallet number, then confirm to open its pending Put-Away task.
               </DialogDescription>
-              <TooltipProvider delayDuration={150}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button type="button" variant="ghost" size="icon" tabIndex={-1} className="h-7 w-7 rounded-full">
-                      <HelpCircle className="h-4 w-4" />
-                      <span className="sr-only">Pallet scan help</span>
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom" className="max-w-xs">
-                    Scan or type the pallet number, then press Enter to open its Put-Away task.
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
+              <HintButton label="Pallet scan help" buttonClassName="h-7 w-7" contentClassName="max-w-xs">
+                Scan or type the pallet number, then press Enter to open its Put-Away task.
+              </HintButton>
             </div>
           </DialogHeader>
           <div className="grid gap-3">
@@ -1095,26 +1085,13 @@ export function PutawayTasksPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      <div className="shrink-0 rounded-lg border border-border bg-background/95 p-4 shadow-sm backdrop-blur">
+      <div className="shrink-0">
         <div className="flex items-start justify-between gap-3">
           <div className="flex min-w-0 items-center gap-2">
             <h2 className="text-2xl font-semibold">Put-Away Tasks</h2>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="ghost"
-                  className="h-8 w-8 shrink-0 text-muted-foreground"
-                  aria-label="Put-Away guidance"
-                >
-                  <HelpCircle className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" className="max-w-xs">
-                Scan pallet barcode, then location barcode, and confirm.
-              </TooltipContent>
-            </Tooltip>
+            <HintButton label="Put-Away guidance" buttonClassName="text-muted-foreground">
+              Scan pallet barcode, then location barcode, and confirm.
+            </HintButton>
           </div>
           {pendingTasks.length > 0 ? (
             <Badge variant="secondary" className="shrink-0 text-sm">{pendingTasks.length} pending</Badge>
