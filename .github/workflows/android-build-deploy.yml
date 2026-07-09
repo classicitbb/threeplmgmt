@@ -39,7 +39,14 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-          cache: gradle
+          # No `cache: gradle` here — that option scans the checked-out repo
+          # for *.gradle*/gradle-wrapper.properties to build a cache key, but
+          # this repo doesn't commit a Gradle project (Bubblewrap generates
+          # one fresh into android-twa/build/ on every run, see below), so
+          # the scan finds nothing and setup-java errors out instead of
+          # just skipping. Caching ~/.gradle manually (keyed off something
+          # stable, e.g. the pinned Bubblewrap CLI version) is a reasonable
+          # follow-up if build times become annoying.
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
