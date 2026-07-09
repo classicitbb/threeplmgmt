@@ -59,8 +59,9 @@ jobs:
       - name: Install Bubblewrap CLI
         run: |
           # Pinned for reproducibility. Bump deliberately — check
-          # `npm view @bubblewrap/cli versions` before changing.
-          npm install -g @bubblewrap/cli@1.21.1
+          # `npm view @bubblewrap/cli versions` before changing (verified
+          # 1.24.1 is actually published as of 2026-07-09).
+          npm install -g @bubblewrap/cli@1.24.1
 
       - name: Decode signing keystore
         working-directory: android-twa
