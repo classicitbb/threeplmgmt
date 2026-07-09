@@ -114,6 +114,11 @@ variables → Actions**, add:
 | `ANDROID_KEY_ALIAS` | `warehousewizard` |
 | `ANDROID_KEY_PASSWORD` | key password from 2.1 |
 
+These should be **repository secrets**, not environment secrets. The
+Android signing happens in the `build` job, and that job does not target a
+GitHub Actions environment. The only environment in the workflow is the
+`github-pages` deploy job, which is unrelated to keystore signing.
+
 Keep `android.keystore` itself **out of git**. Store it somewhere safe
 outside the repo (password manager, secrets vault) — if it's lost, you can
 never publish an update under the same package identity again.

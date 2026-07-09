@@ -19,7 +19,8 @@ see the field reference in https://github.com/GoogleChromeLabs/bubblewrap/blob/m
 Usage:
     python3 bump-version.py --base ./twa-manifest.json \\
                              --out ./build/twa-manifest.json \\
-                             --run-number 42
+                             --run-number 42 \\
+                             --signing-key-alias warehousewizard
 Writes GITHUB_OUTPUT keys: version_code, version_name (if $GITHUB_OUTPUT set).
 """
 
@@ -38,6 +39,7 @@ def main() -> None:
     parser.add_argument("--base", required=True)
     parser.add_argument("--out", required=True)
     parser.add_argument("--run-number", required=True, type=int)
+    parser.add_argument("--signing-key-alias")
     args = parser.parse_args()
 
     manifest = json.loads(Path(args.base).read_text(encoding="utf-8"))
@@ -47,6 +49,9 @@ def main() -> None:
 
     manifest["appVersionCode"] = version_code
     manifest["appVersion"] = version_name
+    if args.signing_key_alias:
+        manifest.setdefault("signingKey", {})
+        manifest["signingKey"]["alias"] = args.signing_key_alias
 
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)

@@ -84,14 +84,21 @@ jobs:
       - name: Compute versionCode/versionName
         id: version
         working-directory: android-twa
+        env:
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
         run: |
           # Output filename must be exactly `twa-manifest.json` — `bubblewrap
           # update`/`build` look for that literal name in their working
           # directory, they don't take an arbitrary manifest file path.
+          if [ -z "$ANDROID_KEY_ALIAS" ]; then
+            echo "::error::ANDROID_KEY_ALIAS secret is not set."
+            exit 1
+          fi
           python3 scripts/bump-version.py \
             --base twa-manifest.json \
             --out build/twa-manifest.json \
-            --run-number "${{ github.run_number }}"
+            --run-number "${{ github.run_number }}" \
+            --signing-key-alias "$ANDROID_KEY_ALIAS"
 
       - name: bubblewrap update (generate Android project from twa-manifest.json)
         working-directory: android-twa/build
@@ -142,6 +149,25 @@ jobs:
             echo "24333f8a63b6825ea9c5514f83c2829b004d1fee"
           } > "$SDK_ROOT/licenses/android-sdk-license"
           echo "84831b9409646a918e30573bab4c9c91346d8abd" > "$SDK_ROOT/licenses/android-sdk-preview-license"
+
+      - name: Validate signing keystore inputs
+        working-directory: android-twa
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -z "$ANDROID_KEYSTORE_PASSWORD" ] || [ -z "$ANDROID_KEY_ALIAS" ] || [ -z "$ANDROID_KEY_PASSWORD" ]; then
+            echo "::error::ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_ALIAS / ANDROID_KEY_PASSWORD secrets must all be set."
+            exit 1
+          fi
+          # This catches the common failure modes before Bubblewrap reaches
+          # apksigner: wrong keystore file, wrong alias, or a bad store password.
+          keytool -list -v \
+            -keystore build/android.keystore \
+            -storepass "$ANDROID_KEYSTORE_PASSWORD" \
+            -alias "$ANDROID_KEY_ALIAS" \
+            -keypass "$ANDROID_KEY_PASSWORD" >/dev/null
 
       - name: bubblewrap build (signed APK + AAB)
         working-directory: android-twa/build
