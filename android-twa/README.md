@@ -148,12 +148,15 @@ update `R.string.update_base_url` in
 `.github/workflows/android-build-deploy.yml` runs on every push to `main`
 that touches `android-twa/**`, or manually via "Run workflow":
 
-1. Checks out the repo, sets up Node, and installs `@bubblewrap/cli`.
-   Bubblewrap then owns the JDK 17 + Android SDK provisioning itself under
-   `~/.bubblewrap/` during the build. This is deliberate: mixing GitHub's
-   runner-managed Android SDK env vars with Bubblewrap's own SDK location
-   causes Gradle to fail with the "Several environment variables ... contain
-   different paths to the SDK" error.
+1. Checks out the repo, installs Temurin JDK 17 via GitHub Actions, sets up
+   Node, and installs `@bubblewrap/cli`. CI seeds Bubblewrap's config with
+   that runner-provided `JAVA_HOME`, so Bubblewrap does **not** try to fetch
+   its own JDK tarball in CI. Bubblewrap still owns the Android SDK
+   provisioning itself under `~/.bubblewrap/`. This split is deliberate:
+   mixing GitHub's runner-managed Android SDK env vars with Bubblewrap's own
+   SDK location causes Gradle to fail with the "Several environment variables
+   ... contain different paths to the SDK" error, but using the runner JDK
+   avoids a brittle Bubblewrap JDK download dependency.
 2. Decodes the keystore secret into `android-twa/build/android.keystore`.
 3. Computes a new `versionCode` from the GitHub Actions run number (always
    increases, never collides), and writes a copy of `twa-manifest.json`

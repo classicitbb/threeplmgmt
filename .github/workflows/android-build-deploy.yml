@@ -46,16 +46,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # No actions/setup-java or android-actions/setup-android here.
-      # Bubblewrap manages its own JDK 17 + Android SDK (downloaded to
-      # ~/.bubblewrap/ the first time it runs, via the "Do you want
-      # Bubblewrap to install the JDK/SDK?" prompts our `yes |` answers
-      # "Yes" to below) — that's intentional and recommended by Bubblewrap
-      # itself. Running setup-java/setup-android as well sets ANDROID_HOME
-      # and ANDROID_SDK_ROOT to a *different* SDK install than Bubblewrap's
-      # own, and Gradle refuses to build when those two env vars disagree
-      # ("Several environment variables ... contain different paths to the
-      # SDK"). Letting Bubblewrap own its toolchain end to end avoids that.
+      # Keep Bubblewrap as the owner of the Android SDK only. We provide the
+      # JDK from Actions because Bubblewrap 1.24.1 hardcodes an Adoptium
+      # GitHub Releases tarball URL for JDK 17.0.11+9; when that download
+      # returns non-tar content in CI, `bubblewrap update` fails early with
+      # `TAR_BAD_ARCHIVE` before the Android build even starts. Using
+      # setup-java removes that brittle network dependency without
+      # reintroducing the runner-vs-Bubblewrap SDK path conflict this
+      # workflow already avoids.
+
+      - name: Set up Java 17 (runner-managed JDK only)
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "17"
 
       - name: Set up Node (for the Bubblewrap CLI)
         uses: actions/setup-node@v4
@@ -68,6 +72,20 @@ jobs:
           # `npm view @bubblewrap/cli versions` before changing (verified
           # 1.24.1 is actually published as of 2026-07-09).
           npm install -g @bubblewrap/cli@1.24.1
+
+      - name: Seed Bubblewrap config with the runner JDK path
+        shell: bash
+        run: |
+          if [ -z "${JAVA_HOME:-}" ]; then
+            echo "::error::actions/setup-java did not provide JAVA_HOME."
+            exit 1
+          fi
+          mkdir -p "$HOME/.bubblewrap"
+          cat > "$HOME/.bubblewrap/config.json" <<EOF
+          {
+            "jdkPath": "$JAVA_HOME"
+          }
+          EOF
 
       - name: Decode signing keystore
         working-directory: android-twa
