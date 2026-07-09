@@ -4,7 +4,7 @@ import { BrowserRouter, Navigate, NavLink, Outlet, Route, Routes, useLocation, u
 import { QueryClientProvider, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { AlertTriangle, ArrowLeft, Camera, CheckCircle2, Eye, EyeOff, HelpCircle, Keyboard, Loader2, LogOut, Mail, RefreshCw, ScanLine, Sparkles, Warehouse } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Camera, CheckCircle2, Eye, EyeOff, HelpCircle, Loader2, LogOut, Mail, RefreshCw, ScanLine, Sparkles, Warehouse } from "lucide-react";
 import { toast } from "sonner";
 import { z } from "zod";
 import { Analytics } from "@vercel/analytics/react";
@@ -218,6 +218,8 @@ const RELEASE_HISTORY = [
     ],
   },
 ];
+
+const ANDROID_APP_DOWNLOAD_URL = "https://classicitbb.github.io/threeplmgmt/";
 
 function playBarcodeBeep() {
   try {
@@ -811,6 +813,17 @@ function LoginPage() {
     if (typeof window === "undefined") return true;
     return window.localStorage.getItem(REMEMBER_ME_STORAGE_KEY) !== "0";
   });
+  const showAndroidAppLink = useMemo(() => {
+    if (typeof window === "undefined") return false;
+    const navigatorWithUserAgentData = navigator as Navigator & { userAgentData?: { platform?: string } };
+    const userAgentText = `${navigator.userAgent ?? ""} ${navigatorWithUserAgentData.userAgentData?.platform ?? ""}`;
+    const isAndroid = /android/i.test(userAgentText);
+    const isStandalone =
+      window.matchMedia?.("(display-mode: standalone)").matches ||
+      document.referrer.startsWith("android-app://") ||
+      (navigator as Navigator & { standalone?: boolean }).standalone === true;
+    return isAndroid && !isStandalone;
+  }, []);
   useEffect(() => {
     window.localStorage.setItem(REMEMBER_ME_STORAGE_KEY, rememberMe ? "1" : "0");
   }, [rememberMe]);
@@ -1008,35 +1021,15 @@ function LoginPage() {
           </div>
 
           {mode === "login" ? (
-            <div className="flex flex-col gap-3">
-              <div className={cn("grid gap-2 rounded-lg border border-border bg-secondary/30 p-1", badgeShortcutAvailable ? "grid-cols-2" : "grid-cols-1")}>
-                {badgeShortcutAvailable ? (
-                  <Button
-                    type="button"
-                    variant={loginMethod === "badge" ? "default" : "ghost"}
-                    className="h-9"
-                    onClick={() => rememberLoginMethod("badge")}
-                  >
-                    <ScanLine className="mr-2 h-4 w-4" />
-                    Badge scan
-                  </Button>
-                ) : null}
-                <Button
-                  type="button"
-                  variant={loginMethod === "code" ? "default" : "ghost"}
-                  className="h-9"
-                  onClick={() => rememberLoginMethod("code")}
-                >
-                  <Keyboard className="mr-2 h-4 w-4" />
-                  User code
-                </Button>
-              </div>
-
-              {loginMethod === "badge" && badgeShortcutAvailable ? (
-                <div className="flex flex-col gap-3">
-                  <LoginBadgeScanner onScan={handleBadgeScan} onErrorChange={setBadgeScannerError} scannedCode={selectedBadge} />
-                  <div className="rounded-lg border border-border bg-secondary/30 p-2.5">
-                    <p className="text-sm font-medium text-center">Badge login</p>
+              <div className="flex flex-col gap-3">
+                {loginMethod === "badge" && badgeShortcutAvailable ? (
+                  <div className="flex flex-col gap-3">
+                    <Button type="button" variant="outline" className="w-full" onClick={() => rememberLoginMethod("code")}>
+                      Back to sign in
+                    </Button>
+                    <LoginBadgeScanner onScan={handleBadgeScan} onErrorChange={setBadgeScannerError} scannedCode={selectedBadge} />
+                    <div className="rounded-lg border border-border bg-secondary/30 p-2.5">
+                      <p className="text-sm font-medium text-center">Badge login</p>
                     <p className="text-xs text-muted-foreground text-center">Scan your badge, then enter your PIN to load the app.</p>
                   </div>
                   {badgeScannerError ? (
@@ -1077,10 +1070,12 @@ function LoginPage() {
                     window.localStorage.setItem(LOGIN_METHOD_STORAGE_KEY, "code");
                     loginMutation.mutate(v);
                   })}>
-                    <div className="rounded-lg border border-border bg-secondary/30 p-2.5">
-                      <p className="text-sm font-medium text-center">User code or email</p>
-                      <p className="text-xs text-muted-foreground text-center">Use an approved email or short code such as ADMIN01.</p>
-                    </div>
+                    {badgeShortcutAvailable ? (
+                      <Button type="button" variant="outline" className="w-full" onClick={() => rememberLoginMethod("badge")}>
+                        <ScanLine className="mr-2 h-4 w-4" />
+                        Use badge scan
+                      </Button>
+                    ) : null}
                     <FormField control={loginForm.control} name="email" render={({ field }) => (
                       <FormItem><FormLabel>Login</FormLabel><FormControl><Input {...field} autoComplete="username" className="bg-secondary bg-slate-500" /></FormControl><FormMessage /></FormItem>
                     )} />
@@ -1210,6 +1205,16 @@ function LoginPage() {
         </div>
       </div>
       <div className="absolute bottom-3 right-3 flex items-center gap-2 text-xs text-muted-foreground">
+        {showAndroidAppLink ? (
+          <>
+            <Button variant="outline" size="sm" asChild>
+              <a href={ANDROID_APP_DOWNLOAD_URL}>
+                Android app
+              </a>
+            </Button>
+            <span className="text-muted-foreground/60">|</span>
+          </>
+        ) : null}
         <Dialog>
           <DialogTrigger asChild>
             <button className="inline-flex items-center gap-1 rounded-md px-2 py-1 font-medium text-primary underline-offset-4 hover:underline">
