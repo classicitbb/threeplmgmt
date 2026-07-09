@@ -1,16 +1,24 @@
 #!/usr/bin/env python3
 """
 Warehouse Wizard — computes the next Android versionCode/versionName and
-writes a runtime copy of twa-manifest.json with those values baked in.
+writes a build-directory copy of twa-manifest.json with those values baked
+in. The output MUST be named exactly `twa-manifest.json` (not e.g.
+twa-manifest.runtime.json) — `bubblewrap update`/`build` look for that
+literal filename in their working directory, they don't accept an
+arbitrary path for the manifest itself (only `--manifest <directory>`).
 
 versionCode must strictly increase with every release Google/Android will
 accept, so this derives it from the GitHub Actions run number (always
 monotonic, never reused, even across reruns of old workflows) rather than
 hand-maintaining a counter in source control.
 
+Note: the twa-manifest.json field is `appVersion` (not `appVersionName`,
+despite the similarly-named Android `versionName` concept it maps to) —
+see the field reference in https://github.com/GoogleChromeLabs/bubblewrap/blob/main/packages/cli/README.md.
+
 Usage:
     python3 bump-version.py --base ./twa-manifest.json \\
-                             --out ./build/twa-manifest.runtime.json \\
+                             --out ./build/twa-manifest.json \\
                              --run-number 42
 Writes GITHUB_OUTPUT keys: version_code, version_name (if $GITHUB_OUTPUT set).
 """
@@ -38,7 +46,7 @@ def main() -> None:
     version_name = f"1.0.{args.run_number}"
 
     manifest["appVersionCode"] = version_code
-    manifest["appVersionName"] = version_name
+    manifest["appVersion"] = version_name
 
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)

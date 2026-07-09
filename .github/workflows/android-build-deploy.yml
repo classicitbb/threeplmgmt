@@ -79,21 +79,33 @@ jobs:
         id: version
         working-directory: android-twa
         run: |
+          # Output filename must be exactly `twa-manifest.json` — `bubblewrap
+          # update`/`build` look for that literal name in their working
+          # directory, they don't take an arbitrary manifest file path.
           python3 scripts/bump-version.py \
             --base twa-manifest.json \
-            --out build/twa-manifest.runtime.json \
+            --out build/twa-manifest.json \
             --run-number "${{ github.run_number }}"
 
-      - name: bubblewrap init (generate Android project)
+      - name: bubblewrap update (generate Android project from twa-manifest.json)
         working-directory: android-twa/build
         run: |
-          # Bare `yes` sends a literal "y" to every prompt (NOT `yes ""`,
-          # which sends empty lines that take each prompt's *default* —
-          # that broke the Android SDK terms-and-conditions prompt, whose
-          # default is "No", causing the SDK download to be silently
-          # declined and the build to fail). --skipPwaValidation avoids a
-          # live network check against the manifest URL blocking the build.
-          yes | bubblewrap init --manifest ./twa-manifest.runtime.json --skipPwaValidation
+          # IMPORTANT: `bubblewrap init --manifest <x>` expects <x> to be the
+          # URL of the *web app* manifest (the PWA's manifest.json) — it
+          # fetches and parses that live URL, then interactively derives a
+          # twa-manifest.json from it. That is NOT what we want here: we
+          # already have a hand-maintained, checked-in twa-manifest.json
+          # (packageId, signing key, etc. all pinned), and `init` has no
+          # flag to force a specific packageId, so its auto-derived default
+          # wouldn't match the package our Java sources/assetlinks.json are
+          # already written against.
+          #
+          # `bubblewrap update` is the documented command for the opposite
+          # direction: it regenerates the Android project directly FROM an
+          # existing twa-manifest.json, no live fetch, fully deterministic.
+          # --skipVersionUpgrade preserves the versionCode/versionName we
+          # just computed above instead of letting update bump them itself.
+          yes | bubblewrap update --skipVersionUpgrade
 
       - name: Apply boot-launch + self-update overrides
         working-directory: android-twa
@@ -106,17 +118,18 @@ jobs:
       - name: bubblewrap build (signed APK + AAB)
         working-directory: android-twa/build
         env:
-          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          # Bubblewrap's `build` command reads these two exact env var names
+          # to skip its interactive password prompts entirely — documented
+          # specifically as "allows running build as part of a continuous
+          # integration." Far more reliable than piping answers over stdin.
+          BUBBLEWRAP_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          BUBBLEWRAP_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          if [ -z "$KEYSTORE_PASSWORD" ] || [ -z "$KEY_PASSWORD" ]; then
+          if [ -z "$BUBBLEWRAP_KEYSTORE_PASSWORD" ] || [ -z "$BUBBLEWRAP_KEY_PASSWORD" ]; then
             echo "::error::ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_PASSWORD secrets are not set."
             exit 1
           fi
-          # Bubblewrap's build wizard prompts for the keystore password
-          # then the key password, in that order.
-          printf '%s\n%s\n' "$KEYSTORE_PASSWORD" "$KEY_PASSWORD" | \
-            bubblewrap build --skipPwaValidation
+          bubblewrap build --skipPwaValidation
 
       - name: Stage the Pages site
         working-directory: android-twa

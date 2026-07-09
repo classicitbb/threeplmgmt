@@ -143,17 +143,27 @@ update `R.string.update_base_url` in
 `.github/workflows/android-build-deploy.yml` runs on every push to `main`
 that touches `android-twa/**`, or manually via "Run workflow":
 
-1. Checks out the repo, sets up JDK 17 + Node.
-2. Installs `@bubblewrap/cli` and runs `bubblewrap init --manifest
-   android-twa/twa-manifest.json` to generate a fresh Android project.
-3. Copies everything from `android-twa/app-src-overrides/` on top of the
+1. Checks out the repo, sets up JDK 17, the Android SDK, Node, and
+   `@bubblewrap/cli`.
+2. Decodes the keystore secret into `android-twa/build/android.keystore`.
+3. Computes a new `versionCode` from the GitHub Actions run number (always
+   increases, never collides), and writes a copy of `twa-manifest.json`
+   with that version baked in to `android-twa/build/twa-manifest.json`.
+4. Runs `bubblewrap update --skipVersionUpgrade` inside `android-twa/build`
+   to generate the Android project **directly from that twa-manifest.json**
+   — no live web-manifest fetch, fully deterministic. (Note: this is
+   deliberately `update`, not `init` — `init --manifest <url>` expects the
+   URL of the *web app's* `manifest.json` and derives its own twa-manifest
+   interactively, which can't guarantee our pinned `packageId`. `update`
+   reads a twa-manifest.json directly, which is what we want for CI.)
+5. Copies everything from `android-twa/app-src-overrides/` on top of the
    generated project (boot receiver, update manager, notification/download
    plumbing, manifest permissions).
-4. Decodes the keystore secret and builds a **signed** release APK and AAB
-   with `bubblewrap build`.
-5. Computes a new `versionCode` from the GitHub Actions run number (always
-   increases, never collides).
-6. Stages a copy of `android-twa/site/` (the download page + assets),
+6. Builds a **signed** release APK and AAB with `bubblewrap build`
+   (keystore passwords passed via the `BUBBLEWRAP_KEYSTORE_PASSWORD` /
+   `BUBBLEWRAP_KEY_PASSWORD` env vars Bubblewrap reads specifically for
+   CI use — no interactive prompt).
+7. Stages a copy of `android-twa/site/` (the download page + assets),
    drops in the freshly built APK and a generated `update-manifest.json`,
    and publishes that staged folder straight to GitHub Pages via
    `actions/deploy-pages` — no git commit involved, so the APK binary
@@ -214,13 +224,15 @@ by design. This pipeline automates everything up to that consent screen.
 ```bash
 npm install -g @bubblewrap/cli
 cd android-twa
-mkdir -p build && cp twa-manifest.json build/twa-manifest.runtime.json
+mkdir -p build && cp twa-manifest.json build/twa-manifest.json
 cd build
-yes "" | bubblewrap init --manifest ./twa-manifest.runtime.json --skipPwaValidation
+yes | bubblewrap update --skipVersionUpgrade
 cd ..
 python3 scripts/splice-overrides.py --project ./build --overrides ./app-src-overrides
 cd build
-bubblewrap build
+BUBBLEWRAP_KEYSTORE_PASSWORD=<your keystore password> \
+BUBBLEWRAP_KEY_PASSWORD=<your key password> \
+  bubblewrap build
 ```
 
 Output: `app-release-signed.apk` and `app-release-bundle.aab` in the
@@ -230,7 +242,7 @@ generated project root.
 
 ## 7. Updating the app later
 
-Bump `appVersionName` / `appVersionCode` in `twa-manifest.json` if you want
-those to move too (CI overrides `versionCode` regardless, using the run
-number, so it's safe to leave `appVersionCode` alone). Push to `main` —
-CI does the rest.
+Bump `appVersion` / `appVersionCode` in `twa-manifest.json` if you want
+those to move too (CI overrides both regardless, using the run number via
+`scripts/bump-version.py`, so it's safe to leave them alone). Push to
+`main` — CI does the rest.

@@ -28,7 +28,6 @@ screenshot.mjs
 # on every run; never commit the generated Gradle project or signing material.
 android-twa/build/
 android-twa/*.keystore
-android-twa/twa-manifest.runtime.json
 android-twa/scripts/__pycache__/
 *.jks
 
