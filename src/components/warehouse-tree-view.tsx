@@ -519,7 +519,7 @@ function WarehouseLabelPage({
 
   function handlePrint() {
     if (!code) return;
-    const qr = renderToStaticMarkup(<QRCodeSVG value={code} size={280} bgColor="#ffffff" fgColor="#000000" level="M" />);
+    const qr = renderToStaticMarkup(<QRCodeSVG value={code} size={512} bgColor="#ffffff" fgColor="#000000" level="H" />);
     const win = window.open("", "_blank", "width=520,height=720");
     if (!win) return;
     win.document.write(`<!DOCTYPE html>
@@ -528,21 +528,18 @@ function WarehouseLabelPage({
   <title>Warehouse Label - ${escapeHtml(name)}</title>
   <meta charset="utf-8" />
   <style>
-    @page { size: A4 portrait; margin: 12mm; }
+    @page { size: 4in 6in portrait; margin: 0; }
     * { box-sizing: border-box; }
     body { margin: 0; background: #fff; color: #000; font-family: system-ui, -apple-system, sans-serif; }
-    .label { width: 100%; min-height: 180mm; border: 2mm solid #0f766e; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8mm; padding: 16mm; text-align: center; }
-    .qr svg { width: 82mm; height: 82mm; }
-    .name { font-size: 28pt; font-weight: 900; line-height: 1.05; text-transform: uppercase; }
-    .code { font-size: 20pt; font-weight: 900; letter-spacing: 0.04em; color: #0f766e; }
-    .eyebrow { font-size: 12pt; font-weight: 800; text-transform: uppercase; color: #334155; }
+    .label { width: 4in; height: 6in; border: 1px solid #000; display: grid; grid-template-rows: 1fr auto; align-items: center; justify-items: center; gap: 0.08in; padding: 5px; overflow: hidden; text-align: center; }
+    .qr { width: 100%; min-height: 0; display: flex; align-items: center; justify-content: center; }
+    .qr svg { width: min(3.86in, 100%); height: min(3.86in, 100%); }
+    .code { width: 100%; font-family: 'Arial Black', system-ui, sans-serif; font-size: 34pt; font-weight: 900; line-height: 1; overflow-wrap: anywhere; }
   </style>
 </head>
 <body>
   <section class="label">
-    <div class="eyebrow">Warehouse code</div>
     <div class="qr">${qr}</div>
-    <div class="name">${escapeHtml(name)}</div>
     <div class="code">${escapeHtml(code)}</div>
   </section>
   <script>window.onload=()=>{window.print();window.close();}<\/script>
@@ -556,17 +553,14 @@ function WarehouseLabelPage({
       <DialogTrigger asChild>{trigger}</DialogTrigger>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle>Warehouse Label - {name}</DialogTitle>
-          <DialogDescription>Preview the warehouse label before printing.</DialogDescription>
+          <DialogTitle>Warehouse Label - {code}</DialogTitle>
+          <DialogDescription>4 x 6 in Zebra label preview.</DialogDescription>
         </DialogHeader>
-        <div className="rounded-md border border-primary bg-white p-4 text-center text-black">
-          <div className="mx-auto flex w-full max-w-[260px] flex-col items-center gap-3">
-            <QRCodeSVG value={code} size={150} bgColor="#ffffff" fgColor="#000000" level="M" />
-            <div className="space-y-1">
-              <p className="text-lg font-black uppercase leading-tight">{name}</p>
-              <p className="font-mono text-sm font-black text-teal-700">{code}</p>
-            </div>
+        <div className="mx-auto grid aspect-[2/3] w-full max-w-[280px] grid-rows-[1fr_auto] items-center justify-items-center gap-1 border border-black bg-white p-[5px] text-center text-black">
+          <div className="flex min-h-0 w-full items-center justify-center">
+            <QRCodeSVG value={code} size={255} bgColor="#ffffff" fgColor="#000000" level="H" />
           </div>
+          <p className="w-full break-words text-4xl font-black leading-none">{code}</p>
         </div>
         <DialogFooter>
           <Button onClick={handlePrint} className="w-full">

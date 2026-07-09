@@ -439,7 +439,6 @@ export function PickListsPage() {
               Release outbound work and execute scan-confirmed picks.
             </HintButton>
           </div>
-          <p className="hidden text-sm text-muted-foreground sm:block">Release outbound work and execute scan-confirmed picks.</p>
         </div>
         <div className="flex min-w-0 gap-2 sm:min-w-80">
           <div className="relative min-w-0 flex-1">

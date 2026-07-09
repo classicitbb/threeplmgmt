@@ -1094,7 +1094,6 @@ export function ReceivingPage() {
               Create shipment drafts by container, print labels, then receive selected pallets.
             </HintButton>
           </div>
-          <p className="hidden text-sm text-muted-foreground sm:block">Create shipment drafts by container, print labels, then receive selected pallets.</p>
         </div>
         <div className="grid grid-cols-3 gap-2 sm:flex sm:flex-wrap">
           <Button

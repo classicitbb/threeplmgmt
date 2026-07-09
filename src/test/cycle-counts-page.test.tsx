@@ -145,7 +145,7 @@ describe("CycleCountsPage", () => {
     renderCycleCountsPage();
 
     expect(await screen.findByRole("button", { name: /new count/i })).toBeInTheDocument();
-    expect(screen.getByText("All statuses")).toBeInTheDocument();
+    expect(screen.getByText("Active counts")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /new count/i }));
 

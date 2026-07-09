@@ -36,8 +36,14 @@ describe("PalletLabelPage", () => {
     expect(html).toContain("width: min(101.6mm, 100vw, calc(100vh * 2 / 3));");
     expect(html).toContain("height: min(152.4mm, 100vh, calc(100vw * 3 / 2));");
     expect(html).toContain("container-type: size;");
-    expect(html).toContain("Receipt RCT-38295352EVSW");
-    expect(html).toContain("Warehouse Wizard");
+    expect(html).toContain(`<span class="footer-text">Pallet Label</span>`);
+    expect(html).not.toContain("class=\"title\">Pallet Label</div>");
+    expect(html).not.toContain("Scan QR code");
+    expect(html).not.toContain("Receipt RCT-38295352EVSW");
+    expect(html).not.toContain("border: min(1mm, 0.28cqw) solid var(--accent)");
+    expect(html).not.toContain("Warehouse Wizard");
+    expect(html).toContain(".barcode-section { margin-top: auto; background: #fff; padding: 5px;");
+    expect(html).toContain(".barcode-wrap svg { width: min(77mm, calc(100cqw - 10px), 49cqh); height: min(77mm, calc(100cqw - 10px), 49cqh); }");
     expect(html).toContain(`v${__APP_VERSION__}`);
     expect(html).not.toContain("Pallet barcode");
     expect(html).not.toContain("Temperature");
@@ -57,5 +63,8 @@ describe("PalletLabelPage", () => {
     expect(html).toContain("container-type: size;");
     expect(html).toContain("width: min(101.6mm, 100vw, calc(100vh * 2 / 3));");
     expect(html).toContain("height: min(152.4mm, 100vh, calc(100vw * 3 / 2));");
+    expect(html).toContain(`<span class="footer-text">Pallet Label</span>`);
+    expect(html).not.toContain("Scan QR code");
+    expect(html).not.toContain("Receipt RCT-38295352EVSW");
   });
 });

@@ -342,6 +342,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   useBackgroundSync(queryClient);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [reconnectRefreshing, setReconnectRefreshing] = useState(false);
   const networkStatusSeenRef = useRef(false);
   const shownOfflineAlertIdsRef = useRef<Set<string>>(new Set());
   const items = NAVIGATION
@@ -459,14 +460,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
     if (online) {
       clearOfflineAlertSession();
-      toast.success("Connection restored. Refreshing live warehouse state.");
       if (isActiveWorkInProgress()) {
         void queryClient.invalidateQueries({ refetchType: "none" });
         return;
       }
-      void queryClient.invalidateQueries();
-      return;
+      let cancelled = false;
+      setReconnectRefreshing(true);
+      void queryClient.invalidateQueries()
+        .finally(() => {
+          if (!cancelled) setReconnectRefreshing(false);
+        });
+      return () => {
+        cancelled = true;
+      };
     }
+    setReconnectRefreshing(false);
     if (!readOfflineAlertSession() && user?.id) {
       const happenedAt = new Date().toISOString();
       writeOfflineAlertSession(happenedAt);
@@ -824,6 +832,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               pathname === "/inventory-search" ? "overflow-hidden" : "overflow-y-auto",
             )}
           >
+            {reconnectRefreshing ? (
+              <div
+                role="status"
+                aria-live="polite"
+                className="mb-4 flex flex-col items-center justify-center rounded-lg border border-border/70 bg-card/80 px-4 py-3 text-center shadow-sm"
+              >
+                <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                <p className="mt-1 text-[11px] font-medium text-muted-foreground">
+                  Refreshing live warehouse state…
+                </p>
+              </div>
+            ) : null}
             {children}
           </div>
         </main>

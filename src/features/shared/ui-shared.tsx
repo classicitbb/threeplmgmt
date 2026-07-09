@@ -324,7 +324,7 @@ export function playBarcodeBeep() {
     osc.type = "sine";
     osc.frequency.setValueAtTime(1480, ctx.currentTime);          // E6 — bright & pleasant
     osc.frequency.exponentialRampToValueAtTime(1760, ctx.currentTime + 0.06); // quick upward chirp
-    gain.gain.setValueAtTime(0.18, ctx.currentTime);
+    gain.gain.setValueAtTime(0.9, ctx.currentTime);
     gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.18);
     osc.start(ctx.currentTime);
     osc.stop(ctx.currentTime + 0.18);
@@ -2254,13 +2254,13 @@ export function ResourcePage({
                       {hasTrailingLabelColumn ? (
                         <TableCell>
                           <div className="flex items-center gap-1">
-                            <>
+                            {resource.table === "warehouses" ? (
                                 <BarcodePrintDialog
-                                  labelType={resource.table === "warehouses" ? "warehouse" : "zone"}
+                                  labelType="warehouse"
                                   code={String((row as Record<string, unknown>).code ?? "")}
                                   title={String((row as Record<string, unknown>).name ?? (row as Record<string, unknown>).code ?? resource.singular)}
                                 />
-                                {resource.table === "zones" && (
+                              ) : resource.table === "zones" ? (
                                   <ZoneLabelPage
                                     code={String((row as Record<string, unknown>).code ?? "")}
                                     name={String((row as Record<string, unknown>).name ?? (row as Record<string, unknown>).code ?? "")}
@@ -2268,9 +2268,14 @@ export function ResourcePage({
                                     isStaging={Boolean((row as Record<string, unknown>).is_staging)}
                                     isDispatch={Boolean((row as Record<string, unknown>).is_dispatch)}
                                     isQuarantine={Boolean((row as Record<string, unknown>).is_quarantine)}
+                                    trigger={
+                                      <Button size="sm" variant="outline">
+                                        <QrCode className="mr-2 h-4 w-4" />
+                                        Print label
+                                      </Button>
+                                    }
                                   />
-                                )}
-                              </>
+                              ) : null}
                           </div>
                         </TableCell>
                       ) : null}
