@@ -1,0 +1,158 @@
+name: Android TWA — Build, Sign & Publish
+
+# Builds the Warehouse Wizard Android wrapper (Bubblewrap TWA + boot
+# auto-launch + self-hosted update system), signs it with the production
+# keystore, and publishes the download page + APK + update-manifest.json
+# to GitHub Pages via the native Actions deployment (Settings → Pages →
+# Source: GitHub Actions). Nothing is committed back to the repo — the
+# signed APK never enters git history.
+#
+# See android-twa/README.md for one-time setup (keystore, secrets, Pages
+# config) before this workflow can succeed.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "android-twa/**"
+      - ".github/workflows/android-build-deploy.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Node (for the Bubblewrap CLI)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Bubblewrap CLI
+        run: |
+          # Pinned for reproducibility. Bump deliberately — check
+          # `npm view @bubblewrap/cli versions` before changing.
+          npm install -g @bubblewrap/cli@1.21.1
+
+      - name: Decode signing keystore
+        working-directory: android-twa
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "::error::ANDROID_KEYSTORE_BASE64 secret is not set. See android-twa/README.md section 2.3."
+            exit 1
+          fi
+          mkdir -p build
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > build/android.keystore
+
+      - name: Compute versionCode/versionName
+        id: version
+        working-directory: android-twa
+        run: |
+          python3 scripts/bump-version.py \
+            --base twa-manifest.json \
+            --out build/twa-manifest.runtime.json \
+            --run-number "${{ github.run_number }}"
+
+      - name: bubblewrap init (generate Android project)
+        working-directory: android-twa/build
+        run: |
+          # `yes ""` auto-answers every interactive prompt Bubblewrap asks
+          # with its default — the standard trick for running Bubblewrap
+          # non-interactively in CI. --skipPwaValidation avoids a live
+          # network check against the manifest URL blocking the build.
+          yes "" | bubblewrap init --manifest ./twa-manifest.runtime.json --skipPwaValidation
+
+      - name: Apply boot-launch + self-update overrides
+        working-directory: android-twa
+        run: |
+          python3 scripts/splice-overrides.py \
+            --project ./build \
+            --overrides ./app-src-overrides \
+            --package com.warehouse.wizard
+
+      - name: bubblewrap build (signed APK + AAB)
+        working-directory: android-twa/build
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_PASSWORD" ] || [ -z "$KEY_PASSWORD" ]; then
+            echo "::error::ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_PASSWORD secrets are not set."
+            exit 1
+          fi
+          # Bubblewrap's build wizard prompts for the keystore password
+          # then the key password, in that order.
+          printf '%s\n%s\n' "$KEYSTORE_PASSWORD" "$KEY_PASSWORD" | \
+            bubblewrap build --skipPwaValidation
+
+      - name: Stage the Pages site
+        working-directory: android-twa
+        run: |
+          APK_SRC="build/app-release-signed.apk"
+          if [ ! -f "$APK_SRC" ]; then
+            echo "::error::Expected signed APK not found at $APK_SRC — check the bubblewrap build step log."
+            exit 1
+          fi
+
+          # Start from the committed template (index.html + assets), then
+          # drop in this run's freshly built APK + update-manifest.json.
+          rm -rf build/pages-site
+          cp -r site build/pages-site
+
+          VERSIONED_NAME="warehouse-wizard-${{ steps.version.outputs.version_name }}.apk"
+          cp "$APK_SRC" "build/pages-site/downloads/$VERSIONED_NAME"
+          cp "$APK_SRC" "build/pages-site/downloads/warehouse-wizard-latest.apk"
+          rm -f "build/pages-site/downloads/.gitkeep"
+
+          python3 scripts/write-update-manifest.py \
+            --out build/pages-site/update-manifest.json \
+            --version-code "${{ steps.version.outputs.version_code }}" \
+            --version-name "${{ steps.version.outputs.version_name }}" \
+            --apk-path "downloads/warehouse-wizard-latest.apk"
+
+      - name: Upload AAB artifact (for Play Store submission — not published to Pages)
+        uses: actions/upload-artifact@v4
+        with:
+          name: warehouse-wizard-${{ steps.version.outputs.version_name }}-aab
+          path: android-twa/build/app-release-bundle.aab
+          retention-days: 90
+          if-no-files-found: warn
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: android-twa/build/pages-site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
