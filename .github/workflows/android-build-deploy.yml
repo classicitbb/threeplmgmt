@@ -87,11 +87,13 @@ jobs:
       - name: bubblewrap init (generate Android project)
         working-directory: android-twa/build
         run: |
-          # `yes ""` auto-answers every interactive prompt Bubblewrap asks
-          # with its default — the standard trick for running Bubblewrap
-          # non-interactively in CI. --skipPwaValidation avoids a live
-          # network check against the manifest URL blocking the build.
-          yes "" | bubblewrap init --manifest ./twa-manifest.runtime.json --skipPwaValidation
+          # Bare `yes` sends a literal "y" to every prompt (NOT `yes ""`,
+          # which sends empty lines that take each prompt's *default* —
+          # that broke the Android SDK terms-and-conditions prompt, whose
+          # default is "No", causing the SDK download to be silently
+          # declined and the build to fail). --skipPwaValidation avoids a
+          # live network check against the manifest URL blocking the build.
+          yes | bubblewrap init --manifest ./twa-manifest.runtime.json --skipPwaValidation
 
       - name: Apply boot-launch + self-update overrides
         working-directory: android-twa
