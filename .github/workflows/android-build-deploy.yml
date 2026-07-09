@@ -121,6 +121,28 @@ jobs:
             --overrides ./app-src-overrides \
             --package com.warehouse.wizard
 
+      - name: Accept Android SDK licenses (Bubblewrap-managed SDK)
+        run: |
+          # Gradle's Android plugin auto-downloads whatever SDK components
+          # the generated project's compileSdkVersion/buildToolsVersion
+          # require (currently build-tools;35.0.0 + platforms;android-36),
+          # separately from whatever bubblewrap's own SDK bootstrap already
+          # installed/licensed (e.g. build-tools 34). That auto-download is
+          # blocked unless the license hashes are already accepted, and
+          # piping "yes" into bubblewrap's `update` step only answers ITS
+          # interactive prompts (JDK/SDK install) — it never reaches the
+          # separate sdkmanager license prompt that Gradle triggers later
+          # during `:app:minifyReleaseWithR8`. Writing the well-known Google
+          # SDK license hash files directly is the standard CI workaround.
+          SDK_ROOT="$HOME/.bubblewrap/android_sdk"
+          mkdir -p "$SDK_ROOT/licenses"
+          {
+            echo "8933bad161af4178b1185d1a37fbf41ea5269c55"
+            echo "d56f5187479451eabf01fb78af6dfcb131a6481e"
+            echo "24333f8a63b6825ea9c5514f83c2829b004d1fee"
+          } > "$SDK_ROOT/licenses/android-sdk-license"
+          echo "84831b9409646a918e30573bab4c9c91346d8abd" > "$SDK_ROOT/licenses/android-sdk-preview-license"
+
       - name: bubblewrap build (signed APK + AAB)
         working-directory: android-twa/build
         env:
