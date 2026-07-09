@@ -1,6 +1,8 @@
 package com.warehouse.wizard;
 
 import android.content.Context;
+import android.content.pm.PackageInfo;
+import android.os.Build;
 import android.util.Log;
 
 import org.json.JSONObject;
@@ -24,9 +26,10 @@ import java.util.concurrent.Executors;
  *
  * Fetches update-manifest.json from the GitHub Pages host (see
  * R.string.update_base_url) with a cache-busting timestamp query param,
- * compares its versionCode against BuildConfig.VERSION_CODE, and hands off
- * to NotificationHelper when a newer build is available. No Play Store,
- * no external update framework — just a static JSON file and DownloadManager.
+ * compares its versionCode against the installed app version reported by
+ * PackageManager, and hands off to NotificationHelper when a newer build
+ * is available. No Play Store, no external update framework — just a
+ * static JSON file and DownloadManager.
  *
  * Expected update-manifest.json shape:
  * {
@@ -77,7 +80,7 @@ public final class UpdateManager {
                 return;
             }
 
-            int localVersionCode = BuildConfig.VERSION_CODE;
+            int localVersionCode = getInstalledVersionCode(context);
             Log.i(TAG, "Local versionCode=" + localVersionCode
                     + " remote versionCode=" + remoteVersionCode);
 
@@ -142,6 +145,18 @@ public final class UpdateManager {
             }
         }
         return sb.toString();
+    }
+
+    private static int getInstalledVersionCode(Context context) throws Exception {
+        PackageInfo packageInfo = context.getPackageManager()
+                .getPackageInfo(context.getPackageName(), 0);
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            long versionCode = packageInfo.getLongVersionCode();
+            return versionCode > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) versionCode;
+        }
+
+        return packageInfo.versionCode;
     }
 
     private static String normalizeBaseUrl(String baseUrl) {
