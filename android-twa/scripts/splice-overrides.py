@@ -35,7 +35,9 @@ Usage:
 import argparse
 import shutil
 import sys
+from copy import deepcopy
 from pathlib import Path
+from xml.etree import ElementTree as ET
 
 WARNINGS = []
 
@@ -108,23 +110,24 @@ def merge_strings(strings_path: Path, overrides: Path) -> None:
         warn(f"Skipping strings.xml merge, missing {strings_path} or override file")
         return
 
-    override_text = override_strings_path.read_text(encoding="utf-8")
-    # Pull out just the <string ...>...</string> entries, ignore the XML
-    # prolog/comments/<resources> wrapper in the override file.
-    import re
-    entries = re.findall(r"<string\b.*?</string>", override_text, flags=re.DOTALL)
+    try:
+        generated_tree = ET.parse(strings_path)
+        override_tree = ET.parse(override_strings_path)
+    except ET.ParseError as exc:
+        die(f"Could not parse strings.xml during merge: {exc}")
+
+    generated_root = generated_tree.getroot()
+    override_root = override_tree.getroot()
+
+    entries = [deepcopy(child) for child in list(override_root) if child.tag == "string"]
     if not entries:
         warn("No <string> entries found in override strings.xml")
         return
 
-    text = strings_path.read_text(encoding="utf-8")
-    close_res = text.rfind("</resources>")
-    if close_res == -1:
-        die(f"Could not find </resources> in {strings_path}")
+    for entry in entries:
+        generated_root.append(entry)
 
-    block = "\n    " + "\n    ".join(entries) + "\n"
-    text = text[:close_res] + block + text[close_res:]
-    strings_path.write_text(text, encoding="utf-8")
+    generated_tree.write(strings_path, encoding="utf-8", xml_declaration=True)
     print(f"  merged {len(entries)} string(s) into {strings_path}")
 
 
