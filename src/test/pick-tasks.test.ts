@@ -9,6 +9,9 @@ const pickDb = vi.hoisted(() => ({
 
 vi.mock("@/integrations/supabase/client", () => {
   function nextSelect(table: string) {
+    if (table === "inventory_freezes" || table === "cycle_counts") {
+      return pickDb.selects[table]?.shift() ?? { data: null, error: null };
+    }
     return pickDb.selects[table]?.shift() ?? { data: null, error: new Error(`No ${table} mock`) };
   }
 
@@ -21,6 +24,12 @@ vi.mock("@/integrations/supabase/client", () => {
             filters.push([column, value]);
             return chain;
           },
+          or: (value: string) => {
+            filters.push(["or", value]);
+            return chain;
+          },
+          order: () => chain,
+          limit: () => chain,
           single: () => nextSelect(table),
           maybeSingle: () => nextSelect(table),
           then: (resolve: (value: any) => unknown) => resolve(nextSelect(table)),
@@ -46,6 +55,9 @@ vi.mock("@/integrations/supabase/client", () => {
     supabase: {
       from,
       rpc: (name: string, args: Record<string, unknown>) => {
+        if (name === "assert_location_not_frozen") {
+          return { data: null, error: null };
+        }
         pickDb.rpcs.push({ name, args });
         return { data: null, error: null };
       },

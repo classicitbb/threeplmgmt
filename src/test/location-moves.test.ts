@@ -8,6 +8,13 @@ const mockDb = vi.hoisted(() => ({
 }));
 
 vi.mock("@/integrations/supabase/client", () => {
+  function nextSelect(table: string) {
+    if (table === "inventory_freezes" || table === "cycle_counts") {
+      return mockDb.selects[table]?.shift() ?? { data: null, error: null };
+    }
+    return mockDb.selects[table]?.shift() ?? { data: null, error: new Error(`No ${table} mock`) };
+  }
+
   function from(table: string) {
     const filters: Array<[string, unknown]> = [];
     return {
@@ -17,8 +24,14 @@ vi.mock("@/integrations/supabase/client", () => {
             filters.push([column, value]);
             return chain;
           },
-          maybeSingle: () => mockDb.selects[table]?.shift() ?? { data: null, error: new Error(`No ${table} mock`) },
-          single: () => mockDb.selects[table]?.shift() ?? { data: null, error: new Error(`No ${table} mock`) },
+          or: (value: string) => {
+            filters.push(["or", value]);
+            return chain;
+          },
+          order: () => chain,
+          limit: () => chain,
+          maybeSingle: () => nextSelect(table),
+          single: () => nextSelect(table),
         };
         return chain;
       },
@@ -51,6 +64,9 @@ vi.mock("@/integrations/supabase/client", () => {
     supabase: {
       from,
       rpc: (name: string, args: Record<string, unknown>) => {
+        if (name === "assert_location_not_frozen") {
+          return { data: null, error: null };
+        }
         mockDb.rpcs.push({ name, args });
         return { data: null, error: null };
       },
