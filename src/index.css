@@ -149,10 +149,30 @@
     animation: scan-prompt-camera-pulse 0.95s ease-in-out infinite;
   }
 
+  @keyframes task-success-toast-rim {
+    0%,
+    100% {
+      border-color: hsl(var(--accent));
+      box-shadow: 0 0 0 1px hsl(var(--accent) / 0.55), 0 0 12px hsl(var(--accent) / 0.35);
+    }
+
+    50% {
+      border-color: hsl(var(--accent));
+      box-shadow: 0 0 0 4px hsl(var(--accent) / 0.85), 0 0 28px hsl(var(--accent) / 0.65);
+    }
+  }
+
+  .task-success-toast-rim {
+    border-width: 2px !important;
+    border-color: hsl(var(--accent)) !important;
+    animation: task-success-toast-rim 0.85s ease-in-out 4;
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .scan-prompt-halo::before,
     .scan-prompt-input,
-    .scan-prompt-camera {
+    .scan-prompt-camera,
+    .task-success-toast-rim {
       animation: none;
     }
 
@@ -167,6 +187,10 @@
 
     .scan-prompt-camera {
       color: hsl(var(--accent));
+      box-shadow: 0 0 0 2px hsl(var(--accent) / 0.55), 0 0 16px hsl(var(--accent) / 0.35);
+    }
+
+    .task-success-toast-rim {
       box-shadow: 0 0 0 2px hsl(var(--accent) / 0.55), 0 0 16px hsl(var(--accent) / 0.35);
     }
   }

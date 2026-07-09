@@ -229,7 +229,7 @@ function playBarcodeBeep() {
     osc.type = "sine";
     osc.frequency.setValueAtTime(1480, ctx.currentTime);
     osc.frequency.exponentialRampToValueAtTime(1760, ctx.currentTime + 0.06);
-    gain.gain.setValueAtTime(0.18, ctx.currentTime);
+    gain.gain.setValueAtTime(0.9, ctx.currentTime);
     gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.18);
     osc.start(ctx.currentTime);
     osc.stop(ctx.currentTime + 0.18);
@@ -291,7 +291,7 @@ function playPickSuccessTone() {
       gain.connect(ctx.destination);
       osc.type = "sine";
       osc.frequency.setValueAtTime(freq, now + start);
-      gain.gain.setValueAtTime(0.18, now + start);
+      gain.gain.setValueAtTime(0.9, now + start);
       gain.gain.exponentialRampToValueAtTime(0.001, now + start + 0.18);
       osc.start(now + start);
       osc.stop(now + start + 0.2);
@@ -1511,7 +1511,9 @@ function PickExecutionPage() {
         delete next[variables.taskId];
         return next;
       });
-      toast.success(variables.override ? "Pick confirmed with override — anomaly logged for review" : "Pick task confirmed");
+      toast.success(variables.override ? "Pick confirmed with override — anomaly logged for review" : "Pick task confirmed", {
+        className: "task-success-toast-rim",
+      });
       try { navigator.vibrate?.([60, 40, 120]); } catch { /* noop */ }
       playPickSuccessTone();
       await Promise.all([
@@ -1598,9 +1600,6 @@ function PickExecutionPage() {
               Open the assigned list, scan location and pallet, then confirm quantity.
             </HintButton>
           </div>
-          <p className="hidden text-sm text-muted-foreground sm:block">
-            Open the assigned list, scan location and pallet, then confirm quantity.
-          </p>
         </div>
         {!online ? (
           <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
@@ -1988,6 +1987,7 @@ function PickTaskCard({
                           title="Scan Bay/Location Code"
                           onScan={applyLocationScan}
                           disabled={lockForConfirm}
+                          className="w-20"
                         />
                       </div>
                     </div>
@@ -2059,6 +2059,7 @@ function PickTaskCard({
                           }, 50);
                         }}
                         disabled={lockForConfirm}
+                        className="w-20"
                       />
                     </div>
                   </FormControl>

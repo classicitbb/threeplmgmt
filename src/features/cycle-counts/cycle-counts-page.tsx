@@ -87,7 +87,7 @@ export function CycleCountsPage() {
   const isSupervisor = effectiveRoles.some((role) => supervisorRoles.has(role));
   const [activeTab, setActiveTab] = useState(actualIsSupervisor ? "manage" : "entry");
   const [createOpen, setCreateOpen] = useState(false);
-  const [statusFilter, setStatusFilter] = useState<CountStatusFilter>("all");
+  const [statusFilter, setStatusFilter] = useState<CountStatusFilter>("active");
   const [entryQty, setEntryQty] = useState<Record<string, string>>({});
   const [exceptionReason, setExceptionReason] = useState<Record<string, string>>({});
   const [approvalReason, setApprovalReason] = useState<Record<string, string>>({});

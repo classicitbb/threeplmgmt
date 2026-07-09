@@ -18,6 +18,15 @@ const wmsMocks = vi.hoisted(() => ({
       totalCapacity: 2,
       totalOccupied: 0,
     },
+    {
+      zoneCode: "COOL",
+      zoneName: "Cold",
+      aisle: "C1",
+      bay: "C1",
+      bayCode: "BAY:WH-1:COOL:C1:C1",
+      totalCapacity: 3,
+      totalOccupied: 1,
+    },
   ]),
   getBayOccupancy: vi.fn(async () => ({ aisle: "A1", bay: "B1", cells: [] })),
   getBinOccupancy: vi.fn(async () => ({ locationCode: "LOC-1", occupiedPallets: 0, maxPallets: 2 })),
@@ -144,6 +153,11 @@ describe("PutawayTasksPage scan-first flow", () => {
     fireEvent.keyDown(input, { key: "Enter", code: "Enter" });
   }
 
+  async function closeLocationScanner() {
+    const scannerDialog = await screen.findByRole("dialog", { name: /scan location barcode/i });
+    fireEvent.click(within(scannerDialog).getByRole("button", { name: /close/i }));
+  }
+
   it("opens the pallet scan dialog by default", async () => {
     renderPutawayPage();
 
@@ -196,25 +210,59 @@ describe("PutawayTasksPage scan-first flow", () => {
     expect(screen.queryByText("Open scanner first next time?")).not.toBeInTheDocument();
   });
 
-  it("reveals only the matching task and opens the bay selector", async () => {
+  it("reveals only the matching task and opens the location scanner", async () => {
     renderPutawayPage();
 
     await enterPallet("PLT-1");
 
-    expect(await screen.findByRole("dialog", { name: /select a bay/i })).toBeInTheDocument();
+    const scannerDialog = await screen.findByRole("dialog", { name: /scan location barcode/i });
+    expect(within(scannerDialog).getByRole("button", { name: /select location manually/i })).toBeInTheDocument();
     expect(screen.getByText(/SKU-1/)).toBeInTheDocument();
     expect(screen.queryByText(/SKU-2/)).not.toBeInTheDocument();
   });
 
-  it("keeps the selected task active when the bay selector is closed", async () => {
+  it("opens the bay selector from the location scanner manual action", async () => {
     renderPutawayPage();
 
     await enterPallet("PLT-1");
+    const scannerDialog = await screen.findByRole("dialog", { name: /scan location barcode/i });
+    fireEvent.click(within(scannerDialog).getByRole("button", { name: /select location manually/i }));
+
     const bayDialog = await screen.findByRole("dialog", { name: /select a bay/i });
+    expect(within(bayDialog).getByRole("button", { name: /^scan$/i })).toBeInTheDocument();
+    expect(await within(bayDialog).findByRole("button", { name: /A1-B1/i })).toHaveClass("min-h-[4.25rem]");
     fireEvent.click(within(bayDialog).getByRole("button", { name: /close/i }));
 
     expect(await screen.findByText(/SKU-1/)).toBeInTheDocument();
     await waitFor(() => expect(screen.getByPlaceholderText("Scan location barcode")).toHaveFocus());
+  });
+
+  it("switches from manual bay selection back to scanning", async () => {
+    renderPutawayPage();
+
+    await enterPallet("PLT-1");
+    const scannerDialog = await screen.findByRole("dialog", { name: /scan location barcode/i });
+    fireEvent.click(within(scannerDialog).getByRole("button", { name: /select location manually/i }));
+
+    const bayDialog = await screen.findByRole("dialog", { name: /select a bay/i });
+    fireEvent.click(within(bayDialog).getByRole("button", { name: /^scan$/i }));
+
+    expect(await screen.findByRole("dialog", { name: /scan location barcode/i })).toBeInTheDocument();
+  });
+
+  it("filters manual bay selection to a typed zone code", async () => {
+    renderPutawayPage();
+
+    await enterPallet("PLT-1");
+    await closeLocationScanner();
+
+    const locationInput = await screen.findByPlaceholderText("Scan location barcode");
+    fireEvent.change(locationInput, { target: { value: "COOL" } });
+    fireEvent.click(screen.getByRole("button", { name: /browse bays/i }));
+
+    const bayDialog = await screen.findByRole("dialog", { name: /select a bay/i });
+    expect(await within(bayDialog).findByText("Cold")).toBeInTheDocument();
+    expect(within(bayDialog).queryByText("Ambient")).not.toBeInTheDocument();
   });
 
   it("keeps open tasks hidden after cancelling until the section is expanded", async () => {
@@ -247,8 +295,7 @@ describe("PutawayTasksPage scan-first flow", () => {
     renderPutawayPage();
 
     await enterPallet("PLT-1");
-    const bayDialog = await screen.findByRole("dialog", { name: /select a bay/i });
-    fireEvent.click(within(bayDialog).getByRole("button", { name: /close/i }));
+    await closeLocationScanner();
 
     const locationInput = await screen.findByPlaceholderText("Scan location barcode");
     fireEvent.change(locationInput, { target: { value: "LOC-1" } });
@@ -262,8 +309,7 @@ describe("PutawayTasksPage scan-first flow", () => {
     const { invalidateSpy } = renderPutawayPage();
 
     await enterPallet("PLT-1");
-    const bayDialog = await screen.findByRole("dialog", { name: /select a bay/i });
-    fireEvent.click(within(bayDialog).getByRole("button", { name: /close/i }));
+    await closeLocationScanner();
 
     const locationInput = await screen.findByPlaceholderText("Scan location barcode");
     fireEvent.change(locationInput, { target: { value: "LOC-1" } });

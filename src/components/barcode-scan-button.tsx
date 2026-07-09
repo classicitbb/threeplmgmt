@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useRef, useState, type RefObject, type ReactNode } from "react";
 import { Camera, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -42,6 +42,11 @@ interface BarcodeScanButtonProps {
   onScanTelemetry?: (event: ScanTelemetryEvent) => void;
   onOpenChange?: (open: boolean) => void;
   autoOpenSignal?: number;
+  footerAction?: {
+    label: string;
+    icon?: ReactNode;
+    onClick: () => void;
+  };
   /** After scan is accepted, simulate Enter keydown on this input to advance focus. */
   inputRef?: RefObject<HTMLInputElement | null>;
 }
@@ -123,6 +128,7 @@ export function BarcodeScanButton({
   onScanTelemetry,
   onOpenChange,
   autoOpenSignal,
+  footerAction,
   inputRef,
 }: BarcodeScanButtonProps) {
   const [open, setOpen] = useState(false);
@@ -558,6 +564,20 @@ export function BarcodeScanButton({
           <p className={cn("text-center text-xs", scanMessage && !pendingScan ? "text-amber-500" : "text-muted-foreground")}>
             {detected ? "Loading..." : scanMessage ?? statusText ?? (enableTextRecognition ? "Point your camera at a QR code, barcode, or container number" : "Point your camera at a barcode or QR code")}
           </p>
+          {footerAction ? (
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full justify-center"
+              onClick={() => {
+                updateOpen(false);
+                footerAction.onClick();
+              }}
+            >
+              {footerAction.icon}
+              {footerAction.label}
+            </Button>
+          ) : null}
         </DialogContent>
       </Dialog>
     </>

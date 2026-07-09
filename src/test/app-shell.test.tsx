@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -191,6 +191,52 @@ describe("AppShell", () => {
       severity: "critical",
       title: "RF device offline — commits frozen",
     }));
+  });
+
+  it("shows inline reconnect refresh state instead of a restored toast", async () => {
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+      },
+    });
+    let resolveRefresh: () => void = () => undefined;
+    const refreshPromise = new Promise<void>((resolve) => {
+      resolveRefresh = resolve;
+    });
+    vi.spyOn(client, "invalidateQueries").mockReturnValue(refreshPromise as ReturnType<QueryClient["invalidateQueries"]>);
+    const { rerender } = renderShell(client);
+
+    networkState.online = false;
+    rerender(
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={["/dashboard"]}>
+          <AppShell>
+            <div>Content</div>
+          </AppShell>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    networkState.online = true;
+    rerender(
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={["/dashboard"]}>
+          <AppShell>
+            <div>Content</div>
+          </AppShell>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByRole("status")).toHaveTextContent(/refreshing live warehouse state/i);
+    expect(sonnerMocks.success).not.toHaveBeenCalledWith("Connection restored. Refreshing live warehouse state.");
+
+    await act(async () => {
+      resolveRefresh();
+      await refreshPromise;
+    });
+
+    await waitFor(() => expect(screen.queryByRole("status")).not.toBeInTheDocument());
   });
 
   it("raises a supervisor acknowledgement toast for unresolved offline alerts", async () => {

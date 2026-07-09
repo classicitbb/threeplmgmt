@@ -6,7 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm, type UseFormReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { supabase } from "@/integrations/supabase/client";
-import { Activity, AlertCircle, AlertTriangle, ArrowLeftRight, BarChart3, Bot, Boxes, Building2, CheckCircle2, ChevronDown, ClipboardCheck, ClipboardList, CloudOff, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, HelpCircle, Home, Info, KeyRound, LayoutDashboard, Loader2, Lock, LockOpen, LogOut, Mail, Maximize2, MapPinned, Menu, Minimize2, Network, Package, PackageX, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, QrCode, RadioTower, RefreshCw, RotateCcw, Search, Settings, ShieldCheck, Star, Tags, Trash2, Truck, Upload, UserPlus, Users } from "lucide-react";
+import { Activity, AlertCircle, AlertTriangle, ArrowLeftRight, BarChart3, Bot, Boxes, Building2, Camera, CheckCircle2, ChevronDown, ClipboardCheck, ClipboardList, CloudOff, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, HelpCircle, Home, Info, KeyRound, LayoutDashboard, Loader2, Lock, LockOpen, LogOut, Mail, Maximize2, MapPinned, Menu, Minimize2, Network, Package, PackageX, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, QrCode, RadioTower, RefreshCw, RotateCcw, Search, Settings, ShieldCheck, Star, Tags, Trash2, Truck, Upload, UserPlus, Users } from "lucide-react";
 import {
   DndContext,
   KeyboardSensor,
@@ -186,7 +186,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
 import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 
 import {
@@ -201,12 +201,16 @@ import {
 function WarehouseBayBrowserDialog({
   open,
   warehouseId,
+  zoneFilter,
   onSelectBay,
+  onScanInstead,
   onClose,
 }: {
   open: boolean;
   warehouseId: string;
+  zoneFilter?: string;
   onSelectBay: (bayCode: string) => void;
+  onScanInstead: () => void;
   onClose: () => void;
 }) {
   const { data: bays = [], isLoading, error } = useQuery<WarehouseBayGroup[]>({
@@ -224,6 +228,8 @@ function WarehouseBayBrowserDialog({
       next.has(zk) ? next.delete(zk) : next.add(zk);
       return next;
     });
+
+  const normalizedZoneFilter = normalizeScannerText(zoneFilter);
 
   // Group by zone (ordered by zone name), then by aisle within each zone
   const zoneGroups = useMemo(() => {
@@ -247,12 +253,32 @@ function WarehouseBayBrowserDialog({
       }));
   }, [bays]);
 
+  const visibleZoneGroups = useMemo(() => {
+    if (!normalizedZoneFilter) return zoneGroups;
+    const matches = zoneGroups.filter((zone) => {
+      const zoneKey = normalizeScannerText(zone.zoneKey);
+      const zoneName = normalizeScannerText(zone.zoneName);
+      return zoneKey === normalizedZoneFilter ||
+        zoneKey.startsWith(normalizedZoneFilter) ||
+        zoneName.includes(normalizedZoneFilter);
+    });
+    return matches.length > 0 ? matches : zoneGroups;
+  }, [normalizedZoneFilter, zoneGroups]);
+
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
       <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Select a bay</DialogTitle>
-          <DialogDescription>Tap a bay to load its locations into the scan field.</DialogDescription>
+          <div className="flex items-start justify-between gap-3 pr-6">
+            <div>
+              <DialogTitle>Select a bay</DialogTitle>
+              <DialogDescription>Tap a bay to load its locations into the scan field.</DialogDescription>
+            </div>
+            <Button type="button" variant="outline" size="sm" className="shrink-0" onClick={onScanInstead}>
+              <Camera className="mr-2 h-4 w-4" />
+              Scan
+            </Button>
+          </div>
         </DialogHeader>
         {isLoading && (
           <div className="flex items-center justify-center py-8 text-sm text-muted-foreground">
@@ -269,7 +295,7 @@ function WarehouseBayBrowserDialog({
           <p className="py-4 text-center text-sm text-muted-foreground">No rack locations configured for this warehouse.</p>
         )}
         <div className="divide-y divide-border/40">
-          {zoneGroups.map((zone) => {
+          {visibleZoneGroups.map((zone) => {
             const collapsed = collapsedZones.has(zone.zoneKey);
             return (
               <div key={zone.zoneKey} className="py-3 first:pt-1">
@@ -315,7 +341,7 @@ function WarehouseBayBrowserDialog({
                                 disabled={isFull}
                                 onClick={() => { onSelectBay(bay.bayCode); onClose(); }}
                                 className={cn(
-                                  "flex flex-col gap-1 rounded-md border p-2.5 text-left text-xs transition focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
+                                  "flex min-h-[4.25rem] min-w-[3.75rem] flex-col gap-1 rounded-md border p-3 text-left text-sm transition focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
                                   isFull
                                     ? "cursor-not-allowed border-muted bg-muted/40 opacity-60"
                                     : "border-border bg-card hover:bg-secondary/60",
@@ -527,6 +553,7 @@ export function PutawayTasksPage() {
   const [scannerPreferenceDismissed, setScannerPreferenceDismissed] = useState(false);
   const [scannerPreferencePending, setScannerPreferencePending] = useState(false);
   const [scannerAutoOpenSignal, setScannerAutoOpenSignal] = useState(0);
+  const [locationScannerAutoOpenSignal, setLocationScannerAutoOpenSignal] = useState(0);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [flowCancelled, setFlowCancelled] = useState(false);
   const [openTasksExpanded, setOpenTasksExpanded] = useState(false);
@@ -537,6 +564,7 @@ export function PutawayTasksPage() {
   const palletRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const locationRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const confirmRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const actionRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const previousOnlineRef = useRef(online);
   const [completedIds, setCompletedIds] = useState<Set<string>>(new Set());
   const [revertedIds, setRevertedIds] = useState<Set<string>>(new Set());
@@ -675,7 +703,7 @@ export function PutawayTasksPage() {
       toast.success(vars.override ? "Put-Away locked in with override" : "Put-Away locked in", {
         description: `Pallet ${vars.pallet} stored at ${vars.location}.`,
         duration: 7000,
-        className: "border-emerald-400 bg-emerald-50 text-emerald-950 dark:border-emerald-500 dark:bg-emerald-950 dark:text-emerald-50",
+        className: "task-success-toast-rim border-emerald-400 bg-emerald-50 text-emerald-950 dark:border-emerald-500 dark:bg-emerald-950 dark:text-emerald-50",
       });
       markPutawayOccupancyCached(queryClient, vars.location);
       setCompletedIds((prev) => new Set([...prev, vars.taskId]));
@@ -800,6 +828,15 @@ export function PutawayTasksPage() {
     }, 50);
   }
 
+  function openLocationScannerForTask(taskId: string) {
+    setBayBrowserOpen((current) => ({ ...current, [taskId]: false }));
+    setLocationScannerAutoOpenSignal((current) => current + 1);
+    setTimeout(() => {
+      flashInput(locationRefs.current[taskId], "orange");
+      locationRefs.current[taskId]?.focus();
+    }, 50);
+  }
+
   function commitPalletScan(rawValue: string) {
     const value = normalizeScannerText(rawValue);
     if (!value) {
@@ -835,9 +872,9 @@ export function PutawayTasksPage() {
       delete next[match.id];
       return next;
     });
-    setBayBrowserOpen({ [match.id]: true });
     playBarcodeBeep();
     setScanDialogOpen(false);
+    openLocationScannerForTask(match.id);
   }
 
   function applyLocationScan(task: any, scannedValue: string) {
@@ -949,10 +986,22 @@ export function PutawayTasksPage() {
       >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Scan pallet for Put-Away</DialogTitle>
-            <DialogDescription>
-              Scan or type the pallet number, then press Enter to open its Put-Away task.
-            </DialogDescription>
+            <div className="flex items-center gap-2">
+              <DialogTitle>Scan pallet for Put-Away</DialogTitle>
+              <TooltipProvider delayDuration={150}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button type="button" variant="ghost" size="icon" tabIndex={-1} className="h-7 w-7 rounded-full">
+                      <HelpCircle className="h-4 w-4" />
+                      <span className="sr-only">Pallet scan help</span>
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="max-w-xs">
+                    Scan or type the pallet number, then press Enter to open its Put-Away task.
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </div>
           </DialogHeader>
           <div className="grid gap-3">
             <div
@@ -983,7 +1032,7 @@ export function PutawayTasksPage() {
               </div>
               <BarcodeScanButton
                 title="Scan pallet barcode"
-                className={cn("h-12 w-12", scanPromptWaiting && "scan-prompt-camera")}
+                className={cn("h-12 w-24", scanPromptWaiting && "scan-prompt-camera")}
                 autoOpenSignal={scannerAutoOpenSignal}
                 onOpenChange={handlePutawayScannerOpenChange}
                 onScan={(value) => commitPalletScan(value)}
@@ -1020,7 +1069,7 @@ export function PutawayTasksPage() {
               </div>
             ) : null}
             {pendingTasks.length > 0 ? (
-              <p className="text-xs text-muted-foreground">
+              <p className="text-sm font-medium text-muted-foreground">
                 {pendingTasks.length} open Put-Away task{pendingTasks.length === 1 ? "" : "s"} waiting.
               </p>
             ) : null}
@@ -1036,7 +1085,7 @@ export function PutawayTasksPage() {
             >
               Cancel
             </Button>
-            <Button type="button" onClick={() => commitPalletScan(scanQuery)}>
+            <Button type="button" className="min-w-36" onClick={() => commitPalletScan(scanQuery)}>
               Find pallet
             </Button>
           </DialogFooter>
@@ -1200,10 +1249,7 @@ export function PutawayTasksPage() {
                             setScanState((cur) => ({ ...cur, [task.id]: { ...localState, pallet: normalizeScannerText(v) } }));
                             playBarcodeBeep();
                             flashInput(palletRefs.current[task.id], "blue");
-                            setTimeout(() => {
-                              flashInput(locationRefs.current[task.id], "orange");
-                              locationRefs.current[task.id]?.focus();
-                            }, 50);
+                            openLocationScannerForTask(task.id);
                           }}
                         />
                       </div>
@@ -1243,7 +1289,13 @@ export function PutawayTasksPage() {
                         />
                         <BarcodeScanButton
                           title="Scan location barcode"
+                          autoOpenSignal={selectedTaskId === task.id ? locationScannerAutoOpenSignal : 0}
                           onScan={(v) => applyLocationScan(task, normalizeScannerText(v))}
+                          footerAction={{
+                            label: "Select Location Manually",
+                            icon: <MapPinned className="mr-2 h-4 w-4" />,
+                            onClick: () => setBayBrowserOpen((s) => ({ ...s, [task.id]: true })),
+                          }}
                         />
                         <Button
                           type="button"
@@ -1260,7 +1312,9 @@ export function PutawayTasksPage() {
                   <WarehouseBayBrowserDialog
                     open={Boolean(bayBrowserOpen[task.id])}
                     warehouseId={task.warehouse_id as string}
+                    zoneFilter={localState.location}
                     onClose={() => closeBayBrowser(task.id)}
+                    onScanInstead={() => openLocationScannerForTask(task.id)}
                     onSelectBay={(bayCode) => {
                       setBayScanState((s) => ({ ...s, [task.id]: bayCode }));
                       setScanState((s) => ({ ...s, [task.id]: { ...(s[task.id] ?? { pallet: "", location: "", override: false, reason: "" }), location: "" } }));
@@ -1289,7 +1343,10 @@ export function PutawayTasksPage() {
                           });
                           if (bayScan) void logPutawayBaySelection({ taskId: task.id, scannedCode: bayScan, selectedLocationCode: location });
                           flashInput(locationRefs.current[task.id], "blue");
-                          setTimeout(() => confirmRefs.current[task.id]?.focus(), 50);
+                          setTimeout(() => {
+                            actionRefs.current[task.id]?.scrollIntoView({ behavior: "smooth", block: "center" });
+                            confirmRefs.current[task.id]?.focus();
+                          }, 50);
                         }}
                       />
                     </>
@@ -1331,34 +1388,39 @@ export function PutawayTasksPage() {
                       }
                     />
                   )}
-                  <Button
-                    ref={(el) => { confirmRefs.current[task.id] = el; }}
-                    className="min-h-12 w-full text-base"
-                    disabled={mutation.isPending || !localState.pallet || !localState.location}
-                    onClick={() =>
-                      mutation.mutate({
-                        taskId: task.id,
-                        pallet: localState.pallet,
-                        location: localState.location,
-                        override: localState.override,
-                        reason: localState.reason,
-                      })
-                    }
+                  <div
+                    ref={(el) => { actionRefs.current[task.id] = el; }}
+                    className="grid gap-3"
                   >
-                    {mutation.isPending ? <Loader2 className="animate-spin" /> : <CheckCircle2 data-icon="inline-start" />}
-                    {localState.override ? "Override & Confirm Put-Away" : "Confirm Put-Away"}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="w-full text-muted-foreground"
-                    disabled={revertMutation.isPending}
-                    onClick={() => setReturnTask(task)}
-                  >
-                    {revertMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <RotateCcw className="h-3.5 w-3.5 mr-1" />}
-                    Save as Draft / Return to Receiving
-                  </Button>
+                    <Button
+                      ref={(el) => { confirmRefs.current[task.id] = el; }}
+                      className="min-h-12 w-full text-base"
+                      disabled={mutation.isPending || !localState.pallet || !localState.location}
+                      onClick={() =>
+                        mutation.mutate({
+                          taskId: task.id,
+                          pallet: localState.pallet,
+                          location: localState.location,
+                          override: localState.override,
+                          reason: localState.reason,
+                        })
+                      }
+                    >
+                      {mutation.isPending ? <Loader2 className="animate-spin" /> : <CheckCircle2 data-icon="inline-start" />}
+                      {localState.override ? "Override & Confirm Put-Away" : "Confirm Put-Away"}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="w-full text-muted-foreground"
+                      disabled={revertMutation.isPending}
+                      onClick={() => setReturnTask(task)}
+                    >
+                      {revertMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <RotateCcw className="h-3.5 w-3.5 mr-1" />}
+                      Save as Draft / Return to Receiving
+                    </Button>
+                  </div>
                 </CardContent>
               </Card>
             );
