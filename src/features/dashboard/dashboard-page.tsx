@@ -410,9 +410,24 @@ export function DashboardPage() {
       )}
     >
       <div className="flex shrink-0 flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-        <div>
+        <div className="flex items-center gap-2">
           <h2 className="text-2xl font-bold tracking-tight">Command Center</h2>
-          <p className="text-sm text-muted-foreground">Live warehouse metrics. Unlock edit mode to reorder, resize, or hide tiles.</p>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                className="h-8 w-8 text-muted-foreground"
+                aria-label="Command Center guidance"
+              >
+                <HelpCircle className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="max-w-xs">
+              Live warehouse metrics. Unlock edit mode to reorder, resize, or hide tiles.
+            </TooltipContent>
+          </Tooltip>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Tabs value={mode} onValueChange={(value) => setMode(value as DashboardMode)}>

@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm, type UseFormReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { supabase } from "@/integrations/supabase/client";
-import { Activity, AlertCircle, AlertTriangle, ArrowLeftRight, ArrowRight, BarChart3, Bot, Boxes, Building2, CalendarDays, CheckCircle2, ChevronDown, ClipboardCheck, ClipboardList, CloudOff, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, Home, Info, KeyRound, LayoutDashboard, Lock, LockOpen, LogOut, Mail, Maximize2, MapPinned, Menu, Minimize2, Network, Package, PackageX, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, QrCode, RadioTower, RefreshCw, RotateCcw, Search, Settings, ShieldCheck, Star, Tags, Trash2, Truck, Upload, UserPlus, Users } from "lucide-react";
+import { Activity, AlertCircle, AlertTriangle, ArrowLeftRight, ArrowRight, BarChart3, Bot, Boxes, Building2, CalendarDays, CheckCircle2, ChevronDown, ClipboardCheck, ClipboardList, CloudOff, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, Home, Info, KeyRound, LayoutDashboard, Lock, LockOpen, LogOut, Mail, Maximize2, MapPinned, Menu, Minimize2, Network, Package, PackageX, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, QrCode, RadioTower, RotateCcw, Search, Settings, ShieldCheck, Star, Tags, Trash2, Truck, Upload, UserPlus, Users } from "lucide-react";
 import {
   DndContext,
   KeyboardSensor,
@@ -1095,22 +1095,7 @@ export function ReceivingPage() {
             </HintButton>
           </div>
         </div>
-        <div className="grid grid-cols-3 gap-2 sm:flex sm:flex-wrap">
-          <Button
-            className="min-w-0 px-2 text-xs sm:px-4 sm:text-sm"
-            variant="outline"
-            onClick={() => {
-              void Promise.all([
-                refetchDrafts(),
-                queryClient.invalidateQueries({ queryKey: ["dashboard-metrics"] }),
-                queryClient.invalidateQueries({ queryKey: ["putaway-tasks"] }),
-                queryClient.invalidateQueries({ queryKey: ["inventory-search"] }),
-              ]);
-            }}
-          >
-            <RefreshCw data-icon="inline-start" />
-            <span className="truncate">Refresh live state</span>
-          </Button>
+        <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
           <Button className="min-w-0 px-2 text-xs sm:px-4 sm:text-sm" variant="outline" onClick={() => {
             setPrintContainer(draftSearch);
             setSelectedDraftIds(new Set(visibleDrafts.map((draft) => draft.id)));

@@ -1385,21 +1385,23 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <div
       className={cn(
         "flex h-full flex-col overflow-hidden bg-sidebar",
-        sidebarCollapsed ? "items-center px-1.5 py-3 bg-teal-500" : "px-3 py-3"
+        sidebarCollapsed ? "items-center px-1.5 py-3 bg-teal-500" : compactTop ? "px-3 py-0" : "px-3 py-3"
       )}
     >
       {/* Logo area */}
-      <div className={cn(
-        "mb-4 flex items-center gap-3 px-2",
-        sidebarCollapsed && "justify-center px-0"
-      )}>
-        <img src="/logo.png" alt="Warehouse Wizard" className="h-8 w-8 shrink-0 rounded-lg object-fill" />
-        {!sidebarCollapsed && (
-          <span className="truncate text-sm font-semibold text-foreground">Warehouse Wizard</span>
-        )}
-      </div>
+      {!compactTop ? (
+        <div className={cn(
+          "mb-4 flex items-center gap-3 px-2",
+          sidebarCollapsed && "justify-center px-0"
+        )}>
+          <img src="/logo.png" alt="Warehouse Wizard" className="h-8 w-8 shrink-0 rounded-lg object-fill" />
+          {!sidebarCollapsed && (
+            <span className="truncate text-sm font-semibold text-foreground">Warehouse Wizard</span>
+          )}
+        </div>
+      ) : null}
 
-      <nav className="flex-1 overflow-y-auto">
+      <nav className={cn("flex-1 overflow-y-auto", compactTop && "pt-0")}>
         <div className="flex flex-col gap-0.5">
           {items.map((item) => {
             const Icon = navIcons[item.to] ?? LayoutDashboard;
@@ -1495,7 +1497,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   <Menu className="h-4 w-4" />
                 </Button>
               </SheetTrigger>
-              <SheetContent side="top" className="flex max-h-svh w-screen max-w-full flex-col p-0">
+              <SheetContent side="top" className="left-auto right-4 top-3 flex max-h-[calc(100svh-1.5rem)] w-[min(24rem,calc(100vw-1rem))] max-w-[calc(100vw-1rem)] origin-top-right flex-col overflow-hidden rounded-2xl border border-border bg-card/95 p-0 shadow-2xl backdrop-blur data-[state=closed]:slide-out-to-top-2 data-[state=open]:slide-in-from-top-2 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0">
                 <SheetHeader className="sr-only">
                   <SheetTitle>Navigation</SheetTitle>
                 </SheetHeader>
@@ -3548,10 +3550,10 @@ export function WarehouseFloorMode({
                             <li key={task.id}>
                               <Link
                                 to={task.route}
-                                className="flex items-center justify-between rounded-md border border-border bg-secondary/30 px-3 py-1.5 text-sm hover:bg-secondary/60 transition-colors"
+                                className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2 rounded-md border border-border bg-secondary/30 px-3 py-1.5 text-sm transition-colors hover:bg-secondary/60"
                               >
-                                <span className="font-medium truncate">{task.label}</span>
-                                <Badge variant="outline" className="ml-2 shrink-0 capitalize text-xs">{task.sublabel}</Badge>
+                                <span className="min-w-0 break-all font-medium leading-tight">{task.label}</span>
+                                <Badge variant="outline" className="shrink-0 self-start whitespace-nowrap capitalize text-xs">{task.sublabel}</Badge>
                               </Link>
                             </li>
                           ))}
@@ -3619,14 +3621,14 @@ function WarehouseIntelligenceCard({ snapshot }: { snapshot: EnterpriseDashboard
       </CardHeader>
       <CardContent className="grid gap-2">
         {snapshot.leanMetrics.map((metric) => (
-          <Link key={metric.label} to={metric.route} className="flex items-center justify-between gap-2 rounded-md border border-border px-3 py-2 transition hover:bg-secondary/40 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
+          <Link key={metric.label} to={metric.route} className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 rounded-md border border-border px-3 py-2 transition hover:bg-secondary/40 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
             <div className="min-w-0">
-              <p className="truncate text-xs font-medium">{metric.label}</p>
-              <p className="text-xs text-muted-foreground">Target: {metric.target}</p>
+              <p className="break-words text-xs font-medium leading-4">{metric.label}</p>
+              <p className="mt-0.5 break-words text-xs leading-4 text-muted-foreground">Target: {metric.target}</p>
             </div>
-            <div className="flex shrink-0 items-center gap-2">
-              <span className="text-lg font-semibold tabular-nums">{metric.value}</span>
-              <Badge className="text-[10px] px-1.5 py-0" variant={metric.status === "off_target" ? "destructive" : metric.status === "watch" ? "secondary" : "default"}>
+            <div className="flex min-w-0 max-w-[8.5rem] flex-col items-end gap-1 text-right">
+              <span className="break-words text-lg font-semibold leading-none tabular-nums">{metric.value}</span>
+              <Badge className="max-w-full whitespace-normal break-words px-1.5 py-0 text-[10px] leading-4" variant={metric.status === "off_target" ? "destructive" : metric.status === "watch" ? "secondary" : "default"}>
                 {metric.status.replace("_", " ")}
               </Badge>
             </div>

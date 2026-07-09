@@ -902,6 +902,7 @@ export function PutawayTasksPage() {
 
   useEffect(() => {
     if (isLoading) return;
+    const coarsePointer = typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches;
     if (pendingTasks.length === 0) {
       setScanDialogOpen(false);
       setSelectedTaskId(null);
@@ -909,7 +910,7 @@ export function PutawayTasksPage() {
       setResumeNotice(null);
       return;
     }
-    if (!selectedTask && !flowCancelled) {
+    if (coarsePointer && !selectedTask && !flowCancelled) {
       setScanDialogOpen(true);
     }
   }, [flowCancelled, isLoading, pendingTasks.length, selectedTask]);
@@ -988,6 +989,9 @@ export function PutawayTasksPage() {
           <DialogHeader>
             <div className="flex items-center gap-2">
               <DialogTitle>Scan pallet for Put-Away</DialogTitle>
+              <DialogDescription className="sr-only">
+                Scan or type the pallet number, then confirm to open its pending Put-Away task.
+              </DialogDescription>
               <TooltipProvider delayDuration={150}>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -1091,27 +1095,30 @@ export function PutawayTasksPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      <div className="shrink-0 rounded-lg border border-border bg-background/95 p-4 shadow-sm backdrop-blur sm:flex sm:items-end sm:justify-between sm:gap-3">
-        <div>
-          <h2 className="text-2xl font-semibold">Put-Away Tasks</h2>
-          <p className="text-sm text-muted-foreground">Scan pallet barcode, then location barcode, and confirm.</p>
-        </div>
-        <div className="mt-3 flex min-w-0 flex-col gap-2 sm:mt-0 sm:min-w-80 sm:items-end">
-          {pendingTasks.length > 0 && (
-            <Badge variant="secondary" className="w-fit text-sm">{pendingTasks.length} pending</Badge>
-          )}
-          <Button
-            type="button"
-            variant="outline"
-            className="w-full justify-center sm:w-auto"
-            onClick={() => {
-              setScanDialogOpen(true);
-              setFlowCancelled(false);
-            }}
-          >
-            <Search className="mr-2 h-4 w-4" />
-            {taskSearch ? `Scan another pallet` : "Scan pallet"}
-          </Button>
+      <div className="shrink-0 rounded-lg border border-border bg-background/95 p-4 shadow-sm backdrop-blur">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-2">
+            <h2 className="text-2xl font-semibold">Put-Away Tasks</h2>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="h-8 w-8 shrink-0 text-muted-foreground"
+                  aria-label="Put-Away guidance"
+                >
+                  <HelpCircle className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="max-w-xs">
+                Scan pallet barcode, then location barcode, and confirm.
+              </TooltipContent>
+            </Tooltip>
+          </div>
+          {pendingTasks.length > 0 ? (
+            <Badge variant="secondary" className="shrink-0 text-sm">{pendingTasks.length} pending</Badge>
+          ) : null}
         </div>
       </div>
       {!online ? (
@@ -1133,10 +1140,10 @@ export function PutawayTasksPage() {
           <p className="mt-1">{resumeNotice.summary}</p>
         </div>
       ) : null}
-      <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto pr-1">
+      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pr-1">
         {!selectedTask && pendingTasks.length > 0 ? (
           <details
-            className="group rounded-lg border border-border bg-background/60 px-3 py-2"
+            className="group w-fit max-w-full self-start rounded-lg border border-border bg-background/60 px-3 py-2"
             open={openTasksExpanded}
             onToggle={(event) => setOpenTasksExpanded(event.currentTarget.open)}
           >
@@ -1149,15 +1156,15 @@ export function PutawayTasksPage() {
         {isLoading ? (
           <Card><CardContent className="p-6 text-sm text-muted-foreground">Loading putaway tasks…</CardContent></Card>
         ) : visibleTasks.length === 0 ? (
-          <Card>
-            <CardContent className="flex flex-col items-center gap-2 p-8 text-center text-sm text-muted-foreground">
+          <Card className="flex flex-1">
+            <CardContent className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center text-sm text-muted-foreground">
               <CheckCircle2 className="h-8 w-8 text-green-500" />
               <p className="font-medium">{pendingTasks.length === 0 ? "All putaway tasks complete" : "Scan a pallet to begin Put-Away"}</p>
               {pendingTasks.length > 0 ? (
                 <Button
                   type="button"
-                  size="sm"
                   variant="outline"
+                  className="min-h-16 min-w-56 rounded-lg px-8 text-lg font-semibold"
                   onClick={() => {
                     setScanDialogOpen(true);
                     setFlowCancelled(false);

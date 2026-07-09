@@ -583,25 +583,27 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <div
         className={cn(
           "flex h-full flex-col overflow-hidden bg-sidebar",
-          sidebarCollapsed ? "items-center px-1.5 py-3 bg-teal-500" : compactTop ? "px-2.5 pb-3 pt-1" : "px-2.5 py-3"
+          sidebarCollapsed ? "items-center px-1.5 py-3 bg-teal-500" : compactTop ? "px-2.5 py-0" : "px-2.5 py-3"
         )}
       >
       {/* Logo area */}
-      <div className={cn(
-        "mb-4 flex items-center justify-between gap-2 px-2",
-        sidebarCollapsed && "justify-center px-0"
-      )}>
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-black p-1">
-            <img src="/logo.png" alt="Warehouse Wizard" className="h-full w-full object-contain" />
+      {!compactTop ? (
+        <div className={cn(
+          "mb-4 flex items-center justify-between gap-2 px-2",
+          sidebarCollapsed && "justify-center px-0"
+        )}>
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-black p-1">
+              <img src="/logo.png" alt="Warehouse Wizard" className="h-full w-full object-contain" />
+            </div>
+            {!sidebarCollapsed && (
+              <span className="truncate text-sm font-semibold text-foreground">Warehouse Wizard</span>
+            )}
           </div>
-          {!sidebarCollapsed && (
-            <span className="truncate text-sm font-semibold text-foreground">Warehouse Wizard</span>
-          )}
         </div>
-      </div>
+      ) : null}
 
-      <nav className="flex-1 overflow-y-auto">
+      <nav className={cn("flex-1 overflow-y-auto", compactTop && "pt-0")}>
         <div className="flex flex-col gap-0.5">
           {items.map((item) => {
             const Icon = navIcons[item.to] ?? LayoutDashboard;
@@ -708,13 +710,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       >
         {/* Mobile header */}
         <header className="col-span-full flex items-center justify-between border-b border-border bg-background/95 px-4 py-3 backdrop-blur lg:landscape:hidden">
-          <div className="flex items-center gap-2">
+          <Link
+            to="/dashboard"
+            className="flex min-w-0 items-center gap-2 rounded-md outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            aria-label="Go to dashboard"
+          >
             <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-black p-1">
               <img src="/logo.png" alt="Warehouse Wizard" className="h-full w-full object-contain" />
             </div>
-            <span className="text-sm font-semibold">{appTitle}</span>
+            <span className="truncate text-sm font-semibold">{appTitle}</span>
             <span className="hidden text-[10px] font-medium text-muted-foreground sm:inline">v{__APP_VERSION__}</span>
-          </div>
+          </Link>
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-1.5 rounded-md border border-border bg-card/80 px-1.5 py-1">
               <Avatar className="h-6 w-6">
@@ -730,7 +736,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   <Menu className="h-4 w-4" />
                 </Button>
               </SheetTrigger>
-              <SheetContent side="top" className="flex max-h-svh w-screen max-w-full flex-col p-0">
+              <SheetContent side="top" className="left-auto right-4 top-3 flex max-h-[calc(100svh-1.5rem)] w-[min(24rem,calc(100vw-1rem))] max-w-[calc(100vw-1rem)] origin-top-right flex-col overflow-hidden rounded-2xl border border-border bg-card/95 p-0 shadow-2xl backdrop-blur data-[state=closed]:slide-out-to-top-2 data-[state=open]:slide-in-from-top-2 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0">
                 <SheetHeader className="sr-only">
                   <SheetTitle>Navigation</SheetTitle>
                 </SheetHeader>
