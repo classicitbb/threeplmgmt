@@ -4,6 +4,7 @@ import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PutawayTasksPage } from "@/components/wms-ui";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 const wmsMocks = vi.hoisted(() => ({
   getPutawayTasks: vi.fn(),
@@ -139,7 +140,9 @@ describe("PutawayTasksPage scan-first flow", () => {
     render(
       <QueryClientProvider client={queryClient}>
         <MemoryRouter>
-          <PutawayTasksPage />
+          <TooltipProvider>
+            <PutawayTasksPage />
+          </TooltipProvider>
         </MemoryRouter>
       </QueryClientProvider>,
     );
@@ -148,9 +151,18 @@ describe("PutawayTasksPage scan-first flow", () => {
   }
 
   async function enterPallet(value: string) {
+    await openPalletDialog();
     const input = await screen.findByLabelText("Pallet number");
     fireEvent.change(input, { target: { value } });
     fireEvent.keyDown(input, { key: "Enter", code: "Enter" });
+  }
+
+  async function openPalletDialog() {
+    const existing = screen.queryByRole("dialog", { name: /scan pallet for put-away/i });
+    if (existing) return existing;
+    const trigger = await screen.findByRole("button", { name: /^scan pallet$/i });
+    fireEvent.click(trigger);
+    return screen.findByRole("dialog", { name: /scan pallet for put-away/i });
   }
 
   async function closeLocationScanner() {
@@ -158,16 +170,17 @@ describe("PutawayTasksPage scan-first flow", () => {
     fireEvent.click(within(scannerDialog).getByRole("button", { name: /close/i }));
   }
 
-  it("opens the pallet scan dialog by default", async () => {
+  it("opens the pallet scan dialog from the idle scan button", async () => {
     renderPutawayPage();
 
-    expect(await screen.findByRole("dialog", { name: /scan pallet for put-away/i })).toBeInTheDocument();
-    expect(screen.getByLabelText("Pallet number")).toHaveFocus();
+    expect(await openPalletDialog()).toBeInTheDocument();
+    expect(screen.getByLabelText("Pallet number")).toBeInTheDocument();
   });
 
   it("shows the idle scan glow until pallet input begins", async () => {
     renderPutawayPage();
 
+    await openPalletDialog();
     const input = await screen.findByLabelText("Pallet number");
     const prompt = screen.getByTestId("putaway-scan-prompt");
     const camera = screen.getByRole("button", { name: /scan pallet barcode/i });
@@ -189,6 +202,7 @@ describe("PutawayTasksPage scan-first flow", () => {
     setPointerCoarse(true);
     renderPutawayPage();
 
+    await openPalletDialog();
     fireEvent.click(await screen.findByRole("button", { name: /scan pallet barcode/i }));
     const cameraDialog = await screen.findByRole("dialog", { name: /scan pallet barcode/i });
     fireEvent.click(within(cameraDialog).getByRole("button", { name: /close/i }));
@@ -219,6 +233,66 @@ describe("PutawayTasksPage scan-first flow", () => {
     expect(within(scannerDialog).getByRole("button", { name: /select location manually/i })).toBeInTheDocument();
     expect(screen.getByText(/SKU-1/)).toBeInTheDocument();
     expect(screen.queryByText(/SKU-2/)).not.toBeInTheDocument();
+    expect(screen.queryByText("SUG-1")).not.toBeInTheDocument();
+  });
+
+  it("does not show override controls for a simple suggested-location mismatch", async () => {
+    renderPutawayPage();
+
+    await enterPallet("PLT-1");
+    await closeLocationScanner();
+
+    const locationInput = await screen.findByPlaceholderText("Scan location barcode");
+    fireEvent.change(locationInput, { target: { value: "LOC-1" } });
+
+    expect(screen.queryByText(/operator override/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/override location rules/i)).not.toBeInTheDocument();
+  });
+
+  it("shows override controls only after a rule violation", async () => {
+    wmsMocks.confirmPutaway
+      .mockRejectedValueOnce(new Error("RULE_VIOLATION: Location is full"))
+      .mockResolvedValueOnce(undefined);
+    renderPutawayPage();
+
+    await enterPallet("PLT-1");
+    await closeLocationScanner();
+
+    const locationInput = await screen.findByPlaceholderText("Scan location barcode");
+    fireEvent.change(locationInput, { target: { value: "LOC-1" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Confirm Put-Away$/i }));
+
+    expect(await screen.findByText(/rule violation: location is full/i)).toBeInTheDocument();
+    const override = screen.getByLabelText(/override location rules/i);
+    fireEvent.click(override);
+    fireEvent.change(screen.getByPlaceholderText(/reason for override/i), { target: { value: "Supervisor approved" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Override & Confirm Put-Away$/i }));
+
+    await waitFor(() => expect(wmsMocks.confirmPutaway).toHaveBeenLastCalledWith(
+      "task-1",
+      "PLT-1",
+      "LOC-1",
+      { override: true, overrideReason: "Supervisor approved" },
+    ));
+  });
+
+  it("does not show suggested locations in completed task history", async () => {
+    wmsMocks.getPutawayTasks.mockResolvedValue([]);
+    wmsMocks.getPutawayTaskHistory.mockResolvedValue([{
+      id: "done-1",
+      task_number: "PTA-DONE",
+      status: "completed",
+      pallets: {
+        pallet_barcode: "PLT-DONE",
+        products: { sku: "SKU-DONE", name: "Done Product" },
+      },
+      locations: { code: "SUG-HISTORY" },
+    }]);
+
+    renderPutawayPage();
+
+    expect(await screen.findByText(/show 1 completed \/ returned/i)).toBeInTheDocument();
+    expect(screen.queryByText(/SUG-HISTORY/)).not.toBeInTheDocument();
   });
 
   it("opens the bay selector from the location scanner manual action", async () => {
@@ -268,7 +342,7 @@ describe("PutawayTasksPage scan-first flow", () => {
   it("keeps open tasks hidden after cancelling until the section is expanded", async () => {
     renderPutawayPage();
 
-    const scanDialog = await screen.findByRole("dialog", { name: /scan pallet for put-away/i });
+    const scanDialog = await openPalletDialog();
     fireEvent.click(within(scanDialog).getByRole("button", { name: /^cancel$/i }));
 
     expect(await screen.findByText("Scan a pallet to begin Put-Away")).toBeInTheDocument();
@@ -317,7 +391,7 @@ describe("PutawayTasksPage scan-first flow", () => {
 
     await waitFor(() => expect(wmsMocks.confirmPutaway).toHaveBeenCalledWith("task-1", "PLT-1", "LOC-1", expect.any(Object)));
     await waitFor(() => expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["putaway-tasks"] }));
-    expect(await screen.findByRole("dialog", { name: /scan pallet for put-away/i })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /^scan pallet$/i })).toBeInTheDocument();
     expect(screen.queryByText(/SKU-1/)).not.toBeInTheDocument();
   });
 });

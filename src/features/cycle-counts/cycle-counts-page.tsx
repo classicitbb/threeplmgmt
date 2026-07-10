@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Archive, CheckCircle2, ClipboardCheck, Eye, Lock, Plus, RefreshCw, ShieldCheck, Trash2, UserCog, XCircle } from "lucide-react";
+import { AlertTriangle, Archive, CheckCircle2, ClipboardCheck, Eye, Plus, RefreshCw, ShieldCheck, Trash2, UserCog, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { z } from "zod";
 
@@ -336,10 +336,6 @@ export function CycleCountsPage() {
               New count
             </Button>
           )}
-          <Badge variant="outline" className="gap-1.5">
-            <Lock className="h-3.5 w-3.5" />
-            Hard-freeze counted bins
-          </Badge>
         </div>
       </div>
 
@@ -445,10 +441,10 @@ export function CycleCountsPage() {
               <Card key={line.id}>
                 <CardHeader className="pb-3">
                   <CardTitle className="flex flex-wrap items-center justify-between gap-2 text-base">
-                    <span>{line.products?.sku ?? "Product"} · {locationLabel(line.locations)}</span>
+                    <span>{line.cycle_counts?.count_number ?? line.cycle_count_id} · {line.products?.sku ?? "Product"} · {locationLabel(line.locations)}</span>
                     <Badge variant={countStatusVariant(status) as any}>{status}</Badge>
                   </CardTitle>
-                  <CardDescription>{line.products?.name ?? "Blind count"} · assigned cycle-count line</CardDescription>
+                  <CardDescription>{line.products?.name ?? "Blind count"} · {line.cycle_counts?.scope ?? "cycle"} count · assigned cycle-count line</CardDescription>
                 </CardHeader>
                 <CardContent className="grid gap-3 sm:grid-cols-[minmax(160px,260px)_1fr]">
                   <div className="grid gap-2">

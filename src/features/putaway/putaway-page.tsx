@@ -432,7 +432,7 @@ function BayOccupancyGrid({
           <div
             key={`level-${row[0]?.level ?? "unknown"}`}
             className="grid gap-2"
-            style={{ gridTemplateColumns: `repeat(${row.length}, minmax(0, 1fr))` }}
+            style={{ gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}
           >
             {row.map((slot) => {
               const cell = slot.cell;
@@ -828,6 +828,15 @@ export function PutawayTasksPage() {
     }, 50);
   }
 
+  function clearTaskViolation(taskId: string) {
+    setViolations((current) => {
+      if (!(taskId in current)) return current;
+      const next = { ...current };
+      delete next[taskId];
+      return next;
+    });
+  }
+
   function openLocationScannerForTask(taskId: string) {
     setBayBrowserOpen((current) => ({ ...current, [taskId]: false }));
     setLocationScannerAutoOpenSignal((current) => current + 1);
@@ -883,7 +892,8 @@ export function PutawayTasksPage() {
     const localState = scanState[task.id] ?? { pallet: task.pallets?.pallet_barcode ?? "", location: "", override: false, reason: "" };
     if (isBaySelectorCode(value)) {
       setBayScanState((current) => ({ ...current, [task.id]: value }));
-      setScanState((current) => ({ ...current, [task.id]: { ...localState, location: "" } }));
+      setScanState((current) => ({ ...current, [task.id]: { ...localState, location: "", override: false, reason: "" } }));
+      clearTaskViolation(task.id);
       void logPutawayBaySelection({ taskId: task.id, scannedCode: value });
       playBarcodeBeep();
       flashInput(locationRefs.current[task.id], "orange");
@@ -894,7 +904,8 @@ export function PutawayTasksPage() {
       delete next[task.id];
       return next;
     });
-    setScanState((current) => ({ ...current, [task.id]: { ...localState, location: value } }));
+    setScanState((current) => ({ ...current, [task.id]: { ...localState, location: value, override: false, reason: "" } }));
+    clearTaskViolation(task.id);
     playBarcodeBeep();
     flashInput(locationRefs.current[task.id], "blue");
     setTimeout(() => confirmRefs.current[task.id]?.focus(), 50);
@@ -1160,10 +1171,9 @@ export function PutawayTasksPage() {
             const binOccupancy = localState.location.length >= 2;
             const bayOccupancy = Boolean(bayScan || binOccupancy);
             const violation = violations[task.id];
-            const suggested = (task.locations as any)?.code;
             const taskPallet = task.pallets as any;
             const palletBarcode = taskPallet?.pallet_barcode ?? taskPallet?.pallet_code ?? "";
-            const isOverridingSuggestion = Boolean(suggested && localState.location && localState.location !== suggested);
+            const overrideActive = Boolean(violation && localState.override);
 
             return (
               <Card key={task.id} className="border-2">
@@ -1259,9 +1269,10 @@ export function PutawayTasksPage() {
                                 return next;
                               });
                             }
+                            clearTaskViolation(task.id);
                             setScanState((current) => ({
                               ...current,
-                              [task.id]: { ...localState, location: val },
+                              [task.id]: { ...localState, location: val, override: false, reason: "" },
                             }));
                           }}
                           onKeyDown={(e) => {
@@ -1301,7 +1312,8 @@ export function PutawayTasksPage() {
                     onScanInstead={() => openLocationScannerForTask(task.id)}
                     onSelectBay={(bayCode) => {
                       setBayScanState((s) => ({ ...s, [task.id]: bayCode }));
-                      setScanState((s) => ({ ...s, [task.id]: { ...(s[task.id] ?? { pallet: "", location: "", override: false, reason: "" }), location: "" } }));
+                      setScanState((s) => ({ ...s, [task.id]: { ...(s[task.id] ?? { pallet: "", location: "", override: false, reason: "" }), location: "", override: false, reason: "" } }));
+                      clearTaskViolation(task.id);
                       void logPutawayBaySelection({ taskId: task.id, scannedCode: bayCode });
                       setBayBrowserOpen((s) => ({ ...s, [task.id]: false }));
                       flashInput(locationRefs.current[task.id], "orange");
@@ -1319,7 +1331,8 @@ export function PutawayTasksPage() {
                         locationCode={bayScan || localState.location}
                         selectedLocationCode={localState.location}
                         onSelect={(location) => {
-                          setScanState((current) => ({ ...current, [task.id]: { ...localState, location } }));
+                          setScanState((current) => ({ ...current, [task.id]: { ...localState, location, override: false, reason: "" } }));
+                          clearTaskViolation(task.id);
                           setBayScanState((current) => {
                             const next = { ...current };
                             delete next[task.id];
@@ -1335,31 +1348,28 @@ export function PutawayTasksPage() {
                       />
                     </>
                   )}
-                  {isOverridingSuggestion && (
-                    <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
-                      Operator override: scanned <span className="font-mono font-semibold">{localState.location}</span> instead of suggested <span className="font-mono font-semibold">{suggested}</span>. The audit log will record the change.
-                    </div>
-                  )}
                   {violation && (
                     <div className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-900 dark:border-red-700 dark:bg-red-950/40 dark:text-red-200">
                       Rule violation: {violation}
                     </div>
                   )}
-                  <label className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4"
-                      checked={localState.override}
-                      onChange={(e) =>
-                        setScanState((current) => ({
-                          ...current,
-                          [task.id]: { ...localState, override: e.target.checked },
-                        }))
-                      }
-                    />
-                    Override location rules (warn only — logs reason)
-                  </label>
-                  {localState.override && (
+                  {violation && (
+                    <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4"
+                        checked={localState.override}
+                        onChange={(e) =>
+                          setScanState((current) => ({
+                            ...current,
+                            [task.id]: { ...localState, override: e.target.checked },
+                          }))
+                        }
+                      />
+                      Override location rules (warn only — logs reason)
+                    </label>
+                  )}
+                  {overrideActive && (
                     <Input
                       className="min-h-10 text-sm"
                       placeholder="Reason for override (e.g. lane blocked, urgent ship)"
@@ -1385,13 +1395,13 @@ export function PutawayTasksPage() {
                           taskId: task.id,
                           pallet: localState.pallet,
                           location: localState.location,
-                          override: localState.override,
-                          reason: localState.reason,
+                          override: overrideActive,
+                          reason: overrideActive ? localState.reason : "",
                         })
                       }
                     >
                       {mutation.isPending ? <Loader2 className="animate-spin" /> : <CheckCircle2 data-icon="inline-start" />}
-                      {localState.override ? "Override & Confirm Put-Away" : "Confirm Put-Away"}
+                      {overrideActive ? "Override & Confirm Put-Away" : "Confirm Put-Away"}
                     </Button>
                     <Button
                       type="button"
@@ -1420,7 +1430,6 @@ export function PutawayTasksPage() {
               {putawayHistory.map((task: any) => {
                 const pallet = task.pallets as any;
                 const product = pallet?.products as any;
-                const suggestedLocation = task.locations?.code ?? "No suggestion";
                 const palletCode = pallet?.pallet_barcode ?? pallet?.pallet_code ?? "No pallet";
                 return (
                   <details key={task.id} className="rounded-md border border-border px-3 py-2 text-sm opacity-85">
@@ -1428,7 +1437,7 @@ export function PutawayTasksPage() {
                       <div className="min-w-0">
                         <span className="block truncate font-mono text-xs">{task.task_number}</span>
                         <span className="text-xs text-muted-foreground">
-                          {palletCode} · {suggestedLocation}
+                          {palletCode}
                         </span>
                       </div>
                       <Badge variant={statusBadgeVariant(task.status)} className="shrink-0 text-xs">{task.status}</Badge>
@@ -1440,7 +1449,6 @@ export function PutawayTasksPage() {
                       </div>
                       <div className="sm:text-right">
                         <p className="font-mono">Pallet {palletCode}</p>
-                        <p className="text-muted-foreground">Suggested {suggestedLocation}</p>
                       </div>
                     </div>
                   </details>

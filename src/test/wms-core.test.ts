@@ -198,6 +198,28 @@ describe("buildBayOccupancyGrid", () => {
       ["A-01-L01-P1", "A-01-L01-P2", "A-01-L01-P3"],
     ]);
   });
+
+  it("uses the configured bay position count without extra unused columns", () => {
+    const baseCell = {
+      locationId: "loc",
+      depth: 2,
+      maxPallets: 2,
+      occupiedPallets: 0,
+      status: "active",
+      isFull: false,
+    };
+
+    expect(buildBayOccupancyGrid([{ ...baseCell, locationCode: "A-01-L01", level: 1, position: 1 }])[0]).toHaveLength(1);
+    expect(buildBayOccupancyGrid([
+      { ...baseCell, locationId: "loc-1", locationCode: "A-01-L01-P1", level: 1, position: 1 },
+      { ...baseCell, locationId: "loc-2", locationCode: "A-01-L01-P2", level: 1, position: 2 },
+    ])[0]).toHaveLength(2);
+    expect(buildBayOccupancyGrid([
+      { ...baseCell, locationId: "loc-1", locationCode: "A-01-L01-P1", level: 1, position: 1 },
+      { ...baseCell, locationId: "loc-2", locationCode: "A-01-L01-P2", level: 1, position: 2 },
+      { ...baseCell, locationId: "loc-3", locationCode: "A-01-L01-P3", level: 1, position: 3 },
+    ])[0]).toHaveLength(3);
+  });
 });
 
 describe("level letter helpers", () => {

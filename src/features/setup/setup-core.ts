@@ -498,7 +498,10 @@ export function buildBayOccupancyGrid(cells: BayOccupancyCell[]): BayOccupancyGr
     BAY_LEVEL_LIMIT,
     Math.max(1, ...visibleCells.map((item) => item.level)),
   );
-  const maxPosition = BAY_POSITION_LIMIT;
+  const maxPosition = Math.min(
+    BAY_POSITION_LIMIT,
+    Math.max(1, ...visibleCells.map((item) => item.position)),
+  );
   const cellsBySlot = new Map<string, BayOccupancyCell>();
   for (const item of visibleCells) {
     cellsBySlot.set(`${item.level}:${item.position}`, item.cell);

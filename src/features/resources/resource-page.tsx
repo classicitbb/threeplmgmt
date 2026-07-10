@@ -384,6 +384,11 @@ export function ResourcePage({
     );
   }, [data, filterQuery, resource.fields]);
   const tableFields = useMemo(() => {
+    if (resource.table === "products") {
+      return resource.fields.filter((field) =>
+        !["barcode", "description", "client_owner_id", "product_family"].includes(field.name),
+      );
+    }
     if (resource.table !== "locations") return resource.fields;
     const fieldMap = new Map(resource.fields.map((field) => [field.name, field]));
     const orderedNames = [
@@ -705,7 +710,8 @@ export function ResourcePage({
                         } else {
                           displayValue = String(rawValue);
                         }
-                        const cell = <TableCell key={field.name}>{displayValue}</TableCell>;
+                        const productDenseCellClass = isProducts ? "px-4 py-1 text-xs leading-tight" : undefined;
+                        const cell = <TableCell key={field.name} className={productDenseCellClass}>{displayValue}</TableCell>;
                         if (resource.table === "locations" && field.name === "max_pallets") {
                           return (
                             <Fragment key={field.name}>
@@ -769,10 +775,18 @@ export function ResourcePage({
                         </TableCell>
                       ) : null}
                       {resource.supportsHide ? (
-                        <TableCell>
+                        <TableCell className={isProducts ? "px-4 py-1" : undefined}>
+                          {(() => {
+                            const record = row as Record<string, unknown>;
+                            const isArchived = resource.archiveField === "active"
+                              ? record.active === false
+                              : record.is_hidden === true;
+                            const visibleActionLabel = isProducts ? "Archive" : "Hide";
+                            return (
                           <Button
                             size="sm"
                             variant="ghost"
+                            className={isProducts ? "h-6 px-2 text-xs" : undefined}
                             onClick={async (e) => {
                               e.stopPropagation();
                               try {
@@ -780,42 +794,44 @@ export function ResourcePage({
                                 const id = record.id;
                                 if (!id || !resource.archiveField) return;
                                 assertOnline();
-                                const hidden = resource.archiveField === "active" ? record.active !== false : record.is_hidden === true;
-                                await setResourceVisibility(resource.table, id, resource.archiveField, !hidden, !hidden ? "Hidden from UI" : undefined);
-                                toast.success(hidden ? `${resource.singular} restored` : `${resource.singular} hidden`);
+                                const isCurrentlyArchived = resource.archiveField === "active" ? record.active === false : record.is_hidden === true;
+                                await setResourceVisibility(resource.table, id, resource.archiveField, !isCurrentlyArchived, !isCurrentlyArchived ? "Hidden from UI" : undefined);
+                                toast.success(isCurrentlyArchived ? `${resource.singular} restored` : `${resource.singular} archived`);
                                 queryClient.invalidateQueries({ queryKey: [resource.table] });
                               } catch (error) {
                                 toast.error(error instanceof Error ? error.message : "Visibility update failed");
                               }
                             }}
                           >
-                            {((resource.archiveField === "active" ? (row as Record<string, unknown>).active !== false : (row as Record<string, unknown>).is_hidden === true))
-                              ? "Restore"
-                              : "Hide"}
+                            {isArchived ? "Restore" : visibleActionLabel}
                           </Button>
+                            );
+                          })()}
                         </TableCell>
                       ) : null}
-                      <TableCell>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-7 w-7 p-0"
-                          onClick={(e) => { e.stopPropagation(); setEditRecord(row as Record<string, unknown>); }}
-                          title={`Edit ${resource.singular}`}
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                        </Button>
-                        {cascadeSupported && canHardDelete ? (
+                      <TableCell className={isProducts ? "px-4 py-1" : undefined}>
+                        <div className="flex items-center justify-end gap-1">
                           <Button
                             size="sm"
                             variant="ghost"
-                            className="ml-1 h-7 w-7 p-0 text-destructive hover:text-destructive"
-                            onClick={(e) => { e.stopPropagation(); setDeleteBlockers(null); setDeleteChallenge(""); setDeleteRecord(row as Record<string, unknown>); }}
-                            title={`Delete ${resource.singular} permanently`}
+                            className={cn("h-7 w-7 p-0", isProducts && "h-6 w-6")}
+                            onClick={(e) => { e.stopPropagation(); setEditRecord(row as Record<string, unknown>); }}
+                            title={`Edit ${resource.singular}`}
                           >
-                            <Trash2 className="h-3.5 w-3.5" />
+                            <Pencil className={cn("h-3.5 w-3.5", isProducts && "h-3 w-3")} />
                           </Button>
-                        ) : null}
+                          {cascadeSupported && canHardDelete ? (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className={cn("h-7 w-7 p-0 text-destructive hover:text-destructive", isProducts && "h-6 w-6")}
+                              onClick={(e) => { e.stopPropagation(); setDeleteBlockers(null); setDeleteChallenge(""); setDeleteRecord(row as Record<string, unknown>); }}
+                              title={`Delete ${resource.singular} permanently`}
+                            >
+                              <Trash2 className={cn("h-3.5 w-3.5", isProducts && "h-3 w-3")} />
+                            </Button>
+                          ) : null}
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))

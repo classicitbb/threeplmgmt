@@ -9,7 +9,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import {
-  AlignLeft, Building2, Boxes, ChevronRight, ChevronsDownUp,
+  AlignLeft, Ban, Building2, Boxes, ChevronRight, ChevronsDownUp,
   Layers, LayoutGrid, Loader2, MapPin, MoreHorizontal,
   Pencil, Plus, Printer, Search, Trash2,
 } from "lucide-react";
@@ -37,6 +37,7 @@ import {
   deleteLocationCascade, deleteWarehouseCascade, deleteZoneCascade,
   displayRackLocationCode,
   bayCodeFromLocationCode,
+  getStoredPalletCounts,
   updateRecord, upsertRecord,
 } from "@/lib/wms-core";
 import { LocationLabelPage } from "@/components/location-label-page";
@@ -73,6 +74,8 @@ interface LocationRow {
 interface LevelGroup { level: string; positions: LocationRow[] }
 interface BayGroup { bay: string; levels: LevelGroup[] }
 interface AisleGroup { aisle: string; bays: BayGroup[] }
+interface FillStats { occupied: number; capacity: number; disabled: number; total: number }
+type TreeSearchLocation = Pick<LocationRow, "id" | "code" | "aisle" | "bay" | "level" | "position" | "zone_id" | "warehouse_id">;
 
 // ─── Context ──────────────────────────────────────────────────────────────────
 
@@ -94,6 +97,11 @@ interface TreeCtxValue {
   warehouses: WarehouseRow[];
   zones: ZoneRow[];
   navigate: ReturnType<typeof useNavigate>;
+  fillStats: {
+    byWarehouse: Map<string, FillStats>;
+    byZone: Map<string, FillStats>;
+    byLocation: Map<string, FillStats>;
+  };
 }
 
 const TreeCtx = createContext<TreeCtxValue | null>(null);
@@ -116,6 +124,49 @@ async function fetchZoneLocations(zoneId: string): Promise<LocationRow[]> {
     .limit(201);
   if (error) throw error;
   return (data ?? []) as LocationRow[];
+}
+
+async function fetchLocationFillStats() {
+  const { data, error } = await supabase
+    .from("locations")
+    .select("id, warehouse_id, zone_id, max_pallets, status")
+    .eq("is_hidden", false);
+  if (error) throw error;
+
+  const rows = (data ?? []) as Array<Pick<LocationRow, "id" | "warehouse_id" | "zone_id" | "max_pallets" | "status">>;
+  const storedCounts = await getStoredPalletCounts(rows.map((row) => row.id));
+  const byWarehouse = new Map<string, FillStats>();
+  const byZone = new Map<string, FillStats>();
+  const byLocation = new Map<string, FillStats>();
+
+  function add(target: Map<string, FillStats>, key: string | null | undefined, stats: FillStats) {
+    if (!key) return;
+    const current = target.get(key) ?? { occupied: 0, capacity: 0, disabled: 0, total: 0 };
+    target.set(key, {
+      occupied: current.occupied + stats.occupied,
+      capacity: current.capacity + stats.capacity,
+      disabled: current.disabled + stats.disabled,
+      total: current.total + stats.total,
+    });
+  }
+
+  for (const row of rows) {
+    const stats = locationFillStats(row as LocationRow, storedCounts.get(row.id) ?? 0);
+    byLocation.set(row.id, stats);
+    add(byWarehouse, row.warehouse_id, stats);
+    add(byZone, row.zone_id, stats);
+  }
+
+  return { byWarehouse, byZone, byLocation };
+}
+
+async function fetchTreeSearchLocations(): Promise<TreeSearchLocation[]> {
+  const { data, error } = await supabase
+    .from("locations")
+    .select("id, code, aisle, bay, level, position, zone_id, warehouse_id")
+    .eq("is_hidden", false);
+  if (error) throw error;
+  return (data ?? []) as TreeSearchLocation[];
 }
 
 function numComp(a: string, b: string) {
@@ -164,6 +215,80 @@ function prefixedCode(prefix: string | null | undefined, code: string) {
     : `${cleanPrefix}-${cleanCode}`;
 }
 
+function normalizeTreeSearch(value: unknown) {
+  return String(value ?? "").trim().toUpperCase().replace(/\s+/g, "");
+}
+
+function selectorEscape(value: string) {
+  if (typeof CSS !== "undefined" && typeof CSS.escape === "function") return CSS.escape(value);
+  return value.replace(/["\\]/g, "\\$&");
+}
+
+function scrollToTreeNodeWhenReady(nodeKey: string) {
+  let attempts = 0;
+  const findAndFocus = () => {
+    const el = document.querySelector<HTMLElement>(`[data-tree-key="${selectorEscape(nodeKey)}"]`);
+    if (!el) return false;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    el.focus({ preventScroll: true });
+    el.classList.add("ring-2", "ring-primary", "ring-offset-2");
+    window.setTimeout(() => el.classList.remove("ring-2", "ring-primary", "ring-offset-2"), 1200);
+    return true;
+  };
+  if (findAndFocus()) return;
+  const handle = window.setInterval(() => {
+    attempts += 1;
+    if (findAndFocus() || attempts > 25) window.clearInterval(handle);
+  }, 80);
+}
+
+function emptyFillStats(): FillStats {
+  return { occupied: 0, capacity: 0, disabled: 0, total: 0 };
+}
+
+function locationFillStats(location: LocationRow, occupied = 0): FillStats {
+  return {
+    occupied,
+    capacity: Number(location.max_pallets ?? 0),
+    disabled: location.status && location.status !== "active" ? 1 : 0,
+    total: 1,
+  };
+}
+
+function combineFillStats(locations: LocationRow[], byLocation: Map<string, FillStats>) {
+  return locations.reduce((total, location) => {
+    const stats = byLocation.get(location.id) ?? locationFillStats(location);
+    return {
+      occupied: total.occupied + stats.occupied,
+      capacity: total.capacity + stats.capacity,
+      disabled: total.disabled + stats.disabled,
+      total: total.total + stats.total,
+    };
+  }, emptyFillStats());
+}
+
+function FillBar({ stats, disabled = false }: { stats?: FillStats; disabled?: boolean }) {
+  const safeStats = stats ?? emptyFillStats();
+  const percent = safeStats.capacity > 0
+    ? Math.min(100, Math.round((safeStats.occupied / safeStats.capacity) * 100))
+    : 0;
+  const hasDisabled = disabled || safeStats.disabled > 0;
+  return (
+    <div className="flex w-28 shrink-0 items-center gap-1.5 sm:w-36" title={`${safeStats.occupied}/${safeStats.capacity} pallets`}>
+      {hasDisabled && <Ban className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-label="Disabled" />}
+      <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-muted">
+        <div
+          className={cn("h-full rounded-full", hasDisabled ? "bg-muted-foreground" : percent >= 100 ? "bg-destructive" : "bg-primary")}
+          style={{ width: `${percent}%` }}
+        />
+      </div>
+      <span className="w-10 shrink-0 text-right font-mono text-[10px] text-muted-foreground">
+        {safeStats.occupied}/{safeStats.capacity}
+      </span>
+    </div>
+  );
+}
+
 // ─── Visual constants ─────────────────────────────────────────────────────────
 
 const STATUS_CLS: Record<string, string> = {
@@ -181,14 +306,20 @@ const TEMP_LABEL: Record<string, string> = { cool: "Cool", frozen: "Frozen" };
 
 // ─── Node components ──────────────────────────────────────────────────────────
 
-function PositionNode({ location }: { location: LocationRow }) {
-  const { setDialog } = useTCtx();
+function PositionNode({ location, nodeKey }: { location: LocationRow; nodeKey: string }) {
+  const { fillStats, setDialog } = useTCtx();
   const displayCode = displayRackLocationCode(location.code);
+  const locationDisabled = location.status != null && location.status !== "active";
   return (
-    <div className="group flex min-h-9 items-center gap-1 rounded-sm px-1 text-sm hover:bg-accent hover:text-accent-foreground">
+    <div
+      data-tree-key={nodeKey}
+      tabIndex={-1}
+      className="group flex min-h-9 items-center gap-1 rounded-sm px-1 text-sm outline-none transition-shadow hover:bg-accent hover:text-accent-foreground"
+    >
       <span className="h-3.5 w-3.5 shrink-0" />
       <MapPin className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70" />
       <span className="flex-1 truncate font-mono text-xs">{displayCode}</span>
+      <FillBar stats={fillStats.byLocation.get(location.id) ?? locationFillStats(location)} disabled={locationDisabled} />
       {location.status && location.status !== "active" && (
         <Badge variant="outline" className={cn("h-4 shrink-0 px-1 text-[10px]", STATUS_CLS[location.status])}>
           {location.status}
@@ -244,22 +375,24 @@ function PositionNode({ location }: { location: LocationRow }) {
 }
 
 function LevelNode({ levelGroup, nodeKey }: { levelGroup: LevelGroup; nodeKey: string }) {
-  const { expandedNodes, toggleNode } = useTCtx();
+  const { expandedNodes, fillStats, toggleNode } = useTCtx();
   const isOpen = expandedNodes.has(nodeKey);
+  const stats = combineFillStats(levelGroup.positions, fillStats.byLocation);
   return (
     <Collapsible open={isOpen} onOpenChange={() => toggleNode(nodeKey)}>
       <CollapsibleTrigger asChild>
-        <div className="group flex min-h-9 cursor-pointer items-center gap-1 rounded-sm px-1 text-sm hover:bg-accent hover:text-accent-foreground">
+        <div data-tree-key={nodeKey} tabIndex={-1} className="group flex min-h-9 cursor-pointer items-center gap-1 rounded-sm px-1 text-sm outline-none transition-shadow hover:bg-accent hover:text-accent-foreground">
           <ChevronRight className={cn("h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform", isOpen && "rotate-90")} />
           <Layers className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
           <span className="flex-1 text-xs">Level {levelGroup.level}</span>
+          <FillBar stats={stats} />
           <span className="mr-1 text-xs text-muted-foreground">{levelGroup.positions.length}</span>
         </div>
       </CollapsibleTrigger>
       <CollapsibleContent>
         <div className="ml-4 border-l border-border pl-2">
           {levelGroup.positions.map((loc) => (
-            <PositionNode key={loc.id} location={loc} />
+            <PositionNode key={loc.id} location={loc} nodeKey={`${nodeKey}:p${loc.id}`} />
           ))}
         </div>
       </CollapsibleContent>
@@ -277,8 +410,10 @@ function BayNode({
   aisle: string;
 }) {
   const { expandedNodes, toggleNode } = useTCtx();
+  const { fillStats } = useTCtx();
   const isOpen = expandedNodes.has(nodeKey);
   const total = bayGroup.levels.reduce((s, l) => s + l.positions.length, 0);
+  const stats = combineFillStats(bayGroup.levels.flatMap((level) => level.positions), fillStats.byLocation);
   const firstLocation = bayGroup.levels.flatMap((level) => level.positions)[0];
   const bayCode = bayCodeFromLocationCode(firstLocation?.code) ?? "";
   const bayItems = useMemo<LabelSheetItem[]>(
@@ -295,10 +430,11 @@ function BayNode({
   return (
     <Collapsible open={isOpen} onOpenChange={() => toggleNode(nodeKey)}>
       <CollapsibleTrigger asChild>
-        <div className="group flex min-h-9 cursor-pointer items-center gap-1 rounded-sm px-1 text-sm hover:bg-accent hover:text-accent-foreground">
+        <div data-tree-key={nodeKey} tabIndex={-1} className="group flex min-h-9 cursor-pointer items-center gap-1 rounded-sm px-1 text-sm outline-none transition-shadow hover:bg-accent hover:text-accent-foreground">
           <ChevronRight className={cn("h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform", isOpen && "rotate-90")} />
           <LayoutGrid className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
           <span className="flex-1 text-xs">Bay {bayGroup.bay}</span>
+          <FillBar stats={stats} />
           <span className="mr-1 text-xs text-muted-foreground">{total}</span>
           <BayLocationCodesPrintDialog
             items={bayItems}
@@ -376,6 +512,7 @@ function ZoneNode({
   nodeKey: string;
 }) {
   const { expandedNodes, toggleNode, setDialog } = useTCtx();
+  const { fillStats } = useTCtx();
   const isOpen = expandedNodes.has(nodeKey);
   const zoneLabelCode = prefixedCode(warehouseCode, zone.code);
   const [wizardOpen, setWizardOpen] = useState(false);
@@ -396,10 +533,11 @@ function ZoneNode({
   return (
     <Collapsible open={isOpen} onOpenChange={() => toggleNode(nodeKey)}>
       <CollapsibleTrigger asChild>
-        <div className="group flex min-h-9 cursor-pointer items-center gap-1 rounded-sm px-1 text-sm hover:bg-accent hover:text-accent-foreground">
+        <div data-tree-key={nodeKey} tabIndex={-1} className="group flex min-h-9 cursor-pointer items-center gap-1 rounded-sm px-1 text-sm outline-none transition-shadow hover:bg-accent hover:text-accent-foreground">
           <ChevronRight className={cn("h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform", isOpen && "rotate-90")} />
           <Boxes className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
           <span className="flex-1 truncate font-medium">{zone.name}</span>
+          <FillBar stats={fillStats.byZone.get(zone.id)} />
           <span className="shrink-0 text-xs text-muted-foreground">{zone.code}</span>
           {TEMP_CLS[zone.temperature_class] && (
             <Badge variant="outline" className={cn("h-4 shrink-0 px-1 text-[10px]", TEMP_CLS[zone.temperature_class])}>
@@ -574,8 +712,9 @@ function WarehouseLabelPage({
 }
 
 function WarehouseNode({ warehouse, nodeKey }: { warehouse: WarehouseRow; nodeKey: string }) {
-  const { expandedNodes, toggleNode, setDialog, zones } = useTCtx();
+  const { expandedNodes, fillStats, toggleNode, setDialog, zones } = useTCtx();
   const isOpen = expandedNodes.has(nodeKey);
+  const warehouseDisabled = warehouse.active === false;
 
   const warehouseZones = useMemo(
     () => zones.filter((z) => z.warehouse_id === warehouse.id),
@@ -585,10 +724,11 @@ function WarehouseNode({ warehouse, nodeKey }: { warehouse: WarehouseRow; nodeKe
   return (
     <Collapsible open={isOpen} onOpenChange={() => toggleNode(nodeKey)}>
       <CollapsibleTrigger asChild>
-        <div className="group flex min-h-10 cursor-pointer items-center gap-1.5 rounded-md px-1.5 text-sm font-medium hover:bg-accent hover:text-accent-foreground">
+        <div data-tree-key={nodeKey} tabIndex={-1} className="group flex min-h-10 cursor-pointer items-center gap-1.5 rounded-md px-1.5 text-sm font-medium outline-none transition-shadow hover:bg-accent hover:text-accent-foreground">
           <ChevronRight className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform", isOpen && "rotate-90")} />
           <Building2 className="h-4 w-4 shrink-0 text-muted-foreground" />
           <span className="flex-1 truncate">{warehouse.name}</span>
+          <FillBar stats={fillStats.byWarehouse.get(warehouse.id)} disabled={warehouseDisabled} />
           <span className="font-mono text-xs text-muted-foreground">{warehouse.code}</span>
           {warehouse.active === false && (
             <Badge variant="secondary" className="h-4 px-1 text-[10px]">Inactive</Badge>
@@ -1320,6 +1460,18 @@ export function WarehouseStructureTab() {
     },
   });
 
+  const { data: fillStats = { byWarehouse: new Map(), byZone: new Map(), byLocation: new Map() }, isLoading: fillLoading } = useQuery({
+    queryKey: ["tree", "fill-stats"],
+    queryFn: fetchLocationFillStats,
+    staleTime: 30_000,
+  });
+
+  const { data: searchLocations = [] } = useQuery({
+    queryKey: ["tree", "search-locations"],
+    queryFn: fetchTreeSearchLocations,
+    staleTime: 60_000,
+  });
+
   // Expand the header-selected active warehouse on first load (and keep localStorage state)
   const hasAutoExpandedRef = useRef(false);
   useEffect(() => {
@@ -1336,17 +1488,100 @@ export function WarehouseStructureTab() {
     hasAutoExpandedRef.current = true;
   }, [activeWarehouseId, warehouses]);
 
-  const isLoading = wLoading || zLoading;
+  const isLoading = wLoading || zLoading || fillLoading;
+
+  const zonesById = useMemo(() => new Map(zones.map((zone) => [zone.id, zone])), [zones]);
+  const warehousesById = useMemo(() => new Map(warehouses.map((warehouse) => [warehouse.id, warehouse])), [warehouses]);
 
   const filteredWarehouses = useMemo(() => {
-    if (!filter) return warehouses;
-    const f = filter.toLowerCase();
-    return warehouses.filter((w) => w.code.toLowerCase().includes(f) || w.name.toLowerCase().includes(f));
-  }, [warehouses, filter]);
+    const normalized = normalizeTreeSearch(filter);
+    if (!normalized) return warehouses;
+    const warehouseIds = new Set<string>();
 
+    for (const warehouse of warehouses) {
+      if ([warehouse.code, warehouse.name, warehouse.city, warehouse.country].some((value) => normalizeTreeSearch(value).includes(normalized))) {
+        warehouseIds.add(warehouse.id);
+      }
+    }
+
+    for (const zone of zones) {
+      if ([zone.code, zone.name].some((value) => normalizeTreeSearch(value).includes(normalized))) {
+        warehouseIds.add(zone.warehouse_id);
+      }
+    }
+
+    for (const location of searchLocations) {
+      const warehouse = warehousesById.get(location.warehouse_id);
+      const zone = zonesById.get(location.zone_id);
+      const tokens = [
+        location.code,
+        displayRackLocationCode(location.code),
+        bayCodeFromLocationCode(location.code),
+        location.aisle,
+        location.bay,
+        location.level,
+        location.position,
+        warehouse?.code,
+        warehouse?.name,
+        zone?.code,
+        zone?.name,
+        warehouse && zone && location.aisle && location.bay ? `${warehouse.code}-${zone.code}-${location.aisle}-${location.bay}` : "",
+        location.aisle && location.bay ? `${location.aisle}-${location.bay}` : "",
+      ];
+      if (tokens.some((value) => normalizeTreeSearch(value).includes(normalized))) {
+        warehouseIds.add(location.warehouse_id);
+      }
+    }
+
+    return warehouses.filter((warehouse) => warehouseIds.has(warehouse.id));
+  }, [filter, searchLocations, warehouses, warehousesById, zones, zonesById]);
+
+  function expandAndTargetLocation(location: TreeSearchLocation, target: "bay" | "location") {
+    const warehouseKey = `w${location.warehouse_id}`;
+    const zoneKey = `${warehouseKey}:z${location.zone_id}`;
+    const aisleKey = `${zoneKey}:a${location.aisle ?? "—"}`;
+    const bayKey = `${aisleKey}:b${location.bay ?? "—"}`;
+    const levelKey = `${bayKey}:l${location.level != null ? String(location.level) : "—"}`;
+    const locationKey = `${levelKey}:p${location.id}`;
+    const keys = target === "bay"
+      ? [warehouseKey, zoneKey, aisleKey]
+      : [warehouseKey, zoneKey, aisleKey, bayKey, levelKey];
+    setExpandedNodes((prev) => {
+      const next = new Set(prev);
+      for (const key of keys) next.add(key);
+      try { localStorage.setItem(LS_KEY, JSON.stringify([...next])); } catch { /* ignore */ }
+      return next;
+    });
+    scrollToTreeNodeWhenReady(target === "bay" ? bayKey : locationKey);
+  }
+
+  function commitSearch() {
+    const normalized = normalizeTreeSearch(filter);
+    if (!normalized) return;
+    const exactLocation = searchLocations.find((location) =>
+      [location.code, displayRackLocationCode(location.code)].some((value) => normalizeTreeSearch(value) === normalized),
+    );
+    if (exactLocation) {
+      expandAndTargetLocation(exactLocation, "location");
+      return;
+    }
+
+    const exactBay = searchLocations.find((location) => {
+      const warehouse = warehousesById.get(location.warehouse_id);
+      const zone = zonesById.get(location.zone_id);
+      const tokens = [
+        bayCodeFromLocationCode(location.code),
+        location.aisle && location.bay ? `${location.aisle}-${location.bay}` : "",
+        warehouse && zone && location.aisle && location.bay ? `${warehouse.code}-${zone.code}-${location.aisle}-${location.bay}` : "",
+        warehouse && zone && location.aisle && location.bay ? `BAY:${warehouse.code}:${zone.code}:${location.aisle}:${location.bay}` : "",
+      ];
+      return tokens.some((value) => normalizeTreeSearch(value) === normalized);
+    });
+    if (exactBay) expandAndTargetLocation(exactBay, "bay");
+  }
   const ctx = useMemo<TreeCtxValue>(
-    () => ({ expandedNodes, toggleNode, setDialog, warehouses, zones, navigate }),
-    [expandedNodes, toggleNode, warehouses, zones, navigate],
+    () => ({ expandedNodes, toggleNode, setDialog, warehouses, zones, navigate, fillStats }),
+    [expandedNodes, toggleNode, warehouses, zones, navigate, fillStats],
   );
 
   return (
@@ -1360,6 +1595,12 @@ export function WarehouseStructureTab() {
               className="h-8 pl-8 text-sm"
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  commitSearch();
+                }
+              }}
             />
           </div>
           <Button

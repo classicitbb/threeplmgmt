@@ -268,7 +268,7 @@ export async function listCycleCounts() {
 export async function listMyCycleCountLines() {
   const userId = await currentUserId();
   const { data, error } = await db("cycle_count_lines")
-    .select("id, cycle_count_id, location_id, product_id, pallet_id, assigned_user_id, line_status, first_count_qty, first_counted_at, recount_qty, recounted_at, variance_quantity, variance_percent, exception_reason, products(sku, name), locations(code, aisle, bay, level, position)")
+    .select("id, cycle_count_id, location_id, product_id, pallet_id, assigned_user_id, line_status, first_count_qty, first_counted_at, recount_qty, recounted_at, variance_quantity, variance_percent, exception_reason, cycle_counts(count_number, scope, status), products(sku, name), locations(code, aisle, bay, level, position)")
     .or(`assigned_user_id.eq.${userId},assigned_user_id.is.null`)
     .in("line_status", ["queued", "recount"])
     .order("created_at", { ascending: true });

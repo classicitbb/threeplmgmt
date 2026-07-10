@@ -477,25 +477,47 @@ function UsersRolesPageImpl() {
               {includeHidden ? "Hide inactive" : "Show inactive"}
             </Button>
           </div>
-          <div className="grid gap-3">
-            {profiles.map((profile) => (
-              <UserProfileRow
-                key={profile.id}
-                profile={profile}
-                warehouses={(options?.warehouses ?? []) as WarehouseOption[]}
-                userRoles={(options?.userRoles ?? []).filter((ur: any) => ur.user_id === profile.id)}
-                onSave={(values, credentials) => profileEditMutation.mutate({ values, ...credentials })}
-                onToggleActive={() =>
-                  profileMutation.mutate({ profileId: profile.id, active: !(profile.active ?? true) })
-                }
-              />
-            ))}
-            {profiles.length === 0 && (
-              <div className="rounded-lg border border-dashed border-border py-10 text-center text-sm text-muted-foreground">
-                No users found. Use "Add User" to create the first one.
-              </div>
-            )}
-          </div>
+          <Card>
+            <CardContent className="p-0">
+              <TableFrame>
+                <Table>
+                  <TableHeader className="sticky top-0 z-10 bg-card">
+                    <TableRow>
+                      <TableHead>User</TableHead>
+                      <TableHead className="w-28">Status</TableHead>
+                      <TableHead>Email</TableHead>
+                      <TableHead className="w-28">User Code</TableHead>
+                      <TableHead>Roles</TableHead>
+                      <TableHead className="w-40">Default Warehouse</TableHead>
+                      <TableHead className="w-24">Access</TableHead>
+                      <TableHead className="w-28" />
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {profiles.map((profile) => (
+                      <UserProfileRow
+                        key={profile.id}
+                        profile={profile}
+                        warehouses={(options?.warehouses ?? []) as WarehouseOption[]}
+                        userRoles={(options?.userRoles ?? []).filter((ur: any) => ur.user_id === profile.id)}
+                        onSave={(values, credentials) => profileEditMutation.mutate({ values, ...credentials })}
+                        onToggleActive={() =>
+                          profileMutation.mutate({ profileId: profile.id, active: !(profile.active ?? true) })
+                        }
+                      />
+                    ))}
+                    {profiles.length === 0 && (
+                      <TableRow>
+                        <TableCell className="h-24 text-center text-muted-foreground" colSpan={8}>
+                          No users found. Use "Add User" to create the first one.
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </TableFrame>
+            </CardContent>
+          </Card>
         </TabsContent>
 
         <TabsContent value="roles" className="mt-4">
@@ -869,12 +891,15 @@ function UserProfileRow({
     setOpen(false);
   };
 
+  const defaultWarehouseName = warehouses.find((warehouse) => warehouse.id === profile.default_warehouse_id)?.name ?? "All warehouses";
+
   return (
-    <div className={cn(
-      "rounded-xl border border-border bg-card transition-colors",
-      !profile.active && "opacity-60"
-    )}>
-      <div className="flex items-center gap-3 p-4">
+    <TableRow
+      className={cn("cursor-pointer even:bg-muted/30", !profile.active && "opacity-60")}
+      onDoubleClick={() => setOpen(true)}
+    >
+      <TableCell>
+        <div className="flex min-w-[220px] items-center gap-3">
         <Avatar className="h-10 w-10 shrink-0">
           <AvatarFallback className={cn(
             "text-sm font-semibold",
@@ -883,44 +908,60 @@ function UserProfileRow({
             {initials}
           </AvatarFallback>
         </Avatar>
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="min-w-0">
             <p className="truncate font-medium">{profile.full_name ?? profile.email ?? profile.id}</p>
-            <Badge
-              variant={profile.approved ? "default" : "secondary"}
-              className="text-xs"
-            >
-              {profile.approved ? "Approved" : "Pending"}
-            </Badge>
-            {!profile.active && <Badge variant="outline" className="text-xs">Inactive</Badge>}
-          </div>
-          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-            <span>{profile.email}</span>
-            {profile.user_code && <span>· {profile.user_code}</span>}
-            {roleNames.length > 0 && (
-              <span className="flex items-center gap-1">
-                ·
-                {roleNames.map((name) => (
-                  <Badge key={name} variant="outline" className="text-xs px-1.5 py-0">{name}</Badge>
-                ))}
-              </span>
-            )}
+            <p className="truncate text-xs text-muted-foreground">{profile.phone || "No phone"}</p>
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-1.5">
+      </TableCell>
+      <TableCell>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Badge variant={profile.approved ? "default" : "secondary"} className="text-xs">
+            {profile.approved ? "Approved" : "Pending"}
+          </Badge>
+          {!profile.active && <Badge variant="outline" className="text-xs">Inactive</Badge>}
+        </div>
+      </TableCell>
+      <TableCell className="text-sm text-muted-foreground">{profile.email ?? "—"}</TableCell>
+      <TableCell className="font-mono text-xs">{profile.user_code || "—"}</TableCell>
+      <TableCell>
+        <div className="flex min-w-[180px] flex-wrap items-center gap-1">
+          {roleNames.length > 0 ? roleNames.map((name) => (
+            <Badge key={name} variant="outline" className="px-1.5 py-0 text-xs">{name}</Badge>
+          )) : <span className="text-sm text-muted-foreground">No roles</span>}
+        </div>
+      </TableCell>
+      <TableCell className="text-sm text-muted-foreground">{defaultWarehouseName}</TableCell>
+      <TableCell>
+        <Badge variant={profile.active ? "secondary" : "outline"} className="text-xs">
+          {profile.active ? "Enabled" : "Disabled"}
+        </Badge>
+      </TableCell>
+      <TableCell>
+        <div className="flex items-center justify-end gap-1.5">
           {!isSelf && (
             <Button
               size="sm"
               variant="ghost"
               className="h-8 text-xs"
-              onClick={onToggleActive}
+              onClick={(event) => {
+                event.stopPropagation();
+                onToggleActive();
+              }}
             >
               {profile.active ? "Disable" : "Enable"}
             </Button>
           )}
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
-              <Button size="sm" variant="outline" className="h-8 text-xs">Edit</Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8 text-xs"
+                onClick={(event) => event.stopPropagation()}
+              >
+                Edit
+              </Button>
             </DialogTrigger>
             <DialogContent className="max-h-[90vh] overflow-hidden sm:max-w-lg">
               <DialogHeader>
@@ -1038,8 +1079,8 @@ function UserProfileRow({
             </DialogContent>
           </Dialog>
         </div>
-      </div>
-    </div>
+      </TableCell>
+    </TableRow>
   );
 }
 
@@ -1136,11 +1177,11 @@ export function SettingsPage() {
   const queryClient = useQueryClient();
   const requestedTab = searchParams.get("tab");
   const availableSettingsTabs = [
+    "warehouse-structure",
     ...(canViewUsersRoles ? ["users-roles"] : []),
     "modules",
     "environment",
     ...(isEnabled("clients") ? ["client-vars"] : []),
-    "warehouse-structure",
     "about",
   ];
   const defaultSettingsTab = requestedTab && availableSettingsTabs.includes(requestedTab)
@@ -1178,12 +1219,28 @@ export function SettingsPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
+      <div className="flex items-center gap-2">
         <h2 className="text-2xl font-semibold">Settings</h2>
-        <p className="text-sm text-muted-foreground">Warehouse environment, client configuration, and system management.</p>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-muted-foreground hover:text-foreground"
+              aria-label="Settings overview"
+            >
+              <Info className="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>
+            Warehouse environment, client configuration, and system management.
+          </TooltipContent>
+        </Tooltip>
       </div>
       <Tabs defaultValue={defaultSettingsTab}>
         <TabsList className="flex h-auto w-full flex-wrap items-stretch justify-start gap-1 sm:w-fit">
+          <TabsTrigger value="warehouse-structure" className="min-h-9 flex-1 gap-1.5 sm:flex-none"><Network className="h-3.5 w-3.5" />Warehouse Structure</TabsTrigger>
           {canViewUsersRoles && (
             <TabsTrigger value="users-roles" className="min-h-9 flex-1 gap-1.5 sm:flex-none"><Users className="h-3.5 w-3.5" />Users & Roles</TabsTrigger>
           )}
@@ -1192,7 +1249,6 @@ export function SettingsPage() {
           {isEnabled("clients") && (
             <TabsTrigger value="client-vars" className="min-h-9 flex-1 sm:flex-none">Client Variables</TabsTrigger>
           )}
-          <TabsTrigger value="warehouse-structure" className="min-h-9 flex-1 gap-1.5 sm:flex-none"><Network className="h-3.5 w-3.5" />Warehouse Structure</TabsTrigger>
           <TabsTrigger value="about" className="min-h-9 flex-1 gap-1.5 sm:flex-none"><Info className="h-3.5 w-3.5" />About</TabsTrigger>
         </TabsList>
 

@@ -21,7 +21,9 @@ const cycleCountMocks = vi.hoisted(() => ({
   listCycleCounts: vi.fn(async () => []),
   listMyCycleCountLines: vi.fn(async () => ([{
     id: "line-1",
+    cycle_count_id: "count-1",
     line_status: "queued",
+    cycle_counts: { count_number: "CCT-108082026122300", scope: "zone", status: "counting" },
     products: { sku: "FLOUR", name: "Flour" },
     locations: { code: "A-01-L01" },
   }])),
@@ -98,7 +100,9 @@ describe("CycleCountsPage", () => {
     cycleCountMocks.listCycleCounts.mockResolvedValue([]);
     cycleCountMocks.listMyCycleCountLines.mockResolvedValue([{
       id: "line-1",
+      cycle_count_id: "count-1",
       line_status: "queued",
+      cycle_counts: { count_number: "CCT-108082026122300", scope: "zone", status: "counting" },
       products: { sku: "FLOUR", name: "Flour" },
       locations: { code: "A-01-L01" },
     }]);
@@ -109,6 +113,7 @@ describe("CycleCountsPage", () => {
     const firstRender = renderCycleCountsPage();
 
     const qtyInput = await screen.findByLabelText("Count quantity");
+    expect(screen.getByText(/CCT-108082026122300/)).toBeInTheDocument();
     fireEvent.change(qtyInput, { target: { value: "12" } });
 
     firstRender.unmount();

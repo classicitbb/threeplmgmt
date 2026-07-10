@@ -5253,7 +5253,7 @@ export function BayOccupancyGrid({
           <div
             key={`level-${row[0]?.level ?? "unknown"}`}
             className="grid gap-2"
-            style={{ gridTemplateColumns: `repeat(${row.length}, minmax(0, 1fr))` }}
+            style={{ gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}
           >
             {row.map((slot) => {
               const cell = slot.cell;
