@@ -65,7 +65,7 @@ const TYPE_LABELS: Record<string, string> = {
   returns: "Returns",
 };
 
-const BAY_LABEL_HINT = "101.6 × 152.4 mm · Zebra ZD420 / Rollo / Dymo 4XL label printer";
+const BAY_LABEL_HINT = "152.4 × 101.6 mm landscape · Zebra ZD420 / Rollo / Dymo 4XL label printer";
 
 const LOCATION_LABEL_SIZES: Array<{ value: LocationLabelSize; label: string; hint: string }> = [
   { value: "a4-16up",     label: "A4 Sheet — 16-up", hint: "Avery 99×38 mm · 16 labels/sheet · Standard laser/inkjet printer" },
@@ -119,12 +119,11 @@ body { background: #fff; font-family: system-ui, -apple-system, sans-serif; colo
 function bayLabelBodyHtml(item: LabelSheetItem) {
   const qr = renderQrSvg(item.code);
   return `
-    <div class="code-label">
-      <div class="code-qr">
+    <div class="bay-label">
+      <div class="bay-title">${escapeHtml(item.code)}</div>
+      <div class="bay-qr">
         ${qr}
-        <span class="qr-code-overlay">${escapeHtml(item.code)}</span>
       </div>
-      <div class="code-text">${escapeHtml(item.code)}</div>
     </div>`;
 }
 
@@ -188,6 +187,13 @@ const CODE_LABEL_CSS = `
   .code-text { width: 100%; font-family: 'Arial Black', system-ui, sans-serif; font-size: 34pt; font-weight: 900; line-height: 1; overflow-wrap: anywhere; }
   .qr-code-overlay { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); border: 2px solid #000; background: #fff; padding: 2px 7px; font-family: 'Arial Black', system-ui, sans-serif; font-size: 18pt; font-weight: 900; line-height: 1; letter-spacing: 0.02em; }`;
 
+const BAY_LABEL_CSS = `
+  .bay-label { width: 100%; height: 100%; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; justify-items: center; gap: 0.18in; padding: 0.12in; overflow: hidden; }
+  .bay-title { font-family: 'Arial Black', system-ui, sans-serif; font-size: 34pt; font-weight: 900; line-height: 1; writing-mode: vertical-rl; text-orientation: upright; letter-spacing: 0.04em; }
+  .bay-qr { position: relative; width: 100%; min-width: 0; height: 100%; display: flex; align-items: center; justify-content: center; }
+  .bay-qr svg { width: min(3.5in, 100%); height: min(3.5in, 100%); transform: rotate(90deg); }
+`;
+
 // ─── Print window helper ──────────────────────────────────────────────────────
 
 function openPrint(title: string, body: string, pageSize: string, css: string) {
@@ -224,11 +230,11 @@ function printBayLabels(items: LabelSheetItem[]) {
   const html = items.map((item) =>
     `<div class="lpage">${bayLabelBodyHtml(item)}</div>`,
   ).join("");
-  openPrint(`Bay Labels — ${items.length} labels`, html, "4in 6in portrait", `
-    .lpage { position: relative; width: 4in; height: 6in; overflow: hidden;
+  openPrint(`Bay Labels — ${items.length} labels`, html, "6in 4in landscape", `
+    .lpage { position: relative; width: 6in; height: 4in; overflow: hidden;
       border: 1px solid #000; display: flex; page-break-after: always; }
     .lpage:last-child { page-break-after: auto; }
-    ${CODE_LABEL_CSS}`);
+    ${BAY_LABEL_CSS}`);
 }
 
 // ─── Location print ───────────────────────────────────────────────────────────
@@ -294,19 +300,21 @@ function PageNav({ page, total, onChange }: { page: number; total: number; onCha
   );
 }
 
-/** 4x6 single-label preview for bay codes */
+/** 6x4 landscape single-label preview for bay codes */
 function BaySheetPreview({ items }: { items: LabelSheetItem[] }) {
   const item = items[0];
   if (!item) return null;
   return (
-    <div className="relative mx-auto grid aspect-[2/3] w-full max-w-[280px] grid-rows-[1fr_auto] items-center justify-items-center gap-1 overflow-hidden border border-black bg-white p-[5px] text-center text-black shadow-sm">
-      <div className="relative flex min-h-0 w-full items-center justify-center">
-        <QRCodeSVG value={item.code} size={255} level="H" />
-        <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 border-2 border-black bg-white px-2 py-0.5 text-2xl font-black leading-none">
-          {item.code}
-        </span>
+    <div className="relative mx-auto grid aspect-[3/2] w-full max-w-[420px] grid-cols-[auto_minmax(0,1fr)] items-center justify-items-center gap-3 overflow-hidden border border-black bg-white p-3 text-black shadow-sm">
+      <div
+        className="text-4xl font-black leading-none tracking-wide"
+        style={{ writingMode: "vertical-rl", textOrientation: "upright" }}
+      >
+        {item.code}
       </div>
-      <div className="w-full break-words text-4xl font-black leading-none">{item.code}</div>
+      <div className="relative flex min-h-0 min-w-0 items-center justify-center">
+        <QRCodeSVG value={item.code} size={255} level="H" className="rotate-90" />
+      </div>
     </div>
   );
 }
@@ -466,7 +474,7 @@ export function BayLocationCodesPrintDialog({
           <DialogTitle>Print Bay Location Codes</DialogTitle>
           <DialogDescription>
             {items.length} bay code{items.length !== 1 ? "s" : ""}
-            {` · ${items.length} 4 x 6 label${items.length !== 1 ? "s" : ""}`}.
+            {` · ${items.length} 6 x 4 landscape label${items.length !== 1 ? "s" : ""}`}.
           </DialogDescription>
         </DialogHeader>
 
