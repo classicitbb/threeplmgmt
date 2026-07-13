@@ -118,13 +118,22 @@ body { background: #fff; font-family: system-ui, -apple-system, sans-serif; colo
 
 function bayLabelBodyHtml(item: LabelSheetItem) {
   const qr = renderQrSvg(item.code);
+  const { prefix, number } = bayLabelParts(item.code);
   return `
     <div class="bay-label">
-      <div class="bay-title">${escapeHtml(item.code)}</div>
+      <div class="bay-title">
+        <span>${escapeHtml(prefix)}</span>
+        ${number ? `<span>-</span><span class="bay-title-number">${escapeHtml(number)}</span>` : ""}
+      </div>
       <div class="bay-qr">
         ${qr}
       </div>
     </div>`;
+}
+
+function bayLabelParts(code: string) {
+  const [prefix, ...parts] = String(code ?? "").split("-");
+  return { prefix, number: parts.join("-") };
 }
 
 function codeLabelBodyHtml(item: LabelSheetItem) {
@@ -189,7 +198,8 @@ const CODE_LABEL_CSS = `
 
 const BAY_LABEL_CSS = `
   .bay-label { width: 100%; height: 100%; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; justify-items: center; gap: 0.18in; padding: 0.12in; overflow: hidden; }
-  .bay-title { font-family: 'Arial Black', system-ui, sans-serif; font-size: 34pt; font-weight: 900; line-height: 1; writing-mode: vertical-rl; text-orientation: upright; letter-spacing: 0.04em; }
+  .bay-title { display: flex; flex-direction: column; align-items: center; font-family: 'Arial Black', system-ui, sans-serif; font-size: 34pt; font-weight: 900; line-height: 1; letter-spacing: 0.04em; }
+  .bay-title-number { letter-spacing: 0; }
   .bay-qr { position: relative; width: 100%; min-width: 0; height: 100%; display: flex; align-items: center; justify-content: center; }
   .bay-qr svg { width: min(3.5in, 100%); height: min(3.5in, 100%); transform: rotate(90deg); }
 `;
@@ -304,13 +314,15 @@ function PageNav({ page, total, onChange }: { page: number; total: number; onCha
 function BaySheetPreview({ items }: { items: LabelSheetItem[] }) {
   const item = items[0];
   if (!item) return null;
+  const { prefix, number } = bayLabelParts(item.code);
   return (
     <div className="relative mx-auto grid aspect-[3/2] w-full max-w-[420px] grid-cols-[auto_minmax(0,1fr)] items-center justify-items-center gap-3 overflow-hidden border border-black bg-white p-3 text-black shadow-sm">
-      <div
-        className="text-4xl font-black leading-none tracking-wide"
-        style={{ writingMode: "vertical-rl", textOrientation: "upright" }}
-      >
-        {item.code}
+      <div className="flex flex-col items-center text-4xl font-black leading-none tracking-wide">
+        <span>{prefix}</span>
+        {number ? <>
+          <span>-</span>
+          <span className="tracking-normal">{number}</span>
+        </> : null}
       </div>
       <div className="relative flex min-h-0 min-w-0 items-center justify-center">
         <QRCodeSVG value={item.code} size={255} level="H" className="rotate-90" />
