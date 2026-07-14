@@ -966,7 +966,13 @@ function LoginPage() {
   }, [loginMethod]);
 
   if (auth.session && mode !== "update") {
-    return <Navigate to="/dashboard" replace />;
+    const nextParam = typeof window !== "undefined"
+      ? new URLSearchParams(window.location.search).get("next")
+      : null;
+    const target = nextParam && nextParam.startsWith("/") && !nextParam.startsWith("//")
+      ? nextParam
+      : "/dashboard";
+    return <Navigate to={target} replace />;
   }
 
   return (
