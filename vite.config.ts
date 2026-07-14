@@ -21,7 +21,8 @@ export default defineConfig(({ mode }) => ({
   },
   plugins: [
     react(),
-    mcpPlugin(),
+    // The code generator currently emits non-portable absolute imports on Windows.
+    process.platform !== "win32" && mcpPlugin(),
     VitePWA({
       registerType: "prompt",
       includeAssets: ["favicon.ico", "robots.txt", "icon.svg", "icon-maskable.svg"],
