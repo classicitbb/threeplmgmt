@@ -287,7 +287,7 @@ describe("PutawayTasksPage scan-first flow", () => {
         products: { sku: "SKU-DONE", name: "Done Product" },
       },
       locations: { code: "SUG-HISTORY" },
-    }]);
+    }] as any);
 
     renderPutawayPage();
 
