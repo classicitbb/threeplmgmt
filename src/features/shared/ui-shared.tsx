@@ -1385,11 +1385,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <div
       className={cn(
         "flex h-full flex-col overflow-hidden bg-sidebar",
-        sidebarCollapsed ? "items-center px-1.5 py-3 bg-teal-500" : compactTop ? "px-3 py-0" : "px-3 py-3"
+        sidebarCollapsed ? "items-center px-1.5 py-3 bg-teal-500" : "px-3 py-3"
       )}
     >
       {/* Logo area */}
-      {!compactTop ? (
+      {(
         <div className={cn(
           "mb-4 flex items-center gap-3 px-2",
           sidebarCollapsed && "justify-center px-0"
@@ -1399,9 +1399,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <span className="truncate text-sm font-semibold text-foreground">Warehouse Wizard</span>
           )}
         </div>
-      ) : null}
+      )}
 
-      <nav className={cn("flex-1 overflow-y-auto", compactTop && "pt-0")}>
+      <nav className={cn("flex-1 overflow-y-auto")}>
         <div className="flex flex-col gap-0.5">
           {items.map((item) => {
             const Icon = navIcons[item.to] ?? LayoutDashboard;
