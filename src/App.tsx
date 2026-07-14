@@ -70,6 +70,7 @@ const LocationMovesPage = lazy(() => import("@/components/wms-ui").then((mod) =>
 const PalletLabelPage = lazy(() => import("@/components/pallet-label-page").then((mod) => ({ default: mod.PalletLabelPage })));
 const HelpCenterPage = lazy(() => import("./pages/HelpCenter"));
 const SetupWizardPage = lazy(() => import("./pages/SetupWizardPage"));
+const OAuthConsentPage = lazy(() => import("./pages/OAuthConsent"));
 const ProtectedShell = lazy(() =>
   import("@/components/wms-ui").then((mod) => ({
     default: function ProtectedShellComponent({ children }: { children: ReactNode }) {
@@ -2158,6 +2159,7 @@ function ResourceRoutes() {
     <Routes>
       <Route path="/" element={<HomeRedirect />} />
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/.lovable/oauth/consent" element={<OAuthConsentPage />} />
       <Route element={<RequireAuth />}>
         <Route element={<ProtectedLayout />}>
           <Route path="/dashboard" element={<DashboardPage />} />
