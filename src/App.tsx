@@ -70,6 +70,7 @@ const LocationMovesPage = lazy(() => import("@/components/wms-ui").then((mod) =>
 const PalletLabelPage = lazy(() => import("@/components/pallet-label-page").then((mod) => ({ default: mod.PalletLabelPage })));
 const HelpCenterPage = lazy(() => import("./pages/HelpCenter"));
 const SetupWizardPage = lazy(() => import("./pages/SetupWizardPage"));
+const OAuthConsentPage = lazy(() => import("./pages/OAuthConsent"));
 const ProtectedShell = lazy(() =>
   import("@/components/wms-ui").then((mod) => ({
     default: function ProtectedShellComponent({ children }: { children: ReactNode }) {
@@ -965,7 +966,13 @@ function LoginPage() {
   }, [loginMethod]);
 
   if (auth.session && mode !== "update") {
-    return <Navigate to="/dashboard" replace />;
+    const nextParam = typeof window !== "undefined"
+      ? new URLSearchParams(window.location.search).get("next")
+      : null;
+    const target = nextParam && nextParam.startsWith("/") && !nextParam.startsWith("//")
+      ? nextParam
+      : "/dashboard";
+    return <Navigate to={target} replace />;
   }
 
   return (
@@ -2158,6 +2165,7 @@ function ResourceRoutes() {
     <Routes>
       <Route path="/" element={<HomeRedirect />} />
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/.lovable/oauth/consent" element={<OAuthConsentPage />} />
       <Route element={<RequireAuth />}>
         <Route element={<ProtectedLayout />}>
           <Route path="/dashboard" element={<DashboardPage />} />
