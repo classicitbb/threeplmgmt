@@ -658,7 +658,10 @@ export function renderField(
       name={field.name}
       render={({ field: controllerField }) => (
         <FormItem>
-          <FormLabel>{field.label}</FormLabel>
+          <FormLabel>
+            {field.label}
+            {field.required ? <span className="ml-1 text-destructive" aria-hidden="true">*</span> : null}
+          </FormLabel>
           <FormControl>
             {field.type === "textarea" ? (
               <Textarea {...controllerField} value={(controllerField.value as string | undefined) ?? ""} />
@@ -700,6 +703,26 @@ export function renderField(
       )}
     />
   );
+}
+
+function hasMissingRequiredValue(value: unknown) {
+  return value == null || (typeof value === "string" && value.trim() === "");
+}
+
+function validateRequiredResourceFields(
+  resource: ResourceDefinition,
+  values: Record<string, unknown>,
+  form: ReturnType<typeof useForm<Record<string, unknown>>>,
+) {
+  const missingFields = resource.fields.filter((field) => field.required && hasMissingRequiredValue(values[field.name]));
+  for (const field of resource.fields) {
+    if (missingFields.includes(field)) {
+      form.setError(field.name, { type: "required", message: `${field.label} is required` });
+    } else if (form.getFieldState(field.name).error?.type === "required") {
+      form.clearErrors(field.name);
+    }
+  }
+  return missingFields.length === 0;
 }
 
 function RackLocationCodeBuilder({
@@ -927,6 +950,11 @@ export function ResourceFormDialog({
     },
   });
 
+  function handleCreateSubmit(values: Record<string, unknown>) {
+    if (!validateRequiredResourceFields(resource, values, form)) return;
+    createMutation.mutate(values);
+  }
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
@@ -944,7 +972,7 @@ export function ResourceFormDialog({
           <Form {...form}>
             <form
               className="flex flex-col gap-4"
-              onSubmit={form.handleSubmit(async (values) => createMutation.mutate(values))}
+              onSubmit={form.handleSubmit(handleCreateSubmit)}
             >
               {resource.fields.map((field) => {
                 if (isLocations && builderControlledFields.has(field.name)) return null;
@@ -1017,6 +1045,7 @@ export function ResourceEditDialog({
   });
 
   function handleSubmit(values: Record<string, unknown>) {
+    if (!validateRequiredResourceFields(resource, values, form)) return;
     // Locations: require a reason in Notes when disabling or marking maintenance
     if (isLocations && isBeingDisabled && !values.notes) {
       toast.error("Add a reason in the Notes field before marking this location unavailable.");
@@ -3148,6 +3177,9 @@ export function BarcodePrintDialog({ labelType, code, title }: { labelType: "war
 
 export function defaultFieldValue(field: FieldDefinition) {
   if (field.type === "boolean") return field.name === "active" || field.name === "lot_tracked";
+  if (field.name === "variance_value_floor") return 500;
+  if (field.name === "supervisor_approval_cap") return 1000;
+  if (field.name === "freeze_default_hours") return 4;
   if (field.type === "number") return "";
   if (field.name === "temperature_class" || field.name === "temperature_requirement") return "ambient";
   if (field.name === "rotation_method") return "fifo";

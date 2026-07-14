@@ -317,7 +317,7 @@ function BaySheetPreview({ items }: { items: LabelSheetItem[] }) {
   const { prefix, number } = bayLabelParts(item.code);
   return (
     <div className="relative mx-auto grid aspect-[3/2] w-full max-w-[420px] grid-cols-[auto_minmax(0,1fr)] items-center justify-items-center gap-3 overflow-hidden border border-black bg-white p-3 text-black shadow-sm">
-      <div className="flex flex-col items-center text-4xl font-black leading-none tracking-wide">
+      <div className="flex flex-col items-center text-7xl font-black leading-none tracking-wide">
         <span>{prefix}</span>
         {number ? <>
           <span>-</span>
