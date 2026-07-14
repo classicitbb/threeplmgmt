@@ -414,6 +414,8 @@ export type Database = {
       }
       cycle_counts: {
         Row: {
+          archived_at: string | null
+          archived_by: string | null
           assigned_user_id: string | null
           count_number: string
           created_at: string
@@ -433,6 +435,8 @@ export type Database = {
           zone_id: string | null
         }
         Insert: {
+          archived_at?: string | null
+          archived_by?: string | null
           assigned_user_id?: string | null
           count_number: string
           created_at?: string
@@ -452,6 +456,8 @@ export type Database = {
           zone_id?: string | null
         }
         Update: {
+          archived_at?: string | null
+          archived_by?: string | null
           assigned_user_id?: string | null
           count_number?: string
           created_at?: string
@@ -3013,6 +3019,7 @@ export type Database = {
       }
       user_roles: {
         Row: {
+          assigned_by: string | null
           created_at: string
           id: string
           is_hidden: boolean
@@ -3021,6 +3028,7 @@ export type Database = {
           warehouse_id: string | null
         }
         Insert: {
+          assigned_by?: string | null
           created_at?: string
           id?: string
           is_hidden?: boolean
@@ -3029,6 +3037,7 @@ export type Database = {
           warehouse_id?: string | null
         }
         Update: {
+          assigned_by?: string | null
           created_at?: string
           id?: string
           is_hidden?: boolean
@@ -3037,6 +3046,13 @@ export type Database = {
           warehouse_id?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "user_roles_assigned_by_fkey"
+            columns: ["assigned_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "user_roles_role_id_fkey"
             columns: ["role_id"]
