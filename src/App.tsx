@@ -86,6 +86,15 @@ const ProtectedShell = lazy(() =>
 
 const RELEASE_HISTORY = [
   {
+    version: "1.26",
+    date: "July 2026",
+    changes: [
+      "Warehouse Structure: the page frame now stays fixed while only the warehouse tree scrolls, keeping Settings, tabs, search, and Collapse all in view",
+      "Warehouse Structure: Reorder Settings now opens from each warehouse action menu, keeping forecasting configuration beside the warehouse hierarchy",
+      "Reorder Forecasting: existing demand look-back, safety lead time, alert threshold, and notification controls are preserved in the new popup",
+    ],
+  },
+  {
     version: "1.25",
     date: "July 2026",
     changes: [

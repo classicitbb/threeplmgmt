@@ -9,7 +9,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import {
-  AlignLeft, Ban, Building2, Boxes, ChevronRight, ChevronsDownUp,
+  AlertTriangle, AlignLeft, Ban, Building2, Boxes, ChevronRight, ChevronsDownUp,
   Layers, LayoutGrid, Loader2, MapPin, MoreHorizontal,
   Pencil, Plus, Printer, Search, Trash2,
 } from "lucide-react";
@@ -25,6 +25,7 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -45,6 +46,7 @@ import { ZoneLabelPage } from "@/components/zone-label-page";
 import { BayLocationCodesPrintDialog, type LabelSheetItem } from "@/components/label-sheet-print";
 import { Textarea } from "@/components/ui/textarea";
 import { LocationWizardDialog } from "@/features/shared/ui-shared";
+import { ReorderForecastSettingsPanel } from "@/features/shared/reorder-forecast-settings";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -87,12 +89,15 @@ type ActiveDialog =
   | { type: "edit-location"; location: LocationRow }
   | { type: "wizard-zone"; warehouseId: string; zoneId: string; zoneCode: string }
   | { type: "edit-range"; zone: ZoneRow }
+  | { type: "reorder-settings" }
   | { type: "delete"; label: string; deleteFn: () => Promise<CascadeDeleteResult> }
   | null;
 
 interface TreeCtxValue {
   expandedNodes: Set<string>;
   toggleNode: (key: string) => void;
+  activeTreeNodeKey: string | null;
+  selectTreeNode: (key: string) => void;
   setDialog: (d: ActiveDialog) => void;
   warehouses: WarehouseRow[];
   zones: ZoneRow[];
@@ -105,6 +110,122 @@ interface TreeCtxValue {
 }
 
 const TreeCtx = createContext<TreeCtxValue | null>(null);
+const TREE_CONTEXT_HINT = "Right-click or press and hold for row actions.";
+
+function TreeRowFlyout({
+  nodeKey,
+  children,
+  menu,
+}: {
+  nodeKey: string;
+  children: React.ReactNode;
+  menu: (close: () => void) => React.ReactNode;
+}) {
+  const { selectTreeNode } = useTCtx();
+  const [open, setOpen] = useState(false);
+  const [anchorPosition, setAnchorPosition] = useState({ x: 0, y: 0 });
+  const holdTimerRef = useRef<number | null>(null);
+  const openFrameRef = useRef<number | null>(null);
+
+  const clearHoldTimer = () => {
+    if (holdTimerRef.current !== null) {
+      window.clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
+    }
+  };
+
+  const clearOpenFrame = () => {
+    if (openFrameRef.current !== null) {
+      window.cancelAnimationFrame(openFrameRef.current);
+      openFrameRef.current = null;
+    }
+  };
+
+  const openForRow = (x: number, y: number) => {
+    clearHoldTimer();
+    clearOpenFrame();
+    setOpen(false);
+    setAnchorPosition({ x, y });
+    selectTreeNode(nodeKey);
+    openFrameRef.current = window.requestAnimationFrame(() => {
+      openFrameRef.current = null;
+      setOpen(true);
+    });
+  };
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) clearOpenFrame();
+        setOpen(nextOpen);
+      }}
+    >
+      <div
+        onContextMenu={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          openForRow(event.clientX, event.clientY);
+        }}
+        onPointerDown={(event) => {
+          event.stopPropagation();
+          if (event.pointerType === "mouse") return;
+          clearHoldTimer();
+          const { clientX, clientY } = event;
+          holdTimerRef.current = window.setTimeout(() => openForRow(clientX, clientY), 550);
+        }}
+        onPointerUp={clearHoldTimer}
+        onPointerCancel={clearHoldTimer}
+        onPointerLeave={clearHoldTimer}
+      >
+        {children}
+      </div>
+      <PopoverAnchor asChild>
+        <span
+          aria-hidden="true"
+          className="pointer-events-none fixed h-px w-px"
+          style={{ left: anchorPosition.x, top: anchorPosition.y }}
+        />
+      </PopoverAnchor>
+      <PopoverContent
+        side="right"
+        align="start"
+        sideOffset={10}
+        collisionPadding={8}
+        className="w-48 p-1 data-[state=closed]:!animate-none data-[state=open]:!animate-none"
+      >
+        <div role="menu">{menu(() => setOpen(false))}</div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function TreeRowFlyoutItem({
+  children,
+  disabled = false,
+  destructive = false,
+  onSelect,
+}: {
+  children: React.ReactNode;
+  disabled?: boolean;
+  destructive?: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      disabled={disabled}
+      className={cn(
+        "flex w-full items-center rounded-sm px-2 py-1.5 text-left text-sm outline-none transition-colors hover:bg-accent focus:bg-accent disabled:pointer-events-none disabled:opacity-50",
+        destructive && "text-destructive hover:text-destructive",
+      )}
+      onClick={onSelect}
+    >
+      {children}
+    </button>
+  );
+}
 
 function useTCtx() {
   const c = useContext(TreeCtx);
@@ -307,15 +428,44 @@ const TEMP_LABEL: Record<string, string> = { cool: "Cool", frozen: "Frozen" };
 // ─── Node components ──────────────────────────────────────────────────────────
 
 function PositionNode({ location, nodeKey }: { location: LocationRow; nodeKey: string }) {
-  const { fillStats, setDialog } = useTCtx();
+  const { activeTreeNodeKey, fillStats, selectTreeNode, setDialog } = useTCtx();
   const displayCode = displayRackLocationCode(location.code);
   const locationDisabled = location.status != null && location.status !== "active";
   return (
-    <div
-      data-tree-key={nodeKey}
-      tabIndex={-1}
-      className="group flex min-h-9 items-center gap-1 rounded-sm px-1 text-sm outline-none transition-shadow hover:bg-accent hover:text-accent-foreground"
+    <TreeRowFlyout
+      nodeKey={nodeKey}
+      menu={(close) => (
+        <>
+          <TreeRowFlyoutItem onSelect={() => { setDialog({ type: "edit-location", location }); close(); }}>
+            <Pencil className="mr-2 h-3.5 w-3.5" />Edit
+          </TreeRowFlyoutItem>
+          <div className="-mx-1 my-1 h-px bg-border" />
+          <TreeRowFlyoutItem
+            destructive
+            onSelect={() => {
+              setDialog({
+                type: "delete",
+                label: `location "${location.code}"`,
+                deleteFn: () => deleteLocationCascade(location.id),
+              });
+              close();
+            }}
+          >
+            <Trash2 className="mr-2 h-3.5 w-3.5" />Delete
+          </TreeRowFlyoutItem>
+        </>
+      )}
     >
+        <div
+          data-tree-key={nodeKey}
+          tabIndex={-1}
+          title={TREE_CONTEXT_HINT}
+          className={cn(
+            "group flex min-h-9 items-center gap-1 rounded-sm px-1 text-sm outline-none transition-shadow hover:bg-accent hover:text-accent-foreground",
+            activeTreeNodeKey === nodeKey && "bg-amber-400 text-amber-950 hover:bg-amber-400 hover:text-amber-950",
+          )}
+          onClick={() => selectTreeNode(nodeKey)}
+        >
       <span className="h-3.5 w-3.5 shrink-0" />
       <MapPin className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70" />
       <span className="flex-1 truncate font-mono text-xs">{displayCode}</span>
@@ -370,33 +520,54 @@ function PositionNode({ location, nodeKey }: { location: LocationRow; nodeKey: s
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
-    </div>
+        </div>
+    </TreeRowFlyout>
   );
 }
 
-function LevelNode({ levelGroup, nodeKey }: { levelGroup: LevelGroup; nodeKey: string }) {
-  const { expandedNodes, fillStats, toggleNode } = useTCtx();
+function LevelNode({ levelGroup, nodeKey, bayItems }: { levelGroup: LevelGroup; nodeKey: string; bayItems: LabelSheetItem[] }) {
+  const { activeTreeNodeKey, expandedNodes, fillStats, selectTreeNode, toggleNode } = useTCtx();
   const isOpen = expandedNodes.has(nodeKey);
+  const [printOpen, setPrintOpen] = useState(false);
   const stats = combineFillStats(levelGroup.positions, fillStats.byLocation);
   return (
-    <Collapsible open={isOpen} onOpenChange={() => toggleNode(nodeKey)}>
-      <CollapsibleTrigger asChild>
-        <div data-tree-key={nodeKey} tabIndex={-1} className="group flex min-h-9 cursor-pointer items-center gap-1 rounded-sm px-1 text-sm outline-none transition-shadow hover:bg-accent hover:text-accent-foreground">
+    <TreeRowFlyout
+      nodeKey={nodeKey}
+      menu={(close) => (
+        <TreeRowFlyoutItem disabled={bayItems.length === 0} onSelect={() => { setPrintOpen(true); close(); }}>
+          <Printer className="mr-2 h-3.5 w-3.5" />Print parent bay label
+        </TreeRowFlyoutItem>
+      )}
+    >
+      <Collapsible open={isOpen} onOpenChange={() => toggleNode(nodeKey)}>
+        <CollapsibleTrigger asChild>
+            <div
+              data-tree-key={nodeKey}
+              tabIndex={-1}
+              title={TREE_CONTEXT_HINT}
+              className={cn(
+                "group flex min-h-9 cursor-pointer items-center gap-1 rounded-sm px-1 text-sm outline-none transition-shadow hover:bg-accent hover:text-accent-foreground",
+                activeTreeNodeKey === nodeKey && "bg-amber-400 text-amber-950 hover:bg-amber-400 hover:text-amber-950",
+              )}
+              onClick={() => selectTreeNode(nodeKey)}
+            >
           <ChevronRight className={cn("h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform", isOpen && "rotate-90")} />
           <Layers className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
           <span className="flex-1 text-xs">Level {levelGroup.level}</span>
           <FillBar stats={stats} />
           <span className="mr-1 text-xs text-muted-foreground">{levelGroup.positions.length}</span>
-        </div>
-      </CollapsibleTrigger>
-      <CollapsibleContent>
-        <div className="ml-4 border-l border-border pl-2">
-          {levelGroup.positions.map((loc) => (
-            <PositionNode key={loc.id} location={loc} nodeKey={`${nodeKey}:p${loc.id}`} />
-          ))}
-        </div>
-      </CollapsibleContent>
-    </Collapsible>
+            </div>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <div className="ml-4 border-l border-border pl-2">
+            {levelGroup.positions.map((loc) => (
+              <PositionNode key={loc.id} location={loc} nodeKey={`${nodeKey}:p${loc.id}`} />
+            ))}
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
+      <BayLocationCodesPrintDialog items={bayItems} open={printOpen} onOpenChange={setPrintOpen} />
+    </TreeRowFlyout>
   );
 }
 
@@ -409,9 +580,9 @@ function BayNode({
   warehouseName: string;
   aisle: string;
 }) {
-  const { expandedNodes, toggleNode } = useTCtx();
-  const { fillStats } = useTCtx();
+  const { activeTreeNodeKey, expandedNodes, fillStats, selectTreeNode, toggleNode } = useTCtx();
   const isOpen = expandedNodes.has(nodeKey);
+  const [printOpen, setPrintOpen] = useState(false);
   const total = bayGroup.levels.reduce((s, l) => s + l.positions.length, 0);
   const stats = combineFillStats(bayGroup.levels.flatMap((level) => level.positions), fillStats.byLocation);
   const firstLocation = bayGroup.levels.flatMap((level) => level.positions)[0];
@@ -428,39 +599,56 @@ function BayNode({
     [aisle, bayCode, bayGroup.bay, warehouseName, zone.name, zone.temperature_class],
   );
   return (
-    <Collapsible open={isOpen} onOpenChange={() => toggleNode(nodeKey)}>
-      <CollapsibleTrigger asChild>
-        <div data-tree-key={nodeKey} tabIndex={-1} className="group flex min-h-9 cursor-pointer items-center gap-1 rounded-sm px-1 text-sm outline-none transition-shadow hover:bg-accent hover:text-accent-foreground">
+    <TreeRowFlyout
+      nodeKey={nodeKey}
+      menu={(close) => (
+        <TreeRowFlyoutItem disabled={bayItems.length === 0} onSelect={() => { setPrintOpen(true); close(); }}>
+          <Printer className="mr-2 h-3.5 w-3.5" />Print bay label
+        </TreeRowFlyoutItem>
+      )}
+    >
+      <Collapsible open={isOpen} onOpenChange={() => toggleNode(nodeKey)}>
+        <CollapsibleTrigger asChild>
+            <div
+              data-tree-key={nodeKey}
+              tabIndex={-1}
+              title={TREE_CONTEXT_HINT}
+              className={cn(
+                "group flex min-h-9 cursor-pointer items-center gap-1 rounded-sm px-1 text-sm outline-none transition-shadow hover:bg-accent hover:text-accent-foreground",
+                activeTreeNodeKey === nodeKey && "bg-amber-400 text-amber-950 hover:bg-amber-400 hover:text-amber-950",
+              )}
+              onClick={() => selectTreeNode(nodeKey)}
+            >
           <ChevronRight className={cn("h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform", isOpen && "rotate-90")} />
           <LayoutGrid className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
           <span className="flex-1 text-xs">Bay {bayGroup.bay}</span>
           <FillBar stats={stats} />
           <span className="mr-1 text-xs text-muted-foreground">{total}</span>
-          <BayLocationCodesPrintDialog
-            items={bayItems}
-            trigger={
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7 shrink-0"
-                disabled={bayItems.length === 0}
-                title="Print bay code"
-                onClick={(event) => event.stopPropagation()}
-              >
-                <Printer className="h-3.5 w-3.5" />
-              </Button>
-            }
-          />
-        </div>
-      </CollapsibleTrigger>
-      <CollapsibleContent>
-        <div className="ml-4 border-l border-border pl-2">
-          {bayGroup.levels.map((lg) => (
-            <LevelNode key={lg.level} levelGroup={lg} nodeKey={`${nodeKey}:l${lg.level}`} />
-          ))}
-        </div>
-      </CollapsibleContent>
-    </Collapsible>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 shrink-0"
+            disabled={bayItems.length === 0}
+            title="Print bay code"
+            onClick={(event) => {
+              event.stopPropagation();
+              setPrintOpen(true);
+            }}
+          >
+            <Printer className="h-3.5 w-3.5" />
+          </Button>
+            </div>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <div className="ml-4 border-l border-border pl-2">
+            {bayGroup.levels.map((lg) => (
+              <LevelNode key={lg.level} levelGroup={lg} bayItems={bayItems} nodeKey={`${nodeKey}:l${lg.level}`} />
+            ))}
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
+      <BayLocationCodesPrintDialog items={bayItems} open={printOpen} onOpenChange={setPrintOpen} />
+    </TreeRowFlyout>
   );
 }
 
@@ -472,17 +660,64 @@ function AisleNode({
   zone: ZoneRow;
   warehouseName: string;
 }) {
-  const { expandedNodes, toggleNode } = useTCtx();
+  const { activeTreeNodeKey, expandedNodes, selectTreeNode, toggleNode } = useTCtx();
   const isOpen = expandedNodes.has(nodeKey);
+  const [printOpen, setPrintOpen] = useState(false);
   const total = aisleGroup.bays.reduce((s, b) => s + b.levels.reduce((a, l) => a + l.positions.length, 0), 0);
+  const bayItems = useMemo<LabelSheetItem[]>(
+    () => aisleGroup.bays.flatMap((bayGroup) => {
+      const firstLocation = bayGroup.levels.flatMap((level) => level.positions)[0];
+      const bayCode = bayCodeFromLocationCode(firstLocation?.code) ?? "";
+      return bayCode ? [{
+        code: bayCode,
+        title: `Aisle ${aisleGroup.aisle} · Bay ${bayGroup.bay}`,
+        subtitle: `${zone.name} · ${warehouseName}`,
+        aisle: aisleGroup.aisle,
+        bay: bayGroup.bay,
+        temperatureClass: zone.temperature_class,
+      }] : [];
+    }),
+    [aisleGroup.aisle, aisleGroup.bays, warehouseName, zone.name, zone.temperature_class],
+  );
   return (
+    <TreeRowFlyout
+      nodeKey={nodeKey}
+      menu={(close) => (
+        <TreeRowFlyoutItem disabled={bayItems.length === 0} onSelect={() => { setPrintOpen(true); close(); }}>
+          <Printer className="mr-2 h-3.5 w-3.5" />Print all bay labels
+        </TreeRowFlyoutItem>
+      )}
+    >
     <Collapsible open={isOpen} onOpenChange={() => toggleNode(nodeKey)}>
       <CollapsibleTrigger asChild>
-        <div className="group flex min-h-9 cursor-pointer items-center gap-1 rounded-sm px-1 text-sm hover:bg-accent hover:text-accent-foreground">
+        <div
+          data-tree-key={nodeKey}
+          tabIndex={-1}
+          title={TREE_CONTEXT_HINT}
+          className={cn(
+            "group flex min-h-9 cursor-pointer items-center gap-1 rounded-sm px-1 text-sm outline-none hover:bg-accent hover:text-accent-foreground",
+            activeTreeNodeKey === nodeKey && "bg-amber-400 text-amber-950 hover:bg-amber-400 hover:text-amber-950",
+          )}
+          onClick={() => selectTreeNode(nodeKey)}
+        >
           <ChevronRight className={cn("h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform", isOpen && "rotate-90")} />
           <AlignLeft className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
           <span className="flex-1 text-xs">Aisle {aisleGroup.aisle}</span>
           <span className="mr-1 text-xs text-muted-foreground">{total}</span>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 shrink-0 gap-1 px-1.5 text-xs"
+            disabled={bayItems.length === 0}
+            title={`Print all bay labels for Aisle ${aisleGroup.aisle}`}
+            onClick={(event) => {
+              event.stopPropagation();
+              setPrintOpen(true);
+            }}
+          >
+            <Printer className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Print bays</span>
+          </Button>
         </div>
       </CollapsibleTrigger>
       <CollapsibleContent>
@@ -500,6 +735,8 @@ function AisleNode({
         </div>
       </CollapsibleContent>
     </Collapsible>
+    <BayLocationCodesPrintDialog items={bayItems} open={printOpen} onOpenChange={setPrintOpen} />
+    </TreeRowFlyout>
   );
 }
 
@@ -511,8 +748,7 @@ function ZoneNode({
   warehouseCode: string;
   nodeKey: string;
 }) {
-  const { expandedNodes, toggleNode, setDialog } = useTCtx();
-  const { fillStats } = useTCtx();
+  const { activeTreeNodeKey, expandedNodes, fillStats, selectTreeNode, setDialog, toggleNode } = useTCtx();
   const isOpen = expandedNodes.has(nodeKey);
   const zoneLabelCode = prefixedCode(warehouseCode, zone.code);
   const [wizardOpen, setWizardOpen] = useState(false);
@@ -531,9 +767,38 @@ function ZoneNode({
   );
 
   return (
+    <TreeRowFlyout
+      nodeKey={nodeKey}
+      menu={(close) => (
+        <>
+          <TreeRowFlyoutItem onSelect={() => { setDialog({ type: "edit-zone", zone, warehouseName }); close(); }}>
+            <Pencil className="mr-2 h-3.5 w-3.5" />Edit Zone
+          </TreeRowFlyoutItem>
+          <TreeRowFlyoutItem onSelect={() => { setDialog({ type: "wizard-zone", warehouseId: zone.warehouse_id, zoneId: zone.id, zoneCode: zone.code }); close(); }}>
+            <Plus className="mr-2 h-3.5 w-3.5" />Add Locations
+          </TreeRowFlyoutItem>
+          <TreeRowFlyoutItem onSelect={() => { setDialog({ type: "edit-range", zone }); close(); }}>
+            <Pencil className="mr-2 h-3.5 w-3.5" />Edit Location Range
+          </TreeRowFlyoutItem>
+          <div className="-mx-1 my-1 h-px bg-border" />
+          <TreeRowFlyoutItem destructive onSelect={() => { setDialog({ type: "delete", label: `zone \"${zone.name}\" and all its locations`, deleteFn: () => deleteZoneCascade(zone.id) }); close(); }}>
+            <Trash2 className="mr-2 h-3.5 w-3.5" />Delete Zone
+          </TreeRowFlyoutItem>
+        </>
+      )}
+    >
     <Collapsible open={isOpen} onOpenChange={() => toggleNode(nodeKey)}>
       <CollapsibleTrigger asChild>
-        <div data-tree-key={nodeKey} tabIndex={-1} className="group flex min-h-9 cursor-pointer items-center gap-1 rounded-sm px-1 text-sm outline-none transition-shadow hover:bg-accent hover:text-accent-foreground">
+        <div
+          data-tree-key={nodeKey}
+          tabIndex={-1}
+          title={TREE_CONTEXT_HINT}
+          className={cn(
+            "group flex min-h-9 cursor-pointer items-center gap-1 rounded-sm px-1 text-sm outline-none transition-shadow hover:bg-accent hover:text-accent-foreground",
+            activeTreeNodeKey === nodeKey && "bg-amber-400 text-amber-950 hover:bg-amber-400 hover:text-amber-950",
+          )}
+          onClick={() => selectTreeNode(nodeKey)}
+        >
           <ChevronRight className={cn("h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform", isOpen && "rotate-90")} />
           <Boxes className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
           <span className="flex-1 truncate font-medium">{zone.name}</span>
@@ -642,6 +907,7 @@ function ZoneNode({
         </div>
       </CollapsibleContent>
     </Collapsible>
+    </TreeRowFlyout>
   );
 }
 
@@ -712,7 +978,7 @@ function WarehouseLabelPage({
 }
 
 function WarehouseNode({ warehouse, nodeKey }: { warehouse: WarehouseRow; nodeKey: string }) {
-  const { expandedNodes, fillStats, toggleNode, setDialog, zones } = useTCtx();
+  const { activeTreeNodeKey, expandedNodes, fillStats, selectTreeNode, toggleNode, setDialog, zones } = useTCtx();
   const isOpen = expandedNodes.has(nodeKey);
   const warehouseDisabled = warehouse.active === false;
 
@@ -722,9 +988,41 @@ function WarehouseNode({ warehouse, nodeKey }: { warehouse: WarehouseRow; nodeKe
   );
 
   return (
+    <TreeRowFlyout
+      nodeKey={nodeKey}
+      menu={(close) => (
+        <>
+          <TreeRowFlyoutItem onSelect={() => { setDialog({ type: "edit-warehouse", warehouse }); close(); }}>
+            <Pencil className="mr-2 h-3.5 w-3.5" />Edit Warehouse
+          </TreeRowFlyoutItem>
+          <TreeRowFlyoutItem onSelect={() => { setDialog({ type: "add-warehouse" }); close(); }}>
+            <Plus className="mr-2 h-3.5 w-3.5" />Add Warehouse
+          </TreeRowFlyoutItem>
+          <TreeRowFlyoutItem onSelect={() => { setDialog({ type: "add-zone", warehouseId: warehouse.id, warehouseName: warehouse.name }); close(); }}>
+            <Plus className="mr-2 h-3.5 w-3.5" />Add Zone
+          </TreeRowFlyoutItem>
+          <TreeRowFlyoutItem onSelect={() => { setDialog({ type: "reorder-settings" }); close(); }}>
+            <AlertTriangle className="mr-2 h-3.5 w-3.5" />Reorder Settings
+          </TreeRowFlyoutItem>
+          <div className="-mx-1 my-1 h-px bg-border" />
+          <TreeRowFlyoutItem destructive onSelect={() => { setDialog({ type: "delete", label: `warehouse \"${warehouse.name}\" and all its zones and locations`, deleteFn: () => deleteWarehouseCascade(warehouse.id) }); close(); }}>
+            <Trash2 className="mr-2 h-3.5 w-3.5" />Delete Warehouse
+          </TreeRowFlyoutItem>
+        </>
+      )}
+    >
     <Collapsible open={isOpen} onOpenChange={() => toggleNode(nodeKey)}>
       <CollapsibleTrigger asChild>
-        <div data-tree-key={nodeKey} tabIndex={-1} className="group flex min-h-10 cursor-pointer items-center gap-1.5 rounded-md px-1.5 text-sm font-medium outline-none transition-shadow hover:bg-accent hover:text-accent-foreground">
+        <div
+          data-tree-key={nodeKey}
+          tabIndex={-1}
+          title={TREE_CONTEXT_HINT}
+          className={cn(
+            "group flex min-h-10 cursor-pointer items-center gap-1.5 rounded-md px-1.5 text-sm font-medium outline-none transition-shadow hover:bg-accent hover:text-accent-foreground",
+            activeTreeNodeKey === nodeKey && "bg-amber-400 text-amber-950 hover:bg-amber-400 hover:text-amber-950",
+          )}
+          onClick={() => selectTreeNode(nodeKey)}
+        >
           <ChevronRight className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform", isOpen && "rotate-90")} />
           <Building2 className="h-4 w-4 shrink-0 text-muted-foreground" />
           <span className="flex-1 truncate">{warehouse.name}</span>
@@ -768,6 +1066,9 @@ function WarehouseNode({ warehouse, nodeKey }: { warehouse: WarehouseRow; nodeKe
                 >
                   <Plus className="mr-2 h-3.5 w-3.5" />Add Zone
                 </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => setDialog({ type: "reorder-settings" })}>
+                  <AlertTriangle className="mr-2 h-3.5 w-3.5" />Reorder Settings
+                </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   className="text-destructive focus:text-destructive"
@@ -804,6 +1105,7 @@ function WarehouseNode({ warehouse, nodeKey }: { warehouse: WarehouseRow; nodeKe
         </div>
       </CollapsibleContent>
     </Collapsible>
+    </TreeRowFlyout>
   );
 }
 
@@ -1410,7 +1712,7 @@ function ConfirmDeleteDialog({
 
 export function WarehouseStructureTab() {
   const navigate = useNavigate();
-  const { profile } = useAuth();
+  const { profile, roles } = useAuth();
 
   const LS_KEY = "wms-tree-expanded";
   const activeWarehouseId = profile?.default_warehouse_id;
@@ -1425,6 +1727,7 @@ export function WarehouseStructureTab() {
 
   const [filter, setFilter] = useState("");
   const [dialog, setDialog] = useState<ActiveDialog>(null);
+  const [activeTreeNodeKey, setActiveTreeNodeKey] = useState<string | null>(null);
 
   const toggleNode = useCallback((key: string) => {
     setExpandedNodes((prev) => {
@@ -1579,13 +1882,23 @@ export function WarehouseStructureTab() {
     if (exactBay) expandAndTargetLocation(exactBay, "bay");
   }
   const ctx = useMemo<TreeCtxValue>(
-    () => ({ expandedNodes, toggleNode, setDialog, warehouses, zones, navigate, fillStats }),
-    [expandedNodes, toggleNode, warehouses, zones, navigate, fillStats],
+    () => ({
+      expandedNodes,
+      toggleNode,
+      activeTreeNodeKey,
+      selectTreeNode: setActiveTreeNodeKey,
+      setDialog,
+      warehouses,
+      zones,
+      navigate,
+      fillStats,
+    }),
+    [activeTreeNodeKey, expandedNodes, toggleNode, warehouses, zones, navigate, fillStats],
   );
 
   return (
     <TreeCtx.Provider value={ctx}>
-      <div className="grid gap-4">
+      <div className="flex h-full min-h-0 flex-col gap-4">
         <div className="flex items-center gap-2">
           <div className="relative max-w-xs flex-1">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -1611,25 +1924,27 @@ export function WarehouseStructureTab() {
           </Button>
         </div>
 
-        {isLoading ? (
-          <div className="grid gap-1">
-            <Skeleton className="h-8 w-full" />
-            <Skeleton className="h-8 w-3/4" />
-          </div>
-        ) : filteredWarehouses.length === 0 ? (
-          <div className="rounded-md border border-dashed p-8 text-center">
-            <Building2 className="mx-auto mb-2 h-8 w-8 text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">
-              {filter ? "No warehouses match your search." : "No warehouses configured yet."}
-            </p>
-          </div>
-        ) : (
-          <div className="grid gap-0.5">
-            {filteredWarehouses.map((wh) => (
-              <WarehouseNode key={wh.id} warehouse={wh} nodeKey={`w${wh.id}`} />
-            ))}
-          </div>
-        )}
+        <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+          {isLoading ? (
+            <div className="grid gap-1">
+              <Skeleton className="h-8 w-full" />
+              <Skeleton className="h-8 w-3/4" />
+            </div>
+          ) : filteredWarehouses.length === 0 ? (
+            <div className="rounded-md border border-dashed p-8 text-center">
+              <Building2 className="mx-auto mb-2 h-8 w-8 text-muted-foreground" />
+              <p className="text-sm text-muted-foreground">
+                {filter ? "No warehouses match your search." : "No warehouses configured yet."}
+              </p>
+            </div>
+          ) : (
+            <div className="grid gap-0.5">
+              {filteredWarehouses.map((wh) => (
+                <WarehouseNode key={wh.id} warehouse={wh} nodeKey={`w${wh.id}`} />
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       {dialog?.type === "add-warehouse" && (
@@ -1658,6 +1973,17 @@ export function WarehouseStructureTab() {
       )}
       {dialog?.type === "edit-range" && (
         <EditLocationRangeDialog zone={dialog.zone} onClose={() => setDialog(null)} />
+      )}
+      {dialog?.type === "reorder-settings" && (
+        <Dialog open onOpenChange={(open) => !open && setDialog(null)}>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>Reorder Settings</DialogTitle>
+              <DialogDescription>Configure forecasting rules for products in this warehouse environment.</DialogDescription>
+            </DialogHeader>
+            <ReorderForecastSettingsPanel isAdmin={roles.some((role) => ["developer", "admin"].includes(role))} />
+          </DialogContent>
+        </Dialog>
       )}
       {dialog?.type === "delete" && (
         <ConfirmDeleteDialog label={dialog.label} deleteFn={dialog.deleteFn} onClose={() => setDialog(null)} />

@@ -6,7 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm, type UseFormReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { supabase } from "@/integrations/supabase/client";
-import { Activity, AlertCircle, AlertTriangle, ArrowLeftRight, BarChart3, Bot, Boxes, Building2, CheckCircle2, ChevronDown, ClipboardCheck, ClipboardList, CloudOff, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, HelpCircle, Home, Info, KeyRound, LayoutDashboard, Loader2, Lock, LockOpen, LogOut, Mail, Maximize2, MapPinned, Menu, Minimize2, Network, Package, PackageX, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, QrCode, RadioTower, RefreshCw, RotateCcw, Search, Settings, ShieldCheck, Star, Tags, Trash2, Truck, Upload, UserPlus, Users } from "lucide-react";
+import { Activity, AlertCircle, AlertTriangle, ArrowLeftRight, BarChart3, Bot, Boxes, Building2, CheckCircle2, ChevronDown, CircleOff, ClipboardCheck, ClipboardList, CloudOff, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, HelpCircle, Home, Info, KeyRound, LayoutDashboard, Loader2, Lock, LockOpen, LogOut, Mail, Maximize2, MapPinned, Menu, Minimize2, Network, Package, PackageX, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Power, Printer, QrCode, RadioTower, RefreshCw, RotateCcw, Search, Settings, ShieldCheck, Star, Tags, Trash2, Truck, Upload, UserPlus, Users } from "lucide-react";
 import {
   DndContext,
   KeyboardSensor,
@@ -171,6 +171,7 @@ import { ZoneLabelPage } from "@/components/zone-label-page";
 import { LocationLabelPage } from "@/components/location-label-page";
 import { BayLocationCodesPrintDialog, LabelSheetPrintDialog, type LabelSheetItem } from "@/components/label-sheet-print";
 import { WarehouseStructureTab } from "@/components/warehouse-tree-view";
+import { ReorderForecastSettingsPanel } from "@/features/shared/reorder-forecast-settings";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -494,13 +495,12 @@ function UsersRolesPageImpl() {
                   <TableHeader className="sticky top-0 z-10 bg-card">
                     <TableRow>
                       <TableHead>User</TableHead>
-                      <TableHead className="w-28">Status</TableHead>
                       <TableHead>Email</TableHead>
-                      <TableHead className="w-28">User Code</TableHead>
                       <TableHead>Roles</TableHead>
-                      <TableHead className="w-40">Default Warehouse</TableHead>
-                      <TableHead className="w-24">Access</TableHead>
-                      <TableHead className="w-28" />
+                      <TableHead className="w-20 text-center">Enabled</TableHead>
+                      <TableHead className="w-20 text-center">Approved</TableHead>
+                      <TableHead className="w-10" />
+                      <TableHead className="w-10" />
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -520,7 +520,7 @@ function UsersRolesPageImpl() {
                     ))}
                     {profiles.length === 0 && (
                       <TableRow>
-                        <TableCell className="h-24 text-center text-muted-foreground" colSpan={8}>
+                        <TableCell className="h-24 text-center text-muted-foreground" colSpan={7}>
                           No users found. Use "Add User" to create the first one.
                         </TableCell>
                       </TableRow>
@@ -864,9 +864,6 @@ function UserProfileRow({
     }
   }, [profile.default_warehouse_id, values.default_warehouse_id, warehouses]);
 
-  const initials = (profile.full_name ?? profile.email ?? "?")
-    .split(/\s+/).slice(0, 2).map((p) => p[0]?.toUpperCase() ?? "").join("") || "?";
-
   const roleNames = userRoles
     .filter((ur) => !ur.is_hidden)
     .map((ur) => (ur.roles as { name?: string } | null)?.name ?? "")
@@ -908,78 +905,52 @@ function UserProfileRow({
     setOpen(false);
   };
 
-  const defaultWarehouseName = warehouses.find((warehouse) => warehouse.id === profile.default_warehouse_id)?.name ?? "All warehouses";
-
   return (
     <TableRow
-      className={cn("cursor-pointer even:bg-muted/30", !profile.active && "opacity-60")}
+      className={cn("h-10 cursor-pointer even:bg-muted/30", !profile.active && "opacity-60")}
       onDoubleClick={() => setOpen(true)}
     >
-      <TableCell>
-        <div className="flex min-w-[220px] items-center gap-3">
-        <Avatar className="h-10 w-10 shrink-0">
-          <AvatarFallback className={cn(
-            "text-sm font-semibold",
-            profile.approved ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"
-          )}>
-            {initials}
-          </AvatarFallback>
-        </Avatar>
-          <div className="min-w-0">
-            <p className="truncate font-medium">{profile.full_name ?? profile.email ?? profile.id}</p>
-            <p className="truncate text-xs text-muted-foreground">{profile.phone || "No phone"}</p>
-          </div>
-        </div>
+      <TableCell className="max-w-48 p-2">
+        <p className="truncate text-sm font-medium">{profile.full_name ?? profile.email ?? profile.id}</p>
       </TableCell>
-      <TableCell>
-        <div className="flex flex-wrap items-center gap-1.5">
-          <Badge variant={profile.approved ? "default" : "secondary"} className="text-xs">
-            {profile.approved ? "Approved" : "Pending"}
-          </Badge>
-          {!profile.active && <Badge variant="outline" className="text-xs">Inactive</Badge>}
-        </div>
+      <TableCell className="max-w-56 p-2 text-sm text-muted-foreground">
+        <span className="block truncate">{profile.email ?? "—"}</span>
       </TableCell>
-      <TableCell className="text-sm text-muted-foreground">{profile.email ?? "—"}</TableCell>
-      <TableCell className="font-mono text-xs">{profile.user_code || "—"}</TableCell>
-      <TableCell>
-        <div className="flex min-w-[180px] flex-wrap items-center gap-1">
+      <TableCell className="max-w-64 p-2">
+        <div className="flex flex-wrap items-center gap-1">
           {roleNames.length > 0 ? roleNames.map((name) => (
             <Badge key={name} variant="outline" className="px-1.5 py-0 text-xs">{name}</Badge>
           )) : <span className="text-sm text-muted-foreground">No roles</span>}
         </div>
       </TableCell>
-      <TableCell className="text-sm text-muted-foreground">{defaultWarehouseName}</TableCell>
-      <TableCell>
-        <Badge variant={profile.active ? "secondary" : "outline"} className="text-xs">
-          {profile.active ? "Enabled" : "Disabled"}
-        </Badge>
+      <TableCell className="p-2 text-center">
+        {profile.active ? (
+          <CheckCircle2 className="mx-auto h-4 w-4 text-emerald-600" aria-label="Enabled" />
+        ) : (
+          <CircleOff className="mx-auto h-4 w-4 text-muted-foreground" aria-label="Disabled" />
+        )}
       </TableCell>
-      <TableCell>
-        <div className="flex items-center justify-end gap-1.5">
-          {!isSelf && (
+      <TableCell className="p-2 text-center">
+        {profile.approved ? (
+          <CheckCircle2 className="mx-auto h-4 w-4 text-emerald-600" aria-label="Approved" />
+        ) : (
+          <CircleOff className="mx-auto h-4 w-4 text-muted-foreground" aria-label="Pending approval" />
+        )}
+      </TableCell>
+      <TableCell className="p-1 text-center">
+        <Dialog open={open} onOpenChange={setOpen}>
+          <DialogTrigger asChild>
             <Button
-              size="sm"
+              size="icon"
               variant="ghost"
-              className="h-8 text-xs"
-              onClick={(event) => {
-                event.stopPropagation();
-                onToggleActive();
-              }}
+              className="h-7 w-7"
+              aria-label={`Edit ${profile.full_name ?? profile.email ?? "user"}`}
+              title="Edit user"
+              onClick={(event) => event.stopPropagation()}
             >
-              {profile.active ? "Disable" : "Enable"}
+              <Pencil className="h-3.5 w-3.5" />
             </Button>
-          )}
-          <Dialog open={open} onOpenChange={setOpen}>
-            <DialogTrigger asChild>
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-8 text-xs"
-                onClick={(event) => event.stopPropagation()}
-              >
-                Edit
-              </Button>
-            </DialogTrigger>
+          </DialogTrigger>
             <DialogContent className="max-h-[90vh] overflow-hidden sm:max-w-lg">
               <DialogHeader>
                 <DialogTitle>Edit User</DialogTitle>
@@ -1124,7 +1095,22 @@ function UserProfileRow({
               </ScrollArea>
             </DialogContent>
           </Dialog>
-        </div>
+      </TableCell>
+      <TableCell className="p-1 text-center">
+        <Button
+          size="icon"
+          variant="ghost"
+          className={cn("h-7 w-7", profile.active && !isSelf && "text-destructive hover:text-destructive")}
+          disabled={isSelf}
+          aria-label={profile.active ? `Disable ${profile.full_name ?? profile.email ?? "user"}` : `Enable ${profile.full_name ?? profile.email ?? "user"}`}
+          title={isSelf ? "You cannot disable your own account" : profile.active ? "Disable user" : "Enable user"}
+          onClick={(event) => {
+            event.stopPropagation();
+            onToggleActive();
+          }}
+        >
+          <Power className="h-3.5 w-3.5" />
+        </Button>
       </TableCell>
     </TableRow>
   );
@@ -1144,103 +1130,6 @@ const MODULE_GROUPS: { label: string; keys: ModuleKey[] }[] = [
     keys: ["cycle-counts", "reports", "status", "system-log", "email-log"],
   },
 ];
-
-type ReorderForecastSettings = {
-  id: boolean;
-  lookback_days: number;
-  safety_lead_days: number;
-  alert_threshold_percent: number;
-  email_enabled: boolean;
-};
-
-const DEFAULT_REORDER_FORECAST_SETTINGS: ReorderForecastSettings = {
-  id: true,
-  lookback_days: 30,
-  safety_lead_days: 0,
-  alert_threshold_percent: 100,
-  email_enabled: true,
-};
-
-function ReorderForecastSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
-  const queryClient = useQueryClient();
-  const { data: savedSettings } = useQuery<ReorderForecastSettings>({
-    queryKey: ["reorder-forecast-settings"],
-    queryFn: async () => {
-      const { data, error } = await (supabase.from as any)("reorder_forecast_settings")
-        .select("id, lookback_days, safety_lead_days, alert_threshold_percent, email_enabled")
-        .eq("id", true)
-        .maybeSingle();
-      if (error) throw error;
-      return { ...DEFAULT_REORDER_FORECAST_SETTINGS, ...(data ?? {}) };
-    },
-  });
-  const [draft, setDraft] = useState<ReorderForecastSettings>(DEFAULT_REORDER_FORECAST_SETTINGS);
-
-  useEffect(() => {
-    if (savedSettings) setDraft(savedSettings);
-  }, [savedSettings]);
-
-  const saveMutation = useMutation({
-    mutationFn: async () => {
-      const { error } = await (supabase.from as any)("reorder_forecast_settings").upsert({
-        ...draft,
-        updated_at: new Date().toISOString(),
-      });
-      if (error) throw error;
-      const { error: refreshError } = await (supabase.rpc as any)("refresh_reorder_alerts");
-      if (refreshError) throw refreshError;
-    },
-    onSuccess: async () => {
-      toast.success("Reorder forecast rules saved");
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["reorder-forecast-settings"] }),
-        queryClient.invalidateQueries({ queryKey: ["reorder-alerts"] }),
-      ]);
-    },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Could not save reorder forecast rules"),
-  });
-
-  const valuesValid = draft.lookback_days >= 7 && draft.lookback_days <= 365
-    && draft.safety_lead_days >= 0 && draft.safety_lead_days <= 90
-    && draft.alert_threshold_percent >= 25 && draft.alert_threshold_percent <= 200;
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base"><AlertTriangle className="h-4 w-4" />Reorder forecasting</CardTitle>
-        <CardDescription>Demand is calculated from completed outbound picks. Product min/max, pick-down, and supplier lead-time values drive each alert.</CardDescription>
-      </CardHeader>
-      <CardContent className="grid gap-4">
-        <div className="grid gap-3 sm:grid-cols-3">
-          <div className="grid gap-1.5">
-            <label className="text-sm font-medium" htmlFor="reorder-lookback-days">Demand look-back days</label>
-            <Input id="reorder-lookback-days" type="number" min={7} max={365} value={draft.lookback_days} disabled={!isAdmin} onChange={(event) => setDraft((current) => ({ ...current, lookback_days: Number(event.target.value) }))} />
-          </div>
-          <div className="grid gap-1.5">
-            <label className="text-sm font-medium" htmlFor="reorder-safety-days">Safety lead days</label>
-            <Input id="reorder-safety-days" type="number" min={0} max={90} value={draft.safety_lead_days} disabled={!isAdmin} onChange={(event) => setDraft((current) => ({ ...current, safety_lead_days: Number(event.target.value) }))} />
-          </div>
-          <div className="grid gap-1.5">
-            <label className="text-sm font-medium" htmlFor="reorder-threshold">Alert threshold (%)</label>
-            <Input id="reorder-threshold" type="number" min={25} max={200} value={draft.alert_threshold_percent} disabled={!isAdmin} onChange={(event) => setDraft((current) => ({ ...current, alert_threshold_percent: Number(event.target.value) }))} />
-          </div>
-        </div>
-        <label className={cn("flex items-center gap-3 rounded-md border border-border px-3 py-2.5 text-sm", isAdmin ? "cursor-pointer" : "opacity-70")}>
-          <Switch checked={draft.email_enabled} disabled={!isAdmin} onCheckedChange={(checked) => setDraft((current) => ({ ...current, email_enabled: checked }))} />
-          <span><span className="font-medium">Email eligible recipients</span><span className="block text-xs text-muted-foreground">Send one email to active admins and warehouse managers when a product first enters a reorder state.</span></span>
-        </label>
-        {isAdmin ? (
-          <div className="flex justify-end">
-            <Button type="button" disabled={saveMutation.isPending || !valuesValid} onClick={() => saveMutation.mutate()}>
-              {saveMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-              Save forecast rules
-            </Button>
-          </div>
-        ) : <p className="text-xs text-muted-foreground">Administrator access is required to change forecasting rules.</p>}
-      </CardContent>
-    </Card>
-  );
-}
 
 function ModulesSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
   const { flags, toolbarModules, isToolbarModule, setModule, setToolbarModule, resetToStarter } = useFeatureFlags();
@@ -1330,6 +1219,8 @@ export function SettingsPage() {
   const defaultSettingsTab = requestedTab && availableSettingsTabs.includes(requestedTab)
     ? requestedTab
     : "warehouse-structure";
+  const [activeSettingsTab, setActiveSettingsTab] = useState(defaultSettingsTab);
+  const warehouseStructureActive = activeSettingsTab === "warehouse-structure";
 
   const resetMutation = useMutation({
     mutationFn: resetWmsData,
@@ -1361,7 +1252,7 @@ export function SettingsPage() {
   const isDeveloper = roles.includes("developer");
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className={cn("flex flex-col gap-6", warehouseStructureActive && "h-full min-h-0 overflow-hidden")}>
       <div className="flex items-center gap-2">
         <h2 className="text-2xl font-semibold">Settings</h2>
         <Tooltip>
@@ -1381,7 +1272,11 @@ export function SettingsPage() {
           </TooltipContent>
         </Tooltip>
       </div>
-      <Tabs defaultValue={defaultSettingsTab}>
+      <Tabs
+        value={activeSettingsTab}
+        onValueChange={setActiveSettingsTab}
+        className={cn(warehouseStructureActive && "flex min-h-0 flex-1 flex-col")}
+      >
         <TabsList className="flex h-auto w-full flex-wrap items-stretch justify-start gap-1 sm:w-fit">
           <TabsTrigger value="warehouse-structure" className="min-h-9 flex-1 gap-1.5 sm:flex-none"><Network className="h-3.5 w-3.5" />Warehouse Structure</TabsTrigger>
           {canViewUsersRoles && (
@@ -1511,10 +1406,9 @@ export function SettingsPage() {
           </TabsContent>
         )}
 
-        <TabsContent value="warehouse-structure" className="mt-4">
-          <div className="grid gap-6">
+        <TabsContent value="warehouse-structure" className="mt-4 min-h-0 flex-1 data-[state=active]:flex">
+          <div className="flex min-h-0 flex-1 flex-col">
             <WarehouseStructureTab />
-            <ReorderForecastSettingsPanel isAdmin={isDeveloperOrAdmin} />
           </div>
         </TabsContent>
 
@@ -1533,6 +1427,15 @@ export function SettingsPage() {
                 <span className="font-mono text-xs font-semibold text-primary">v{__APP_VERSION__}</span>
               </div>
               {[
+                {
+                  version: "1.26",
+                  date: "July 2026",
+                  changes: [
+                    "Warehouse Structure: the page frame now stays fixed while only the warehouse tree scrolls, keeping Settings, tabs, search, and Collapse all in view",
+                    "Warehouse Structure: Reorder Settings now opens from each warehouse action menu, keeping forecasting configuration beside the warehouse hierarchy",
+                    "Reorder Forecasting: existing demand look-back, safety lead time, alert threshold, and notification controls are preserved in the new popup",
+                  ],
+                },
                 {
                   version: "1.25",
                   date: "July 2026",

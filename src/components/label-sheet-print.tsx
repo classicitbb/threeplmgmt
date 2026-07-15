@@ -466,11 +466,20 @@ export function LabelSheetPrintDialog({
 export function BayLocationCodesPrintDialog({
   items,
   trigger,
+  open: controlledOpen,
+  onOpenChange,
 }: {
   items: LabelSheetItem[];
-  trigger: React.ReactNode;
+  trigger?: React.ReactNode;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
+  const open = controlledOpen ?? uncontrolledOpen;
+  const setOpen = (nextOpen: boolean) => {
+    if (controlledOpen === undefined) setUncontrolledOpen(nextOpen);
+    onOpenChange?.(nextOpen);
+  };
 
   function handlePrint() {
     if (items.length === 0) return;
@@ -480,7 +489,7 @@ export function BayLocationCodesPrintDialog({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>{trigger}</DialogTrigger>
+      {trigger ? <DialogTrigger asChild>{trigger}</DialogTrigger> : null}
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Print Bay Location Codes</DialogTitle>
