@@ -5,6 +5,7 @@ import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ReceivingPage } from "@/components/wms-ui";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 const wmsMocks = vi.hoisted(() => {
   const draft = {
@@ -130,9 +131,11 @@ describe("ReceivingPage", () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
       <QueryClientProvider client={queryClient}>
-        <MemoryRouter>
-          <ReceivingPage />
-        </MemoryRouter>
+        <TooltipProvider>
+          <MemoryRouter>
+            <ReceivingPage />
+          </MemoryRouter>
+        </TooltipProvider>
       </QueryClientProvider>,
     );
     return queryClient;

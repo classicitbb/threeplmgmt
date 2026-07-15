@@ -265,6 +265,17 @@ export function DashboardPage() {
     queryFn: () => getDashboardMetrics(profile?.default_warehouse_id, flags),
     refetchInterval: 15_000,
   });
+  const { data: reorderAlerts = [] } = useQuery({
+    queryKey: ["reorder-alerts", "command-center"],
+    queryFn: async () => {
+      const { data, error } = await (supabase.from as any)("reorder_alerts")
+        .select("id")
+        .eq("status", "active");
+      if (error) throw error;
+      return data ?? [];
+    },
+    refetchInterval: 30_000,
+  });
   const { data: reports } = useQuery({ queryKey: ["reports", "enterprise-dashboard"], queryFn: getReportData });
   const snapshot = useMemo(() => buildEnterpriseDashboard(metrics, reports), [metrics, reports]);
   const summaryCardsById = useMemo(() => {
@@ -447,6 +458,19 @@ export function DashboardPage() {
           </Button>
         </div>
       </div>
+
+      {reorderAlerts.length > 0 ? (
+        <Card className="shrink-0 border-amber-500/50 bg-amber-50/60 dark:bg-amber-950/20">
+          <CardContent className="flex flex-wrap items-center justify-between gap-3 py-3">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-amber-600" />
+              <span className="font-medium">{reorderAlerts.length} active reorder alert{reorderAlerts.length === 1 ? "" : "s"}</span>
+              <span className="text-sm text-muted-foreground">Forecasts use completed outbound picks and supplier lead time.</span>
+            </div>
+            <Button asChild size="sm" variant="outline"><Link to="/products">View products</Link></Button>
+          </CardContent>
+        </Card>
+      ) : null}
 
       <div className="min-h-0 flex-1 overflow-auto">
         {mode === "floor" ? (

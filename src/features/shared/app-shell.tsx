@@ -345,6 +345,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [reconnectRefreshing, setReconnectRefreshing] = useState(false);
   const networkStatusSeenRef = useRef(false);
   const shownOfflineAlertIdsRef = useRef<Set<string>>(new Set());
+
+  // The desktop/landscape rail has a persistent preference, while the mobile
+  // drawer is deliberately transient. A layout change or route change must
+  // never reopen a stale mobile drawer or inherit the icon-only rail state.
+  useEffect(() => {
+    const desktopLandscape = window.matchMedia("(min-width: 1024px) and (orientation: landscape)");
+    const closeMobileDrawer = () => setMobileMenuOpen(false);
+    desktopLandscape.addEventListener("change", closeMobileDrawer);
+    return () => desktopLandscape.removeEventListener("change", closeMobileDrawer);
+  }, []);
+
+  useEffect(() => {
+    setMobileMenuOpen(false);
+  }, [pathname]);
   const items = NAVIGATION
     .filter(
       (item) =>
@@ -579,24 +593,24 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
   }, [profile?.default_warehouse_id, queryClient, roles, user?.id]);
 
-  const renderNavigation = (compactTop = false) => (
+  const renderNavigation = (compactTop = false, collapsed = sidebarCollapsed) => (
       <div
         className={cn(
           "flex h-full flex-col overflow-hidden bg-sidebar",
-          sidebarCollapsed ? "items-center px-1.5 py-3 bg-teal-500" : compactTop ? "px-2.5 py-0" : "px-2.5 py-3"
+          collapsed ? "items-center px-1.5 py-3" : compactTop ? "px-2.5 py-0" : "px-2.5 py-3"
         )}
       >
       {/* Logo area */}
       {!compactTop ? (
         <div className={cn(
           "mb-4 flex items-center justify-between gap-2 px-2",
-          sidebarCollapsed && "justify-center px-0"
+          collapsed && "justify-center px-0"
         )}>
           <div className="flex items-center gap-3 min-w-0">
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-black p-1">
               <img src="/logo.png" alt="Warehouse Wizard" className="h-full w-full object-contain" />
             </div>
-            {!sidebarCollapsed && (
+            {!collapsed && (
               <span className="truncate text-sm font-semibold text-foreground">Warehouse Wizard</span>
             )}
           </div>
@@ -608,7 +622,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {items.map((item) => {
             const Icon = navIcons[item.to] ?? LayoutDashboard;
             const isActive = pathname === item.to;
-            const showSeparator = !sidebarCollapsed && item.to === "/warehouses";
+            const showSeparator = !collapsed && item.to === "/warehouses";
             const badgeCount = getNavBadgeCount(item.to);
             const link = (
               <NavLink
@@ -616,7 +630,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 className={({ isActive: navActive }) =>
                   cn(
                     "group relative flex min-h-[3.375rem] items-center gap-2 rounded-md px-2 text-sm font-medium transition-all duration-100 active:scale-[0.96] active:transition-transform",
-                    sidebarCollapsed && "h-11 min-h-11 w-11 justify-center p-0",
+                    collapsed && "h-11 min-h-11 w-11 justify-center p-0",
                     navActive || isActive
                       ? "bg-primary text-primary-foreground shadow-sm"
                       : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
@@ -630,14 +644,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               >
                 <Icon
                   data-active-icon={isActive ? "true" : "false"}
-                  className={cn("shrink-0", sidebarCollapsed ? "h-5 w-5" : "h-4 w-4", isActive && "text-accent")}
+                  className={cn("shrink-0", collapsed ? "h-5 w-5" : "h-4 w-4", isActive && "text-accent")}
                 />
-                {sidebarCollapsed ? null : <span className="truncate">{item.label}</span>}
+                {collapsed ? null : <span className="truncate">{item.label}</span>}
                 {badgeCount > 0 ? (
                   <span
                     className={cn(
                       "ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive px-1.5 text-[10px] font-semibold leading-none text-destructive-foreground",
-                      sidebarCollapsed && "absolute right-0 top-1 ml-0",
+                      collapsed && "absolute right-0 top-1 ml-0",
                     )}
                     aria-label={getNavBadgeLabel(item.to, badgeCount)}
                   >
@@ -647,7 +661,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </NavLink>
             );
 
-            const node = sidebarCollapsed ? (
+            const node = collapsed ? (
               <Tooltip key={item.to}>
                 <TooltipTrigger asChild>{link}</TooltipTrigger>
                 <TooltipContent side="right">{item.label}</TooltipContent>
@@ -668,31 +682,31 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </nav>
 
       {/* Sidebar footer — desktop only */}
-      <div className={cn("mt-2 hidden lg:landscape:flex", sidebarCollapsed ? "justify-center" : "justify-start")}>
+      <div className={cn("mt-2 hidden lg:landscape:flex", collapsed ? "justify-center" : "justify-start")}>
         <Button
           className={cn(
             "h-8 gap-1.5 shrink-0",
-            sidebarCollapsed ? "w-8 justify-center px-0" : "px-2.5",
+            collapsed ? "w-8 justify-center px-0" : "px-2.5",
           )}
-          size={sidebarCollapsed ? "icon" : "sm"}
+          size={collapsed ? "icon" : "sm"}
           variant="ghost"
           onClick={() => window.location.reload()}
           aria-label="Hard refresh"
           title="Hard refresh"
         >
           <RefreshCw className="h-3.5 w-3.5" />
-          {!sidebarCollapsed && <span className="text-xs">Refresh</span>}
+          {!collapsed && <span className="text-xs">Refresh</span>}
         </Button>
       </div>
-      <div className={cn("mt-2 hidden border-t border-sidebar-border pt-2 lg:landscape:flex", sidebarCollapsed ? "justify-center" : "justify-end")}>
+      <div className={cn("mt-2 hidden border-t border-sidebar-border pt-2 lg:landscape:flex", collapsed ? "justify-center" : "justify-end")}>
         <Button
           className="h-8 w-8 shrink-0"
           size="icon"
           variant="ghost"
           onClick={() => setSidebarCollapsed((c) => !c)}
-          aria-label={sidebarCollapsed ? "Expand navigation" : "Collapse navigation"}
+          aria-label={collapsed ? "Expand navigation" : "Collapse navigation"}
         >
-          {sidebarCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+          {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
         </Button>
       </div>
     </div>
@@ -785,7 +799,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     </Button>
                   </div>
                 </div>
-                <div className="flex-1 overflow-y-auto">{renderNavigation(true)}</div>
+                <div className="flex-1 overflow-y-auto">{renderNavigation(true, false)}</div>
               </SheetContent>
             </Sheet>
           </div>

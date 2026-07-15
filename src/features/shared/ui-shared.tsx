@@ -725,6 +725,12 @@ function validateRequiredResourceFields(
   return missingFields.length === 0;
 }
 
+function missingRequiredFieldLabels(resource: ResourceDefinition, values: Record<string, unknown>) {
+  return resource.fields
+    .filter((field) => field.required && hasMissingRequiredValue(values[field.name]))
+    .map((field) => field.label);
+}
+
 function RackLocationCodeBuilder({
   form,
   options,
@@ -951,9 +957,18 @@ export function ResourceFormDialog({
   });
 
   function handleCreateSubmit(values: Record<string, unknown>) {
-    if (!validateRequiredResourceFields(resource, values, form)) return;
+    if (!validateRequiredResourceFields(resource, values, form)) {
+      toast.error(`Complete the required fields: ${missingRequiredFieldLabels(resource, values).join(", ")}.`);
+      return;
+    }
     createMutation.mutate(values);
   }
+
+  const createValues = form.watch();
+  const createMissingFields = missingRequiredFieldLabels(resource, createValues);
+  const canCreate = createMissingFields.length === 0
+    && !(isZones && (!!form.formState.errors.code || !!form.formState.errors.name))
+    && !(isLocations && !!form.formState.errors.code);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -963,29 +978,33 @@ export function ResourceFormDialog({
           Add {resource.singular}
         </Button>}
       </DialogTrigger>
-      <DialogContent className="max-h-[90vh] overflow-hidden sm:max-w-2xl">
-        <DialogHeader>
+      <DialogContent className="flex max-h-[90vh] flex-col overflow-hidden p-0 sm:max-w-2xl">
+        <DialogHeader className="shrink-0 border-b px-6 py-4">
           <DialogTitle>Create {resource.singular}</DialogTitle>
           <DialogDescription>{resource.description}</DialogDescription>
         </DialogHeader>
-        <ScrollArea className="max-h-[72vh] pr-4">
-          <Form {...form}>
-            <form
-              className="flex flex-col gap-4"
-              onSubmit={form.handleSubmit(handleCreateSubmit)}
-            >
+        <Form {...form}>
+          <form className="flex min-h-0 flex-1 flex-col" onSubmit={form.handleSubmit(handleCreateSubmit)}>
+            <ScrollArea className="min-h-0 flex-1 px-6 py-4">
+              <div className="flex flex-col gap-4 pr-4">
               {resource.fields.map((field) => {
                 if (isLocations && builderControlledFields.has(field.name)) return null;
                 return renderField(field, form, getResourceFieldOptions(field, options));
               })}
               {isLocations && <RackLocationCodeBuilder form={form} options={options} />}
-              <Button type="submit" disabled={createMutation.isPending || (isZones && (!!form.formState.errors.code || !!form.formState.errors.name)) || (isLocations && !!form.formState.errors.code)}>
+              </div>
+            </ScrollArea>
+            <DialogFooter className="shrink-0 border-t bg-card px-6 py-3 sm:justify-between">
+              <p className="text-xs text-muted-foreground" aria-live="polite">
+                {createMissingFields.length > 0 ? `Required: ${createMissingFields.join(", ")}` : "All required fields are complete."}
+              </p>
+              <Button type="submit" disabled={createMutation.isPending || !canCreate}>
                 {createMutation.isPending ? <Loader2 className="animate-spin" /> : null}
                 Save {resource.singular}
               </Button>
-            </form>
-          </Form>
-        </ScrollArea>
+            </DialogFooter>
+          </form>
+        </Form>
       </DialogContent>
     </Dialog>
   );
@@ -1045,7 +1064,10 @@ export function ResourceEditDialog({
   });
 
   function handleSubmit(values: Record<string, unknown>) {
-    if (!validateRequiredResourceFields(resource, values, form)) return;
+    if (!validateRequiredResourceFields(resource, values, form)) {
+      toast.error(`Complete the required fields: ${missingRequiredFieldLabels(resource, values).join(", ")}.`);
+      return;
+    }
     // Locations: require a reason in Notes when disabling or marking maintenance
     if (isLocations && isBeingDisabled && !values.notes) {
       toast.error("Add a reason in the Notes field before marking this location unavailable.");
@@ -1054,22 +1076,23 @@ export function ResourceEditDialog({
     updateMutation.mutate(values);
   }
 
+  const editValues = form.watch();
+  const editMissingFields = missingRequiredFieldLabels(resource, editValues);
+
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent className="max-h-[90vh] overflow-hidden sm:max-w-2xl">
-        <DialogHeader>
+      <DialogContent className="flex max-h-[90vh] flex-col overflow-hidden p-0 sm:max-w-2xl">
+        <DialogHeader className="shrink-0 border-b px-6 py-4">
           <DialogTitle className="flex items-center gap-2">
             <Pencil className="h-4 w-4" />
             Edit {resource.singular}
           </DialogTitle>
           <DialogDescription>{resource.description}</DialogDescription>
         </DialogHeader>
-        <ScrollArea className="max-h-[72vh] pr-4">
-          <Form {...form}>
-            <form
-              className="flex flex-col gap-4"
-              onSubmit={form.handleSubmit(handleSubmit)}
-            >
+        <Form {...form}>
+          <form className="flex min-h-0 flex-1 flex-col" onSubmit={form.handleSubmit(handleSubmit)}>
+            <ScrollArea className="min-h-0 flex-1 px-6 py-4">
+              <div className="flex flex-col gap-4 pr-4">
               {resource.fields.map((field) => (
                 <div key={field.name}>
                   {renderField(field, form, getResourceFieldOptions(field, options))}
@@ -1086,13 +1109,19 @@ export function ResourceEditDialog({
                   )}
                 </div>
               ))}
-              <Button type="submit" disabled={updateMutation.isPending}>
+              </div>
+            </ScrollArea>
+            <DialogFooter className="shrink-0 border-t bg-card px-6 py-3 sm:justify-between">
+              <p className="text-xs text-muted-foreground" aria-live="polite">
+                {editMissingFields.length > 0 ? `Required: ${editMissingFields.join(", ")}` : "All required fields are complete."}
+              </p>
+              <Button type="submit" disabled={updateMutation.isPending || editMissingFields.length > 0}>
                 {updateMutation.isPending ? <Loader2 className="animate-spin" /> : null}
                 Save changes
               </Button>
-            </form>
-          </Form>
-        </ScrollArea>
+            </DialogFooter>
+          </form>
+        </Form>
       </DialogContent>
     </Dialog>
   );
@@ -3180,6 +3209,7 @@ export function defaultFieldValue(field: FieldDefinition) {
   if (field.name === "variance_value_floor") return 500;
   if (field.name === "supervisor_approval_cap") return 1000;
   if (field.name === "freeze_default_hours") return 4;
+  if (["minimum_stock_level", "maximum_stock_level", "pick_down_to_level", "supplier_lead_time_days"].includes(field.name)) return 0;
   if (field.type === "number") return "";
   if (field.name === "temperature_class" || field.name === "temperature_requirement") return "ambient";
   if (field.name === "rotation_method") return "fifo";

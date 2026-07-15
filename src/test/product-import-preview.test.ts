@@ -24,6 +24,12 @@ import { parseCsvForResource } from "@/features/reports/reports-core";
 import { RESOURCE_DEFINITIONS } from "@/features/shared/core-types";
 
 describe("product import preview", () => {
+  it("keeps client ownership optional for individual product setup", () => {
+    const clientOwner = RESOURCE_DEFINITIONS.products.fields.find((field) => field.name === "client_owner_id");
+
+    expect(clientOwner?.required).not.toBe(true);
+  });
+
   it("allows client owner to be confirmed after import", async () => {
     const csv = [
       "sku,barcode,name,description,client_owner_id",

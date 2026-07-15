@@ -258,6 +258,19 @@ export function ResourcePage({
   const hasTrailingLabelColumn = ["warehouses", "zones"].includes(resource.table);
   const extraColumnCount = (resource.supportsHide ? 1 : 0) + (hasTrailingLabelColumn ? 1 : 0) + 1 + (resource.table === "products" ? 1 : 0);
   const isProducts = resource.table === "products";
+  const { data: reorderAlerts = [] } = useQuery({
+    queryKey: ["reorder-alerts"],
+    enabled: isProducts,
+    queryFn: async () => {
+      const { data, error } = await (supabase.from as any)("reorder_alerts")
+        .select("id, available_quantity, reorder_point, recommended_quantity, created_at, products(sku, name), warehouses(code, name)")
+        .eq("status", "active")
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return data as Array<any>;
+    },
+    refetchInterval: 30_000,
+  });
   const { data: productQtyRows = [] } = useQuery({
     queryKey: ["product-qty-totals"],
     enabled: isProducts,
@@ -607,6 +620,23 @@ export function ResourcePage({
           )}
         </div>
       </div>
+
+      {isProducts && reorderAlerts.length > 0 ? (
+        <Card className="border-amber-500/50 bg-amber-50/50 dark:bg-amber-950/20">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-base"><AlertTriangle className="h-4 w-4 text-amber-600" />Reorder alerts ({reorderAlerts.length})</CardTitle>
+            <CardDescription>Each alert is sent once when a product enters the reorder state and resets after stock recovers.</CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-2">
+            {reorderAlerts.slice(0, 5).map((alert) => (
+              <div key={alert.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-500/30 bg-background/70 px-3 py-2 text-sm">
+                <span className="font-medium">{alert.products?.sku ?? "Product"} — {alert.products?.name ?? "Unknown product"}</span>
+                <span className="text-muted-foreground">{alert.warehouses?.code ?? alert.warehouses?.name ?? "Warehouse"} · {Number(alert.available_quantity ?? 0)} available · replenish {Number(alert.recommended_quantity ?? 0)}</span>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      ) : null}
 
       {/* Search bar — client-side filter across all text fields */}
       <div className="relative">

@@ -1472,21 +1472,20 @@ export function WarehouseStructureTab() {
     staleTime: 60_000,
   });
 
-  // Expand the header-selected active warehouse on first load (and keep localStorage state)
+  // Settings opens on Warehouse Structure, so expose the top-level layout
+  // immediately instead of making operators rediscover each warehouse.
   const hasAutoExpandedRef = useRef(false);
   useEffect(() => {
     if (hasAutoExpandedRef.current) return;
-    if (!activeWarehouseId || warehouses.length === 0) return;
-    const key = `w${activeWarehouseId}`;
+    if (warehouses.length === 0) return;
     setExpandedNodes((prev) => {
-      if (prev.has(key)) return prev;
       const next = new Set(prev);
-      next.add(key);
+      for (const warehouse of warehouses) next.add(`w${warehouse.id}`);
       try { localStorage.setItem(LS_KEY, JSON.stringify([...next])); } catch { /* ignore */ }
       return next;
     });
     hasAutoExpandedRef.current = true;
-  }, [activeWarehouseId, warehouses]);
+  }, [warehouses]);
 
   const isLoading = wLoading || zLoading || fillLoading;
 

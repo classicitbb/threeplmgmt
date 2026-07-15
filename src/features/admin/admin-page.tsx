@@ -55,6 +55,7 @@ import {
   adminDeleteUser,
   adminUpdateUserPin,
   adminUpdateUserPassword,
+  adminSignOutAllSessions,
   buildBayOccupancyGrid,
   updateOwnPassword,
   changePalletStatus,
@@ -428,6 +429,15 @@ function UsersRolesPageImpl() {
     onError: (error) => toast.error(error instanceof Error ? error.message : "Update failed"),
   });
 
+  const revokeSessionsMutation = useMutation({
+    mutationFn: adminSignOutAllSessions,
+    onSuccess: async () => {
+      toast.success("All active sessions were signed out.");
+      await invalidateOptions();
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Could not sign out sessions"),
+  });
+
   const profiles = (options?.profiles ?? []) as ProfileRow[];
 
   return (
@@ -504,6 +514,8 @@ function UsersRolesPageImpl() {
                         onToggleActive={() =>
                           profileMutation.mutate({ profileId: profile.id, active: !(profile.active ?? true) })
                         }
+                        onSignOutAllSessions={() => revokeSessionsMutation.mutate(profile.id)}
+                        revokingSessions={revokeSessionsMutation.isPending}
                       />
                     ))}
                     {profiles.length === 0 && (
@@ -812,6 +824,8 @@ function UserProfileRow({
   userRoles,
   onSave,
   onToggleActive,
+  onSignOutAllSessions,
+  revokingSessions,
 }: {
   profile: ProfileRow;
   warehouses: WarehouseOption[];
@@ -821,11 +835,14 @@ function UserProfileRow({
     credentials?: { newPassword?: string; badgePin?: string },
   ) => void;
   onToggleActive: () => void;
+  onSignOutAllSessions: () => void;
+  revokingSessions: boolean;
 }) {
   const { profile: viewerProfile, roles: viewerRoles } = useAuth();
   const targetIsDeveloper = userRoles.some((ur: any) => (ur.roles as { code?: string } | null)?.code === "developer");
   const canChangePassword = viewerRoles.includes("developer") || !targetIsDeveloper;
   const isSelf = viewerProfile?.id === profile.id;
+  const canRevokeSessions = viewerRoles.some((role) => ["developer", "admin"].includes(role));
 
   const [open, setOpen] = useState(false);
   const fallbackWarehouseId = !profile.default_warehouse_id && warehouses.length === 1 ? warehouses[0]?.id ?? "" : "";
@@ -1068,6 +1085,35 @@ function UserProfileRow({
                       Print badge
                     </Button>
                   </div>
+                  {canRevokeSessions && (
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button type="button" variant="outline" className="border-destructive/50 text-destructive hover:bg-destructive/10">
+                          <LogOut className="mr-2 h-4 w-4" />
+                          Sign out of all sessions
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Sign out {profile.full_name ?? profile.email ?? "this user"} everywhere?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            This removes every active refresh session for this account. Existing access tokens expire shortly and the user must sign in again.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction
+                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            disabled={revokingSessions}
+                            onClick={onSignOutAllSessions}
+                          >
+                            {revokingSessions ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                            Sign out all sessions
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  )}
                   <Button
                     className="w-full"
                     onClick={handleSave}
@@ -1098,6 +1144,103 @@ const MODULE_GROUPS: { label: string; keys: ModuleKey[] }[] = [
     keys: ["cycle-counts", "reports", "status", "system-log", "email-log"],
   },
 ];
+
+type ReorderForecastSettings = {
+  id: boolean;
+  lookback_days: number;
+  safety_lead_days: number;
+  alert_threshold_percent: number;
+  email_enabled: boolean;
+};
+
+const DEFAULT_REORDER_FORECAST_SETTINGS: ReorderForecastSettings = {
+  id: true,
+  lookback_days: 30,
+  safety_lead_days: 0,
+  alert_threshold_percent: 100,
+  email_enabled: true,
+};
+
+function ReorderForecastSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
+  const queryClient = useQueryClient();
+  const { data: savedSettings } = useQuery<ReorderForecastSettings>({
+    queryKey: ["reorder-forecast-settings"],
+    queryFn: async () => {
+      const { data, error } = await (supabase.from as any)("reorder_forecast_settings")
+        .select("id, lookback_days, safety_lead_days, alert_threshold_percent, email_enabled")
+        .eq("id", true)
+        .maybeSingle();
+      if (error) throw error;
+      return { ...DEFAULT_REORDER_FORECAST_SETTINGS, ...(data ?? {}) };
+    },
+  });
+  const [draft, setDraft] = useState<ReorderForecastSettings>(DEFAULT_REORDER_FORECAST_SETTINGS);
+
+  useEffect(() => {
+    if (savedSettings) setDraft(savedSettings);
+  }, [savedSettings]);
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      const { error } = await (supabase.from as any)("reorder_forecast_settings").upsert({
+        ...draft,
+        updated_at: new Date().toISOString(),
+      });
+      if (error) throw error;
+      const { error: refreshError } = await (supabase.rpc as any)("refresh_reorder_alerts");
+      if (refreshError) throw refreshError;
+    },
+    onSuccess: async () => {
+      toast.success("Reorder forecast rules saved");
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["reorder-forecast-settings"] }),
+        queryClient.invalidateQueries({ queryKey: ["reorder-alerts"] }),
+      ]);
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Could not save reorder forecast rules"),
+  });
+
+  const valuesValid = draft.lookback_days >= 7 && draft.lookback_days <= 365
+    && draft.safety_lead_days >= 0 && draft.safety_lead_days <= 90
+    && draft.alert_threshold_percent >= 25 && draft.alert_threshold_percent <= 200;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base"><AlertTriangle className="h-4 w-4" />Reorder forecasting</CardTitle>
+        <CardDescription>Demand is calculated from completed outbound picks. Product min/max, pick-down, and supplier lead-time values drive each alert.</CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-4">
+        <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid gap-1.5">
+            <label className="text-sm font-medium" htmlFor="reorder-lookback-days">Demand look-back days</label>
+            <Input id="reorder-lookback-days" type="number" min={7} max={365} value={draft.lookback_days} disabled={!isAdmin} onChange={(event) => setDraft((current) => ({ ...current, lookback_days: Number(event.target.value) }))} />
+          </div>
+          <div className="grid gap-1.5">
+            <label className="text-sm font-medium" htmlFor="reorder-safety-days">Safety lead days</label>
+            <Input id="reorder-safety-days" type="number" min={0} max={90} value={draft.safety_lead_days} disabled={!isAdmin} onChange={(event) => setDraft((current) => ({ ...current, safety_lead_days: Number(event.target.value) }))} />
+          </div>
+          <div className="grid gap-1.5">
+            <label className="text-sm font-medium" htmlFor="reorder-threshold">Alert threshold (%)</label>
+            <Input id="reorder-threshold" type="number" min={25} max={200} value={draft.alert_threshold_percent} disabled={!isAdmin} onChange={(event) => setDraft((current) => ({ ...current, alert_threshold_percent: Number(event.target.value) }))} />
+          </div>
+        </div>
+        <label className={cn("flex items-center gap-3 rounded-md border border-border px-3 py-2.5 text-sm", isAdmin ? "cursor-pointer" : "opacity-70")}>
+          <Switch checked={draft.email_enabled} disabled={!isAdmin} onCheckedChange={(checked) => setDraft((current) => ({ ...current, email_enabled: checked }))} />
+          <span><span className="font-medium">Email eligible recipients</span><span className="block text-xs text-muted-foreground">Send one email to active admins and warehouse managers when a product first enters a reorder state.</span></span>
+        </label>
+        {isAdmin ? (
+          <div className="flex justify-end">
+            <Button type="button" disabled={saveMutation.isPending || !valuesValid} onClick={() => saveMutation.mutate()}>
+              {saveMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Save forecast rules
+            </Button>
+          </div>
+        ) : <p className="text-xs text-muted-foreground">Administrator access is required to change forecasting rules.</p>}
+      </CardContent>
+    </Card>
+  );
+}
 
 function ModulesSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
   const { flags, toolbarModules, isToolbarModule, setModule, setToolbarModule, resetToStarter } = useFeatureFlags();
@@ -1186,7 +1329,7 @@ export function SettingsPage() {
   ];
   const defaultSettingsTab = requestedTab && availableSettingsTabs.includes(requestedTab)
     ? requestedTab
-    : canViewUsersRoles ? "users-roles" : "modules";
+    : "warehouse-structure";
 
   const resetMutation = useMutation({
     mutationFn: resetWmsData,
@@ -1369,7 +1512,10 @@ export function SettingsPage() {
         )}
 
         <TabsContent value="warehouse-structure" className="mt-4">
-          <WarehouseStructureTab />
+          <div className="grid gap-6">
+            <WarehouseStructureTab />
+            <ReorderForecastSettingsPanel isAdmin={isDeveloperOrAdmin} />
+          </div>
         </TabsContent>
 
         <TabsContent value="about" className="mt-4 grid gap-6 xl:grid-cols-2">

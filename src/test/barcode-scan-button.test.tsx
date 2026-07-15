@@ -70,7 +70,7 @@ describe("BarcodeScanButton", () => {
     fireEvent.click(screen.getByRole("button", { name: "Scan container number" }));
 
     expect(await screen.findByText("MSKU1234565")).toBeInTheDocument();
-    expect(screen.getByText("Valid text recognized")).toBeInTheDocument();
+    expect(screen.getByText("Text recognized")).toBeInTheDocument();
     expect(onScan).not.toHaveBeenCalled();
   });
 

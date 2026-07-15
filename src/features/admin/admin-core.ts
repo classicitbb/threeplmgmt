@@ -242,6 +242,16 @@ export async function adminUpdateUserPassword(profileId: string, password: strin
   });
 }
 
+export async function adminSignOutAllSessions(profileId: string) {
+  const { error } = await (supabase.rpc as any)("admin_sign_out_all_sessions", {
+    in_user_id: profileId,
+  });
+  if (error) throw new Error(formatSupabaseError(error, "Could not revoke the user's sessions"));
+  await logUserActivity("user_access_change", "profiles", profileId, {
+    fields: ["sessions_revoked"],
+  });
+}
+
 export async function adminDeleteUser(profileId: string) {
   const client = supabase as unknown as {
     rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: unknown }>;
