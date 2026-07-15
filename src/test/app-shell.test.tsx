@@ -88,6 +88,7 @@ vi.mock("@/hooks/use-feature-flags", () => ({
   },
   useFeatureFlags: () => ({
     isEnabled: () => true,
+    toolbarModules: ["receiving", "putaway", "inventory", "pick-lists", "location-moves", "products", "warehouses"],
   }),
 }));
 
@@ -169,6 +170,20 @@ describe("AppShell", () => {
 
     const inactiveIcons = Array.from(container.querySelectorAll('[data-active-icon="false"]'));
     expect(inactiveIcons.some((icon) => icon.getAttribute("class")?.includes("text-accent"))).toBe(false);
+  });
+
+  it("keeps Dashboard fixed and uses the first four personal favourites in the mobile shortcut bar", () => {
+    renderShell();
+
+    const mobileBar = screen.getByRole("navigation", { name: "Primary mobile navigation" });
+    expect(mobileBar).toHaveTextContent("Dashboard");
+    expect(mobileBar).toHaveTextContent("Receiving");
+    expect(mobileBar).toHaveTextContent("Put-Away");
+    expect(mobileBar).toHaveTextContent("Inventory");
+    expect(mobileBar).toHaveTextContent("Pick Lists");
+    expect(mobileBar).not.toHaveTextContent("Location Moves");
+    expect(mobileBar).not.toHaveTextContent("Products");
+    expect(mobileBar).not.toHaveTextContent("Warehouses");
   });
 
   it("persists an RF disconnect locally and delivers its supervisor alert after reconnect", async () => {

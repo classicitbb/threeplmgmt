@@ -28,7 +28,7 @@ import { toast } from "sonner";
 import { z } from "zod";
 
 import { useAuth } from "@/hooks/use-auth";
-import { useFeatureFlags, MODULE_LABELS, STARTER_MODULES, type ModuleKey } from "@/hooks/use-feature-flags";
+import { MAX_TOOLBAR_MODULES, useFeatureFlags, MODULE_LABELS, STARTER_MODULES, type ModuleKey } from "@/hooks/use-feature-flags";
 import { assertOnline, useNetworkStatus } from "@/hooks/use-network-status";
 import {
   enqueueOfflineWork,
@@ -1141,8 +1141,8 @@ function ModulesSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
           <div>
             <CardTitle>Module Visibility</CardTitle>
             <CardDescription>
-              Hide modules that aren't needed for your operation. Hidden modules remain fully functional — they just won't appear in the navigation.
-              {!isAdmin && " Admin access required to change module settings."}
+              Hide modules that aren't needed for your operation. Star up to {MAX_TOOLBAR_MODULES} modules for personal shortcuts; smaller screens keep Dashboard fixed and show four favourites. Hidden modules remain fully functional — they just won't appear in the navigation.
+              {!isAdmin && " Only administrators can change module visibility; your shortcut stars are personal."}
             </CardDescription>
           </div>
           {isAdmin && (
@@ -1160,7 +1160,7 @@ function ModulesSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
                   const meta = MODULE_LABELS[key];
                   const enabled = flags[key] ?? STARTER_MODULES[key];
                   const pinned = isToolbarModule(key);
-                  const toolbarDisabled = !isAdmin || (!pinned && (!enabled || toolbarModules.length >= 4));
+                  const toolbarDisabled = !pinned && (!enabled || toolbarModules.length >= MAX_TOOLBAR_MODULES);
                   return (
                     <div key={key} className="flex items-center justify-between gap-4 rounded-lg border border-border px-4 py-3">
                       <div className="min-w-0">

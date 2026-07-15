@@ -2231,8 +2231,8 @@ function RuntimeModeBadge() {
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
-      <FeatureFlagProvider>
-        <AuthProvider>
+      <AuthProvider>
+        <FeatureFlagProvider>
           <Toaster />
           <Sonner />
           <BrowserRouter>
@@ -2244,8 +2244,8 @@ const App = () => (
           </BrowserRouter>
           <RuntimeModeBadge />
           <Analytics />
-        </AuthProvider>
-      </FeatureFlagProvider>
+        </FeatureFlagProvider>
+      </AuthProvider>
     </TooltipProvider>
   </QueryClientProvider>
 );

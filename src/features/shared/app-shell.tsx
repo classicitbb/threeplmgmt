@@ -936,8 +936,17 @@ function MobileActionBar({
   routeBadgeCounts: Partial<Record<AppRoute, number>>;
   getNavBadgeLabel: (route: AppRoute, count: number) => string;
 }) {
-  // Show up to 5 primary nav items (skip Help — it lives in the header).
-  const barItems = items.filter((item) => item.to !== "/help").slice(0, 5);
+  const { toolbarModules } = useFeatureFlags();
+  const favoriteItems = toolbarModules.flatMap((moduleKey) => {
+    const item = items.find((candidate) => candidate.moduleKey === moduleKey && candidate.to !== "/help");
+    return item ? [item] : [];
+  });
+  const dashboardItem = items.find((item) => item.to === "/dashboard");
+  const shortcutItems = favoriteItems.length > 0
+    ? favoriteItems
+    : items.filter((item) => item.to !== "/help" && item.to !== "/dashboard");
+  // Dashboard stays fixed as the first shortcut. Compact screens have room for it plus four personal favourites.
+  const barItems = dashboardItem ? [dashboardItem, ...shortcutItems].slice(0, 5) : shortcutItems.slice(0, 5);
   if (barItems.length === 0) return null;
   const getNavBadgeCount = (route: AppRoute) => routeBadgeCounts[route] ?? 0;
   const hostname = typeof window === "undefined" ? "" : window.location.hostname.toLowerCase();
