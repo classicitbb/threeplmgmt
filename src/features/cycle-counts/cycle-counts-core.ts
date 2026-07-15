@@ -119,12 +119,70 @@ async function holdLocationStock(locationId: string) {
   }
 }
 
+function isMissingColumn(error: any, column: string) {
+  return error?.code === "42703" && String(error?.message ?? "").includes(column);
+}
+
+const COUNTING_ROLE_CODES = new Set(["developer", "admin", "warehouse_manager", "warehouse_supervisor", "inventory_clerk", "warehouse_operator"]);
+
+export async function listCycleCountProductIds(input: { warehouseId: string; zoneIds?: string[]; locationIds?: string[] }) {
+  let query = db("inventory_balances")
+    .select("product_id")
+    .eq("warehouse_id", input.warehouseId)
+    .eq("status", "available")
+    .gt("available_quantity", 0)
+    .not("location_id", "is", null);
+  if (input.locationIds?.length) query = query.in("location_id", input.locationIds);
+  else if (input.zoneIds?.length) query = query.in("zone_id", input.zoneIds);
+  const { data, error } = await query;
+  if (error) throw new Error(formatSupabaseError(error, "Could not load countable products."));
+  return Array.from(new Set((data ?? []).map((row: any) => row.product_id).filter(Boolean)));
+}
+
+export async function listCycleCountAssignees(warehouseId: string) {
+  const { data: roleRows, error: roleError } = await db("user_roles")
+    .select("user_id, roles(code)")
+    .eq("warehouse_id", warehouseId)
+    .eq("is_hidden", false);
+  if (roleError) throw new Error(formatSupabaseError(roleError, "Could not load warehouse count permissions."));
+
+  const eligibleUserIds = Array.from(new Set((roleRows ?? [])
+    .filter((row: any) => {
+      const roles = Array.isArray(row.roles) ? row.roles : [row.roles];
+      return roles.some((role: any) => COUNTING_ROLE_CODES.has(role?.code));
+    })
+    .map((row: any) => row.user_id)
+    .filter(Boolean)));
+  if (eligibleUserIds.length === 0) return [];
+
+  const { data: profiles, error: profileError } = await db("profiles")
+    .select("id, full_name")
+    .in("id", eligibleUserIds)
+    .eq("approved", true)
+    .eq("active", true)
+    .order("full_name", { ascending: true });
+  if (profileError) throw new Error(formatSupabaseError(profileError, "Could not load approved counters."));
+  return profiles ?? [];
+}
+
 export async function createCycleCountFlow(input: z.infer<typeof cycleCountSchema>) {
   const payload = cycleCountSchema.parse(input);
   const userId = await currentUserId();
   const selectedZoneIds = Array.from(new Set([
     ...payload.zone_ids,
     ...(payload.zone_id ? [payload.zone_id] : []),
+  ]));
+  const selectedLocationIds = Array.from(new Set([
+    ...payload.location_ids,
+    ...(payload.location_id ? [payload.location_id] : []),
+  ]));
+  const selectedProductIds = Array.from(new Set([
+    ...payload.product_ids,
+    ...(payload.product_id ? [payload.product_id] : []),
+  ]));
+  const selectedAssigneeIds = Array.from(new Set([
+    ...payload.assigned_user_ids,
+    ...(payload.assigned_user_id ? [payload.assigned_user_id] : []),
   ]));
 
   const { data: warehouse, error: warehouseError } = await db("warehouses")
@@ -144,6 +202,35 @@ export async function createCycleCountFlow(input: z.infer<typeof cycleCountSchem
     }
   }
 
+  if (selectedLocationIds.length > 0) {
+    const { data: selectedLocations, error: locationError } = await db("locations")
+      .select("id, zone_id")
+      .eq("warehouse_id", payload.warehouse_id)
+      .in("id", selectedLocationIds);
+    if (locationError) throw new Error(formatSupabaseError(locationError, "Could not validate the selected locations."));
+    if ((selectedLocations ?? []).length !== selectedLocationIds.length || (selectedZoneIds.length > 0 && (selectedLocations ?? []).some((location: any) => !selectedZoneIds.includes(location.zone_id)))) {
+      throw new Error("Every selected location must belong to the active warehouse and selected zones.");
+    }
+  }
+
+  if (selectedProductIds.length > 0) {
+    const countableProductIds = await listCycleCountProductIds({
+      warehouseId: payload.warehouse_id,
+      zoneIds: selectedZoneIds,
+      locationIds: selectedLocationIds,
+    });
+    if (selectedProductIds.some((productId) => !countableProductIds.includes(productId))) {
+      throw new Error("Every selected product must have available stock in the current warehouse scope.");
+    }
+  }
+
+  if (selectedAssigneeIds.length > 0) {
+    const eligibleAssigneeIds = new Set((await listCycleCountAssignees(payload.warehouse_id)).map((profile: any) => profile.id));
+    if (selectedAssigneeIds.some((userId) => !eligibleAssigneeIds.has(userId))) {
+      throw new Error("Every assigned counter must be approved, authorized, and assigned to the active warehouse.");
+    }
+  }
+
   const now = new Date();
   const freezeHours = Number(payload.freeze_hours ?? warehouse?.freeze_default_hours ?? 4);
   const freezeExpiresAt = addHours(now, Number.isFinite(freezeHours) && freezeHours > 0 ? freezeHours : 4).toISOString();
@@ -153,7 +240,9 @@ export async function createCycleCountFlow(input: z.infer<typeof cycleCountSchem
     warehouse_id: payload.warehouse_id,
     zone_id: selectedZoneIds.length === 1 ? selectedZoneIds[0] : null,
     zone_ids: selectedZoneIds.length > 0 ? selectedZoneIds : null,
-    location_id: payload.location_id || null,
+    location_id: selectedLocationIds.length === 1 ? selectedLocationIds[0] : null,
+    location_ids: selectedLocationIds.length > 0 ? selectedLocationIds : null,
+    product_ids: selectedProductIds.length > 0 ? selectedProductIds : null,
     scope: payload.scope,
     status: "frozen",
     variance_threshold_percent: payload.variance_threshold_percent,
@@ -162,6 +251,15 @@ export async function createCycleCountFlow(input: z.infer<typeof cycleCountSchem
     initiated_by: userId,
   });
 
+  if (selectedAssigneeIds.length > 0) {
+    const teamInsert = await db("cycle_count_assignees").insert(selectedAssigneeIds.map((assignedUserId) => ({
+      cycle_count_id: count.id,
+      user_id: assignedUserId,
+      assigned_by: userId,
+    })) as any);
+    throwIfSupabaseError(teamInsert, "Could not assign the cycle-count team.");
+  }
+
   let balanceQuery = db("inventory_balances")
     .select("*, products(unit_cost, velocity_class)")
     .eq("warehouse_id", payload.warehouse_id)
@@ -169,9 +267,9 @@ export async function createCycleCountFlow(input: z.infer<typeof cycleCountSchem
     .gt("available_quantity", 0)
     .not("location_id", "is", null);
 
-  if (payload.location_id) balanceQuery = balanceQuery.eq("location_id", payload.location_id);
+  if (selectedLocationIds.length > 0) balanceQuery = balanceQuery.in("location_id", selectedLocationIds);
   if (selectedZoneIds.length > 0) balanceQuery = balanceQuery.in("zone_id", selectedZoneIds);
-  if (payload.product_id) balanceQuery = balanceQuery.eq("product_id", payload.product_id);
+  if (selectedProductIds.length > 0) balanceQuery = balanceQuery.in("product_id", selectedProductIds);
 
   const { data: balances, error } = await balanceQuery;
   if (error) throw new Error(formatSupabaseError(error, "Could not snapshot count balances."));
@@ -180,7 +278,9 @@ export async function createCycleCountFlow(input: z.infer<typeof cycleCountSchem
     ? (balances ?? []).filter((balance: any) => ["A", "B", "C"].includes(balance.products?.velocity_class ?? "C"))
     : (balances ?? []);
 
-  const locationIds = Array.from(new Set(filteredBalances.map((balance: any) => balance.location_id).filter(Boolean))) as string[];
+  const locationIds = selectedLocationIds.length > 0
+    ? selectedLocationIds
+    : Array.from(new Set(filteredBalances.map((balance: any) => balance.location_id).filter(Boolean))) as string[];
   const claimedLocationIds = new Set<string>();
   const skippedLocations: string[] = [];
 
@@ -211,7 +311,7 @@ export async function createCycleCountFlow(input: z.infer<typeof cycleCountSchem
       location_id: balance.location_id,
       product_id: balance.product_id,
       pallet_id: balance.pallet_id,
-      assigned_user_id: payload.assigned_user_id || null,
+      assigned_user_id: selectedAssigneeIds.length === 1 ? selectedAssigneeIds[0] : null,
       expected_quantity: balance.quantity,
       variance_quantity: 0,
       variance_percent: 0,
@@ -219,6 +319,25 @@ export async function createCycleCountFlow(input: z.infer<typeof cycleCountSchem
       status: "queued",
     });
     lineCount += 1;
+  }
+
+  if (selectedLocationIds.length > 0 && selectedProductIds.length === 0) {
+    const locationsWithStock = new Set(filteredBalances.map((balance: any) => balance.location_id).filter(Boolean));
+    for (const locationId of selectedLocationIds) {
+      if (locationsWithStock.has(locationId) || !claimedLocationIds.has(locationId)) continue;
+      await upsertRecord("cycle_count_lines", {
+        cycle_count_id: count.id,
+        location_id: locationId,
+        assigned_user_id: selectedAssigneeIds.length === 1 ? selectedAssigneeIds[0] : null,
+        expected_quantity: 0,
+        variance_quantity: 0,
+        variance_percent: 0,
+        line_status: "queued",
+        status: "queued",
+        notes: "Confirm empty location.",
+      });
+      lineCount += 1;
+    }
   }
 
   if (lineCount === 0) {
@@ -282,14 +401,31 @@ export async function listCycleCounts() {
 }
 
 export async function listMyCycleCountLines() {
-  const userId = await currentUserId();
+  const claimedLineColumns = "id, cycle_count_id, location_id, product_id, pallet_id, assigned_user_id, claimed_by_user_id, claim_expires_at, line_status, first_count_qty, first_counted_at, recount_qty, recounted_at, variance_quantity, variance_percent, exception_reason, notes, cycle_counts(count_number, scope, status), products(sku, name), locations(code, aisle, bay, level, position)";
   const { data, error } = await db("cycle_count_lines")
-    .select("id, cycle_count_id, location_id, product_id, pallet_id, assigned_user_id, line_status, first_count_qty, first_counted_at, recount_qty, recounted_at, variance_quantity, variance_percent, exception_reason, cycle_counts(count_number, scope, status), products(sku, name), locations(code, aisle, bay, level, position)")
-    .or(`assigned_user_id.eq.${userId},assigned_user_id.is.null`)
+    .select(claimedLineColumns)
     .in("line_status", ["queued", "recount"])
     .order("created_at", { ascending: true });
+  if (error && isMissingColumn(error, "claimed_by_user_id")) {
+    const { data: legacyData, error: legacyError } = await db("cycle_count_lines")
+      .select(claimedLineColumns.replace("claimed_by_user_id, claim_expires_at, ", ""))
+      .in("line_status", ["queued", "recount"])
+      .order("created_at", { ascending: true });
+    if (legacyError) throw new Error(formatSupabaseError(legacyError, "Failed to load assigned count lines."));
+    return (legacyData ?? []).map((line: any) => ({ ...line, claim_support_unavailable: true }));
+  }
   if (error) throw new Error(formatSupabaseError(error, "Failed to load assigned count lines."));
   return data ?? [];
+}
+
+export async function claimCycleCountLine(lineId: string) {
+  const { error } = await supabase.rpc("claim_cycle_count_line", { p_line_id: lineId });
+  if (error) throw new Error(formatSupabaseError(error, "Could not claim this count line."));
+}
+
+export async function releaseCycleCountLineClaim(lineId: string) {
+  const { error } = await supabase.rpc("release_cycle_count_line_claim", { p_line_id: lineId });
+  if (error) throw new Error(formatSupabaseError(error, "Could not release this count-line claim."));
 }
 
 export async function submitCycleCountLine(lineId: string, countedQuantity: number) {
@@ -306,6 +442,9 @@ export async function submitCycleCountLine(lineId: string, countedQuantity: numb
 
   if (line.assigned_user_id && line.assigned_user_id !== userId) {
     throw new Error("This count line is assigned to another user.");
+  }
+  if ("claimed_by_user_id" in line && (line.claimed_by_user_id !== userId || !line.claim_expires_at || new Date(line.claim_expires_at).getTime() <= Date.now())) {
+    throw new Error("Claim this count line before entering a quantity. Expired claims return to the team.");
   }
   if (!["queued", "recount"].includes(line.line_status ?? line.status)) {
     throw new Error("This count line is no longer open for entry. Refresh the count.");
@@ -361,6 +500,7 @@ export async function submitCycleCountLine(lineId: string, countedQuantity: numb
         variance_percent: percent,
         line_status: nextStatus,
         status: nextStatus === "reconciled" ? "completed" : "assigned",
+        ...(nextStatus === "recount" ? { claimed_by_user_id: null, claimed_at: null, claim_expires_at: null } : {}),
       } as any)
       .eq("id", lineId)
       .eq("line_status", "queued");

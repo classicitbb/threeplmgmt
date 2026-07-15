@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Archive, CheckCircle2, ChevronDown, ClipboardCheck, Eye, Plus, RefreshCw, ShieldCheck, Trash2, UserCog, XCircle } from "lucide-react";
+import { AlertTriangle, Archive, CheckCircle2, ChevronDown, ClipboardCheck, Eye, Plus, RefreshCw, Search, ShieldCheck, Trash2, UserCog, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { z } from "zod";
 
@@ -12,6 +12,7 @@ import { isLikelyNetworkError } from "@/lib/offline-queue";
 import {
   acceptCycleCountExceptionLine,
   archiveCancelledCycleCount,
+  claimCycleCountLine,
   approveCycleCountLine,
   closeCycleCount,
   createCycleCountFlow,
@@ -22,7 +23,10 @@ import {
   formatDate,
   formatNumber,
   listCycleCounts,
+  listCycleCountAssignees,
+  listCycleCountProductIds,
   listMyCycleCountLines,
+  releaseCycleCountLineClaim,
   rejectCycleCountLine,
   returnCycleCountExceptionLine,
   submitCycleCountLine,
@@ -106,16 +110,20 @@ export function CycleCountsPage() {
   const { data: assignedLines = [] } = useQuery({
     queryKey: ["cycle-count-lines", "assigned"],
     queryFn: listMyCycleCountLines,
+    refetchInterval: 30_000,
   });
 
   const form = useForm<z.infer<typeof cycleCountSchema>>({
     resolver: zodResolver(cycleCountSchema),
     defaultValues: {
       scope: "spot",
+      location_ids: [],
       zone_ids: [],
+      product_ids: [],
       variance_threshold_percent: 5,
       freeze_hours: 4,
       assigned_user_id: "",
+      assigned_user_ids: [],
     },
   });
 
@@ -129,6 +137,23 @@ export function CycleCountsPage() {
   const activeWarehouse = (options?.warehouses ?? []).find((warehouse: any) => warehouse.id === activeWarehouseId);
   const availableZones = (options?.zones ?? []).filter((zone: any) => zone.warehouse_id === activeWarehouseId);
   const selectedZoneIds = form.watch("zone_ids") ?? [];
+  const selectedLocationIds = form.watch("location_ids") ?? [];
+  const selectedProductIds = form.watch("product_ids") ?? [];
+  const selectedAssigneeIds = form.watch("assigned_user_ids") ?? [];
+  const availableLocations = (options?.locations ?? []).filter((location: any) =>
+    location.warehouse_id === activeWarehouseId && (selectedZoneIds.length === 0 || selectedZoneIds.includes(location.zone_id)),
+  );
+  const { data: countableProductIds = [] } = useQuery({
+    queryKey: ["cycle-count-product-ids", activeWarehouseId, selectedZoneIds, selectedLocationIds],
+    queryFn: () => listCycleCountProductIds({ warehouseId: activeWarehouseId, zoneIds: selectedZoneIds, locationIds: selectedLocationIds }),
+    enabled: Boolean(activeWarehouseId),
+  });
+  const availableProducts = (options?.products ?? []).filter((product: any) => countableProductIds.includes(product.id));
+  const { data: availableAssignees = [] } = useQuery({
+    queryKey: ["cycle-count-assignees", activeWarehouseId],
+    queryFn: () => listCycleCountAssignees(activeWarehouseId),
+    enabled: Boolean(activeWarehouseId),
+  });
   const zoneSelectionLabel = selectedZoneIds.length === 0
     ? "Any zone"
     : selectedZoneIds.length === availableZones.length
@@ -140,7 +165,21 @@ export function CycleCountsPage() {
     form.setValue("warehouse_id", activeWarehouseId, { shouldValidate: true });
     form.setValue("zone_ids", []);
     form.setValue("zone_id", "");
+    form.setValue("location_ids", []);
+    form.setValue("location_id", "");
+    form.setValue("product_ids", []);
+    form.setValue("product_id", "");
   }, [activeWarehouseId, form]);
+
+  useEffect(() => {
+    const availableProductIdSet = new Set(countableProductIds);
+    const retainedProductIds = selectedProductIds.filter((productId) => availableProductIdSet.has(productId));
+    if (retainedProductIds.length !== selectedProductIds.length) {
+      form.setValue("product_ids", retainedProductIds, { shouldValidate: true });
+      form.setValue("product_id", retainedProductIds.length === 1 ? retainedProductIds[0] : "");
+      toast.message("Products outside the current location scope were cleared.");
+    }
+  }, [countableProductIds, form, selectedProductIds]);
 
   useEffect(() => {
     if (resumeHydratedRef.current) return;
@@ -203,7 +242,7 @@ export function CycleCountsPage() {
     mutationFn: (values: z.infer<typeof cycleCountSchema>) => runOnlineCycleCountCommit(() => createCycleCountFlow(values)),
     onSuccess: async (result: any) => {
       toast.success(`Count created with ${result.claimed_line_count ?? 0} line(s)`);
-      form.reset({ warehouse_id: activeWarehouseId, scope: "spot", zone_id: "", zone_ids: [], variance_threshold_percent: 5, freeze_hours: 4, assigned_user_id: "" });
+      form.reset({ warehouse_id: activeWarehouseId, scope: "spot", zone_id: "", zone_ids: [], location_id: "", location_ids: [], product_id: "", product_ids: [], variance_threshold_percent: 5, freeze_hours: 4, assigned_user_id: "", assigned_user_ids: [] });
       setCreateOpen(false);
       await queryClient.invalidateQueries({ queryKey: ["cycle-counts"] });
       await queryClient.invalidateQueries({ queryKey: ["cycle-count-lines", "assigned"] });
@@ -220,6 +259,22 @@ export function CycleCountsPage() {
       await queryClient.invalidateQueries({ queryKey: ["cycle-count-lines", "assigned"] });
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Submit failed"),
+  });
+
+  const claimMutation = useMutation({
+    mutationFn: (lineId: string) => runOnlineCycleCountCommit(() => claimCycleCountLine(lineId)),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["cycle-count-lines", "assigned"] });
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Could not claim this count line"),
+  });
+
+  const releaseClaimMutation = useMutation({
+    mutationFn: (lineId: string) => runOnlineCycleCountCommit(() => releaseCycleCountLineClaim(lineId)),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["cycle-count-lines", "assigned"] });
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Could not release this count-line claim"),
   });
 
   const exceptionMutation = useMutation({
@@ -325,6 +380,15 @@ export function CycleCountsPage() {
     const uniqueZoneIds = Array.from(new Set(zoneIds));
     form.setValue("zone_ids", uniqueZoneIds, { shouldValidate: true });
     form.setValue("zone_id", uniqueZoneIds.length === 1 ? uniqueZoneIds[0] : "");
+    const validLocationIds = new Set((options?.locations ?? [])
+      .filter((location: any) => location.warehouse_id === activeWarehouseId && (uniqueZoneIds.length === 0 || uniqueZoneIds.includes(location.zone_id)))
+      .map((location: any) => location.id));
+    const retainedLocations = form.getValues("location_ids").filter((locationId) => validLocationIds.has(locationId));
+    if (retainedLocations.length !== form.getValues("location_ids").length) {
+      form.setValue("location_ids", retainedLocations, { shouldValidate: true });
+      form.setValue("location_id", retainedLocations.length === 1 ? retainedLocations[0] : "");
+      toast.message("Locations outside the selected zones were cleared.");
+    }
   }
 
   function openCreateDialog() {
@@ -333,9 +397,14 @@ export function CycleCountsPage() {
       scope: "spot",
       zone_id: "",
       zone_ids: [],
+      location_id: "",
+      location_ids: [],
+      product_id: "",
+      product_ids: [],
       variance_threshold_percent: 5,
       freeze_hours: 4,
       assigned_user_id: "",
+      assigned_user_ids: [],
     });
     setCreateOpen(true);
   }
@@ -476,51 +545,69 @@ export function CycleCountsPage() {
             const status = lineStatus(line);
             const qtyValue = entryQty[line.id] ?? "";
             const reason = exceptionReason[line.id] ?? "";
+            const claimSupportAvailable = !line.claim_support_unavailable;
+            const claimIsActive = Boolean(line.claimed_by_user_id && line.claim_expires_at && new Date(line.claim_expires_at).getTime() > Date.now());
+            const claimedByMe = !claimSupportAvailable || (claimIsActive && line.claimed_by_user_id === resumeUserId);
+            const claimedByAnotherCounter = claimSupportAvailable && claimIsActive && !claimedByMe;
             return (
               <Card key={line.id}>
                 <CardHeader className="pb-3">
                   <CardTitle className="flex flex-wrap items-center justify-between gap-2 text-base">
-                    <span>{line.cycle_counts?.count_number ?? line.cycle_count_id} · {line.products?.sku ?? "Product"} · {locationLabel(line.locations)}</span>
+                    <span>{line.cycle_counts?.count_number ?? line.cycle_count_id} · {line.products?.sku ?? "Confirm empty location"} · {locationLabel(line.locations)}</span>
                     <Badge variant={countStatusVariant(status) as any}>{status}</Badge>
                   </CardTitle>
-                  <CardDescription>{line.products?.name ?? "Blind count"} · {line.cycle_counts?.scope ?? "cycle"} count · assigned cycle-count line</CardDescription>
+                  <CardDescription>{line.products?.name ?? line.notes ?? "Blind count"} · {line.cycle_counts?.scope ?? "cycle"} count · shared team line</CardDescription>
                 </CardHeader>
-                <CardContent className="grid gap-3 sm:grid-cols-[minmax(160px,260px)_1fr]">
-                  <div className="grid gap-2">
-                    <Label htmlFor={`qty-${line.id}`}>{status === "recount" ? "Recount quantity" : "Count quantity"}</Label>
-                    <Input
-                      id={`qty-${line.id}`}
-                      inputMode="decimal"
-                      type="number"
-                      min="0"
-                      value={qtyValue}
-                      onChange={(event) => setEntryQty((current) => ({ ...current, [line.id]: event.target.value }))}
-                    />
-                    <Button
-                      disabled={!online || submitMutation.isPending || qtyValue.trim() === ""}
-                      onClick={() => submitMutation.mutate({ lineId: line.id, quantity: Number(qtyValue) })}
-                    >
-                      Submit blind count
+                {claimedByMe ? (
+                  <CardContent className="grid gap-3 sm:grid-cols-[minmax(160px,260px)_1fr]">
+                    <div className="grid gap-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <Label htmlFor={`qty-${line.id}`}>{status === "recount" ? "Recount quantity" : "Count quantity"}</Label>
+                        {claimSupportAvailable && <Button variant="ghost" size="sm" disabled={!online || releaseClaimMutation.isPending} onClick={() => releaseClaimMutation.mutate(line.id)}>Release my claim</Button>}
+                      </div>
+                      <Input
+                        id={`qty-${line.id}`}
+                        inputMode="decimal"
+                        type="number"
+                        min="0"
+                        value={qtyValue}
+                        onChange={(event) => setEntryQty((current) => ({ ...current, [line.id]: event.target.value }))}
+                      />
+                      <Button
+                        disabled={!online || submitMutation.isPending || qtyValue.trim() === ""}
+                        onClick={() => submitMutation.mutate({ lineId: line.id, quantity: Number(qtyValue) })}
+                      >
+                        Submit blind count
+                      </Button>
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor={`exception-${line.id}`}>Cannot count reason</Label>
+                      <Textarea
+                        id={`exception-${line.id}`}
+                        value={reason}
+                        onChange={(event) => setExceptionReason((current) => ({ ...current, [line.id]: event.target.value }))}
+                        placeholder="Blocked location, damaged pallet, unsafe access..."
+                      />
+                      <Button
+                        variant="outline"
+                        disabled={!online || exceptionMutation.isPending || reason.trim().length < 3}
+                        onClick={() => exceptionMutation.mutate({ lineId: line.id, reason })}
+                      >
+                        <AlertTriangle className="mr-2 h-4 w-4" />
+                        Flag exception
+                      </Button>
+                    </div>
+                  </CardContent>
+                ) : (
+                  <CardContent className="flex flex-wrap items-center justify-between gap-3">
+                    <p className="text-sm text-muted-foreground">
+                      {claimedByAnotherCounter ? "Another counter is entering this line. It returns to the team when released or after 15 minutes of inactivity." : "Claim this line to enter a blind count."}
+                    </p>
+                    <Button disabled={!online || claimedByAnotherCounter || claimMutation.isPending} onClick={() => claimMutation.mutate(line.id)}>
+                      Claim count line
                     </Button>
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor={`exception-${line.id}`}>Cannot count reason</Label>
-                    <Textarea
-                      id={`exception-${line.id}`}
-                      value={reason}
-                      onChange={(event) => setExceptionReason((current) => ({ ...current, [line.id]: event.target.value }))}
-                      placeholder="Blocked location, damaged pallet, unsafe access..."
-                    />
-                    <Button
-                      variant="outline"
-                      disabled={!online || exceptionMutation.isPending || reason.trim().length < 3}
-                      onClick={() => exceptionMutation.mutate({ lineId: line.id, reason })}
-                    >
-                      <AlertTriangle className="mr-2 h-4 w-4" />
-                      Flag exception
-                    </Button>
-                  </div>
-                </CardContent>
+                  </CardContent>
+                )}
               </Card>
             );
           })}
@@ -644,29 +731,48 @@ export function CycleCountsPage() {
                 </div>
               </PopoverContent>
             </Popover>
-            <Select value={form.watch("location_id") || "none"} onValueChange={(value) => form.setValue("location_id", value === "none" ? "" : value)}>
-              <SelectTrigger><SelectValue placeholder="Location" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">Any location</SelectItem>
-                {(options?.locations ?? []).map((location: any) => <SelectItem key={location.id} value={location.id}>{location.code}</SelectItem>)}
-              </SelectContent>
-            </Select>
-            <Select value={form.watch("product_id") || "none"} onValueChange={(value) => form.setValue("product_id", value === "none" ? "" : value)}>
-              <SelectTrigger><SelectValue placeholder="Product" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">Any product</SelectItem>
-                {(options?.products ?? []).map((product: any) => <SelectItem key={product.id} value={product.id}>{product.sku}</SelectItem>)}
-              </SelectContent>
-            </Select>
-            <Select value={form.watch("assigned_user_id") || "none"} onValueChange={(value) => form.setValue("assigned_user_id", value === "none" ? "" : value)}>
-              <SelectTrigger><SelectValue placeholder="Assign counter" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">Unassigned queue</SelectItem>
-                {(options?.profiles ?? []).map((profile: any) => (
-                  <SelectItem key={profile.id} value={profile.id}>{profile.full_name ?? profile.email ?? profile.id}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <SearchableChecklist
+              label="Locations"
+              anyLabel="Any location"
+              items={availableLocations}
+              selectedIds={selectedLocationIds}
+              onChange={(locationIds) => {
+                form.setValue("location_ids", locationIds, { shouldValidate: true });
+                form.setValue("location_id", locationIds.length === 1 ? locationIds[0] : "");
+              }}
+              getLabel={(location: any) => location.code ?? "Unnamed location"}
+              getSearchText={(location: any) => [location.code, location.bay, location.aisle, location.level, location.position].filter(Boolean).join(" ")}
+              searchPlaceholder="Search bay or location code"
+              emptyMessage="No locations match the selected zones."
+            />
+            <SearchableChecklist
+              label="Products"
+              anyLabel="Any product"
+              items={availableProducts}
+              selectedIds={selectedProductIds}
+              onChange={(productIds) => {
+                form.setValue("product_ids", productIds, { shouldValidate: true });
+                form.setValue("product_id", productIds.length === 1 ? productIds[0] : "");
+              }}
+              getLabel={(product: any) => `${product.sku} · ${product.name}`}
+              getSearchText={(product: any) => [product.name, product.description, product.sku, product.barcode].filter(Boolean).join(" ")}
+              searchPlaceholder="Search name, description, SKU, or barcode"
+              emptyMessage="No countable products match the current scope."
+            />
+            <SearchableChecklist
+              label="Count team"
+              anyLabel="Unassigned queue"
+              items={availableAssignees}
+              selectedIds={selectedAssigneeIds}
+              onChange={(assigneeIds) => {
+                form.setValue("assigned_user_ids", assigneeIds, { shouldValidate: true });
+                form.setValue("assigned_user_id", assigneeIds.length === 1 ? assigneeIds[0] : "");
+              }}
+              getLabel={(profile: any) => profile.full_name ?? "Unnamed user"}
+              getSearchText={(profile: any) => profile.full_name ?? ""}
+              searchPlaceholder="Search counter name"
+              emptyMessage="No approved, authorized counters are assigned to this warehouse."
+            />
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="grid gap-1.5">
                 <Label htmlFor="variance_threshold_percent">Variance %</Label>
@@ -687,6 +793,76 @@ export function CycleCountsPage() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+function SearchableChecklist({
+  label,
+  anyLabel,
+  items,
+  selectedIds,
+  onChange,
+  getLabel,
+  getSearchText,
+  searchPlaceholder,
+  emptyMessage,
+}: {
+  label: string;
+  anyLabel: string;
+  items: any[];
+  selectedIds: string[];
+  onChange: (ids: string[]) => void;
+  getLabel: (item: any) => string;
+  getSearchText: (item: any) => string;
+  searchPlaceholder: string;
+  emptyMessage: string;
+}) {
+  const [search, setSearch] = useState("");
+  const matchingItems = useMemo(() => {
+    const query = search.trim().toLocaleLowerCase();
+    if (!query) return items;
+    return items.filter((item) => getSearchText(item).toLocaleLowerCase().includes(query));
+  }, [getSearchText, items, search]);
+  const selectionLabel = selectedIds.length === 0
+    ? anyLabel
+    : selectedIds.length === items.length
+      ? `All ${label.toLocaleLowerCase()}`
+      : `${selectedIds.length} ${label.toLocaleLowerCase()} selected`;
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button type="button" variant="outline" role="combobox" aria-label={`Choose ${label.toLocaleLowerCase()}`} className="w-full justify-between font-normal">
+          <span className="truncate">{selectionLabel}</span>
+          <ChevronDown className="h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-3" align="start">
+        <div className="mb-2 flex items-center justify-between gap-2 border-b pb-2">
+          <span className="text-sm font-medium">{label}</span>
+          <div className="flex gap-2">
+            <Button type="button" variant="ghost" size="sm" className="h-7 px-2" onClick={() => onChange([])}>{anyLabel}</Button>
+            <Button type="button" variant="ghost" size="sm" className="h-7 px-2" onClick={() => onChange(items.map((item) => item.id))}>Select all</Button>
+          </div>
+        </div>
+        <div className="relative mb-2">
+          <Search className="pointer-events-none absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Input value={search} onChange={(event) => setSearch(event.target.value)} className="pl-8" placeholder={searchPlaceholder} />
+        </div>
+        <div role="group" aria-label={`${label} selection`} className="grid max-h-64 gap-1 overflow-y-auto">
+          {matchingItems.map((item) => {
+            const checked = selectedIds.includes(item.id);
+            return (
+              <label key={item.id} className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent">
+                <Checkbox checked={checked} onCheckedChange={() => onChange(checked ? selectedIds.filter((id) => id !== item.id) : [...selectedIds, item.id])} />
+                <span className="min-w-0 truncate">{getLabel(item)}</span>
+              </label>
+            );
+          })}
+          {matchingItems.length === 0 && <p className="px-2 py-1 text-sm text-muted-foreground">{emptyMessage}</p>}
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 
