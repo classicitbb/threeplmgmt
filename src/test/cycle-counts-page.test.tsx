@@ -8,12 +8,15 @@ import { CycleCountsPage } from "@/components/wms-ui";
 const networkState = vi.hoisted(() => ({ online: true }));
 const authState = vi.hoisted(() => ({
   roles: ["warehouse_operator"],
-  profile: { id: "user-1" },
+  profile: { id: "user-1", default_warehouse_id: "wh-1" },
 }));
 const cycleCountMocks = vi.hoisted(() => ({
   fetchOptions: vi.fn(async () => ({
     warehouses: [{ id: "wh-1", name: "Main Warehouse" }],
-    zones: [],
+    zones: [
+      { id: "zone-a", warehouse_id: "wh-1", name: "Rack A" },
+      { id: "zone-b", warehouse_id: "wh-1", name: "Rack B" },
+    ],
     locations: [{ id: "loc-1", code: "A-01-L01" }],
     products: [{ id: "prod-1", sku: "FLOUR", name: "Flour" }],
     profiles: [{ id: "user-1", full_name: "Warehouse Manager" }],
@@ -96,7 +99,7 @@ describe("CycleCountsPage", () => {
     vi.clearAllMocks();
     networkState.online = true;
     authState.roles = ["warehouse_operator"];
-    authState.profile = { id: "user-1" };
+    authState.profile = { id: "user-1", default_warehouse_id: "wh-1" };
     cycleCountMocks.listCycleCounts.mockResolvedValue([]);
     cycleCountMocks.listMyCycleCountLines.mockResolvedValue([{
       id: "line-1",
@@ -156,6 +159,23 @@ describe("CycleCountsPage", () => {
 
     expect(await screen.findByRole("dialog", { name: /create count/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /freeze and create count/i })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: /active warehouse/i })).toHaveTextContent("Main Warehouse");
+    expect(screen.getByRole("combobox", { name: /active warehouse/i })).toBeDisabled();
+  });
+
+  it("uses a checklist for selecting any, all, or a subset of active-warehouse zones", async () => {
+    authState.roles = ["developer"];
+    renderCycleCountsPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: /new count/i }));
+    fireEvent.click(screen.getByRole("combobox", { name: /choose zones/i }));
+
+    expect(await screen.findByRole("group", { name: /zone selection/i })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /select all/i }));
+    expect(screen.getByText("All zones")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /any zone/i }));
+    expect(screen.getByRole("combobox", { name: /choose zones/i })).toHaveTextContent("Any zone");
   });
 
   it("keeps role preview developer-only", async () => {

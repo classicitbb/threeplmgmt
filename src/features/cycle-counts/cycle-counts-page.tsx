@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Archive, CheckCircle2, ClipboardCheck, Eye, Plus, RefreshCw, ShieldCheck, Trash2, UserCog, XCircle } from "lucide-react";
+import { AlertTriangle, Archive, CheckCircle2, ChevronDown, ClipboardCheck, Eye, Plus, RefreshCw, ShieldCheck, Trash2, UserCog, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { z } from "zod";
 
@@ -37,9 +37,11 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
@@ -110,6 +112,7 @@ export function CycleCountsPage() {
     resolver: zodResolver(cycleCountSchema),
     defaultValues: {
       scope: "spot",
+      zone_ids: [],
       variance_threshold_percent: 5,
       freeze_hours: 4,
       assigned_user_id: "",
@@ -121,6 +124,23 @@ export function CycleCountsPage() {
       setActiveTab("entry");
     }
   }, [activeTab, isSupervisor]);
+
+  const activeWarehouseId = auth.profile?.default_warehouse_id ?? options?.warehouses?.[0]?.id ?? "";
+  const activeWarehouse = (options?.warehouses ?? []).find((warehouse: any) => warehouse.id === activeWarehouseId);
+  const availableZones = (options?.zones ?? []).filter((zone: any) => zone.warehouse_id === activeWarehouseId);
+  const selectedZoneIds = form.watch("zone_ids") ?? [];
+  const zoneSelectionLabel = selectedZoneIds.length === 0
+    ? "Any zone"
+    : selectedZoneIds.length === availableZones.length
+      ? "All zones"
+      : `${selectedZoneIds.length} zone${selectedZoneIds.length === 1 ? "" : "s"} selected`;
+
+  useEffect(() => {
+    if (!activeWarehouseId) return;
+    form.setValue("warehouse_id", activeWarehouseId, { shouldValidate: true });
+    form.setValue("zone_ids", []);
+    form.setValue("zone_id", "");
+  }, [activeWarehouseId, form]);
 
   useEffect(() => {
     if (resumeHydratedRef.current) return;
@@ -183,7 +203,7 @@ export function CycleCountsPage() {
     mutationFn: (values: z.infer<typeof cycleCountSchema>) => runOnlineCycleCountCommit(() => createCycleCountFlow(values)),
     onSuccess: async (result: any) => {
       toast.success(`Count created with ${result.claimed_line_count ?? 0} line(s)`);
-      form.reset({ scope: "spot", variance_threshold_percent: 5, freeze_hours: 4, assigned_user_id: "" });
+      form.reset({ warehouse_id: activeWarehouseId, scope: "spot", zone_id: "", zone_ids: [], variance_threshold_percent: 5, freeze_hours: 4, assigned_user_id: "" });
       setCreateOpen(false);
       await queryClient.invalidateQueries({ queryKey: ["cycle-counts"] });
       await queryClient.invalidateQueries({ queryKey: ["cycle-count-lines", "assigned"] });
@@ -301,6 +321,25 @@ export function CycleCountsPage() {
     [counts],
   );
 
+  function setSelectedZones(zoneIds: string[]) {
+    const uniqueZoneIds = Array.from(new Set(zoneIds));
+    form.setValue("zone_ids", uniqueZoneIds, { shouldValidate: true });
+    form.setValue("zone_id", uniqueZoneIds.length === 1 ? uniqueZoneIds[0] : "");
+  }
+
+  function openCreateDialog() {
+    form.reset({
+      warehouse_id: activeWarehouseId,
+      scope: "spot",
+      zone_id: "",
+      zone_ids: [],
+      variance_threshold_percent: 5,
+      freeze_hours: 4,
+      assigned_user_id: "",
+    });
+    setCreateOpen(true);
+  }
+
   return (
     <div className="grid min-w-0 gap-5">
       {!online && (
@@ -331,7 +370,7 @@ export function CycleCountsPage() {
             </div>
           )}
           {isSupervisor && (
-            <Button onClick={() => setCreateOpen(true)} disabled={!online}>
+            <Button onClick={openCreateDialog} disabled={!online || !activeWarehouseId}>
               <Plus className="mr-2 h-4 w-4" />
               New count
             </Button>
@@ -560,10 +599,10 @@ export function CycleCountsPage() {
             <DialogDescription>Supervisors create a frozen bin claim before counters enter quantities.</DialogDescription>
           </DialogHeader>
           <form className="grid gap-3" onSubmit={form.handleSubmit((values) => createMutation.mutate(values))}>
-            <Select value={form.watch("warehouse_id") ?? ""} onValueChange={(value) => form.setValue("warehouse_id", value, { shouldValidate: true })}>
-              <SelectTrigger><SelectValue placeholder="Warehouse" /></SelectTrigger>
+            <Select value={activeWarehouseId} disabled>
+              <SelectTrigger aria-label="Active warehouse"><SelectValue placeholder="Active warehouse" /></SelectTrigger>
               <SelectContent>
-                {(options?.warehouses ?? []).map((warehouse: any) => <SelectItem key={warehouse.id} value={warehouse.id}>{warehouse.name}</SelectItem>)}
+                {activeWarehouse && <SelectItem value={activeWarehouse.id}>{activeWarehouse.name}</SelectItem>}
               </SelectContent>
             </Select>
             <Select value={form.watch("scope")} onValueChange={(value: any) => form.setValue("scope", value, { shouldValidate: true })}>
@@ -576,13 +615,35 @@ export function CycleCountsPage() {
                 <SelectItem value="abc">ABC scheduled class</SelectItem>
               </SelectContent>
             </Select>
-            <Select value={form.watch("zone_id") || "none"} onValueChange={(value) => form.setValue("zone_id", value === "none" ? "" : value)}>
-              <SelectTrigger><SelectValue placeholder="Zone" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">Any zone</SelectItem>
-                {(options?.zones ?? []).map((zone: any) => <SelectItem key={zone.id} value={zone.id}>{zone.name}</SelectItem>)}
-              </SelectContent>
-            </Select>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button type="button" variant="outline" role="combobox" aria-label="Choose zones" className="w-full justify-between font-normal">
+                  <span>{zoneSelectionLabel}</span>
+                  <ChevronDown className="h-4 w-4 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-3" align="start">
+                <div className="mb-2 flex items-center justify-between gap-2 border-b pb-2">
+                  <span className="text-sm font-medium">Zones</span>
+                  <div className="flex gap-2">
+                    <Button type="button" variant="ghost" size="sm" className="h-7 px-2" onClick={() => setSelectedZones([])}>Any zone</Button>
+                    <Button type="button" variant="ghost" size="sm" className="h-7 px-2" onClick={() => setSelectedZones(availableZones.map((zone: any) => zone.id))}>Select all</Button>
+                  </div>
+                </div>
+                <div role="group" aria-label="Zone selection" className="grid max-h-64 gap-1 overflow-y-auto">
+                  {availableZones.map((zone: any) => {
+                    const checked = selectedZoneIds.includes(zone.id);
+                    return (
+                      <label key={zone.id} className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent">
+                        <Checkbox checked={checked} onCheckedChange={() => setSelectedZones(checked ? selectedZoneIds.filter((id) => id !== zone.id) : [...selectedZoneIds, zone.id])} />
+                        <span>{zone.name}</span>
+                      </label>
+                    );
+                  })}
+                  {availableZones.length === 0 && <p className="px-2 py-1 text-sm text-muted-foreground">No zones in the active warehouse.</p>}
+                </div>
+              </PopoverContent>
+            </Popover>
             <Select value={form.watch("location_id") || "none"} onValueChange={(value) => form.setValue("location_id", value === "none" ? "" : value)}>
               <SelectTrigger><SelectValue placeholder="Location" /></SelectTrigger>
               <SelectContent>

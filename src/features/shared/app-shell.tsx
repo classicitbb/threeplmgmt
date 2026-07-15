@@ -6,7 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm, type UseFormReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { supabase } from "@/integrations/supabase/client";
-import { Activity, AlertCircle, AlertTriangle, ArrowLeftRight, BarChart3, Bot, Boxes, Building2, CheckCircle2, ChevronDown, ClipboardCheck, ClipboardList, CloudOff, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, HelpCircle, Home, Info, KeyRound, LayoutDashboard, Loader2, Lock, LockOpen, LogOut, Mail, Maximize2, MapPinned, Menu, Minimize2, Network, Package, PackageX, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, QrCode, RadioTower, RefreshCw, RotateCcw, Search, Settings, ShieldCheck, Star, Tags, Trash2, Truck, Upload, UserPlus, Users } from "lucide-react";
+import { Activity, AlertCircle, AlertTriangle, ArrowLeftRight, BarChart3, Bell, Bot, Boxes, Building2, CheckCircle2, ChevronDown, ClipboardCheck, ClipboardList, CloudOff, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, HelpCircle, Home, Info, KeyRound, LayoutDashboard, Loader2, Lock, LockOpen, LogOut, Mail, Maximize2, MapPinned, Menu, Minimize2, Network, Package, PackageX, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, QrCode, RadioTower, RefreshCw, RotateCcw, Search, Settings, ShieldCheck, Star, Tags, Trash2, Truck, Upload, UserPlus, Users } from "lucide-react";
 import {
   DndContext,
   KeyboardSensor,
@@ -281,7 +281,7 @@ function OfflineSupervisorAlertToastCard({
   );
 }
 
-function ProfileMenu({ initials, displayName, onSignOut }: { initials: string; displayName: string; onSignOut: () => void }) {
+function ProfileMenu({ initials, displayName, onSignOut, onRefresh }: { initials: string; displayName: string; onSignOut: () => void; onRefresh: () => void }) {
   const [pwOpen, setPwOpen] = useState(false);
   return (
     <div className="contents">
@@ -299,6 +299,10 @@ function ProfileMenu({ initials, displayName, onSignOut }: { initials: string; d
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-48">
+          <DropdownMenuItem onSelect={onRefresh}>
+            <RefreshCw className="mr-2 h-3.5 w-3.5" />
+            Refresh
+          </DropdownMenuItem>
           <DropdownMenuItem onSelect={(event) => { event.preventDefault(); setPwOpen(true); }}>
             <KeyRound className="mr-2 h-3.5 w-3.5" />
             Change password
@@ -312,6 +316,55 @@ function ProfileMenu({ initials, displayName, onSignOut }: { initials: string; d
       </DropdownMenu>
       <ChangeOwnPasswordDialog open={pwOpen} onOpenChange={setPwOpen} hideTrigger />
     </div>
+  );
+}
+
+function RfOfflineNotificationBell({ alerts, offline }: { alerts: OfflineSupervisorAlert[]; offline: boolean }) {
+  const notificationCount = alerts.length + (offline ? 1 : 0);
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          className="relative h-9 w-9"
+          size="icon"
+          variant="outline"
+          aria-label={notificationCount ? `${notificationCount} RF connectivity notification${notificationCount === 1 ? "" : "s"}` : "RF connectivity notifications"}
+          title="RF connectivity notifications"
+        >
+          <Bell className="h-4 w-4" />
+          {notificationCount ? (
+            <span className="absolute -right-1 -top-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[9px] font-semibold leading-none text-destructive-foreground">
+              {notificationCount > 9 ? "9+" : notificationCount}
+            </span>
+          ) : null}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-[min(22rem,calc(100vw-1.5rem))] p-0">
+        <div className="border-b border-border px-3 py-2">
+          <p className="text-sm font-semibold">RF connectivity</p>
+          <p className="text-xs text-muted-foreground">Warehouse-floor connection notices</p>
+        </div>
+        {notificationCount === 0 ? (
+          <p className="px-3 py-4 text-sm text-muted-foreground">No RF connectivity notifications.</p>
+        ) : (
+          <div className="max-h-80 overflow-y-auto p-1">
+            {offline ? (
+              <div className="rounded-md bg-amber-500/10 px-3 py-2 text-sm">
+                <p className="font-medium text-amber-900 dark:text-amber-100">This RF device is offline</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">Live warehouse commits are frozen until the backend connection is restored.</p>
+              </div>
+            ) : null}
+            {alerts.map((alert) => (
+              <div key={alert.id} className="rounded-md px-3 py-2 text-sm hover:bg-accent">
+                <p className="font-medium">{alert.title}</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">{alert.message ?? "A warehouse-floor device lost connectivity and is frozen for live commits."}</p>
+                <p className="mt-1 text-[11px] text-muted-foreground">{new Date(alert.created_at).toLocaleString()}</p>
+              </div>
+            ))}
+          </div>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -338,13 +391,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const { profile, roles, signOut, user, refreshProfile } = useAuth();
   const queryClient = useQueryClient();
   const { isEnabled } = useFeatureFlags();
-  const { online } = useNetworkStatus();
+  const networkStatus = useNetworkStatus();
+  const { online } = networkStatus;
+  // Older narrow test doubles and frozen consumers return only `online`.
+  // Treat that shape as already confirmed while production waits for the
+  // live-service retry in useNetworkStatus.
+  const connectionConfirmed = networkStatus.confirmed ?? true;
   useBackgroundSync(queryClient);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [reconnectRefreshing, setReconnectRefreshing] = useState(false);
   const networkStatusSeenRef = useRef(false);
   const shownOfflineAlertIdsRef = useRef<Set<string>>(new Set());
+  const flushingOfflineAlertRef = useRef(false);
 
   // The desktop/landscape rail has a persistent preference, while the mobile
   // drawer is deliberately transient. A layout change or route change must
@@ -468,12 +527,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     .join("") || "WU";
 
   useEffect(() => {
-    if (!networkStatusSeenRef.current) {
-      networkStatusSeenRef.current = true;
-      return;
-    }
+    if (!connectionConfirmed) return;
+    const isInitialNetworkStatus = !networkStatusSeenRef.current;
+    networkStatusSeenRef.current = true;
     if (online) {
-      clearOfflineAlertSession();
+      if (isInitialNetworkStatus) return;
       if (isActiveWorkInProgress()) {
         void queryClient.invalidateQueries({ refetchType: "none" });
         return;
@@ -492,36 +550,40 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     if (!readOfflineAlertSession() && user?.id) {
       const happenedAt = new Date().toISOString();
       writeOfflineAlertSession(happenedAt);
-      void (async () => {
-        try {
-          const deviceId = getOrCreateDeviceId();
-          await writeSystemLog({
-            log_type: "infrastructure",
-            severity: "critical",
-            title: "RF device offline — commits frozen",
-            message: `${profile?.full_name?.trim() || user.email || "Unknown operator"} lost connectivity on ${pathname}. The device is frozen for live warehouse commits until reconnect.`,
-            source: OFFLINE_SYSTEM_LOG_SOURCE,
-            details: {
-              alert_kind: "offline_disconnect",
-              happened_at: happenedAt,
-              route: pathname,
-              device_id: deviceId,
-              user_id: user.id,
-              user_email: user.email ?? null,
-              user_name: profile?.full_name ?? null,
-              warehouse_id: profile?.default_warehouse_id ?? null,
-            },
-          });
-        } catch (error) {
-          clearOfflineAlertSession();
-          console.error("[offline-alert] writeSystemLog failed:", error);
-        }
-      })();
     }
     toast.message("Connection lost. This device is frozen for live commits until reconnect. Your current task position stays on this device.", {
       duration: 6000,
     });
-  }, [online, pathname, profile?.default_warehouse_id, profile?.full_name, queryClient, user?.email, user?.id]);
+  }, [connectionConfirmed, online, pathname, profile?.default_warehouse_id, profile?.full_name, queryClient, user?.email, user?.id]);
+
+  useEffect(() => {
+    const happenedAt = readOfflineAlertSession();
+    if (!connectionConfirmed || !online || !happenedAt || !user?.id || flushingOfflineAlertRef.current) return;
+    flushingOfflineAlertRef.current = true;
+    void writeSystemLog({
+      log_type: "infrastructure",
+      severity: "critical",
+      title: "RF device offline — commits frozen",
+      message: `${profile?.full_name?.trim() || user.email || "Unknown operator"} lost connectivity on ${pathname} at ${new Date(happenedAt).toLocaleString()}. The connection has returned; review the interrupted RF work before continuing.`,
+      source: OFFLINE_SYSTEM_LOG_SOURCE,
+      details: {
+        alert_kind: "offline_disconnect",
+        happened_at: happenedAt,
+        restored_at: new Date().toISOString(),
+        route: pathname,
+        device_id: getOrCreateDeviceId(),
+        user_id: user.id,
+        user_email: user.email ?? null,
+        user_name: profile?.full_name ?? null,
+        warehouse_id: profile?.default_warehouse_id ?? null,
+      },
+    })
+      .then(() => clearOfflineAlertSession())
+      .catch((error) => console.error("[offline-alert] deferred writeSystemLog failed:", error))
+      .finally(() => {
+        flushingOfflineAlertRef.current = false;
+      });
+  }, [connectionConfirmed, online, pathname, profile?.default_warehouse_id, profile?.full_name, user?.email, user?.id]);
 
   useEffect(() => {
     for (const alert of offlineSupervisorAlerts) {
@@ -681,23 +743,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       </nav>
 
-      {/* Sidebar footer — desktop only */}
-      <div className={cn("mt-2 hidden lg:landscape:flex", collapsed ? "justify-center" : "justify-start")}>
-        <Button
-          className={cn(
-            "h-8 gap-1.5 shrink-0",
-            collapsed ? "w-8 justify-center px-0" : "px-2.5",
-          )}
-          size={collapsed ? "icon" : "sm"}
-          variant="ghost"
-          onClick={() => window.location.reload()}
-          aria-label="Hard refresh"
-          title="Hard refresh"
-        >
-          <RefreshCw className="h-3.5 w-3.5" />
-          {!collapsed && <span className="text-xs">Refresh</span>}
-        </Button>
-      </div>
       <div className={cn("mt-2 hidden border-t border-sidebar-border pt-2 lg:landscape:flex", collapsed ? "justify-center" : "justify-end")}>
         <Button
           className="h-8 w-8 shrink-0"
@@ -743,6 +788,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <span className="hidden max-w-[120px] truncate text-xs font-medium sm:inline">{displayName}</span>
             </div>
             <OfflineFreezeBadge compact />
+            <RfOfflineNotificationBell alerts={offlineSupervisorAlerts} offline={connectionConfirmed && !online} />
             <HelpSidebar pathname={pathname} />
             <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
               <SheetTrigger asChild>
@@ -793,6 +839,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                         </DropdownMenuContent>
                       </DropdownMenu>
                     ) : null}
+                    <Button className="h-8 w-8 shrink-0" size="icon" variant="outline" onClick={() => window.location.reload()} aria-label="Refresh" title="Refresh">
+                      <RefreshCw className="h-3.5 w-3.5" />
+                    </Button>
                     <Button className="h-8 flex-1 text-xs justify-start" variant="outline" size="sm" onClick={() => { setMobileMenuOpen(false); void signOut(); }}>
                       <LogOut className="mr-2 h-3 w-3" />
                       Sign out
@@ -840,7 +889,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               ) : null}
               <HelpSidebar pathname={pathname} />
               <OfflineFreezeBadge />
-              <ProfileMenu initials={initials} displayName={displayName} onSignOut={() => void signOut()} />
+              <RfOfflineNotificationBell alerts={offlineSupervisorAlerts} offline={connectionConfirmed && !online} />
+              <ProfileMenu initials={initials} displayName={displayName} onSignOut={() => void signOut()} onRefresh={() => window.location.reload()} />
             </div>
           </div>
           <div

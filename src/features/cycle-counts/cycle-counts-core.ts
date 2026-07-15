@@ -122,12 +122,27 @@ async function holdLocationStock(locationId: string) {
 export async function createCycleCountFlow(input: z.infer<typeof cycleCountSchema>) {
   const payload = cycleCountSchema.parse(input);
   const userId = await currentUserId();
+  const selectedZoneIds = Array.from(new Set([
+    ...payload.zone_ids,
+    ...(payload.zone_id ? [payload.zone_id] : []),
+  ]));
 
   const { data: warehouse, error: warehouseError } = await db("warehouses")
     .select("freeze_default_hours")
     .eq("id", payload.warehouse_id)
     .maybeSingle();
   if (warehouseError) throw new Error(formatSupabaseError(warehouseError, "Could not load warehouse settings."));
+
+  if (selectedZoneIds.length > 0) {
+    const { data: selectedZones, error: zoneError } = await db("zones")
+      .select("id")
+      .eq("warehouse_id", payload.warehouse_id)
+      .in("id", selectedZoneIds);
+    if (zoneError) throw new Error(formatSupabaseError(zoneError, "Could not validate the selected zones."));
+    if ((selectedZones ?? []).length !== selectedZoneIds.length) {
+      throw new Error("Every selected zone must belong to the active warehouse.");
+    }
+  }
 
   const now = new Date();
   const freezeHours = Number(payload.freeze_hours ?? warehouse?.freeze_default_hours ?? 4);
@@ -136,7 +151,8 @@ export async function createCycleCountFlow(input: z.infer<typeof cycleCountSchem
   const count = await upsertRecord("cycle_counts", {
     count_number: await buildCycleCountNumber(),
     warehouse_id: payload.warehouse_id,
-    zone_id: payload.zone_id || null,
+    zone_id: selectedZoneIds.length === 1 ? selectedZoneIds[0] : null,
+    zone_ids: selectedZoneIds.length > 0 ? selectedZoneIds : null,
     location_id: payload.location_id || null,
     scope: payload.scope,
     status: "frozen",
@@ -154,7 +170,7 @@ export async function createCycleCountFlow(input: z.infer<typeof cycleCountSchem
     .not("location_id", "is", null);
 
   if (payload.location_id) balanceQuery = balanceQuery.eq("location_id", payload.location_id);
-  if (payload.zone_id) balanceQuery = balanceQuery.eq("zone_id", payload.zone_id);
+  if (selectedZoneIds.length > 0) balanceQuery = balanceQuery.in("zone_id", selectedZoneIds);
   if (payload.product_id) balanceQuery = balanceQuery.eq("product_id", payload.product_id);
 
   const { data: balances, error } = await balanceQuery;

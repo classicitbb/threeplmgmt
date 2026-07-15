@@ -568,6 +568,7 @@ export const cycleCountSchema = z.object({
   scope: z.enum(["location", "zone", "sku", "spot", "abc"]),
   location_id: z.string().uuid().optional().or(z.literal("")),
   zone_id: z.string().uuid().optional().or(z.literal("")),
+  zone_ids: z.array(z.string().uuid()).default([]),
   product_id: z.string().uuid().optional().or(z.literal("")),
   variance_threshold_percent: z.coerce.number().min(0).max(100).default(5),
   freeze_hours: z.coerce.number().positive().max(168).default(4),

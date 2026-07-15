@@ -171,10 +171,24 @@ describe("AppShell", () => {
     expect(inactiveIcons.some((icon) => icon.getAttribute("class")?.includes("text-accent"))).toBe(false);
   });
 
-  it("writes one critical system log when connectivity drops", async () => {
+  it("persists an RF disconnect locally and delivers its supervisor alert after reconnect", async () => {
     const { client, rerender } = renderShell();
 
     networkState.online = false;
+    rerender(
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={["/dashboard"]}>
+          <AppShell>
+            <div>Content</div>
+          </AppShell>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(window.sessionStorage.getItem("warehouseWizard.offlineAlert.current")).not.toBeNull());
+    expect(wmsMocks.writeSystemLog).not.toHaveBeenCalled();
+
+    networkState.online = true;
     rerender(
       <QueryClientProvider client={client}>
         <MemoryRouter initialEntries={["/dashboard"]}>
