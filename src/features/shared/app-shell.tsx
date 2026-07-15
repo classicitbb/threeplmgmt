@@ -597,7 +597,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <div
         className={cn(
           "flex h-full flex-col overflow-hidden bg-sidebar",
-          collapsed ? "items-center px-1.5 py-3" : compactTop ? "px-2.5 py-0" : "px-2.5 py-3"
+          collapsed ? "items-center bg-teal-500 px-1.5 py-3" : compactTop ? "px-2.5 py-0" : "px-2.5 py-3"
         )}
       >
       {/* Logo area */}
@@ -618,7 +618,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       ) : null}
 
       <nav className={cn("flex-1 overflow-y-auto", compactTop && "pt-0")}>
-        <div className="flex flex-col gap-0.5">
+        <div className="flex flex-col gap-0.0">
           {items.map((item) => {
             const Icon = navIcons[item.to] ?? LayoutDashboard;
             const isActive = pathname === item.to;
