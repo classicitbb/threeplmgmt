@@ -208,6 +208,17 @@
     @apply border-border;
   }
 
+  /* Keep the established motion cues, but make every UI response immediate. */
+  @media (prefers-reduced-motion: no-preference) {
+    *,
+    *::before,
+    *::after {
+      transition-duration: 100ms !important;
+      transition-delay: 0ms !important;
+      animation-delay: 0ms !important;
+    }
+  }
+
   body {
     @apply bg-background text-foreground;
     font-family: 'IBM Plex Sans', sans-serif;
