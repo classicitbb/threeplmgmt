@@ -1,4 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type Dispatch,
+  type ReactNode,
+  type SetStateAction,
+} from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { QRCodeSVG } from "qrcode.react";
 import { Link, NavLink, useLocation, useNavigate, useSearchParams } from "react-router-dom";
@@ -6,7 +15,63 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm, type UseFormReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { supabase } from "@/integrations/supabase/client";
-import { Activity, AlertCircle, AlertTriangle, ArrowLeftRight, BarChart3, Bot, Boxes, Building2, CheckCircle2, ChevronDown, ClipboardCheck, ClipboardList, CloudOff, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, HelpCircle, Home, Info, KeyRound, LayoutDashboard, Loader2, Lock, LockOpen, LogOut, Mail, Maximize2, MapPinned, Menu, Minimize2, Network, Package, PackageX, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, QrCode, RadioTower, RefreshCw, RotateCcw, Search, Settings, ShieldCheck, Star, Tags, Trash2, Truck, Upload, UserPlus, Users } from "lucide-react";
+import {
+  Activity,
+  AlertCircle,
+  AlertTriangle,
+  ArrowLeftRight,
+  BarChart3,
+  Bot,
+  Boxes,
+  Building2,
+  CheckCircle2,
+  ChevronDown,
+  ClipboardCheck,
+  ClipboardList,
+  CloudOff,
+  Download,
+  Eye,
+  EyeOff,
+  FileDown,
+  Forklift,
+  GripVertical,
+  HelpCircle,
+  Home,
+  Info,
+  KeyRound,
+  LayoutDashboard,
+  Loader2,
+  Lock,
+  LockOpen,
+  LogOut,
+  Mail,
+  Maximize2,
+  MapPinned,
+  Menu,
+  Minimize2,
+  Network,
+  Package,
+  PackageX,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Pencil,
+  Plus,
+  Printer,
+  QrCode,
+  RadioTower,
+  RefreshCw,
+  RotateCcw,
+  Search,
+  Settings,
+  ShieldCheck,
+  Star,
+  Tags,
+  Trash2,
+  Truck,
+  Upload,
+  UserPlus,
+  Users,
+} from "lucide-react";
 import {
   DndContext,
   KeyboardSensor,
@@ -130,7 +195,11 @@ import { BarcodeScanButton } from "@/components/barcode-scan-button";
 import { type ProductSearchHandle } from "@/components/product-search";
 
 import { cn } from "@/lib/utils";
-import { extractIso6346ContainerNumber, normalizeContainerNumber, validateIso6346ContainerNumber } from "@/lib/container-number";
+import {
+  extractIso6346ContainerNumber,
+  normalizeContainerNumber,
+  validateIso6346ContainerNumber,
+} from "@/lib/container-number";
 import { getOrCreateDeviceId } from "@/lib/device-identity";
 import { invalidateWarehouseData } from "@/lib/query-invalidation";
 import {
@@ -158,16 +227,44 @@ import {
 import { HelpSidebar } from "@/components/help-sidebar";
 import { ZoneLabelPage } from "@/components/zone-label-page";
 import { LocationLabelPage } from "@/components/location-label-page";
-import { BayLocationCodesPrintDialog, LabelSheetPrintDialog, type LabelSheetItem } from "@/components/label-sheet-print";
+import {
+  BayLocationCodesPrintDialog,
+  LabelSheetPrintDialog,
+  type LabelSheetItem,
+} from "@/components/label-sheet-print";
 import { WarehouseStructureTab } from "@/components/warehouse-tree-view";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 // removed unused dropdown-menu and drawer imports
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
@@ -180,7 +277,6 @@ import { Switch } from "@/components/ui/switch";
 import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-
 
 import {
   FailedTasksReminder,
@@ -247,9 +343,12 @@ function OfflineSupervisorAlertToastCard({
         <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-red-300" />
         <div className="min-w-0 flex-1">
           <p className="font-semibold">{alert.title}</p>
-          <p className="mt-1 text-sm text-red-100">{alert.message ?? "A warehouse-floor device lost connectivity and is frozen for live commits."}</p>
+          <p className="mt-1 text-sm text-red-100">
+            {alert.message ?? "A warehouse-floor device lost connectivity and is frozen for live commits."}
+          </p>
           <p className="mt-2 text-xs text-red-200">
-            Type <span className="font-mono font-semibold">{OFFLINE_ALERT_CHALLENGE}</span> to acknowledge and dismiss this alert.
+            Type <span className="font-mono font-semibold">{OFFLINE_ALERT_CHALLENGE}</span> to acknowledge and dismiss
+            this alert.
           </p>
           <div className="mt-3 flex gap-2">
             <Input
@@ -281,7 +380,15 @@ function OfflineSupervisorAlertToastCard({
   );
 }
 
-function ProfileMenu({ initials, displayName, onSignOut }: { initials: string; displayName: string; onSignOut: () => void }) {
+function ProfileMenu({
+  initials,
+  displayName,
+  onSignOut,
+}: {
+  initials: string;
+  displayName: string;
+  onSignOut: () => void;
+}) {
   const [pwOpen, setPwOpen] = useState(false);
   return (
     <div className="contents">
@@ -299,7 +406,12 @@ function ProfileMenu({ initials, displayName, onSignOut }: { initials: string; d
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-48">
-          <DropdownMenuItem onSelect={(event) => { event.preventDefault(); setPwOpen(true); }}>
+          <DropdownMenuItem
+            onSelect={(event) => {
+              event.preventDefault();
+              setPwOpen(true);
+            }}
+          >
             <KeyRound className="mr-2 h-3.5 w-3.5" />
             Change password
           </DropdownMenuItem>
@@ -345,12 +457,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [reconnectRefreshing, setReconnectRefreshing] = useState(false);
   const networkStatusSeenRef = useRef(false);
   const shownOfflineAlertIdsRef = useRef<Set<string>>(new Set());
-  const items = NAVIGATION
-    .filter(
-      (item) =>
-        item.roles.some((role) => roles.includes(role)) &&
-        (!item.moduleKey || isEnabled(item.moduleKey as ModuleKey)),
-    )
+  const items = NAVIGATION.filter(
+    (item) =>
+      item.roles.some((role) => roles.includes(role)) && (!item.moduleKey || isEnabled(item.moduleKey as ModuleKey)),
+  )
     // Settings and Help stay pinned below the module list.
     .sort((a, b) => {
       const pinnedOrder: Partial<Record<AppRoute, number>> = { "/settings": 1, "/help": 2 };
@@ -359,7 +469,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const canAccessPutaway = items.some((item) => item.to === "/putaway-tasks");
   const canAccessReceiving = items.some((item) => item.to === "/receiving");
   const canAccessPickLists = items.some((item) => item.to === "/pick-lists");
-  const canSeeAllPutawayTasks = roles.some((role) => ["developer", "admin", "warehouse_manager", "warehouse_supervisor"].includes(role));
+  const canSeeAllPutawayTasks = roles.some((role) =>
+    ["developer", "admin", "warehouse_manager", "warehouse_supervisor"].includes(role),
+  );
   const putawayUserId = canSeeAllPutawayTasks ? undefined : user?.id;
   const { data: putawayNavTasks = [] } = useQuery({
     queryKey: ["putaway-tasks", putawayUserId],
@@ -374,11 +486,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     enabled: canAccessReceiving || canAccessPickLists,
     staleTime: 30_000,
   });
-  const routeBadgeCounts = useMemo<Partial<Record<AppRoute, number>>>(() => ({
-    "/receiving": navDashboardMetrics?.openReceipts ?? 0,
-    "/putaway-tasks": putawayTaskCount,
-    "/pick-lists": navDashboardMetrics?.openPickLists ?? 0,
-  }), [navDashboardMetrics?.openPickLists, navDashboardMetrics?.openReceipts, putawayTaskCount]);
+  const routeBadgeCounts = useMemo<Partial<Record<AppRoute, number>>>(
+    () => ({
+      "/receiving": navDashboardMetrics?.openReceipts ?? 0,
+      "/putaway-tasks": putawayTaskCount,
+      "/pick-lists": navDashboardMetrics?.openPickLists ?? 0,
+    }),
+    [navDashboardMetrics?.openPickLists, navDashboardMetrics?.openReceipts, putawayTaskCount],
+  );
   const getNavBadgeCount = useCallback((route: AppRoute) => routeBadgeCounts[route] ?? 0, [routeBadgeCounts]);
   const getNavBadgeLabel = useCallback((route: AppRoute, count: number) => {
     if (route === "/receiving") return `${count} open Receiving tasks`;
@@ -425,7 +540,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const selectedWarehouseLabel = useMemo(() => {
     if (selectedWarehouseValue === "__all__") return "All warehouses";
     const warehouse = headerWarehouses.find((item: any) => item.id === selectedWarehouseValue);
-    return warehouse?.code ? `${warehouse.code} - ${warehouse.name}` : warehouse?.name ?? "Select warehouse";
+    return warehouse?.code ? `${warehouse.code} - ${warehouse.name}` : (warehouse?.name ?? "Select warehouse");
   }, [headerWarehouses, selectedWarehouseValue]);
   const warehouseSwitchMutation = useMutation({
     mutationFn: (warehouseId: string | null) => updateProfileDefaultWarehouse(profile?.id ?? "", warehouseId),
@@ -442,16 +557,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     if (headerWarehouses.length === 1 && !profile?.default_warehouse_id && !warehouseSwitchMutation.isPending) {
       warehouseSwitchMutation.mutate((headerWarehouses[0] as any).id);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [headerWarehouses.length, profile?.default_warehouse_id]);
 
   const displayName = profile?.full_name?.trim() || user?.email || "Warehouse User";
-  const initials = displayName
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase() ?? "")
-    .join("") || "WU";
+  const initials =
+    displayName
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase() ?? "")
+      .join("") || "WU";
 
   useEffect(() => {
     if (!networkStatusSeenRef.current) {
@@ -466,10 +582,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       }
       let cancelled = false;
       setReconnectRefreshing(true);
-      void queryClient.invalidateQueries()
-        .finally(() => {
-          if (!cancelled) setReconnectRefreshing(false);
-        });
+      void queryClient.invalidateQueries().finally(() => {
+        if (!cancelled) setReconnectRefreshing(false);
+      });
       return () => {
         cancelled = true;
       };
@@ -504,9 +619,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         }
       })();
     }
-    toast.message("Connection lost. This device is frozen for live commits until reconnect. Your current task position stays on this device.", {
-      duration: 6000,
-    });
+    toast.message(
+      "Connection lost. This device is frozen for live commits until reconnect. Your current task position stays on this device.",
+      {
+        duration: 6000,
+      },
+    );
   }, [online, pathname, profile?.default_warehouse_id, profile?.full_name, queryClient, user?.email, user?.id]);
 
   useEffect(() => {
@@ -539,59 +657,64 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     });
   }, [offlineSupervisorAlerts, queryClient]);
 
-  const prefetchRouteData = useCallback((route: AppRoute) => {
-    const warehouseId = profile?.default_warehouse_id;
-    if (route === "/dashboard") {
-      void queryClient.prefetchQuery({
-        queryKey: ["dashboard-metrics", warehouseId],
-        queryFn: () => getDashboardMetrics(warehouseId),
-      });
-      return;
-    }
-    if (route === "/receiving") {
-      void queryClient.prefetchQuery({
-        queryKey: ["options", "receiving", shouldRestrictToDefaultWarehouse(roles), warehouseId],
-        queryFn: () => fetchOptions(false, { restrictToWarehouse: shouldRestrictToDefaultWarehouse(roles), warehouseId }),
-      });
-      return;
-    }
-    if (route === "/putaway-tasks") {
-      const canSeeAll = roles.some((r) => ["developer", "admin", "warehouse_manager", "warehouse_supervisor"].includes(r));
-      const prefetchUserId = canSeeAll ? undefined : user?.id;
-      void queryClient.prefetchQuery({
-        queryKey: ["putaway-tasks", prefetchUserId],
-        queryFn: () => getPutawayTasks(prefetchUserId),
-      });
-      return;
-    }
-    if (route === "/inventory-search") {
-      void queryClient.prefetchQuery({
-        queryKey: ["inventory-search", "", "all", ""],
-        queryFn: () => searchInventory({ status: "all" }),
-      });
-      return;
-    }
-    if (route === "/pick-lists") {
-      void queryClient.prefetchQuery({
-        queryKey: ["pick-lists"],
-        queryFn: () => listPickLists(),
-      });
-    }
-  }, [profile?.default_warehouse_id, queryClient, roles, user?.id]);
+  const prefetchRouteData = useCallback(
+    (route: AppRoute) => {
+      const warehouseId = profile?.default_warehouse_id;
+      if (route === "/dashboard") {
+        void queryClient.prefetchQuery({
+          queryKey: ["dashboard-metrics", warehouseId],
+          queryFn: () => getDashboardMetrics(warehouseId),
+        });
+        return;
+      }
+      if (route === "/receiving") {
+        void queryClient.prefetchQuery({
+          queryKey: ["options", "receiving", shouldRestrictToDefaultWarehouse(roles), warehouseId],
+          queryFn: () =>
+            fetchOptions(false, { restrictToWarehouse: shouldRestrictToDefaultWarehouse(roles), warehouseId }),
+        });
+        return;
+      }
+      if (route === "/putaway-tasks") {
+        const canSeeAll = roles.some((r) =>
+          ["developer", "admin", "warehouse_manager", "warehouse_supervisor"].includes(r),
+        );
+        const prefetchUserId = canSeeAll ? undefined : user?.id;
+        void queryClient.prefetchQuery({
+          queryKey: ["putaway-tasks", prefetchUserId],
+          queryFn: () => getPutawayTasks(prefetchUserId),
+        });
+        return;
+      }
+      if (route === "/inventory-search") {
+        void queryClient.prefetchQuery({
+          queryKey: ["inventory-search", "", "all", ""],
+          queryFn: () => searchInventory({ status: "all" }),
+        });
+        return;
+      }
+      if (route === "/pick-lists") {
+        void queryClient.prefetchQuery({
+          queryKey: ["pick-lists"],
+          queryFn: () => listPickLists(),
+        });
+      }
+    },
+    [profile?.default_warehouse_id, queryClient, roles, user?.id],
+  );
 
   const renderNavigation = (compactTop = false) => (
-      <div
-        className={cn(
-          "flex h-full flex-col overflow-hidden bg-sidebar",
-          sidebarCollapsed ? "items-center px-1.5 py-3 bg-teal-500" : compactTop ? "px-2.5 py-0" : "px-2.5 py-3"
-        )}
-      >
+    <div
+      className={cn(
+        "flex h-full flex-col overflow-hidden bg-sidebar",
+        sidebarCollapsed ? "items-center px-1.5 py-3 bg-teal-500" : compactTop ? "px-2.5 py-0" : "px-2.5 py-3",
+      )}
+    >
       {/* Logo area */}
       {!compactTop ? (
-        <div className={cn(
-          "mb-4 flex items-center justify-between gap-2 px-2",
-          sidebarCollapsed && "justify-center px-0"
-        )}>
+        <div
+          className={cn("mb-4 flex items-center justify-between gap-2 px-2", sidebarCollapsed && "justify-center px-0")}
+        >
           <div className="flex items-center gap-3 min-w-0">
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-black p-1">
               <img src="/logo.png" alt="Warehouse Wizard" className="h-full w-full object-contain" />
@@ -604,7 +727,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       ) : null}
 
       <nav className={cn("flex-1 overflow-y-auto", compactTop && "pt-0")}>
-        <div className="flex flex-col gap-0.5">
+        <div className="flex flex-col gap-0.0">
           {items.map((item) => {
             const Icon = navIcons[item.to] ?? LayoutDashboard;
             const isActive = pathname === item.to;
@@ -652,7 +775,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <TooltipTrigger asChild>{link}</TooltipTrigger>
                 <TooltipContent side="right">{item.label}</TooltipContent>
               </Tooltip>
-            ) : link;
+            ) : (
+              link
+            );
 
             if (showSeparator) {
               return (
@@ -670,10 +795,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {/* Sidebar footer — desktop only */}
       <div className={cn("mt-2 hidden lg:landscape:flex", sidebarCollapsed ? "justify-center" : "justify-start")}>
         <Button
-          className={cn(
-            "h-8 gap-1.5 shrink-0",
-            sidebarCollapsed ? "w-8 justify-center px-0" : "px-2.5",
-          )}
+          className={cn("h-8 gap-1.5 shrink-0", sidebarCollapsed ? "w-8 justify-center px-0" : "px-2.5")}
           size={sidebarCollapsed ? "icon" : "sm"}
           variant="ghost"
           onClick={() => window.location.reload()}
@@ -684,7 +806,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {!sidebarCollapsed && <span className="text-xs">Refresh</span>}
         </Button>
       </div>
-      <div className={cn("mt-2 hidden border-t border-sidebar-border pt-2 lg:landscape:flex", sidebarCollapsed ? "justify-center" : "justify-end")}>
+      <div
+        className={cn(
+          "mt-2 hidden border-t border-sidebar-border pt-2 lg:landscape:flex",
+          sidebarCollapsed ? "justify-center" : "justify-end",
+        )}
+      >
         <Button
           className="h-8 w-8 shrink-0"
           size="icon"
@@ -724,7 +851,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-1.5 rounded-md border border-border bg-card/80 px-1.5 py-1">
               <Avatar className="h-6 w-6">
-                <AvatarFallback className="bg-primary/10 text-[10px] font-semibold text-primary">{initials}</AvatarFallback>
+                <AvatarFallback className="bg-primary/10 text-[10px] font-semibold text-primary">
+                  {initials}
+                </AvatarFallback>
               </Avatar>
               <span className="hidden max-w-[120px] truncate text-xs font-medium sm:inline">{displayName}</span>
             </div>
@@ -736,14 +865,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   <Menu className="h-4 w-4" />
                 </Button>
               </SheetTrigger>
-              <SheetContent side="top" className="left-auto right-4 top-3 flex max-h-[calc(100svh-1.5rem)] w-[min(24rem,calc(100vw-1rem))] max-w-[calc(100vw-1rem)] origin-top-right flex-col overflow-hidden rounded-2xl border border-border bg-card/95 p-0 shadow-2xl backdrop-blur data-[state=closed]:duration-75 data-[state=open]:duration-100 data-[state=closed]:slide-out-to-top-1 data-[state=open]:slide-in-from-top-1 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0">
+              <SheetContent
+                side="top"
+                className="left-auto right-4 top-3 flex max-h-[calc(100svh-1.5rem)] w-[min(24rem,calc(100vw-1rem))] max-w-[calc(100vw-1rem)] origin-top-right flex-col overflow-hidden rounded-2xl border border-border bg-card/95 p-0 shadow-2xl backdrop-blur data-[state=closed]:duration-75 data-[state=open]:duration-100 data-[state=closed]:slide-out-to-top-1 data-[state=open]:slide-in-from-top-1 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0"
+              >
                 <SheetHeader className="sr-only">
                   <SheetTitle>Navigation</SheetTitle>
                 </SheetHeader>
                 <div className="flex flex-col border-b border-border bg-card/80 px-4 py-3 gap-2">
                   <div className="flex items-center gap-3">
                     <Avatar className="h-9 w-9">
-                      <AvatarFallback className="bg-primary/10 text-xs font-semibold text-primary">{initials}</AvatarFallback>
+                      <AvatarFallback className="bg-primary/10 text-xs font-semibold text-primary">
+                        {initials}
+                      </AvatarFallback>
                     </Avatar>
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium">{displayName}</p>
@@ -772,14 +906,25 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                             </DropdownMenuItem>
                           ) : null}
                           {headerWarehouses.map((warehouse: any) => (
-                            <DropdownMenuItem key={warehouse.id} onSelect={() => warehouseSwitchMutation.mutate(warehouse.id)}>
+                            <DropdownMenuItem
+                              key={warehouse.id}
+                              onSelect={() => warehouseSwitchMutation.mutate(warehouse.id)}
+                            >
                               {warehouse.code ? `${warehouse.code} - ${warehouse.name}` : warehouse.name}
                             </DropdownMenuItem>
                           ))}
                         </DropdownMenuContent>
                       </DropdownMenu>
                     ) : null}
-                    <Button className="h-8 flex-1 text-xs justify-start" variant="outline" size="sm" onClick={() => { setMobileMenuOpen(false); void signOut(); }}>
+                    <Button
+                      className="h-8 flex-1 text-xs justify-start"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setMobileMenuOpen(false);
+                        void signOut();
+                      }}
+                    >
                       <LogOut className="mr-2 h-3 w-3" />
                       Sign out
                     </Button>
@@ -791,14 +936,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </header>
 
-        <aside className="hidden h-full overflow-hidden border-r border-border lg:landscape:block">{renderNavigation()}</aside>
+        <aside className="hidden h-full overflow-hidden border-r border-border lg:landscape:block">
+          {renderNavigation()}
+        </aside>
 
         <main className="flex min-h-0 min-w-0 flex-col overflow-hidden">
           {/* Desktop top bar — landscape only */}
           <div className="hidden items-center justify-between gap-3 border-b border-border bg-background/95 px-5 py-2.5 backdrop-blur lg:landscape:flex">
             <div className="min-w-0">
               <p className="flex items-center gap-2 truncate text-xs text-muted-foreground">
-                <span className="truncate">{items.find((item) => item.to === pathname)?.label ?? "Warehouse Wizard Enterprise WMS"}</span>
+                <span className="truncate">
+                  {items.find((item) => item.to === pathname)?.label ?? "Warehouse Wizard Enterprise WMS"}
+                </span>
                 <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium">v{__APP_VERSION__}</span>
               </p>
             </div>
@@ -813,9 +962,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     <SelectValue placeholder="Select warehouse" />
                   </SelectTrigger>
                   <SelectContent>
-                    {canSelectAllWarehouses ? (
-                      <SelectItem value="__all__">All warehouses</SelectItem>
-                    ) : null}
+                    {canSelectAllWarehouses ? <SelectItem value="__all__">All warehouses</SelectItem> : null}
                     {headerWarehouses.map((warehouse: any) => (
                       <SelectItem key={warehouse.id} value={warehouse.id}>
                         {warehouse.code ? `${warehouse.code} - ${warehouse.name}` : warehouse.name}
@@ -845,9 +992,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 className="mb-4 flex flex-col items-center justify-center rounded-lg border border-border/70 bg-card/80 px-4 py-3 text-center shadow-sm"
               >
                 <Loader2 className="h-5 w-5 animate-spin text-primary" />
-                <p className="mt-1 text-[11px] font-medium text-muted-foreground">
-                  Refreshing live warehouse state…
-                </p>
+                <p className="mt-1 text-[11px] font-medium text-muted-foreground">Refreshing live warehouse state…</p>
               </div>
             ) : null}
             {children}
@@ -856,7 +1001,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </div>
       <AccessRequestsBanner />
       <FailedTasksReminder />
-      <MobileActionBar items={items} pathname={pathname} routeBadgeCounts={routeBadgeCounts} getNavBadgeLabel={getNavBadgeLabel} />
+      <MobileActionBar
+        items={items}
+        pathname={pathname}
+        routeBadgeCounts={routeBadgeCounts}
+        getNavBadgeLabel={getNavBadgeLabel}
+      />
     </div>
   );
 }
@@ -907,7 +1057,10 @@ function MobileActionBar({
             )}
           >
             <span className="relative">
-              <Icon className={cn("h-5 w-5", isActive && "text-accent")} data-active-icon={isActive ? "true" : "false"} />
+              <Icon
+                className={cn("h-5 w-5", isActive && "text-accent")}
+                data-active-icon={isActive ? "true" : "false"}
+              />
               {badgeCount > 0 ? (
                 <span
                   className="absolute -right-2 -top-2 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[9px] font-semibold leading-none text-destructive-foreground"
