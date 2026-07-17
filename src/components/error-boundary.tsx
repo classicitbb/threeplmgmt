@@ -18,6 +18,7 @@ import { Component, type ErrorInfo, type ReactNode } from "react";
 import { AlertTriangle, RefreshCw, Home } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useTenantPath } from "@/hooks/use-tenant-path";
 import { logErrorTelemetry } from "@/lib/system-telemetry";
 
 // ── Chunk-load detection ──────────────────────────────────────────────────────
@@ -120,6 +121,7 @@ function DefaultFallback({
   onReset: () => void;
 }) {
   const isChunk = isChunkLoadError(error);
+  const { toPath } = useTenantPath();
 
   const title = isChunk
     ? "Update available"
@@ -177,7 +179,7 @@ function DefaultFallback({
                     variant="outline"
                     onClick={() => {
                       onReset();
-                      window.location.replace("/");
+                      window.location.replace(toPath("/"));
                     }}
                   >
                     <Home className="mr-1.5 h-3.5 w-3.5" />
