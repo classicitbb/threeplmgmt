@@ -185,7 +185,6 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 // removed unused dropdown-menu and drawer imports
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -986,7 +985,7 @@ export function ResourceFormDialog({
         </DialogHeader>
         <Form {...form}>
           <form className="flex min-h-0 flex-1 flex-col" onSubmit={form.handleSubmit(handleCreateSubmit)}>
-            <ScrollArea className="min-h-0 flex-1 px-6 py-4">
+            <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
               <div className="flex flex-col gap-4 pr-4">
               {resource.fields.map((field) => {
                 if (isLocations && builderControlledFields.has(field.name)) return null;
@@ -994,7 +993,7 @@ export function ResourceFormDialog({
               })}
               {isLocations && <RackLocationCodeBuilder form={form} options={options} />}
               </div>
-            </ScrollArea>
+            </div>
             <DialogFooter className="shrink-0 border-t bg-card px-6 py-3 sm:justify-between">
               <p className="text-xs text-muted-foreground" aria-live="polite">
                 {createMissingFields.length > 0 ? `Required: ${createMissingFields.join(", ")}` : "All required fields are complete."}
@@ -1092,7 +1091,7 @@ export function ResourceEditDialog({
         </DialogHeader>
         <Form {...form}>
           <form className="flex min-h-0 flex-1 flex-col" onSubmit={form.handleSubmit(handleSubmit)}>
-            <ScrollArea className="min-h-0 flex-1 px-6 py-4">
+            <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
               <div className="flex flex-col gap-4 pr-4">
               {resource.fields.map((field) => (
                 <div key={field.name}>
@@ -1111,7 +1110,7 @@ export function ResourceEditDialog({
                 </div>
               ))}
               </div>
-            </ScrollArea>
+            </div>
             <DialogFooter className="shrink-0 border-t bg-card px-6 py-3 sm:justify-between">
               <p className="text-xs text-muted-foreground" aria-live="polite">
                 {editMissingFields.length > 0 ? `Required: ${editMissingFields.join(", ")}` : "All required fields are complete."}
@@ -3029,7 +3028,7 @@ export function LocationWizardDialog({
           <DialogTitle>Create locations by range</DialogTitle>
           <DialogDescription>Each bay-level splits into 1–3 side-by-side positions. Total = bays × levels × positions. Depth = pallet capacity per slot.</DialogDescription>
         </DialogHeader>
-        <ScrollArea className="max-h-[72vh] pr-4">
+        <div className="max-h-[72vh] overflow-y-auto pr-4">
           <Form {...form}>
             <form className="grid gap-4 sm:grid-cols-2" onSubmit={form.handleSubmit((values) => mutation.mutate(values))}>
               <SelectField
@@ -3108,7 +3107,7 @@ export function LocationWizardDialog({
               </Button>
             </form>
           </Form>
-        </ScrollArea>
+        </div>
       </DialogContent>
     </Dialog>
   );
@@ -4672,7 +4671,7 @@ export function ReceivingPage() {
             <DialogTitle>{editingDraft ? "Edit Draft Pallet" : "New Shipment"}</DialogTitle>
             <DialogDescription className="text-xs sm:text-sm">Container and PO come first, then one or more SKU lines with expiry and pallet distribution.</DialogDescription>
           </DialogHeader>
-          <ScrollArea className="max-h-[calc(100dvh-8.75rem)] px-3 py-3 sm:max-h-[calc(92vh-150px)] sm:px-4 sm:py-4">
+          <div className="max-h-[calc(100dvh-8.75rem)] overflow-y-auto px-3 py-3 sm:max-h-[calc(92vh-150px)] sm:px-4 sm:py-4">
             <div className="grid gap-3 sm:gap-4">
               <div className="grid grid-cols-2 items-start gap-2 sm:gap-3 md:grid-cols-3">
                 <div className="grid gap-1.5">
@@ -4903,7 +4902,7 @@ export function ReceivingPage() {
                 )}
               </div>
             </div>
-          </ScrollArea>
+          </div>
           <DialogFooter className="flex-row flex-wrap justify-end gap-2 border-t border-border px-3 py-2 sm:px-4 sm:py-3">
             {saveBlockedReason && (
               <p className="mr-auto w-full text-xs font-medium text-amber-500 sm:w-auto sm:self-center">{saveBlockedReason}</p>
@@ -4954,7 +4953,7 @@ export function ReceivingPage() {
                 {printContainerWarning ?? "Enter or scan an ISO 6346 container number to narrow this label batch."}
               </p>
             </div>
-            <ScrollArea className="max-h-[50vh] pr-3">
+            <div className="max-h-[50vh] overflow-y-auto pr-3">
               <div className="grid gap-2">
                 {printDrafts.map((draft) => {
                   const meta = parseDraftMeta(draft.notes);
@@ -4977,7 +4976,7 @@ export function ReceivingPage() {
                   );
                 })}
               </div>
-            </ScrollArea>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setSelectedDraftIds(new Set(printDrafts.map((draft) => draft.id)))}>Select all shown</Button>

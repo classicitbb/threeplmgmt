@@ -172,7 +172,6 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 // removed unused dropdown-menu and drawer imports
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Calendar } from "@/components/ui/calendar";
@@ -1225,7 +1224,7 @@ export function ReceivingPage() {
                 : "Container and PO come first, then one or more SKU lines with expiry and pallet distribution."}
             </DialogDescription>
           </DialogHeader>
-          <ScrollArea className="min-w-0 max-h-[calc(100dvh-8.75rem)] px-3 py-3 sm:max-h-[calc(92vh-150px)] sm:px-4 sm:py-4">
+          <div className="min-w-0 max-h-[calc(100dvh-8.75rem)] overflow-y-auto px-3 py-3 sm:max-h-[calc(92vh-150px)] sm:px-4 sm:py-4">
             <div className="grid min-w-0 gap-3 sm:gap-4">
               {shipmentEntryMode === "pallet" ? (
                 <div className="grid gap-3 rounded-lg border border-dashed border-border bg-secondary/10 p-3">
@@ -1591,7 +1590,7 @@ export function ReceivingPage() {
                 )}
               </div>
             </div>
-          </ScrollArea>
+          </div>
           <DialogFooter className="flex-row flex-wrap justify-end gap-2 border-t border-border px-3 py-2 sm:px-4 sm:py-3">
             {saveBlockedReason && (
               <p className="mr-auto w-full text-xs font-medium text-amber-500 sm:w-auto sm:self-center">{saveBlockedReason}</p>
@@ -1648,7 +1647,7 @@ export function ReceivingPage() {
                 {printContainerWarning ?? "Enter or scan an ISO 6346 container number to narrow this label batch."}
               </p>
             </div>
-            <ScrollArea className="max-h-[50vh] pr-3">
+            <div className="max-h-[50vh] overflow-y-auto pr-3">
               <div className="grid gap-2">
                 {printDrafts.map((draft) => {
                   const meta = parseDraftMeta(draft.notes);
@@ -1671,7 +1670,7 @@ export function ReceivingPage() {
                   );
                 })}
               </div>
-            </ScrollArea>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setSelectedDraftIds(new Set(printDrafts.map((draft) => draft.id)))}>Select all shown</Button>

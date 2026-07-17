@@ -184,7 +184,6 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 // removed unused dropdown-menu and drawer imports
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -957,7 +956,7 @@ function UserProfileRow({
                 <DialogTitle>Edit User</DialogTitle>
                 <DialogDescription>Update operational access, codes, and approval status.</DialogDescription>
               </DialogHeader>
-              <ScrollArea className="max-h-[70vh] pr-4">
+              <div className="max-h-[70vh] overflow-y-auto pr-4">
                 <div className="grid gap-4">
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div className="grid gap-1.5">
@@ -1093,7 +1092,7 @@ function UserProfileRow({
                     Save changes
                   </Button>
                 </div>
-              </ScrollArea>
+              </div>
             </DialogContent>
           </Dialog>
       </TableCell>
