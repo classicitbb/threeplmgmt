@@ -721,6 +721,38 @@ function applyArchiveFilter(
   return query.eq("is_hidden", false);
 }
 
+// PostgREST (Supabase's REST layer) caps any unbounded select at a server-side
+// row limit — 1000 rows by default for this project. A query that doesn't
+// page through with `.range()` will silently return only the first page, with
+// no error, no matter how many rows actually match. This bit the Locations
+// admin table (client-side search only ever saw the first 1000 rows) and the
+// putaway bay selectors (bays past row 1000 never rendered). Any query that
+// could plausibly return more than a page of rows should use this helper.
+//
+// `buildPage` must build a *fresh* query for each call (a Supabase query
+// builder can only be awaited once), applying `.range(from, to)` as the last
+// step before returning it.
+const FETCH_ALL_ROWS_PAGE_SIZE = 1000;
+
+async function fetchAllRows<T = any>(
+  buildPage: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>,
+  pageSize: number = FETCH_ALL_ROWS_PAGE_SIZE,
+): Promise<T[]> {
+  const rows: T[] = [];
+  let from = 0;
+  // Safety valve so a pagination bug can't spin forever against a live table.
+  const maxPages = 10_000;
+  for (let page = 0; page < maxPages; page += 1) {
+    const { data, error } = await buildPage(from, from + pageSize - 1);
+    if (error) throw error;
+    const batch = data ?? [];
+    rows.push(...batch);
+    if (batch.length < pageSize) break;
+    from += pageSize;
+  }
+  return rows;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared helper exports (used by multiple feature modules)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -729,6 +761,7 @@ export { db };
 export { DB_RETIRED_INVENTORY_STATUS_FILTER, RETIRED_INVENTORY_STATUSES };
 export { isRetiredInventoryStatus, hasVisibleInventoryQuantity };
 export { formatSupabaseError, throwIfSupabaseError, applyArchiveFilter };
+export { fetchAllRows };
 export { PICK_COMPLETED_INVENTORY_STATUS };
 
 export function buildPalletCode(prefix: string) {

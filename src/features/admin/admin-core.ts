@@ -8,6 +8,7 @@ import {
   formatSupabaseError,
   throwIfSupabaseError,
   applyArchiveFilter,
+  fetchAllRows,
   receivingSchema,
   pickListSchema,
   transferSchema,
@@ -24,17 +25,24 @@ export async function listRecords(
   orderBy?: { column: string; ascending?: boolean },
   options?: { includeHidden?: boolean; archiveField?: ArchiveField },
 ) {
-  let query = (supabase.from as any)(table).select(select);
+  // Page through with .range() — an unbounded select silently truncates to
+  // PostgREST's default row cap (1000), which is what made the Locations
+  // table (and its search box) invisible past the first 1000 rows.
+  const rows = await fetchAllRows<any>((from, to) => {
+    let query = (supabase.from as any)(table).select(select);
 
-  if (orderBy) {
-    query = query.order(orderBy.column, { ascending: orderBy.ascending ?? true });
-  }
+    if (orderBy) {
+      query = query.order(orderBy.column, { ascending: orderBy.ascending ?? true });
+    }
+    // Stable tiebreaker so .range() paging is deterministic even when the
+    // orderBy column isn't unique (otherwise rows can be skipped or repeated
+    // across pages).
+    query = query.order("id", { ascending: true });
 
-  query = applyArchiveFilter(query, options?.archiveField, options?.includeHidden);
+    query = applyArchiveFilter(query, options?.archiveField, options?.includeHidden);
 
-  const { data, error } = await query;
-  if (error) throw error;
-  const rows = (data ?? []) as any[];
+    return query.range(from, to);
+  });
   if (table !== "locations") return rows;
   return rows.map((row) => ({
     ...row,
