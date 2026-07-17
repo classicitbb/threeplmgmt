@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2 } from "lucide-react";
+import { useTenantPath } from "@/hooks/use-tenant-path";
 
 // Typed wrapper around the beta supabase.auth.oauth namespace so TS is happy.
 type OAuthDetails = {
@@ -22,6 +23,7 @@ const oauth = (supabase.auth as unknown as { oauth: OAuthApi }).oauth;
 
 export default function OAuthConsentPage() {
   const [params] = useSearchParams();
+  const { toPath } = useTenantPath();
   const authorizationId = params.get("authorization_id") ?? "";
   const [details, setDetails] = useState<OAuthDetails | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -39,7 +41,7 @@ export default function OAuthConsentPage() {
       const { data: sess } = await supabase.auth.getSession();
       if (!sess.session) {
         const next = window.location.pathname + window.location.search;
-        window.location.href = "/login?next=" + encodeURIComponent(next);
+        window.location.href = toPath("/login") + "?next=" + encodeURIComponent(next);
         return;
       }
       if (!oauth?.getAuthorizationDetails) {
