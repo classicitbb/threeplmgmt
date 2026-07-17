@@ -939,6 +939,7 @@ function MobileActionBar({
   getNavBadgeLabel: (route: AppRoute, count: number) => string;
 }) {
   const { toolbarModules } = useFeatureFlags();
+  const { toPath } = useTenantPath();
   const favoriteItems = toolbarModules.flatMap((moduleKey) => {
     const item = items.find((candidate) => candidate.moduleKey === moduleKey && candidate.to !== "/help");
     return item ? [item] : [];
@@ -974,7 +975,7 @@ function MobileActionBar({
         return (
           <NavLink
             key={item.to}
-            to={item.to}
+            to={toPath(item.to)}
             aria-label={item.label}
             className={cn(
               "flex flex-1 flex-col items-center justify-center gap-0.5 rounded-md py-1 text-[10px] font-medium transition-colors",
