@@ -28,6 +28,7 @@ import { toast } from "sonner";
 import { z } from "zod";
 
 import { useAuth } from "@/hooks/use-auth";
+import { useTenantPath } from "@/hooks/use-tenant-path";
 import { useFeatureFlags, MODULE_LABELS, STARTER_MODULES, type ModuleKey } from "@/hooks/use-feature-flags";
 import { useNetworkStatus } from "@/hooks/use-network-status";
 import { useBackgroundSync } from "@/hooks/use-background-sync";
@@ -389,6 +390,7 @@ function OfflineFreezeBadge({ compact = false }: { compact?: boolean }) {
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { pathname } = useLocation();
   const { profile, roles, signOut, user, refreshProfile } = useAuth();
+  const { toPath } = useTenantPath();
   const queryClient = useQueryClient();
   const { isEnabled } = useFeatureFlags();
   const networkStatus = useNetworkStatus();
@@ -770,7 +772,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         {/* Mobile header */}
         <header className="col-span-full flex items-center justify-between border-b border-border bg-background/95 px-4 py-3 backdrop-blur lg:landscape:hidden">
           <Link
-            to="/dashboard"
+            to={toPath("/dashboard")}
             className="flex min-w-0 items-center gap-2 rounded-md outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             aria-label="Go to dashboard"
           >
