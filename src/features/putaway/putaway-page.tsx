@@ -526,6 +526,7 @@ function loadPutawayScannerFirstPreference() {
 export function PutawayTasksPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const { toPath } = useTenantPath();
   const { user, roles, profile } = useAuth();
   const { online } = useNetworkStatus();
   // Managers and above see all open tasks; operators/clerks only see their own + unassigned
@@ -680,7 +681,7 @@ export function PutawayTasksPage() {
         queryClient.invalidateQueries({ queryKey: ["putaway-task-history"] }),
         queryClient.invalidateQueries({ queryKey: ["draft-receipts"] }),
       ]);
-      if (vars.openReceiving) navigate("/receiving");
+      if (vars.openReceiving) navigate(toPath("/receiving"));
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Revert failed"),
   });
