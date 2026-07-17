@@ -28,6 +28,7 @@ import { toast } from "sonner";
 import { z } from "zod";
 
 import { useAuth } from "@/hooks/use-auth";
+import { useTenantPath } from "@/hooks/use-tenant-path";
 import { useFeatureFlags, MODULE_LABELS, STARTER_MODULES, type ModuleKey } from "@/hooks/use-feature-flags";
 import { assertOnline, useNetworkStatus } from "@/hooks/use-network-status";
 import {
@@ -213,6 +214,7 @@ export function ResourcePage({
   resource: ResourceDefinition;
 }) {
   const navigate = useNavigate();
+  const { toPath } = useTenantPath();
   const { roles: viewerRoles, profile } = useAuth();
   const canHardDelete = viewerRoles.some((r) => ["admin", "developer"].includes(r));
   const cascadeSupported = ["warehouses", "zones", "locations", "products", "clients"].includes(resource.table);
@@ -577,7 +579,7 @@ export function ResourcePage({
                 {hasWarehouseStructureShortcut ? (
                   <>
                     <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={() => navigate("/settings?tab=warehouse-structure")}>
+                    <DropdownMenuItem onClick={() => navigate(toPath("/settings?tab=warehouse-structure"))}>
                       <Network className="mr-2 h-4 w-4" />
                       Warehouse Structure
                     </DropdownMenuItem>

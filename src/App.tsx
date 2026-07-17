@@ -13,6 +13,7 @@ import { QRCodeSVG } from "qrcode.react";
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
 import { FeatureFlagContext, useFeatureFlagState } from "@/hooks/use-feature-flags";
 import { OFFLINE_WORK_MESSAGE, assertOnline, useNetworkStatus } from "@/hooks/use-network-status";
+import { useTenantPath } from "@/hooks/use-tenant-path";
 import { isLikelyNetworkError } from "@/lib/offline-queue";
 import { supabase } from "@/integrations/supabase/client";
 import { createAppQueryClient } from "@/lib/query-client";
@@ -630,6 +631,7 @@ function RequireAuth({
   allowedRoles?: Array<"admin" | "warehouse_manager" | "inventory_clerk" | "warehouse_operator" | "dispatch_driver">;
 }) {
   const auth = useAuth();
+  const { toPath } = useTenantPath();
 
   if (auth.loading) {
     return (
@@ -643,7 +645,7 @@ function RequireAuth({
   }
 
   if (!auth.session) {
-    return <Navigate to="/login" replace />;
+    return <Navigate to={toPath("/login")} replace />;
   }
 
   const developerEmail = auth.profile?.email?.trim().toLowerCase() === "russelljhunte@gmail.com" || auth.user?.email?.trim().toLowerCase() === "russelljhunte@gmail.com";
@@ -673,6 +675,7 @@ function RequireAuth({
 function PendingAccessShell() {
   const auth = useAuth();
   const { pathname } = useLocation();
+  const { toPath } = useTenantPath();
   const [checking, setChecking] = useState(false);
   const displayName = auth.profile?.full_name?.trim() || auth.user?.email || "Warehouse User";
   const initials = displayName
@@ -726,7 +729,7 @@ function PendingAccessShell() {
                     : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                 }`
               }
-              to="/help"
+              to={toPath("/help")}
             >
               <HelpCircle className="h-4 w-4 shrink-0" />
               <span className="truncate">Help Center</span>
@@ -800,6 +803,7 @@ function PendingAccessShell() {
 
 function LoginPage() {
   const auth = useAuth();
+  const { toPath } = useTenantPath();
   const [mode, setMode] = useState<"login" | "reset" | "update">(() =>
     typeof window !== "undefined" && new URLSearchParams(window.location.search).get("reset") === "1" ? "update" : "login",
   );
@@ -981,7 +985,7 @@ function LoginPage() {
     const target = nextParam && nextParam.startsWith("/") && !nextParam.startsWith("//")
       ? nextParam
       : "/dashboard";
-    return <Navigate to={target} replace />;
+    return <Navigate to={toPath(target)} replace />;
   }
 
   return (
@@ -1466,6 +1470,7 @@ const PICK_OPEN_STATUSES = new Set(["queued", "assigned", "in_progress"]);
 function PickExecutionPage() {
   const { pickListId = "" } = useParams();
   const navigate = useNavigate();
+  const { toPath } = useTenantPath();
   const queryClient = useQueryClient();
   const { online } = useNetworkStatus();
   const { data } = useQuery<PickExecutionData>({
@@ -1599,7 +1604,7 @@ function PickExecutionPage() {
         queryClient.invalidateQueries({ queryKey: ["inventory-search"] }),
         queryClient.invalidateQueries({ queryKey: ["dashboard-metrics"] }),
       ]);
-      navigate("/pick-lists");
+      navigate(toPath("/pick-lists"));
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Could not mark complete"),
   });
@@ -2141,7 +2146,8 @@ function PickTaskCard({
 
 function HomeRedirect() {
   const { session } = useAuth();
-  return <Navigate to={session ? "/dashboard" : "/login"} replace />;
+  const { toPath } = useTenantPath();
+  return <Navigate to={toPath(session ? "/dashboard" : "/login")} replace />;
 }
 
 function ProtectedLayout() {

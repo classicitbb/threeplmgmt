@@ -28,6 +28,7 @@ import { toast } from "sonner";
 import { z } from "zod";
 
 import { useAuth } from "@/hooks/use-auth";
+import { useTenantPath } from "@/hooks/use-tenant-path";
 import { useFeatureFlags, MODULE_LABELS, STARTER_MODULES, type ModuleKey } from "@/hooks/use-feature-flags";
 import { assertOnline, useNetworkStatus } from "@/hooks/use-network-status";
 import {
@@ -198,6 +199,7 @@ import {
 
 export function InventorySearchPage() {
   const navigate = useNavigate();
+  const { toPath } = useTenantPath();
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const { roles, profile } = useAuth();
@@ -238,7 +240,7 @@ export function InventorySearchPage() {
   }
 
   function openInventoryDetail(balanceId: string) {
-    navigate(`/inventory/${balanceId}`);
+    navigate(toPath(`/inventory/${balanceId}`));
   }
 
   function prefetchInventoryDetail(balanceId: string) {

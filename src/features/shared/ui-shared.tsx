@@ -28,6 +28,7 @@ import { toast } from "sonner";
 import { z } from "zod";
 
 import { useAuth } from "@/hooks/use-auth";
+import { useTenantPath } from "@/hooks/use-tenant-path";
 import { useFeatureFlags, MODULE_LABELS, STARTER_MODULES, type ModuleKey } from "@/hooks/use-feature-flags";
 import { assertOnline, useNetworkStatus } from "@/hooks/use-network-status";
 import {
@@ -1721,6 +1722,7 @@ export function FailedTasksReminder() {
 export function AccessRequestsBanner() {
   const { roles } = useAuth();
   const navigate = useNavigate();
+  const { toPath } = useTenantPath();
   const canSee = roles.some((r) => ["admin", "warehouse_manager", "warehouse_supervisor", "developer"].includes(r));
   const [dismissed, setDismissed] = useState<string[]>(() => {
     if (typeof window === "undefined") return [];
@@ -1765,7 +1767,7 @@ export function AccessRequestsBanner() {
 
   function goToUsers() {
     dismissAll();
-    navigate("/settings");
+    navigate(toPath("/settings"));
   }
 
   return (
@@ -1813,6 +1815,7 @@ export function ResourcePage({
   resource: ResourceDefinition;
 }) {
   const navigate = useNavigate();
+  const { toPath } = useTenantPath();
   const { roles: viewerRoles } = useAuth();
   const canHardDelete = viewerRoles.some((r) => ["admin", "developer"].includes(r));
   const cascadeSupported = ["warehouses", "zones", "locations", "products", "clients"].includes(resource.table);
@@ -2135,7 +2138,7 @@ export function ResourcePage({
                 {hasWarehouseStructureShortcut ? (
                   <>
                     <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={() => navigate("/settings?tab=warehouse-structure")}>
+                    <DropdownMenuItem onClick={() => navigate(toPath("/settings?tab=warehouse-structure"))}>
                       <Network className="mr-2 h-4 w-4" />
                       Warehouse Structure
                     </DropdownMenuItem>
@@ -3571,6 +3574,7 @@ export function WarehouseFloorMode({
   onHide: (id: string) => void;
   onRestore: (id: string) => void;
 }) {
+  const { toPath } = useTenantPath();
   const queuesByLabel = new Map(snapshot.floorQueues.map((queue) => [queue.label, queue]));
 
   return (
@@ -3728,6 +3732,7 @@ export function DockHandoffBoard({
   onHide: (id: string) => void;
   onRestore: (id: string) => void;
 }) {
+  const { toPath } = useTenantPath();
   return (
     <div className="grid gap-3">
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
@@ -3754,7 +3759,7 @@ export function DockHandoffBoard({
                     <CardHeader className="pr-20">
                       <CardTitle className="flex items-center justify-between gap-2 capitalize">
                         <span>{status}</span>
-                        <Link to="/pick-lists" className="rounded-sm text-2xl transition hover:text-primary focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
+                        <Link to={toPath("/pick-lists")} className="rounded-sm text-2xl transition hover:text-primary focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
                           {formatNumber(laneLoads.length)}
                         </Link>
                       </CardTitle>
@@ -4123,6 +4128,7 @@ export function printDraftLabels(
 
 export function ReceivingPage() {
   const navigate = useNavigate();
+  const { toPath } = useTenantPath();
   const queryClient = useQueryClient();
   const online = useNetworkStatus();
   const { roles, profile } = useAuth();
@@ -4547,7 +4553,7 @@ export function ReceivingPage() {
             <p className="text-xs text-green-700 dark:text-green-400">Put-Away task {lastResult.taskNumber} queued</p>
           </div>
           <div className="flex gap-2">
-            <Button size="sm" onClick={() => navigate("/putaway-tasks")}>Go to Put-Away</Button>
+            <Button size="sm" onClick={() => navigate(toPath("/putaway-tasks"))}>Go to Put-Away</Button>
             <Button size="sm" variant="ghost" onClick={() => setLastResult(null)}>x</Button>
           </div>
         </div>

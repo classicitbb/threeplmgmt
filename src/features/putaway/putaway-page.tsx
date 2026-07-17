@@ -28,6 +28,7 @@ import { toast } from "sonner";
 import { z } from "zod";
 
 import { useAuth } from "@/hooks/use-auth";
+import { useTenantPath } from "@/hooks/use-tenant-path";
 import { useFeatureFlags, MODULE_LABELS, STARTER_MODULES, type ModuleKey } from "@/hooks/use-feature-flags";
 import { OFFLINE_WORK_MESSAGE, assertOnline, useNetworkStatus } from "@/hooks/use-network-status";
 import { isLikelyNetworkError } from "@/lib/offline-queue";
@@ -526,6 +527,7 @@ function loadPutawayScannerFirstPreference() {
 export function PutawayTasksPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const { toPath } = useTenantPath();
   const { user, roles, profile } = useAuth();
   const { online } = useNetworkStatus();
   // Managers and above see all open tasks; operators/clerks only see their own + unassigned
@@ -680,7 +682,7 @@ export function PutawayTasksPage() {
         queryClient.invalidateQueries({ queryKey: ["putaway-task-history"] }),
         queryClient.invalidateQueries({ queryKey: ["draft-receipts"] }),
       ]);
-      if (vars.openReceiving) navigate("/receiving");
+      if (vars.openReceiving) navigate(toPath("/receiving"));
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Revert failed"),
   });
