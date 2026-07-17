@@ -30,6 +30,7 @@ import { z } from "zod";
 
 import { HintButton } from "@/components/hint-button";
 import { useAuth } from "@/hooks/use-auth";
+import { useTenantPath } from "@/hooks/use-tenant-path";
 import { useFeatureFlags, MODULE_LABELS, STARTER_MODULES, type ModuleKey } from "@/hooks/use-feature-flags";
 import { assertOnline, useNetworkStatus } from "@/hooks/use-network-status";
 import {
@@ -219,6 +220,7 @@ import {
 
 export function DashboardPage() {
   const { profile } = useAuth();
+  const { toPath } = useTenantPath();
   const { flags, isEnabled } = useFeatureFlags();
   const [mode, setMode] = useState<DashboardMode>("floor");
   const [editMode, setEditMode] = useState(false);
@@ -467,7 +469,7 @@ export function DashboardPage() {
               <span className="font-medium">{reorderAlerts.length} active reorder alert{reorderAlerts.length === 1 ? "" : "s"}</span>
               <span className="text-sm text-muted-foreground">Forecasts use completed outbound picks and supplier lead time.</span>
             </div>
-            <Button asChild size="sm" variant="outline"><Link to="/products">View products</Link></Button>
+            <Button asChild size="sm" variant="outline"><Link to={toPath("/products")}>View products</Link></Button>
           </CardContent>
         </Card>
       ) : null}
