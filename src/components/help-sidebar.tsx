@@ -3,6 +3,7 @@ import { HelpCircle } from "lucide-react";
 import { useState } from "react";
 
 import { useAuth } from "@/hooks/use-auth";
+import { useTenantPath } from "@/hooks/use-tenant-path";
 import { STARTER_MODULES, type ModuleKey, useFeatureFlags } from "@/hooks/use-feature-flags";
 import { getArticleById, getRouteHelp, type HelpArticle } from "@/lib/help-content";
 import { Button } from "@/components/ui/button";
@@ -30,6 +31,7 @@ function canShowArticle(article: HelpArticle, roles: string[], isEnabled: (key: 
 
 export function HelpSidebar({ pathname }: { pathname: string }) {
   const [open, setOpen] = useState(false);
+  const { toPath } = useTenantPath();
   const help = getRouteHelp(pathname);
   const { roles } = useAuth();
   const { isEnabled } = useFeatureFlags();
@@ -94,7 +96,7 @@ export function HelpSidebar({ pathname }: { pathname: string }) {
                   </div>
                 ))}
                 <Button asChild className="w-full">
-                  <Link to="/help" onClick={() => setOpen(false)}>Open Help Center</Link>
+                  <Link to={toPath("/help")} onClick={() => setOpen(false)}>Open Help Center</Link>
                 </Button>
               </CardContent>
             </Card>
