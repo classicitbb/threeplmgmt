@@ -342,6 +342,7 @@ function ShipmentExpiryPicker({
 
 export function ReceivingPage() {
   const navigate = useNavigate();
+  const { toPath } = useTenantPath();
   const queryClient = useQueryClient();
   const { online } = useNetworkStatus();
   const { roles, profile } = useAuth();
@@ -1081,7 +1082,7 @@ export function ReceivingPage() {
             <p className="text-xs text-green-700 dark:text-green-400">Put-Away task {lastResult.taskNumber} queued</p>
           </div>
           <div className="flex gap-2">
-            <Button size="sm" onClick={() => navigate("/putaway-tasks")}>Go to Put-Away</Button>
+            <Button size="sm" onClick={() => navigate(toPath("/putaway-tasks"))}>Go to Put-Away</Button>
             <Button size="sm" variant="ghost" onClick={() => setLastResult(null)}>x</Button>
           </div>
         </div>
