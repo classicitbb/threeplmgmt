@@ -199,6 +199,7 @@ import {
 
 export function InventorySearchPage() {
   const navigate = useNavigate();
+  const { toPath } = useTenantPath();
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const { roles, profile } = useAuth();
@@ -239,7 +240,7 @@ export function InventorySearchPage() {
   }
 
   function openInventoryDetail(balanceId: string) {
-    navigate(`/inventory/${balanceId}`);
+    navigate(toPath(`/inventory/${balanceId}`));
   }
 
   function prefetchInventoryDetail(balanceId: string) {
