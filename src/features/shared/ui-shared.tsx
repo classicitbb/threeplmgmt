@@ -3574,6 +3574,7 @@ export function WarehouseFloorMode({
   onHide: (id: string) => void;
   onRestore: (id: string) => void;
 }) {
+  const { toPath } = useTenantPath();
   const queuesByLabel = new Map(snapshot.floorQueues.map((queue) => [queue.label, queue]));
 
   return (
@@ -3757,7 +3758,7 @@ export function DockHandoffBoard({
                     <CardHeader className="pr-20">
                       <CardTitle className="flex items-center justify-between gap-2 capitalize">
                         <span>{status}</span>
-                        <Link to="/pick-lists" className="rounded-sm text-2xl transition hover:text-primary focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
+                        <Link to={toPath("/pick-lists")} className="rounded-sm text-2xl transition hover:text-primary focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
                           {formatNumber(laneLoads.length)}
                         </Link>
                       </CardTitle>
@@ -4126,6 +4127,7 @@ export function printDraftLabels(
 
 export function ReceivingPage() {
   const navigate = useNavigate();
+  const { toPath } = useTenantPath();
   const queryClient = useQueryClient();
   const online = useNetworkStatus();
   const { roles, profile } = useAuth();
@@ -4550,7 +4552,7 @@ export function ReceivingPage() {
             <p className="text-xs text-green-700 dark:text-green-400">Put-Away task {lastResult.taskNumber} queued</p>
           </div>
           <div className="flex gap-2">
-            <Button size="sm" onClick={() => navigate("/putaway-tasks")}>Go to Put-Away</Button>
+            <Button size="sm" onClick={() => navigate(toPath("/putaway-tasks"))}>Go to Put-Away</Button>
             <Button size="sm" variant="ghost" onClick={() => setLastResult(null)}>x</Button>
           </div>
         </div>
