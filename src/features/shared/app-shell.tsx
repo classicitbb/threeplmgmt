@@ -700,7 +700,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
                   )
                 }
-                to={item.to}
+                to={toPath(item.to)}
                 aria-label={item.label}
                 onMouseEnter={() => prefetchRouteData(item.to)}
                 onFocus={() => prefetchRouteData(item.to)}
