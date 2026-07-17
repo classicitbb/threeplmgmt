@@ -225,12 +225,44 @@ export type Database = {
         }
         Relationships: []
       }
+      cycle_count_assignees: {
+        Row: {
+          assigned_by: string | null
+          created_at: string
+          cycle_count_id: string
+          user_id: string
+        }
+        Insert: {
+          assigned_by?: string | null
+          created_at?: string
+          cycle_count_id: string
+          user_id: string
+        }
+        Update: {
+          assigned_by?: string | null
+          created_at?: string
+          cycle_count_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cycle_count_assignees_cycle_count_id_fkey"
+            columns: ["cycle_count_id"]
+            isOneToOne: false
+            referencedRelation: "cycle_counts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       cycle_count_lines: {
         Row: {
           adjustment_id: string | null
           approved_at: string | null
           approved_by: string | null
           assigned_user_id: string | null
+          claim_expires_at: string | null
+          claimed_at: string | null
+          claimed_by_user_id: string | null
           counted_quantity: number | null
           created_at: string
           created_by: string | null
@@ -259,6 +291,9 @@ export type Database = {
           approved_at?: string | null
           approved_by?: string | null
           assigned_user_id?: string | null
+          claim_expires_at?: string | null
+          claimed_at?: string | null
+          claimed_by_user_id?: string | null
           counted_quantity?: number | null
           created_at?: string
           created_by?: string | null
@@ -287,6 +322,9 @@ export type Database = {
           approved_at?: string | null
           approved_by?: string | null
           assigned_user_id?: string | null
+          claim_expires_at?: string | null
+          claimed_at?: string | null
+          claimed_by_user_id?: string | null
           counted_quantity?: number | null
           created_at?: string
           created_by?: string | null
@@ -424,7 +462,9 @@ export type Database = {
           id: string
           initiated_by: string | null
           location_id: string | null
+          location_ids: string[] | null
           notes: string | null
+          product_ids: string[] | null
           schedule_id: string | null
           scope: Database["public"]["Enums"]["count_scope"]
           snapshot_at: string | null
@@ -433,6 +473,7 @@ export type Database = {
           variance_threshold_percent: number
           warehouse_id: string
           zone_id: string | null
+          zone_ids: string[] | null
         }
         Insert: {
           archived_at?: string | null
@@ -445,7 +486,9 @@ export type Database = {
           id?: string
           initiated_by?: string | null
           location_id?: string | null
+          location_ids?: string[] | null
           notes?: string | null
+          product_ids?: string[] | null
           schedule_id?: string | null
           scope?: Database["public"]["Enums"]["count_scope"]
           snapshot_at?: string | null
@@ -454,6 +497,7 @@ export type Database = {
           variance_threshold_percent?: number
           warehouse_id: string
           zone_id?: string | null
+          zone_ids?: string[] | null
         }
         Update: {
           archived_at?: string | null
@@ -466,7 +510,9 @@ export type Database = {
           id?: string
           initiated_by?: string | null
           location_id?: string | null
+          location_ids?: string[] | null
           notes?: string | null
+          product_ids?: string[] | null
           schedule_id?: string | null
           scope?: Database["public"]["Enums"]["count_scope"]
           snapshot_at?: string | null
@@ -475,6 +521,7 @@ export type Database = {
           variance_threshold_percent?: number
           warehouse_id?: string
           zone_id?: string | null
+          zone_ids?: string[] | null
         }
         Relationships: [
           {
@@ -1983,11 +2030,15 @@ export type Database = {
           length: number | null
           lot_tracked: boolean
           max_stack_height: number | null
+          maximum_stock_level: number
+          minimum_stock_level: number
           name: string
+          pick_down_to_level: number
           product_family: string | null
           rotation_method: Database["public"]["Enums"]["rotation_method"]
           sku: string
           stackable: boolean
+          supplier_lead_time_days: number
           temperature_requirement: Database["public"]["Enums"]["temperature_class"]
           unit_cost: number | null
           updated_at: string
@@ -2010,11 +2061,15 @@ export type Database = {
           length?: number | null
           lot_tracked?: boolean
           max_stack_height?: number | null
+          maximum_stock_level?: number
+          minimum_stock_level?: number
           name: string
+          pick_down_to_level?: number
           product_family?: string | null
           rotation_method?: Database["public"]["Enums"]["rotation_method"]
           sku: string
           stackable?: boolean
+          supplier_lead_time_days?: number
           temperature_requirement?: Database["public"]["Enums"]["temperature_class"]
           unit_cost?: number | null
           updated_at?: string
@@ -2037,11 +2092,15 @@ export type Database = {
           length?: number | null
           lot_tracked?: boolean
           max_stack_height?: number | null
+          maximum_stock_level?: number
+          minimum_stock_level?: number
           name?: string
+          pick_down_to_level?: number
           product_family?: string | null
           rotation_method?: Database["public"]["Enums"]["rotation_method"]
           sku?: string
           stackable?: boolean
+          supplier_lead_time_days?: number
           temperature_requirement?: Database["public"]["Enums"]["temperature_class"]
           unit_cost?: number | null
           updated_at?: string
@@ -2419,6 +2478,96 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      reorder_alerts: {
+        Row: {
+          available_quantity: number
+          created_at: string
+          daily_demand: number
+          email_queued_at: string | null
+          id: string
+          product_id: string
+          projected_lead_demand: number
+          recommended_quantity: number
+          reorder_point: number
+          resolved_at: string | null
+          status: string
+          warehouse_id: string
+        }
+        Insert: {
+          available_quantity?: number
+          created_at?: string
+          daily_demand?: number
+          email_queued_at?: string | null
+          id?: string
+          product_id: string
+          projected_lead_demand?: number
+          recommended_quantity?: number
+          reorder_point?: number
+          resolved_at?: string | null
+          status?: string
+          warehouse_id: string
+        }
+        Update: {
+          available_quantity?: number
+          created_at?: string
+          daily_demand?: number
+          email_queued_at?: string | null
+          id?: string
+          product_id?: string
+          projected_lead_demand?: number
+          recommended_quantity?: number
+          reorder_point?: number
+          resolved_at?: string | null
+          status?: string
+          warehouse_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reorder_alerts_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reorder_alerts_warehouse_id_fkey"
+            columns: ["warehouse_id"]
+            isOneToOne: false
+            referencedRelation: "warehouses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      reorder_forecast_settings: {
+        Row: {
+          alert_threshold_percent: number
+          email_enabled: boolean
+          id: boolean
+          lookback_days: number
+          safety_lead_days: number
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          alert_threshold_percent?: number
+          email_enabled?: boolean
+          id?: boolean
+          lookback_days?: number
+          safety_lead_days?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          alert_threshold_percent?: number
+          email_enabled?: boolean
+          id?: boolean
+          lookback_days?: number
+          safety_lead_days?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
       }
       replenishment_tasks: {
         Row: {
@@ -3017,6 +3166,35 @@ export type Database = {
           },
         ]
       }
+      user_mobile_toolbar_preferences: {
+        Row: {
+          created_at: string
+          module_keys: Json
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          module_keys?: Json
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          module_keys?: Json
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_mobile_toolbar_preferences_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_roles: {
         Row: {
           assigned_by: string | null
@@ -3352,6 +3530,10 @@ export type Database = {
         }
         Returns: string
       }
+      admin_sign_out_all_sessions: {
+        Args: { in_user_id: string }
+        Returns: undefined
+      }
       admin_update_user_password: {
         Args: { in_password: string; in_user_id: string }
         Returns: undefined
@@ -3361,6 +3543,10 @@ export type Database = {
         | { Args: { in_pin: string; in_user_id: string }; Returns: undefined }
       assert_location_not_frozen: {
         Args: { in_location_id: string; in_pallet_id?: string }
+        Returns: undefined
+      }
+      claim_cycle_count_line: {
+        Args: { p_line_id: string }
         Returns: undefined
       }
       delete_client_cascade: { Args: { in_id: string }; Returns: Json }
@@ -3385,6 +3571,10 @@ export type Database = {
       enqueue_email: {
         Args: { payload: Json; queue_name: string }
         Returns: number
+      }
+      evaluate_reorder_alert: {
+        Args: { in_product_id: string; in_warehouse_id: string }
+        Returns: undefined
       }
       has_any_role: {
         Args: { _roles: Database["public"]["Enums"]["app_role_code"][] }
@@ -3425,6 +3615,11 @@ export type Database = {
           msg_id: number
           read_ct: number
         }[]
+      }
+      refresh_reorder_alerts: { Args: never; Returns: undefined }
+      release_cycle_count_line_claim: {
+        Args: { p_line_id: string }
+        Returns: undefined
       }
       reset_wms_data: { Args: never; Returns: Json }
       write_system_log: {
