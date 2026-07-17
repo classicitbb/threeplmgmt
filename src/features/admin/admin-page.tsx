@@ -28,6 +28,7 @@ import { toast } from "sonner";
 import { z } from "zod";
 
 import { useAuth } from "@/hooks/use-auth";
+import { useTenantPath } from "@/hooks/use-tenant-path";
 import { MAX_TOOLBAR_MODULES, useFeatureFlags, MODULE_LABELS, STARTER_MODULES, type ModuleKey } from "@/hooks/use-feature-flags";
 import { assertOnline, useNetworkStatus } from "@/hooks/use-network-status";
 import {
@@ -1201,6 +1202,7 @@ function ModulesSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
 
 export function SettingsPage() {
   const { roles } = useAuth();
+  const { toPath } = useTenantPath();
   const { isEnabled } = useFeatureFlags();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -1231,7 +1233,7 @@ export function SettingsPage() {
         0;
       toast.success(`Reset complete. Removed ${removed} user account${removed === 1 ? "" : "s"}.`);
       await invalidateWarehouseData(queryClient);
-      navigate("/setup-wizard");
+      navigate(toPath("/setup-wizard"));
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Reset failed"),
   });
@@ -1306,10 +1308,10 @@ export function SettingsPage() {
               <p>3. Demo operational data (clients, products, pallets, receipts) is opt-in for developers only on the final step.</p>
               <div className="flex flex-wrap gap-2 pt-2">
                 <Button asChild>
-                  <Link to="/setup-wizard">Open warehouse setup wizard</Link>
+                  <Link to={toPath("/setup-wizard")}>Open warehouse setup wizard</Link>
                 </Button>
                 <Button variant="outline" asChild>
-                  <Link to="/system-log">View system log</Link>
+                  <Link to={toPath("/system-log")}>View system log</Link>
                 </Button>
                 <Button variant="destructive" onClick={() => { setResetChallenge(""); setResetOpen(true); }} disabled={resetMutation.isPending || !isDeveloperOrAdmin}>
                   {resetMutation.isPending ? <Loader2 className="animate-spin" /> : <RotateCcw data-icon="inline-start" />}
