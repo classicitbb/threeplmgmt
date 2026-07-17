@@ -20,6 +20,7 @@ import {
 import { setupWizardSteps } from "@/lib/help-content";
 import { invalidateWarehouseData } from "@/lib/query-invalidation";
 import { useAuth } from "@/hooks/use-auth";
+import { useTenantPath } from "@/hooks/use-tenant-path";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
@@ -68,6 +69,7 @@ function StepIndicator({ step, current }: { step: number; current: number }) {
 
 export default function SetupWizardPage() {
   const navigate = useNavigate();
+  const { toPath } = useTenantPath();
   const queryClient = useQueryClient();
   const { roles } = useAuth();
   const isDeveloper = roles.includes("developer");
@@ -94,7 +96,7 @@ export default function SetupWizardPage() {
     onSuccess: async () => {
       toast.success(seedDemoData ? "Warehouse structure created and demo data seeded." : "Warehouse structure created.");
       await invalidateWarehouseData(queryClient);
-      navigate("/warehouses");
+      navigate(toPath("/warehouses"));
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Setup failed"),
   });
