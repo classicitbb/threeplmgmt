@@ -3732,6 +3732,7 @@ export function DockHandoffBoard({
   onHide: (id: string) => void;
   onRestore: (id: string) => void;
 }) {
+  const { toPath } = useTenantPath();
   return (
     <div className="grid gap-3">
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
