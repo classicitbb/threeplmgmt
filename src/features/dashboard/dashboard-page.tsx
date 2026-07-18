@@ -462,14 +462,16 @@ export function DashboardPage() {
       </div>
 
       {reorderAlerts.length > 0 ? (
-        <Card className="shrink-0 border-amber-500/50 bg-amber-50/60 dark:bg-amber-950/20">
+        <Card className="shrink-0 border-2 border-amber-500 bg-amber-100 shadow-sm dark:border-amber-500 dark:bg-amber-950/50">
           <CardContent className="flex flex-wrap items-center justify-between gap-3 py-3">
             <div className="flex items-center gap-2">
-              <AlertTriangle className="h-4 w-4 text-amber-600" />
-              <span className="font-medium">{reorderAlerts.length} active reorder alert{reorderAlerts.length === 1 ? "" : "s"}</span>
-              <span className="text-sm text-muted-foreground">Forecasts use completed outbound picks and supplier lead time.</span>
+              <AlertTriangle className="h-5 w-5 shrink-0 text-amber-700 dark:text-amber-400" />
+              <span className="font-semibold text-amber-900 dark:text-amber-100">{reorderAlerts.length} active reorder alert{reorderAlerts.length === 1 ? "" : "s"}</span>
+              <span className="text-sm text-amber-800/90 dark:text-amber-200/80">Forecasts use completed outbound picks and supplier lead time.</span>
             </div>
-            <Button asChild size="sm" variant="outline"><Link to={toPath("/products")}>View products</Link></Button>
+            <Button asChild size="sm" variant="default" className="bg-amber-600 text-white hover:bg-amber-700 dark:bg-amber-600 dark:hover:bg-amber-700">
+              <Link to={toPath("/products")}>View products</Link>
+            </Button>
           </CardContent>
         </Card>
       ) : null}
