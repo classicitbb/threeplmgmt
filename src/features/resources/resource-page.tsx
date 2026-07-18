@@ -6,7 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm, type UseFormReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { supabase } from "@/integrations/supabase/client";
-import { Activity, AlertCircle, AlertTriangle, ArrowLeftRight, BarChart3, Bot, Boxes, Building2, CheckCircle2, ChevronDown, ClipboardCheck, ClipboardList, CloudOff, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, HelpCircle, Home, Info, KeyRound, LayoutDashboard, Loader2, Lock, LockOpen, LogOut, Mail, Maximize2, MapPinned, Menu, Minimize2, Network, Package, PackageX, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, QrCode, RadioTower, RefreshCw, RotateCcw, Search, Settings, ShieldCheck, Star, Tags, Trash2, Truck, Upload, UserPlus, Users } from "lucide-react";
+import { Activity, AlertCircle, AlertTriangle, ArrowLeftRight, BarChart3, Bot, Boxes, Building2, CheckCircle2, ChevronDown, ClipboardCheck, ClipboardList, CloudOff, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, HelpCircle, Home, Info, KeyRound, LayoutDashboard, Loader2, Lock, LockOpen, LogOut, Mail, Maximize2, MapPinned, Menu, Minimize2, Network, Package, PackageX, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, QrCode, RadioTower, RefreshCw, RotateCcw, Search, Settings, ShieldCheck, Star, Tags, Trash2, Truck, Upload, UserPlus, Users, X } from "lucide-react";
 import {
   DndContext,
   KeyboardSensor,
@@ -260,6 +260,7 @@ export function ResourcePage({
   const hasTrailingLabelColumn = ["warehouses", "zones"].includes(resource.table);
   const extraColumnCount = (resource.supportsHide ? 1 : 0) + (hasTrailingLabelColumn ? 1 : 0) + 1 + (resource.table === "products" ? 1 : 0);
   const isProducts = resource.table === "products";
+  const isLocations = resource.table === "locations";
   const { data: reorderAlerts = [] } = useQuery({
     queryKey: ["reorder-alerts"],
     enabled: isProducts,
@@ -273,6 +274,41 @@ export function ResourcePage({
     },
     refetchInterval: 30_000,
   });
+  // Dismissing this onscreen banner only hides it for the current tab session —
+  // the alert stays visible in the header notification bell (ReorderAlertsNotificationBell)
+  // until it actually resolves.
+  const [dismissedReorderAlertIds, setDismissedReorderAlertIds] = useState<string[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      return JSON.parse(window.sessionStorage.getItem("warehouseWizard.reorderAlerts.dismissedOnscreen") ?? "[]");
+    } catch {
+      return [];
+    }
+  });
+  const visibleReorderAlerts = useMemo(
+    () => reorderAlerts.filter((alert) => !dismissedReorderAlertIds.includes(alert.id)),
+    [reorderAlerts, dismissedReorderAlertIds],
+  );
+  function dismissReorderAlert(id: string) {
+    setDismissedReorderAlertIds((prev) => {
+      const next = Array.from(new Set([...prev, id]));
+      try {
+        window.sessionStorage.setItem("warehouseWizard.reorderAlerts.dismissedOnscreen", JSON.stringify(next));
+      } catch {
+        // ignore storage failures — worst case the banner reappears
+      }
+      return next;
+    });
+  }
+  function dismissAllReorderAlerts() {
+    const next = Array.from(new Set([...dismissedReorderAlertIds, ...reorderAlerts.map((alert) => alert.id)]));
+    setDismissedReorderAlertIds(next);
+    try {
+      window.sessionStorage.setItem("warehouseWizard.reorderAlerts.dismissedOnscreen", JSON.stringify(next));
+    } catch {
+      // ignore storage failures — worst case the banner reappears
+    }
+  }
   const { data: productQtyRows = [] } = useQuery({
     queryKey: ["product-qty-totals"],
     enabled: isProducts,
@@ -623,17 +659,39 @@ export function ResourcePage({
         </div>
       </div>
 
-      {isProducts && reorderAlerts.length > 0 ? (
+      {isProducts && visibleReorderAlerts.length > 0 ? (
         <Card className="border-2 border-amber-500 bg-amber-100 shadow-sm dark:border-amber-500 dark:bg-amber-950/50">
-          <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2 text-base text-amber-900 dark:text-amber-100"><AlertTriangle className="h-5 w-5 shrink-0 text-amber-700 dark:text-amber-400" />Reorder alerts ({reorderAlerts.length})</CardTitle>
-            <CardDescription className="text-amber-800/90 dark:text-amber-200/80">Each alert is sent once when a product enters the reorder state and resets after stock recovers.</CardDescription>
+          <CardHeader className="flex-row items-start justify-between gap-2 pb-2 space-y-0">
+            <div>
+              <CardTitle className="flex items-center gap-2 text-base text-amber-900 dark:text-amber-100"><AlertTriangle className="h-5 w-5 shrink-0 text-amber-700 dark:text-amber-400" />Reorder alerts ({visibleReorderAlerts.length})</CardTitle>
+              <CardDescription className="text-amber-800/90 dark:text-amber-200/80">Each alert is sent once when a product enters the reorder state and resets after stock recovers. Dismissing hides it here only — it stays in the notification bell.</CardDescription>
+            </div>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 shrink-0 px-2 text-xs text-amber-900 hover:bg-amber-500/20 dark:text-amber-100"
+              onClick={dismissAllReorderAlerts}
+            >
+              Dismiss all
+            </Button>
           </CardHeader>
           <CardContent className="grid gap-2">
-            {reorderAlerts.slice(0, 5).map((alert) => (
-              <div key={alert.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-500/40 bg-background px-3 py-2 text-sm">
-                <span className="font-medium">{alert.products?.sku ?? "Product"} — {alert.products?.name ?? "Unknown product"}</span>
-                <span className="text-muted-foreground">{alert.warehouses?.code ?? alert.warehouses?.name ?? "Warehouse"} · {Number(alert.available_quantity ?? 0)} available · replenish {Number(alert.recommended_quantity ?? 0)}</span>
+            {visibleReorderAlerts.slice(0, 5).map((alert) => (
+              <div key={alert.id} className="flex items-center justify-between gap-2 rounded-md border border-amber-500/40 bg-background px-3 py-2 text-sm">
+                <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
+                  <span className="font-medium">{alert.products?.sku ?? "Product"} — {alert.products?.name ?? "Unknown product"}</span>
+                  <span className="text-muted-foreground">{alert.warehouses?.code ?? alert.warehouses?.name ?? "Warehouse"} · {Number(alert.available_quantity ?? 0)} available · replenish {Number(alert.recommended_quantity ?? 0)}</span>
+                </div>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-6 w-6 shrink-0 text-muted-foreground hover:text-foreground"
+                  aria-label="Dismiss this reorder alert"
+                  title="Dismiss"
+                  onClick={() => dismissReorderAlert(alert.id)}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </Button>
               </div>
             ))}
           </CardContent>
@@ -669,17 +727,17 @@ export function ResourcePage({
                   {tableFields.map((field) => (
                     <Fragment key={field.name}>
                       {resource.table === "locations" && field.name === "max_pallets" ? (
-                        <TableHead className="w-28">Label</TableHead>
+                        <TableHead className={cn("w-20", isLocations && "h-7 px-2 py-1 text-xs")}>Label</TableHead>
                       ) : null}
-                      <TableHead>{field.label}</TableHead>
+                      <TableHead className={cn(isLocations && "h-7 px-2 py-1 text-xs")}>{field.label}</TableHead>
                       {isProducts && field.name === "name" ? (
                         <TableHead className="w-20 text-right">Qty</TableHead>
                       ) : null}
                     </Fragment>
                   ))}
                   {hasTrailingLabelColumn ? <TableHead className="w-28">Label</TableHead> : null}
-                  {resource.supportsHide ? <TableHead className="w-32">Visibility</TableHead> : null}
-                  <TableHead className="w-16" />
+                  {resource.supportsHide ? <TableHead className={cn("w-32", isLocations && "h-7 px-2 py-1 text-xs")}>Visibility</TableHead> : null}
+                  <TableHead className={cn("w-16", isLocations && "h-7 px-2 py-1")} />
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -742,12 +800,16 @@ export function ResourcePage({
                         } else {
                           displayValue = String(rawValue);
                         }
-                        const productDenseCellClass = isProducts ? "px-4 py-1 text-xs leading-tight" : undefined;
-                        const cell = <TableCell key={field.name} className={productDenseCellClass}>{displayValue}</TableCell>;
+                        const denseCellClass = isProducts
+                          ? "px-4 py-1 text-xs leading-tight"
+                          : isLocations
+                          ? "px-2 py-1 text-xs leading-tight"
+                          : undefined;
+                        const cell = <TableCell key={field.name} className={denseCellClass}>{displayValue}</TableCell>;
                         if (resource.table === "locations" && field.name === "max_pallets") {
                           return (
                             <Fragment key={field.name}>
-                              <TableCell className="w-28">
+                              <TableCell className="w-20 px-2 py-1">
                                 <LocationLabelPage
                                   code={String((row as Record<string, unknown>).code ?? "")}
                                   aisle={(row as Record<string, unknown>).aisle as string | null}
@@ -759,6 +821,17 @@ export function ResourcePage({
                                   zoneCode={zoneInfoMap.get(String((row as Record<string, unknown>).zone_id))?.code}
                                   warehouseName={warehouseInfoMap.get(String((row as Record<string, unknown>).warehouse_id))?.name}
                                   zoneName={zoneInfoMap.get(String((row as Record<string, unknown>).zone_id))?.name}
+                                  trigger={
+                                    <Button
+                                      size="icon"
+                                      variant="outline"
+                                      className="h-6 w-6"
+                                      aria-label="Print location label"
+                                      title="Print location label"
+                                    >
+                                      <Printer className="h-3.5 w-3.5" />
+                                    </Button>
+                                  }
                                 />
                               </TableCell>
                               {cell}
@@ -807,7 +880,7 @@ export function ResourcePage({
                         </TableCell>
                       ) : null}
                       {resource.supportsHide ? (
-                        <TableCell className={isProducts ? "px-4 py-1" : undefined}>
+                        <TableCell className={cn(isProducts && "px-4 py-1", isLocations && "px-2 py-1")}>
                           {(() => {
                             const record = row as Record<string, unknown>;
                             const isArchived = resource.archiveField === "active"
@@ -818,7 +891,7 @@ export function ResourcePage({
                           <Button
                             size="sm"
                             variant="ghost"
-                            className={isProducts ? "h-6 px-2 text-xs" : undefined}
+                            className={cn(isProducts && "h-6 px-2 text-xs", isLocations && "h-6 px-2 text-xs")}
                             onClick={async (e) => {
                               e.stopPropagation();
                               try {
@@ -841,26 +914,26 @@ export function ResourcePage({
                           })()}
                         </TableCell>
                       ) : null}
-                      <TableCell className={isProducts ? "px-4 py-1" : undefined}>
+                      <TableCell className={cn(isProducts && "px-4 py-1", isLocations && "px-2 py-1")}>
                         <div className="flex items-center justify-end gap-1">
                           <Button
                             size="sm"
                             variant="ghost"
-                            className={cn("h-7 w-7 p-0", isProducts && "h-6 w-6")}
+                            className={cn("h-7 w-7 p-0", (isProducts || isLocations) && "h-6 w-6")}
                             onClick={(e) => { e.stopPropagation(); setEditRecord(row as Record<string, unknown>); }}
                             title={`Edit ${resource.singular}`}
                           >
-                            <Pencil className={cn("h-3.5 w-3.5", isProducts && "h-3 w-3")} />
+                            <Pencil className={cn("h-3.5 w-3.5", (isProducts || isLocations) && "h-3 w-3")} />
                           </Button>
                           {cascadeSupported && canHardDelete ? (
                             <Button
                               size="sm"
                               variant="ghost"
-                              className={cn("h-7 w-7 p-0 text-destructive hover:text-destructive", isProducts && "h-6 w-6")}
+                              className={cn("h-7 w-7 p-0 text-destructive hover:text-destructive", (isProducts || isLocations) && "h-6 w-6")}
                               onClick={(e) => { e.stopPropagation(); setDeleteBlockers(null); setDeleteChallenge(""); setDeleteRecord(row as Record<string, unknown>); }}
                               title={`Delete ${resource.singular} permanently`}
                             >
-                              <Trash2 className={cn("h-3.5 w-3.5", isProducts && "h-3 w-3")} />
+                              <Trash2 className={cn("h-3.5 w-3.5", (isProducts || isLocations) && "h-3 w-3")} />
                             </Button>
                           ) : null}
                         </div>

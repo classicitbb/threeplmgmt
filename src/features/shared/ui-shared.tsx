@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm, type UseFormReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { supabase } from "@/integrations/supabase/client";
-import { Activity, AlertCircle, AlertTriangle, ArrowLeftRight, BarChart3, Bot, Boxes, Building2, CheckCircle2, ChevronDown, ClipboardCheck, ClipboardList, CloudOff, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, HelpCircle, Home, Info, KeyRound, LayoutDashboard, Loader2, Lock, LockOpen, LogOut, Mail, Maximize2, MapPinned, Menu, Minimize2, Network, Package, PackageX, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, QrCode, RadioTower, RefreshCw, RotateCcw, Search, Settings, ShieldCheck, Star, Tags, Trash2, Truck, Upload, UserPlus, Users } from "lucide-react";
+import { Activity, AlertCircle, AlertTriangle, ArrowLeftRight, BarChart3, Bell, Bot, Boxes, Building2, CheckCircle2, ChevronDown, ClipboardCheck, ClipboardList, CloudOff, Download, Eye, EyeOff, FileDown, Forklift, GripVertical, HelpCircle, Home, Info, KeyRound, LayoutDashboard, Loader2, Lock, LockOpen, LogOut, Mail, Maximize2, MapPinned, Menu, Minimize2, Network, Package, PackageX, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Printer, QrCode, RadioTower, RefreshCw, RotateCcw, Search, Settings, ShieldCheck, Star, Tags, Trash2, Truck, Upload, UserPlus, Users } from "lucide-react";
 import {
   DndContext,
   KeyboardSensor,
@@ -42,6 +42,7 @@ import {
   type FailedWorkItem,
 } from "@/lib/offline-queue";
 import { useBackgroundSync } from "@/hooks/use-background-sync";
+import { useNotificationPermission } from "@/hooks/use-notification-permission";
 import {
   NAVIGATION,
   ROLE_LABELS,
@@ -1805,6 +1806,80 @@ export function AccessRequestsBanner() {
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+const NOTIFICATION_PROMPT_DISMISSED_SESSION_KEY = "warehouseWizard.notificationPrompt.dismissed";
+
+/**
+ * Soft, dismissible ask for browser notification permission — this is the
+ * first of the two prompts. Clicking "Enable notifications" triggers the
+ * real native browser permission popup (the second, unskippable prompt).
+ * Browsers only allow that native popup to fire from a genuine user
+ * gesture, so we can't skip straight to it; the banner is what gives the
+ * click its context. Dismissing only suppresses it for the current session
+ * (sessionStorage) — if the user still hasn't decided, it reappears next
+ * session rather than nagging on every page within one.
+ */
+export function ReorderAlertNotificationPrompt() {
+  const { supported, permission, requestPermission } = useNotificationPermission();
+  const [dismissed, setDismissed] = useState(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return window.sessionStorage.getItem(NOTIFICATION_PROMPT_DISMISSED_SESSION_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const [requesting, setRequesting] = useState(false);
+
+  function dismiss() {
+    setDismissed(true);
+    try {
+      window.sessionStorage.setItem(NOTIFICATION_PROMPT_DISMISSED_SESSION_KEY, "1");
+    } catch {
+      // ignore storage failures — worst case the banner reappears
+    }
+  }
+
+  async function handleEnable() {
+    setRequesting(true);
+    try {
+      const result = await requestPermission();
+      if (result === "granted") {
+        toast.success("Notifications enabled — you'll get an alert when a product enters the reorder state.");
+      } else if (result === "denied") {
+        toast.message("Notifications blocked. You can turn them back on from your browser's site settings.");
+      }
+    } finally {
+      setRequesting(false);
+      dismiss();
+    }
+  }
+
+  if (!supported || permission !== "default" || dismissed) return null;
+
+  return (
+    <div className="fixed bottom-20 right-4 z-40 w-[min(22rem,calc(100vw-2rem))] lg:landscape:bottom-4">
+      <Card className="border-primary/40 shadow-lg">
+        <CardContent className="flex items-start gap-3 p-3.5">
+          <Bell className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium">Get notified about reorder alerts</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Turn on browser notifications to hear about low-stock products as soon as they enter the reorder state.
+            </p>
+            <div className="mt-2.5 flex gap-2">
+              <Button size="sm" disabled={requesting} onClick={() => void handleEnable()}>
+                {requesting ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
+                Enable notifications
+              </Button>
+              <Button size="sm" variant="ghost" onClick={dismiss}>Not now</Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
   );
 }
 

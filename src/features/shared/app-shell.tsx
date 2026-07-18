@@ -32,6 +32,8 @@ import { useTenantPath } from "@/hooks/use-tenant-path";
 import { useFeatureFlags, MODULE_LABELS, STARTER_MODULES, type ModuleKey } from "@/hooks/use-feature-flags";
 import { useNetworkStatus } from "@/hooks/use-network-status";
 import { useBackgroundSync } from "@/hooks/use-background-sync";
+import { useNotificationPermission } from "@/hooks/use-notification-permission";
+import { useReorderAlertNotifications } from "@/hooks/use-reorder-alert-notifications";
 import { isActiveWorkInProgress } from "@/lib/active-work";
 import {
   NAVIGATION,
@@ -186,6 +188,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import {
   FailedTasksReminder,
   AccessRequestsBanner,
+  ReorderAlertNotificationPrompt,
   navIcons,
   appTitle,
   ChangeOwnPasswordDialog,
@@ -203,6 +206,15 @@ type OfflineSupervisorAlert = {
   created_at: string;
   source: string | null;
   details?: Record<string, unknown> | null;
+};
+
+type ReorderAlertBellRow = {
+  id: string;
+  available_quantity: number | null;
+  recommended_quantity: number | null;
+  created_at: string;
+  products?: { sku: string | null; name: string | null } | null;
+  warehouses?: { code: string | null; name: string | null } | null;
 };
 
 function readOfflineAlertSession() {
@@ -369,6 +381,51 @@ function RfOfflineNotificationBell({ alerts, offline }: { alerts: OfflineSupervi
   );
 }
 
+function ReorderAlertsNotificationBell({ alerts }: { alerts: ReorderAlertBellRow[] }) {
+  const count = alerts.length;
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          className="relative h-9 w-9"
+          size="icon"
+          variant="outline"
+          aria-label={count ? `${count} reorder alert${count === 1 ? "" : "s"}` : "Reorder alerts"}
+          title="Reorder alerts"
+        >
+          <Bell className="h-4 w-4" />
+          {count ? (
+            <span className="absolute -right-1 -top-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[9px] font-semibold leading-none text-white">
+              {count > 9 ? "9+" : count}
+            </span>
+          ) : null}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-[min(22rem,calc(100vw-1.5rem))] p-0">
+        <div className="border-b border-border px-3 py-2">
+          <p className="text-sm font-semibold">Reorder alerts</p>
+          <p className="text-xs text-muted-foreground">Products that have entered the reorder state</p>
+        </div>
+        {count === 0 ? (
+          <p className="px-3 py-4 text-sm text-muted-foreground">No active reorder alerts.</p>
+        ) : (
+          <div className="max-h-80 overflow-y-auto p-1">
+            {alerts.map((alert) => (
+              <div key={alert.id} className="rounded-md px-3 py-2 text-sm hover:bg-accent">
+                <p className="font-medium">{alert.products?.sku ?? "Product"}{alert.products?.name ? ` — ${alert.products.name}` : ""}</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  {alert.warehouses?.code ?? alert.warehouses?.name ?? "Warehouse"} · {Number(alert.available_quantity ?? 0)} available · replenish {Number(alert.recommended_quantity ?? 0)}
+                </p>
+                <p className="mt-1 text-[11px] text-muted-foreground">{new Date(alert.created_at).toLocaleString()}</p>
+              </div>
+            ))}
+          </div>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 function OfflineFreezeBadge({ compact = false }: { compact?: boolean }) {
   const { online } = useNetworkStatus();
   if (online) return null;
@@ -466,6 +523,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const canAcknowledgeOfflineAlerts = roles.some((role) =>
     ["developer", "admin", "warehouse_manager", "warehouse_supervisor"].includes(role),
   );
+  // Same eligible-recipient set as the reorder-alert emails (see
+  // ReorderForecastSettingsPanel) — admins and warehouse managers/supervisors.
+  const canReceiveReorderNotifications = roles.some((role) =>
+    ["developer", "admin", "warehouse_manager", "warehouse_supervisor"].includes(role),
+  );
+  const { permission: notificationPermission } = useNotificationPermission();
+  useReorderAlertNotifications(canReceiveReorderNotifications && notificationPermission === "granted");
   const { data: headerOptions } = useQuery({
     queryKey: ["header-warehouse-options", canSwitchWarehouses],
     queryFn: () => fetchOptions(false),
@@ -480,6 +544,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     enabled: canAcknowledgeOfflineAlerts && online,
     staleTime: 5_000,
     refetchInterval: 15_000,
+    meta: { suppressGlobalError: true },
+  });
+  const { data: reorderAlertsForBell = [] } = useQuery<ReorderAlertBellRow[]>({
+    queryKey: ["reorder-alerts", "notification-bell"],
+    queryFn: async () => {
+      const { data, error } = await (supabase.from as any)("reorder_alerts")
+        .select("id, available_quantity, recommended_quantity, created_at, products(sku, name), warehouses(code, name)")
+        .eq("status", "active")
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as ReorderAlertBellRow[];
+    },
+    enabled: canReceiveReorderNotifications,
+    refetchInterval: 30_000,
     meta: { suppressGlobalError: true },
   });
   const selectedWarehouseValue = profile?.default_warehouse_id ?? (canSelectAllWarehouses ? "__all__" : "");
@@ -791,6 +869,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
             <OfflineFreezeBadge compact />
             <RfOfflineNotificationBell alerts={offlineSupervisorAlerts} offline={connectionConfirmed && !online} />
+            {canReceiveReorderNotifications ? <ReorderAlertsNotificationBell alerts={reorderAlertsForBell} /> : null}
             <HelpSidebar pathname={pathname} />
             <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
               <SheetTrigger asChild>
@@ -892,6 +971,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <HelpSidebar pathname={pathname} />
               <OfflineFreezeBadge />
               <RfOfflineNotificationBell alerts={offlineSupervisorAlerts} offline={connectionConfirmed && !online} />
+              {canReceiveReorderNotifications ? <ReorderAlertsNotificationBell alerts={reorderAlertsForBell} /> : null}
               <ProfileMenu initials={initials} displayName={displayName} onSignOut={() => void signOut()} onRefresh={() => window.location.reload()} />
             </div>
           </div>
@@ -922,6 +1002,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </div>
       <AccessRequestsBanner />
       <FailedTasksReminder />
+      {canReceiveReorderNotifications ? <ReorderAlertNotificationPrompt /> : null}
       <MobileActionBar items={items} pathname={pathname} routeBadgeCounts={routeBadgeCounts} getNavBadgeLabel={getNavBadgeLabel} />
     </div>
   );
