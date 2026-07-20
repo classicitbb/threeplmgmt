@@ -148,6 +148,70 @@ export function mapNetSuiteItemToProduct(payload: NetSuiteItemPayload): MappedPr
   };
 }
 
+/**
+ * Match-by-SKU upsert into `products` plus the `external_record_links` row
+ * linking it back to the NetSuite item. Shared by the inbound webhook's
+ * `item` flow and the Settings "import selected products" picker so the
+ * two entry points can't drift out of sync.
+ */
+export async function upsertProductFromNetSuiteItem(
+  // deno-lint-ignore no-explicit-any
+  service: any,
+  mapped: MappedProductPayload,
+  fallbackExternalId: string,
+): Promise<{ localProductId: string }> {
+  const { data: existingProduct } = await service
+    .from("products")
+    .select("id")
+    .eq("sku", mapped.sku)
+    .maybeSingle();
+
+  const productRow = {
+    sku: mapped.sku,
+    name: mapped.name,
+    barcode: mapped.barcode,
+    temperature_requirement: mapped.temperature_requirement as "ambient" | "cool" | "frozen",
+    lot_tracked: mapped.lot_tracked,
+    expiry_tracked: mapped.expiry_tracked,
+    batch_tracked: mapped.batch_tracked,
+    rotation_method: mapped.rotation_method as "fifo" | "fefo" | "lifo",
+    active: mapped.active,
+  };
+
+  let localProductId: string;
+  if (existingProduct?.id) {
+    localProductId = existingProduct.id;
+    const { error: updateErr } = await service
+      .from("products")
+      .update(productRow)
+      .eq("id", existingProduct.id);
+    if (updateErr) throw updateErr;
+  } else {
+    const { data: inserted, error: insertProductErr } = await service
+      .from("products")
+      .insert(productRow)
+      .select("id")
+      .single();
+    if (insertProductErr || !inserted) throw insertProductErr ?? new Error("Product insert failed");
+    localProductId = inserted.id;
+  }
+
+  // Unique key on external_record_links is (system, local_table, local_id, external_record_type).
+  await service.from("external_record_links").upsert(
+    {
+      system: "netsuite",
+      local_table: "products",
+      local_id: localProductId,
+      external_record_type: "item",
+      external_id: mapped.external_id || fallbackExternalId,
+      last_synced_at: new Date().toISOString(),
+    },
+    { onConflict: "system,local_table,local_id,external_record_type" },
+  );
+
+  return { localProductId };
+}
+
 /** Constant-time byte comparison for shared secrets. */
 export function timingSafeEqual(a: string, b: string): boolean {
   const enc = new TextEncoder();

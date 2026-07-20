@@ -1,4 +1,5 @@
 import { createClient } from 'npm:@supabase/supabase-js@2'
+import { mapNetSuiteItemToProduct, upsertProductFromNetSuiteItem, type NetSuiteItemPayload } from '../_shared/netsuite.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -70,7 +71,7 @@ Deno.serve(async (req) => {
   }
 
   let body: {
-    action?: 'save' | 'test' | 'status' | 'list_items'
+    action?: 'save' | 'test' | 'status' | 'list_items' | 'import_items'
     accountId?: string
     clientId?: string
     clientSecret?: string
@@ -79,6 +80,7 @@ Deno.serve(async (req) => {
     search?: string
     limit?: number
     offset?: number
+    items?: Array<{ externalId?: string; itemId?: string; displayName?: string; upcCode?: string; active?: boolean }>
   }
   try {
     body = await req.json()
@@ -329,6 +331,51 @@ Deno.serve(async (req) => {
         alreadyImported: linkedIds.has(String(r.id ?? '')),
       }))
       return json({ items, hasMore: Boolean(payload?.hasMore), limit, offset })
+    }
+
+    if (action === 'import_items') {
+      const items = Array.isArray(body.items) ? body.items : []
+      if (items.length === 0) {
+        return json({ error: 'No items provided' }, 400)
+      }
+      if (items.length > 100) {
+        return json({ error: 'Import at most 100 items at a time' }, 400)
+      }
+
+      // Deliberately does NOT re-query NetSuite for each item — uses the
+      // fields already returned by list_items (id, itemId, displayName,
+      // upcCode, active) that the picker UI selected from. This avoids a
+      // second NetSuite round-trip and any risk of guessing at custom field
+      // internal IDs (custitem_temperature_class etc.) that vary per
+      // NetSuite account; mapNetSuiteItemToProduct already degrades
+      // gracefully to keyword categorisation when those aren't present.
+      const results: Array<{ externalId: string; ok: boolean; sku?: string; error?: string }> = []
+
+      for (const item of items) {
+        const externalId = (item.externalId ?? '').trim()
+        const itemId = (item.itemId ?? '').trim()
+        if (!externalId || !itemId) {
+          results.push({ externalId: externalId || '(missing)', ok: false, error: 'Missing externalId or itemId' })
+          continue
+        }
+        try {
+          const payload: NetSuiteItemPayload = {
+            id: externalId,
+            itemId,
+            displayName: item.displayName || undefined,
+            upcCode: item.upcCode || undefined,
+            isInactive: item.active === false,
+          }
+          const mapped = mapNetSuiteItemToProduct(payload)
+          await upsertProductFromNetSuiteItem(admin, mapped, externalId)
+          results.push({ externalId, ok: true, sku: mapped.sku })
+        } catch (err) {
+          results.push({ externalId, ok: false, error: err instanceof Error ? err.message : String(err) })
+        }
+      }
+
+      const succeeded = results.filter((r) => r.ok).length
+      return json({ ok: true, succeeded, failed: results.length - succeeded, results })
     }
 
     return json({ error: 'Unknown action' }, 400)

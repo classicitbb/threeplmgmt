@@ -1499,6 +1499,188 @@ function NetSuiteWarehouseMappingCard() {
   );
 }
 
+type NetSuiteListedItem = {
+  externalId: string;
+  itemId: string;
+  displayName: string;
+  upcCode: string;
+  active: boolean;
+  alreadyImported: boolean;
+};
+
+function NetSuiteImportCard() {
+  const [search, setSearch] = useState("");
+  const [searchInput, setSearchInput] = useState("");
+  const [offset, setOffset] = useState(0);
+  const [items, setItems] = useState<NetSuiteListedItem[]>([]);
+  const [hasMore, setHasMore] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [selected, setSelected] = useState<Record<string, NetSuiteListedItem>>({});
+  const limit = 25;
+
+  const fetchItems = useCallback(async (nextOffset: number, nextSearch: string) => {
+    setLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("netsuite-connection", {
+        body: { action: "list_items", search: nextSearch || undefined, limit, offset: nextOffset },
+      });
+      if (error) throw error;
+      const result = data as { items?: NetSuiteListedItem[]; hasMore?: boolean; error?: string };
+      if (result?.error) throw new Error(result.error);
+      setItems(result?.items ?? []);
+      setHasMore(Boolean(result?.hasMore));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to load NetSuite items");
+      setItems([]);
+      setHasMore(false);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { void fetchItems(0, ""); }, [fetchItems]);
+
+  const runSearch = () => {
+    const trimmed = searchInput.trim();
+    setSearch(trimmed);
+    setOffset(0);
+    void fetchItems(0, trimmed);
+  };
+
+  const goToPage = (nextOffset: number) => {
+    setOffset(nextOffset);
+    void fetchItems(nextOffset, search);
+  };
+
+  const toggleSelected = (item: NetSuiteListedItem) => {
+    setSelected((prev) => {
+      const next = { ...prev };
+      if (next[item.externalId]) delete next[item.externalId];
+      else next[item.externalId] = item;
+      return next;
+    });
+  };
+
+  const selectedCount = Object.keys(selected).length;
+
+  const handleImport = async () => {
+    const toImport = Object.values(selected);
+    if (toImport.length === 0) return;
+    setImporting(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("netsuite-connection", {
+        body: {
+          action: "import_items",
+          items: toImport.map((i) => ({
+            externalId: i.externalId,
+            itemId: i.itemId,
+            displayName: i.displayName,
+            upcCode: i.upcCode,
+            active: i.active,
+          })),
+        },
+      });
+      if (error) throw error;
+      const result = data as { succeeded?: number; failed?: number; error?: string };
+      if (result?.error) throw new Error(result.error);
+      if ((result?.failed ?? 0) > 0) {
+        toast.warning(`Imported ${result?.succeeded ?? 0}, ${result?.failed} failed — check System Log for details.`);
+      } else {
+        toast.success(`Imported ${result?.succeeded ?? 0} product${result?.succeeded === 1 ? "" : "s"} from NetSuite`);
+      }
+      setSelected({});
+      await fetchItems(offset, search);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Import failed");
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  return (
+    <Card className="xl:col-span-2">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2"><Download className="h-4 w-4" />Import Products from NetSuite</CardTitle>
+        <CardDescription>
+          Search the NetSuite item catalog and choose which products to bring into Warehouse Wizard. Re-selecting an already-imported item updates it.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative min-w-[200px] flex-1">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") runSearch(); }}
+              placeholder="Search by item ID or name…"
+              className="pl-8"
+            />
+          </div>
+          <Button variant="outline" size="sm" onClick={runSearch} disabled={loading}>Search</Button>
+          <Button size="sm" onClick={handleImport} disabled={selectedCount === 0 || importing}>
+            {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            Import selected ({selectedCount})
+          </Button>
+        </div>
+
+        {loading ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</div>
+        ) : items.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No items found. Make sure the NetSuite connection above is configured and enabled.</p>
+        ) : (
+          <div className="overflow-x-auto rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-10"></TableHead>
+                  <TableHead>Item ID</TableHead>
+                  <TableHead>Name</TableHead>
+                  <TableHead>UPC</TableHead>
+                  <TableHead>Status</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {items.map((item) => (
+                  <TableRow key={item.externalId}>
+                    <TableCell>
+                      <Checkbox
+                        checked={Boolean(selected[item.externalId])}
+                        onCheckedChange={() => toggleSelected(item)}
+                        aria-label={`Select ${item.itemId}`}
+                      />
+                    </TableCell>
+                    <TableCell className="font-mono text-xs">{item.itemId}</TableCell>
+                    <TableCell className="max-w-[240px] truncate">{item.displayName || "—"}</TableCell>
+                    <TableCell className="font-mono text-xs">{item.upcCode || "—"}</TableCell>
+                    <TableCell>
+                      {item.alreadyImported ? (
+                        <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">Imported</span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">Not imported</span>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+
+        <div className="flex items-center justify-between">
+          <Button variant="outline" size="sm" disabled={offset === 0 || loading} onClick={() => goToPage(Math.max(0, offset - limit))}>
+            Previous
+          </Button>
+          <Button variant="outline" size="sm" disabled={!hasMore || loading} onClick={() => goToPage(offset + limit)}>
+            Next
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export function SettingsPage() {
   const { roles } = useAuth();
   const { toPath } = useTenantPath();
@@ -1721,6 +1903,7 @@ export function SettingsPage() {
           <TabsContent value="integrations" className="mt-4 grid gap-6 xl:grid-cols-2">
             <NetSuiteIntegrationCard />
             <NetSuiteWarehouseMappingCard />
+            <NetSuiteImportCard />
           </TabsContent>
         )}
 

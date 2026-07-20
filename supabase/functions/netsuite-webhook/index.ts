@@ -20,7 +20,7 @@
 // types are logged + queued for a future processor and return processed=false.
 
 import { createClient } from 'npm:@supabase/supabase-js@2'
-import { mapNetSuiteItemToProduct, timingSafeEqual, type NetSuiteItemPayload } from '../_shared/netsuite.ts'
+import { mapNetSuiteItemToProduct, timingSafeEqual, upsertProductFromNetSuiteItem, type NetSuiteItemPayload } from '../_shared/netsuite.ts'
 
 const SUPPORTED_RECORD_TYPES = new Set([
   'item',
@@ -159,57 +159,7 @@ Deno.serve(async (req) => {
   if (recordType === 'item') {
     try {
       const mapped = mapNetSuiteItemToProduct(payload as unknown as NetSuiteItemPayload)
-
-      // Match existing product by SKU; insert if not found.
-      const { data: existingProduct } = await service
-        .from('products')
-        .select('id')
-        .eq('sku', mapped.sku)
-        .maybeSingle()
-
-      const productRow = {
-        sku: mapped.sku,
-        name: mapped.name,
-        barcode: mapped.barcode,
-        temperature_requirement: mapped.temperature_requirement as 'ambient' | 'cool' | 'frozen',
-        lot_tracked: mapped.lot_tracked,
-        expiry_tracked: mapped.expiry_tracked,
-        batch_tracked: mapped.batch_tracked,
-        rotation_method: mapped.rotation_method as 'fifo' | 'fefo' | 'lifo',
-        active: mapped.active,
-      }
-
-      let localProductId: string
-      if (existingProduct?.id) {
-        localProductId = existingProduct.id
-        const { error: updateErr } = await service
-          .from('products')
-          .update(productRow)
-          .eq('id', existingProduct.id)
-        if (updateErr) throw updateErr
-      } else {
-        const { data: inserted, error: insertProductErr } = await service
-          .from('products')
-          .insert(productRow)
-          .select('id')
-          .single()
-        if (insertProductErr || !inserted) throw insertProductErr ?? new Error('Product insert failed')
-        localProductId = inserted.id
-      }
-
-      // Upsert external record link. Unique key on the table is
-      // (system, local_table, local_id, external_record_type).
-      await service.from('external_record_links').upsert(
-        {
-          system: 'netsuite',
-          local_table: 'products',
-          local_id: localProductId,
-          external_record_type: 'item',
-          external_id: mapped.external_id || externalId,
-          last_synced_at: new Date().toISOString(),
-        },
-        { onConflict: 'system,local_table,local_id,external_record_type' },
-      )
+      const { localProductId } = await upsertProductFromNetSuiteItem(service, mapped, externalId)
 
       await service
         .from('integration_sync_jobs')
