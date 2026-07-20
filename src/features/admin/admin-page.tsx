@@ -1214,6 +1214,7 @@ export function SettingsPage() {
     ...(canViewUsersRoles ? ["users-roles"] : []),
     "modules",
     "environment",
+    ...(isDeveloperOrAdmin ? ["integrations"] : []),
     ...(isEnabled("clients") ? ["client-vars"] : []),
     "about",
   ];
@@ -1285,6 +1286,9 @@ export function SettingsPage() {
           )}
           <TabsTrigger value="modules" className="min-h-9 flex-1 sm:flex-none">Modules</TabsTrigger>
           <TabsTrigger value="environment" className="min-h-9 flex-1 sm:flex-none">Environment</TabsTrigger>
+          {isDeveloperOrAdmin && (
+            <TabsTrigger value="integrations" className="min-h-9 flex-1 gap-1.5 sm:flex-none"><Network className="h-3.5 w-3.5" />Integrations</TabsTrigger>
+          )}
           {isEnabled("clients") && (
             <TabsTrigger value="client-vars" className="min-h-9 flex-1 sm:flex-none">Client Variables</TabsTrigger>
           )}
