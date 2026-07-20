@@ -257,13 +257,13 @@ Deno.serve(async (req) => {
 
     if (action === 'list_items') {
       const connection = await loadConnection()
-      if (!connection) return json({ error: 'No NetSuite connection configured' }, 400)
+      if (!connection) return json({ notConfigured: true, items: [], hasMore: false })
       const config = (connection.config ?? {}) as Record<string, unknown>
       const accountId = typeof config.account_id === 'string' ? config.account_id : ''
       const clientId = await loadSecret(connection.id, 'netsuite_client_id')
       const clientSecret = await loadSecret(connection.id, 'netsuite_client_secret')
       if (!accountId || !clientId || !clientSecret) {
-        return json({ error: 'Credentials incomplete' }, 400)
+        return json({ notConfigured: true, items: [], hasMore: false })
       }
 
       const tokenResult = await fetchAccessToken(accountId, clientId, clientSecret)
