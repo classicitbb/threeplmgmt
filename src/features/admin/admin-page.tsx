@@ -1199,6 +1199,163 @@ function ModulesSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
   );
 }
 
+function NetSuiteIntegrationCard() {
+  const [status, setStatus] = useState<{
+    configured: boolean;
+    enabled: boolean;
+    accountIdMasked: string | null;
+    clientIdMasked: string | null;
+    lastTestedAt: string | null;
+  } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [accountId, setAccountId] = useState("");
+  const [clientId, setClientId] = useState("");
+  const [clientSecret, setClientSecret] = useState("");
+  const [enabled, setEnabled] = useState(false);
+  const [revealedWebhookSecret, setRevealedWebhookSecret] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("netsuite-connection", {
+        body: { action: "status" },
+      });
+      if (error) throw error;
+      setStatus(data as any);
+      setEnabled(Boolean((data as any)?.enabled));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to load NetSuite status");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { void refresh(); }, [refresh]);
+
+  const handleSave = async () => {
+    if (!accountId.trim() || !clientId.trim()) {
+      toast.error("Account ID and Client ID are required");
+      return;
+    }
+    setSaving(true);
+    setRevealedWebhookSecret(null);
+    try {
+      const { data, error } = await supabase.functions.invoke("netsuite-connection", {
+        body: {
+          action: "save",
+          accountId: accountId.trim(),
+          clientId: clientId.trim(),
+          clientSecret: clientSecret.trim() || undefined,
+          enabled,
+        },
+      });
+      if (error) throw error;
+      const result = data as { ok: boolean; webhookSecret?: string | null };
+      if (result?.webhookSecret) setRevealedWebhookSecret(result.webhookSecret);
+      toast.success("NetSuite connection saved");
+      setClientSecret("");
+      await refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleTest = async () => {
+    setTesting(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("netsuite-connection", {
+        body: { action: "test" },
+      });
+      if (error) throw error;
+      const result = data as { ok: boolean; error?: string };
+      if (result?.ok) toast.success("NetSuite credentials verified");
+      else toast.error(result?.error ?? "Test failed");
+      await refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Test failed");
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const savedSecretPlaceholder = status?.configured ? "•••• saved (leave blank to keep)" : "";
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2"><Network className="h-4 w-4" />NetSuite Integration</CardTitle>
+        <CardDescription>
+          OAuth2 client credentials for the NetSuite REST API. Secrets are stored server-side and never returned to the browser.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-4">
+        {loading ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</div>
+        ) : (
+          <>
+            <div className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground grid gap-1">
+              <div>Status: <span className="font-medium text-foreground">{status?.configured ? "Configured" : "Not configured"}</span> · {status?.enabled ? "Enabled" : "Disabled"}</div>
+              {status?.accountIdMasked && <div>Account: <span className="font-mono">{status.accountIdMasked}</span></div>}
+              {status?.clientIdMasked && <div>Client ID: <span className="font-mono">{status.clientIdMasked}</span></div>}
+              {status?.lastTestedAt && <div>Last tested: {new Date(status.lastTestedAt).toLocaleString()}</div>}
+            </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="ns-account">Account ID</Label>
+              <Input id="ns-account" value={accountId} onChange={(e) => setAccountId(e.target.value)} placeholder="123456_SB1" autoComplete="off" />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="ns-client-id">Client ID</Label>
+              <Input id="ns-client-id" value={clientId} onChange={(e) => setClientId(e.target.value)} autoComplete="off" />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="ns-client-secret">Client Secret</Label>
+              <Input
+                id="ns-client-secret"
+                type="password"
+                value={clientSecret}
+                onChange={(e) => setClientSecret(e.target.value)}
+                placeholder={savedSecretPlaceholder}
+                autoComplete="new-password"
+              />
+              <p className="text-xs text-muted-foreground">Write-only. The stored value is never sent back to the browser.</p>
+            </div>
+            <div className="flex items-center justify-between rounded-md border p-3">
+              <div>
+                <Label htmlFor="ns-enabled" className="text-sm font-medium">Enabled</Label>
+                <p className="text-xs text-muted-foreground">Turn on to allow sync jobs against NetSuite.</p>
+              </div>
+              <Switch id="ns-enabled" checked={enabled} onCheckedChange={setEnabled} />
+            </div>
+
+            {revealedWebhookSecret && (
+              <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs">
+                <div className="mb-1 font-medium text-amber-700 dark:text-amber-300">Webhook shared secret — copy now, it will not be shown again:</div>
+                <code className="block break-all rounded bg-background/60 p-2 font-mono text-[11px]">{revealedWebhookSecret}</code>
+              </div>
+            )}
+
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={handleSave} disabled={saving}>
+                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                Save connection
+              </Button>
+              <Button variant="outline" onClick={handleTest} disabled={testing || !status?.configured}>
+                {testing ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                Test connection
+              </Button>
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function SettingsPage() {
   const { roles } = useAuth();
   const { toPath } = useTenantPath();
