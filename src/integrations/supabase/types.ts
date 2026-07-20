@@ -180,6 +180,53 @@ export type Database = {
         }
         Relationships: []
       }
+      client_variables: {
+        Row: {
+          client_id: string
+          created_at: string
+          created_by: string | null
+          description: string | null
+          id: string
+          is_hidden: boolean
+          key: string
+          updated_at: string
+          value: string
+          variable_type: string
+        }
+        Insert: {
+          client_id: string
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          is_hidden?: boolean
+          key: string
+          updated_at?: string
+          value?: string
+          variable_type?: string
+        }
+        Update: {
+          client_id?: string
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          is_hidden?: boolean
+          key?: string
+          updated_at?: string
+          value?: string
+          variable_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_variables_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       clients: {
         Row: {
           active: boolean
@@ -561,6 +608,68 @@ export type Database = {
           },
         ]
       }
+      deployment_subscription: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          expires_at: string | null
+          features: Json
+          id: string
+          is_active: boolean
+          licence_key: string | null
+          licence_valid_until: string | null
+          max_users: number
+          max_warehouses: number
+          notes: string | null
+          plan_code: string
+          plan_name: string
+          subscribed_at: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          expires_at?: string | null
+          features?: Json
+          id?: string
+          is_active?: boolean
+          licence_key?: string | null
+          licence_valid_until?: string | null
+          max_users?: number
+          max_warehouses?: number
+          notes?: string | null
+          plan_code?: string
+          plan_name?: string
+          subscribed_at?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          expires_at?: string | null
+          features?: Json
+          id?: string
+          is_active?: boolean
+          licence_key?: string | null
+          licence_valid_until?: string | null
+          max_users?: number
+          max_warehouses?: number
+          notes?: string | null
+          plan_code?: string
+          plan_name?: string
+          subscribed_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "deployment_subscription_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       dock_appointments: {
         Row: {
           appointment_number: string
@@ -833,6 +942,41 @@ export type Database = {
             columns: ["sync_job_id"]
             isOneToOne: false
             referencedRelation: "integration_sync_jobs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      integration_secrets: {
+        Row: {
+          connection_id: string
+          created_at: string
+          id: string
+          secret_type: string
+          secret_value: string
+          updated_at: string
+        }
+        Insert: {
+          connection_id: string
+          created_at?: string
+          id?: string
+          secret_type: string
+          secret_value: string
+          updated_at?: string
+        }
+        Update: {
+          connection_id?: string
+          created_at?: string
+          id?: string
+          secret_type?: string
+          secret_value?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "integration_secrets_connection_id_fkey"
+            columns: ["connection_id"]
+            isOneToOne: false
+            referencedRelation: "integration_connections"
             referencedColumns: ["id"]
           },
         ]
@@ -1180,6 +1324,54 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      licence_events: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          event_type: string
+          id: string
+          licence_key: string | null
+          metadata: Json
+          subscription_id: string | null
+          valid_until: string | null
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          event_type: string
+          id?: string
+          licence_key?: string | null
+          metadata?: Json
+          subscription_id?: string | null
+          valid_until?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          event_type?: string
+          id?: string
+          licence_key?: string | null
+          metadata?: Json
+          subscription_id?: string | null
+          valid_until?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "licence_events_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "licence_events_subscription_id_fkey"
+            columns: ["subscription_id"]
+            isOneToOne: false
+            referencedRelation: "deployment_subscription"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       locations: {
         Row: {
@@ -2974,6 +3166,7 @@ export type Database = {
           request_id: string | null
           resolved: boolean
           resolved_at: string | null
+          resolved_by: string | null
           severity: string
           source: string
           table_name: string | null
@@ -2989,11 +3182,12 @@ export type Database = {
           id?: string
           level?: Database["public"]["Enums"]["system_log_level"]
           log_type?: string
-          message: string
+          message?: string
           record_count?: number | null
           request_id?: string | null
           resolved?: boolean
           resolved_at?: string | null
+          resolved_by?: string | null
           severity?: string
           source: string
           table_name?: string | null
@@ -3014,6 +3208,7 @@ export type Database = {
           request_id?: string | null
           resolved?: boolean
           resolved_at?: string | null
+          resolved_by?: string | null
           severity?: string
           source?: string
           table_name?: string | null
@@ -3030,6 +3225,63 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      system_logs_archive: {
+        Row: {
+          archived_at: string
+          archived_by: string | null
+          created_at: string
+          created_by: string | null
+          details: Json | null
+          id: string
+          log_type: string
+          message: string
+          record_count: number | null
+          resolved: boolean
+          resolved_at: string | null
+          resolved_by: string | null
+          severity: string
+          source: string | null
+          table_name: string | null
+          title: string
+        }
+        Insert: {
+          archived_at?: string
+          archived_by?: string | null
+          created_at: string
+          created_by?: string | null
+          details?: Json | null
+          id: string
+          log_type: string
+          message?: string
+          record_count?: number | null
+          resolved?: boolean
+          resolved_at?: string | null
+          resolved_by?: string | null
+          severity: string
+          source?: string | null
+          table_name?: string | null
+          title: string
+        }
+        Update: {
+          archived_at?: string
+          archived_by?: string | null
+          created_at?: string
+          created_by?: string | null
+          details?: Json | null
+          id?: string
+          log_type?: string
+          message?: string
+          record_count?: number | null
+          resolved?: boolean
+          resolved_at?: string | null
+          resolved_by?: string | null
+          severity?: string
+          source?: string | null
+          table_name?: string | null
+          title?: string
+        }
+        Relationships: []
       }
       transfer_lines: {
         Row: {
@@ -3541,6 +3793,11 @@ export type Database = {
       admin_update_user_pin:
         | { Args: { in_pin: string; in_user_id: string }; Returns: undefined }
         | { Args: { in_pin: string; in_user_id: string }; Returns: undefined }
+      archive_system_log: { Args: { in_id: string }; Returns: undefined }
+      archive_system_logs_older_than: {
+        Args: { in_days?: number }
+        Returns: number
+      }
       assert_location_not_frozen: {
         Args: { in_location_id: string; in_pallet_id?: string }
         Returns: undefined
@@ -3576,6 +3833,10 @@ export type Database = {
         Args: { in_product_id: string; in_warehouse_id: string }
         Returns: undefined
       }
+      get_or_create_unsubscribe_token: {
+        Args: { in_email: string }
+        Returns: string
+      }
       has_any_role: {
         Args: { _roles: Database["public"]["Enums"]["app_role_code"][] }
         Returns: boolean
@@ -3608,6 +3869,11 @@ export type Database = {
         }
         Returns: number
       }
+      notification_email_shell: {
+        Args: { in_body_html: string; in_title: string }
+        Returns: string
+      }
+      purge_expired_system_log_archive: { Args: never; Returns: number }
       read_email_batch: {
         Args: { batch_size: number; queue_name: string; vt: number }
         Returns: {
@@ -3620,6 +3886,14 @@ export type Database = {
       release_cycle_count_line_claim: {
         Args: { p_line_id: string }
         Returns: undefined
+      }
+      render_notification_email: {
+        Args: { in_data: Json; in_kind: string }
+        Returns: {
+          html_body: string
+          subject: string
+          text_body: string
+        }[]
       }
       reset_wms_data: { Args: never; Returns: Json }
       write_system_log: {
