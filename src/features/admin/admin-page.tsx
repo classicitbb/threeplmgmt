@@ -1517,6 +1517,7 @@ function NetSuiteImportCard() {
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState(false);
   const [selected, setSelected] = useState<Record<string, NetSuiteListedItem>>({});
+  const [notConfigured, setNotConfigured] = useState(false);
   const limit = 25;
 
   const fetchItems = useCallback(async (nextOffset: number, nextSearch: string) => {
@@ -1525,8 +1526,16 @@ function NetSuiteImportCard() {
       const { data, error } = await supabase.functions.invoke("netsuite-connection", {
         body: { action: "list_items", search: nextSearch || undefined, limit, offset: nextOffset },
       });
-      if (error) throw error;
       const result = data as { items?: NetSuiteListedItem[]; hasMore?: boolean; error?: string };
+      const errMsg = result?.error ?? (error instanceof Error ? error.message : "");
+      if (errMsg && /no netsuite connection/i.test(errMsg)) {
+        setNotConfigured(true);
+        setItems([]);
+        setHasMore(false);
+        return;
+      }
+      setNotConfigured(false);
+      if (error) throw error;
       if (result?.error) throw new Error(result.error);
       setItems(result?.items ?? []);
       setHasMore(Boolean(result?.hasMore));
