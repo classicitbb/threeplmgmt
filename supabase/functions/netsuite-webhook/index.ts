@@ -197,7 +197,8 @@ Deno.serve(async (req) => {
         localProductId = inserted.id
       }
 
-      // Upsert external record link.
+      // Upsert external record link. Unique key on the table is
+      // (system, local_table, local_id, external_record_type).
       await service.from('external_record_links').upsert(
         {
           system: 'netsuite',
@@ -207,7 +208,7 @@ Deno.serve(async (req) => {
           external_id: mapped.external_id || externalId,
           last_synced_at: new Date().toISOString(),
         },
-        { onConflict: 'system,local_table,external_record_type,external_id' },
+        { onConflict: 'system,local_table,local_id,external_record_type' },
       )
 
       await service
