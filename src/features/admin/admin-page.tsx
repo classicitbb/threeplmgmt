@@ -1526,9 +1526,9 @@ function NetSuiteImportCard() {
       const { data, error } = await supabase.functions.invoke("netsuite-connection", {
         body: { action: "list_items", search: nextSearch || undefined, limit, offset: nextOffset },
       });
-      const result = data as { items?: NetSuiteListedItem[]; hasMore?: boolean; error?: string };
+      const result = data as { items?: NetSuiteListedItem[]; hasMore?: boolean; error?: string; notConfigured?: boolean };
       const errMsg = result?.error ?? (error instanceof Error ? error.message : "");
-      if (errMsg && /no netsuite connection/i.test(errMsg)) {
+      if (result?.notConfigured || (errMsg && /(no netsuite connection|credentials incomplete)/i.test(errMsg))) {
         setNotConfigured(true);
         setItems([]);
         setHasMore(false);
