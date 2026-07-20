@@ -1636,6 +1636,8 @@ function NetSuiteImportCard() {
 
         {loading ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</div>
+        ) : notConfigured ? (
+          <p className="text-sm text-muted-foreground">NetSuite is not connected yet. Save valid credentials in the connection card above to browse the item catalog.</p>
         ) : items.length === 0 ? (
           <p className="text-sm text-muted-foreground">No items found. Make sure the NetSuite connection above is configured and enabled.</p>
         ) : (
