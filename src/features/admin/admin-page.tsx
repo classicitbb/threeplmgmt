@@ -1523,6 +1523,18 @@ function NetSuiteImportCard() {
   const fetchItems = useCallback(async (nextOffset: number, nextSearch: string) => {
     setLoading(true);
     try {
+      const { data: statusData, error: statusError } = await supabase.functions.invoke("netsuite-connection", {
+        body: { action: "status" },
+      });
+      if (statusError) throw statusError;
+      const statusResult = statusData as { configured?: boolean } | null;
+      if (!statusResult?.configured) {
+        setNotConfigured(true);
+        setItems([]);
+        setHasMore(false);
+        return;
+      }
+
       const { data, error } = await supabase.functions.invoke("netsuite-connection", {
         body: { action: "list_items", search: nextSearch || undefined, limit, offset: nextOffset },
       });
