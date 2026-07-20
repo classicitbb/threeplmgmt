@@ -3806,6 +3806,28 @@ export type Database = {
         Args: { p_line_id: string }
         Returns: undefined
       }
+      claim_integration_sync_jobs: {
+        Args: { p_connection_id: string; p_limit: number }
+        Returns: {
+          attempts: number
+          connection_id: string | null
+          created_at: string
+          error_message: string | null
+          id: string
+          idempotency_key: string
+          job_type: string
+          payload: Json
+          result: Json | null
+          status: Database["public"]["Enums"]["integration_job_status"]
+          updated_at: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "integration_sync_jobs"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       delete_client_cascade: { Args: { in_id: string }; Returns: Json }
       delete_email: {
         Args: { message_id: number; queue_name: string }
@@ -3882,6 +3904,7 @@ export type Database = {
           read_ct: number
         }[]
       }
+      reclaim_stale_integration_sync_jobs: { Args: never; Returns: number }
       refresh_reorder_alerts: { Args: never; Returns: undefined }
       release_cycle_count_line_claim: {
         Args: { p_line_id: string }
