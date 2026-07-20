@@ -1357,6 +1357,148 @@ function NetSuiteIntegrationCard() {
   );
 }
 
+function NetSuiteWarehouseMappingCard() {
+  const queryClient = useQueryClient();
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [savingId, setSavingId] = useState<string | null>(null);
+
+  const warehousesQuery = useQuery({
+    queryKey: ["settings", "netsuite-mapping", "warehouses"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("warehouses")
+        .select("id, name, code")
+        .order("name", { ascending: true });
+      if (error) throw error;
+      return (data ?? []) as Array<{ id: string; name: string; code: string | null }>;
+    },
+  });
+
+  const linksQuery = useQuery({
+    queryKey: ["settings", "netsuite-mapping", "links"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("external_record_links")
+        .select("id, local_id, external_id")
+        .eq("system", "netsuite")
+        .eq("local_table", "warehouses")
+        .eq("external_record_type", "location");
+      if (error) throw error;
+      return (data ?? []) as Array<{ id: string; local_id: string; external_id: string }>;
+    },
+  });
+
+  const linkByWarehouse = useMemo(() => {
+    const map = new Map<string, { id: string; external_id: string }>();
+    for (const link of linksQuery.data ?? []) {
+      map.set(link.local_id, { id: link.id, external_id: link.external_id });
+    }
+    return map;
+  }, [linksQuery.data]);
+
+  const handleSave = async (warehouseId: string) => {
+    const existing = linkByWarehouse.get(warehouseId);
+    const nextValue = (drafts[warehouseId] ?? existing?.external_id ?? "").trim();
+    setSavingId(warehouseId);
+    try {
+      if (!nextValue) {
+        if (existing) {
+          const { error } = await supabase
+            .from("external_record_links")
+            .delete()
+            .eq("id", existing.id);
+          if (error) throw error;
+          toast.success("Mapping cleared");
+        }
+      } else if (existing) {
+        const { error } = await supabase
+          .from("external_record_links")
+          .update({ external_id: nextValue })
+          .eq("id", existing.id);
+        if (error) throw error;
+        toast.success("Mapping updated");
+      } else {
+        const { error } = await supabase.from("external_record_links").insert({
+          system: "netsuite",
+          local_table: "warehouses",
+          local_id: warehouseId,
+          external_record_type: "location",
+          external_id: nextValue,
+        });
+        if (error) throw error;
+        toast.success("Mapping saved");
+      }
+      setDrafts((prev) => {
+        const next = { ...prev };
+        delete next[warehouseId];
+        return next;
+      });
+      await queryClient.invalidateQueries({ queryKey: ["settings", "netsuite-mapping", "links"] });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to save mapping");
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  const warehouses = warehousesQuery.data ?? [];
+  const loading = warehousesQuery.isLoading || linksQuery.isLoading;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2"><MapPinned className="h-4 w-4" />NetSuite Location Mapping</CardTitle>
+        <CardDescription>
+          Map each Warehouse Wizard warehouse to its NetSuite Location internal ID so inventory adjustments post to the correct location.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {loading ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</div>
+        ) : warehouses.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No warehouses defined yet.</p>
+        ) : (
+          <div className="grid gap-3">
+            {warehouses.map((wh) => {
+              const existing = linkByWarehouse.get(wh.id);
+              const draftValue = drafts[wh.id];
+              const value = draftValue ?? existing?.external_id ?? "";
+              const dirty = draftValue !== undefined && draftValue.trim() !== (existing?.external_id ?? "");
+              return (
+                <div key={wh.id} className="grid gap-2 rounded-md border p-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
+                  <div className="min-w-0">
+                    <Label className="text-xs text-muted-foreground">Warehouse</Label>
+                    <div className="truncate text-sm font-medium">{wh.name}</div>
+                    {wh.code ? <div className="truncate text-xs text-muted-foreground font-mono">{wh.code}</div> : null}
+                  </div>
+                  <div className="grid gap-1">
+                    <Label htmlFor={`ns-loc-${wh.id}`} className="text-xs text-muted-foreground">NetSuite Location Internal ID</Label>
+                    <Input
+                      id={`ns-loc-${wh.id}`}
+                      value={value}
+                      placeholder="e.g. 123"
+                      autoComplete="off"
+                      onChange={(e) => setDrafts((prev) => ({ ...prev, [wh.id]: e.target.value }))}
+                    />
+                  </div>
+                  <Button
+                    size="sm"
+                    onClick={() => handleSave(wh.id)}
+                    disabled={savingId === wh.id || (!dirty && !(existing && value === ""))}
+                  >
+                    {savingId === wh.id ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                    Save
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function SettingsPage() {
   const { roles } = useAuth();
   const { toPath } = useTenantPath();
