@@ -946,6 +946,41 @@ export type Database = {
           },
         ]
       }
+      integration_secrets: {
+        Row: {
+          connection_id: string
+          created_at: string
+          id: string
+          secret_type: string
+          secret_value: string
+          updated_at: string
+        }
+        Insert: {
+          connection_id: string
+          created_at?: string
+          id?: string
+          secret_type: string
+          secret_value: string
+          updated_at?: string
+        }
+        Update: {
+          connection_id?: string
+          created_at?: string
+          id?: string
+          secret_type?: string
+          secret_value?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "integration_secrets_connection_id_fkey"
+            columns: ["connection_id"]
+            isOneToOne: false
+            referencedRelation: "integration_connections"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       integration_sync_jobs: {
         Row: {
           attempts: number
