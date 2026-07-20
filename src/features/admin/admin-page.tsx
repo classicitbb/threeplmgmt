@@ -1417,6 +1417,12 @@ export function SettingsPage() {
           </div>
         </TabsContent>
 
+        {isDeveloperOrAdmin && (
+          <TabsContent value="integrations" className="mt-4 grid gap-6 xl:grid-cols-2">
+            <NetSuiteIntegrationCard />
+          </TabsContent>
+        )}
+
         <TabsContent value="about" className="mt-4 grid gap-6 xl:grid-cols-2">
           <Card>
             <CardHeader>
