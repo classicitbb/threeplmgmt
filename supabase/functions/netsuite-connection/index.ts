@@ -70,12 +70,15 @@ Deno.serve(async (req) => {
   }
 
   let body: {
-    action?: 'save' | 'test' | 'status'
+    action?: 'save' | 'test' | 'status' | 'list_items'
     accountId?: string
     clientId?: string
     clientSecret?: string
     webhookSecret?: string
     enabled?: boolean
+    search?: string
+    limit?: number
+    offset?: number
   }
   try {
     body = await req.json()
@@ -106,6 +109,30 @@ Deno.serve(async (req) => {
       .maybeSingle()
     if (error) throw new Error(error.message)
     return data?.secret_value ?? null
+  }
+
+  async function fetchAccessToken(accountId: string, clientId: string, clientSecret: string): Promise<{ ok: boolean; token?: string; error?: string }> {
+    const tokenUrl = `https://${accountId}.suitetalk.api.netsuite.com/services/rest/auth/oauth2/v1/token`
+    const basic = btoa(`${clientId}:${clientSecret}`)
+    try {
+      const res = await fetch(tokenUrl, {
+        method: 'POST',
+        headers: {
+          Authorization: `Basic ${basic}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: 'grant_type=client_credentials',
+      })
+      if (!res.ok) {
+        const text = await res.text()
+        return { ok: false, error: `NetSuite responded ${res.status}: ${text.slice(0, 200)}` }
+      }
+      const json = await res.json().catch(() => null) as { access_token?: string } | null
+      if (!json?.access_token) return { ok: false, error: 'NetSuite token response missing access_token' }
+      return { ok: true, token: json.access_token }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    }
   }
 
   const action = body.action ?? 'status'
@@ -213,29 +240,9 @@ Deno.serve(async (req) => {
         return json({ ok: false, error: 'Credentials incomplete' })
       }
 
-      const tokenUrl = `https://${accountId}.suitetalk.api.netsuite.com/services/rest/auth/oauth2/v1/token`
-      const basic = btoa(`${clientId}:${clientSecret}`)
-      let ok = false
-      let errorMessage: string | null = null
-      try {
-        const res = await fetch(tokenUrl, {
-          method: 'POST',
-          headers: {
-            Authorization: `Basic ${basic}`,
-            'Content-Type': 'application/x-www-form-urlencoded',
-          },
-          body: 'grant_type=client_credentials',
-        })
-        if (res.ok) {
-          ok = true
-          await res.text()
-        } else {
-          const text = await res.text()
-          errorMessage = `NetSuite responded ${res.status}: ${text.slice(0, 200)}`
-        }
-      } catch (err) {
-        errorMessage = err instanceof Error ? err.message : String(err)
-      }
+      const tokenResult = await fetchAccessToken(accountId, clientId, clientSecret)
+      const ok = tokenResult.ok
+      const errorMessage = tokenResult.error ?? null
 
       const nextConfig = { ...config, last_tested_at: new Date().toISOString(), last_test_ok: ok }
       await admin
@@ -244,6 +251,84 @@ Deno.serve(async (req) => {
         .eq('id', connection.id)
 
       return ok ? json({ ok: true }) : json({ ok: false, error: errorMessage ?? 'Unknown error' })
+    }
+
+    if (action === 'list_items') {
+      const connection = await loadConnection()
+      if (!connection) return json({ error: 'No NetSuite connection configured' }, 400)
+      const config = (connection.config ?? {}) as Record<string, unknown>
+      const accountId = typeof config.account_id === 'string' ? config.account_id : ''
+      const clientId = await loadSecret(connection.id, 'netsuite_client_id')
+      const clientSecret = await loadSecret(connection.id, 'netsuite_client_secret')
+      if (!accountId || !clientId || !clientSecret) {
+        return json({ error: 'Credentials incomplete' }, 400)
+      }
+
+      const tokenResult = await fetchAccessToken(accountId, clientId, clientSecret)
+      if (!tokenResult.ok || !tokenResult.token) {
+        return json({ error: tokenResult.error ?? 'Failed to obtain NetSuite token' }, 502)
+      }
+
+      const rawLimit = typeof body.limit === 'number' ? Math.floor(body.limit) : 50
+      const limit = Math.max(1, Math.min(rawLimit, 100))
+      const rawOffset = typeof body.offset === 'number' ? Math.floor(body.offset) : 0
+      const offset = Math.max(0, rawOffset)
+      const search = typeof body.search === 'string' ? body.search.trim() : ''
+      // Escape single quotes for SuiteQL string literal; strip other risky chars.
+      const safeSearch = search.replace(/'/g, "''").replace(/[;\\]/g, '')
+      const where = safeSearch
+        ? `WHERE isinactive = 'F' AND (UPPER(itemid) LIKE UPPER('%${safeSearch}%') OR UPPER(displayname) LIKE UPPER('%${safeSearch}%'))`
+        : `WHERE isinactive = 'F'`
+      const q = `SELECT id, itemid, displayname, upccode, isinactive FROM item ${where} ORDER BY itemid`
+
+      const suiteqlUrl = `https://${accountId}.suitetalk.api.netsuite.com/services/rest/query/v1/suiteql?limit=${limit}&offset=${offset}`
+      let suiteqlRes: Response
+      try {
+        suiteqlRes = await fetch(suiteqlUrl, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${tokenResult.token}`,
+            'Content-Type': 'application/json',
+            Prefer: 'transient',
+          },
+          body: JSON.stringify({ q }),
+        })
+      } catch (err) {
+        return json({ error: err instanceof Error ? err.message : String(err) }, 502)
+      }
+      if (!suiteqlRes.ok) {
+        const text = await suiteqlRes.text()
+        return json({ error: `NetSuite SuiteQL ${suiteqlRes.status}: ${text.slice(0, 300)}` }, 502)
+      }
+      const payload = await suiteqlRes.json().catch(() => null) as {
+        items?: Array<{ id?: string; itemid?: string; displayname?: string; upccode?: string; isinactive?: string }>
+        hasMore?: boolean
+      } | null
+      const rows = payload?.items ?? []
+      const externalIds = rows.map((r) => String(r.id ?? '')).filter(Boolean)
+
+      let linkedIds = new Set<string>()
+      if (externalIds.length > 0) {
+        const { data: links, error: linksError } = await admin
+          .from('external_record_links')
+          .select('external_id')
+          .eq('system', 'netsuite')
+          .eq('local_table', 'products')
+          .eq('external_record_type', 'item')
+          .in('external_id', externalIds)
+        if (linksError) throw new Error(linksError.message)
+        linkedIds = new Set((links ?? []).map((l: any) => String(l.external_id)))
+      }
+
+      const items = rows.map((r) => ({
+        externalId: String(r.id ?? ''),
+        itemId: r.itemid ?? '',
+        displayName: r.displayname ?? '',
+        upcCode: r.upccode ?? '',
+        active: (r.isinactive ?? 'F') !== 'T',
+        alreadyImported: linkedIds.has(String(r.id ?? '')),
+      }))
+      return json({ items, hasMore: Boolean(payload?.hasMore), limit, offset })
     }
 
     return json({ error: 'Unknown action' }, 400)
