@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import {
   db,
   buildPalletCode,
+  escapePostgrestOrValue,
   formatSupabaseError,
   transferSchema,
 } from "@/features/shared/core-types";
@@ -15,9 +16,10 @@ async function resolvePalletId(palletInput: string) {
     return normalized;
   }
 
+  const escaped = escapePostgrestOrValue(normalized);
   const { data, error } = await db("pallets")
     .select("id")
-    .or(`pallet_code.eq.${normalized},pallet_barcode.eq.${normalized}`)
+    .or(`pallet_code.eq.${escaped},pallet_barcode.eq.${escaped}`)
     .single();
   if (error) throw new Error("Pallet barcode was not found.");
   return data.id as string;

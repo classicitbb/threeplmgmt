@@ -10,6 +10,13 @@ import { recordPalletQtyObservation, recordPlacementObservation } from "@/lib/ai
 // Once all WMS tables are migrated, this can be replaced with direct db() calls.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db = supabase.from.bind(supabase) as (table: string) => any;
+
+// Safely embeds a scanned/typed value inside a PostgREST `.or()` filter
+// string. Without quoting, commas/parens/periods in the raw value change
+// the filter's structure instead of being treated as a literal to match.
+export function escapePostgrestOrValue(value: string): string {
+  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
 // These types will come from the DB once all WMS tables are created.
 // For now we define them locally so the code compiles.
 export type RoleCode =
