@@ -1,6 +1,7 @@
 import { defineTool } from "@lovable.dev/mcp-js";
 import { z } from "zod";
 import { supabaseForUser } from "./_supabase";
+import { escapePostgrestOrValue } from "@/features/shared/core-types";
 
 export default defineTool({
   name: "search_products",
@@ -15,7 +16,10 @@ export default defineTool({
     if (!ctx.isAuthenticated()) {
       return { content: [{ type: "text", text: "Not authenticated" }], isError: true };
     }
-    const term = `%${query}%`;
+    // Sanitize the user-supplied query before embedding it in a PostgREST
+    // .or() filter — commas/parens/periods in the raw value otherwise change
+    // the filter's structure (injection).
+    const term = escapePostgrestOrValue(`%${query}%`);
     const { data, error } = await supabaseForUser(ctx)
       .from("products")
       .select("id, sku, barcode, name, description, temperature_requirement, active")

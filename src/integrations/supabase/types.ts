@@ -3802,6 +3802,10 @@ export type Database = {
         Args: { in_location_id: string; in_pallet_id?: string }
         Returns: undefined
       }
+      can_access_warehouse: {
+        Args: { target_warehouse_id: string }
+        Returns: boolean
+      }
       claim_cycle_count_line: {
         Args: { p_line_id: string }
         Returns: undefined
@@ -3855,6 +3859,7 @@ export type Database = {
         Args: { in_product_id: string; in_warehouse_id: string }
         Returns: undefined
       }
+      get_deployment_licence: { Args: never; Returns: Json }
       get_or_create_unsubscribe_token: {
         Args: { in_email: string }
         Returns: string
@@ -3868,6 +3873,7 @@ export type Database = {
         Returns: boolean
       }
       has_role: { Args: { _role: string; _user_id: string }; Returns: boolean }
+      has_unrestricted_warehouse_access: { Args: never; Returns: boolean }
       is_approved: { Args: never; Returns: boolean }
       log_audit_event: {
         Args: {
@@ -3894,6 +3900,10 @@ export type Database = {
       notification_email_shell: {
         Args: { in_body_html: string; in_title: string }
         Returns: string
+      }
+      pallet_in_accessible_transfer: {
+        Args: { target_pallet_id: string }
+        Returns: boolean
       }
       purge_expired_system_log_archive: { Args: never; Returns: number }
       read_email_batch: {
@@ -3941,6 +3951,7 @@ export type Database = {
         | "warehouse_operator"
         | "dispatch_driver"
         | "dev"
+        | "developer"
       count_line_status:
         | "queued"
         | "counted"
@@ -4148,6 +4159,7 @@ export const Constants = {
         "warehouse_operator",
         "dispatch_driver",
         "dev",
+        "developer",
       ],
       count_line_status: [
         "queued",
