@@ -45,6 +45,7 @@ var list_warehouses_default = defineTool({
 // src/lib/mcp/tools/search-products.ts
 import { defineTool as defineTool2 } from "npm:@lovable.dev/mcp-js@0.22.0";
 import { z as z2 } from "npm:zod@^3.25.76";
+import { escapePostgrestOrValue } from "npm:@/features/shared/core-types";
 var search_products_default = defineTool2({
   name: "search_products",
   title: "Search products",
@@ -58,7 +59,7 @@ var search_products_default = defineTool2({
     if (!ctx.isAuthenticated()) {
       return { content: [{ type: "text", text: "Not authenticated" }], isError: true };
     }
-    const term = `%${query}%`;
+    const term = escapePostgrestOrValue(`%${query}%`);
     const { data, error } = await supabaseForUser(ctx).from("products").select("id, sku, barcode, name, description, temperature_requirement, active").or(`sku.ilike.${term},barcode.ilike.${term},name.ilike.${term}`).eq("active", true).limit(limit ?? 25);
     if (error) return { content: [{ type: "text", text: error.message }], isError: true };
     return {
