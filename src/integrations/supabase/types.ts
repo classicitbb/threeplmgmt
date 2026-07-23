@@ -3859,6 +3859,7 @@ export type Database = {
         Args: { in_product_id: string; in_warehouse_id: string }
         Returns: undefined
       }
+      get_deployment_licence: { Args: never; Returns: Json }
       get_or_create_unsubscribe_token: {
         Args: { in_email: string }
         Returns: string
