@@ -3950,6 +3950,7 @@ export type Database = {
         | "warehouse_operator"
         | "dispatch_driver"
         | "dev"
+        | "developer"
       count_line_status:
         | "queued"
         | "counted"
@@ -4157,6 +4158,7 @@ export const Constants = {
         "warehouse_operator",
         "dispatch_driver",
         "dev",
+        "developer",
       ],
       count_line_status: [
         "queued",
