@@ -1629,6 +1629,17 @@ function PickExecutionPage() {
     toast.success("Pick list verified");
   };
 
+  const updatePickListScan = (value: string) => {
+    const scanned = normalizeScannerText(value);
+    setPickListScan(scanned);
+
+    // Some wedge scanners do not send Enter. Unlock only when the complete
+    // barcode matches this execution list; Enter and the button remain useful
+    // for clear feedback when the wrong label was scanned.
+    const matchesExpectedList = Boolean(expectedPickListCode) && scanned === expectedPickListCode.toUpperCase();
+    setPickListVerified(matchesExpectedList);
+  };
+
   return (
     <AppShell>
       <div className="flex flex-col gap-6">
@@ -1642,21 +1653,33 @@ function PickExecutionPage() {
               Open the assigned list, scan location and pallet, then confirm quantity.
             </HintButton>
           </div>
-          <div className="mt-3 flex max-w-xl gap-2">
-            <Input
-              value={pickListScan}
-              placeholder={expectedPickListCode ? `Scan pick list ${expectedPickListCode}` : "Scan pick list barcode"}
-              onChange={(event) => setPickListScan(normalizeScannerText(event.target.value))}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  verifyPickListScan(event.currentTarget.value);
-                }
-              }}
-            />
-            <BarcodeScanButton title="Scan pick list barcode" onScan={verifyPickListScan} />
+          <div className="mt-3 max-w-xl rounded-md border bg-muted/40 p-3">
+            <p className="mb-2 text-sm font-medium">Step 1: verify this pick list</p>
+            <div className="flex gap-2">
+              <Input
+                value={pickListScan}
+                placeholder={expectedPickListCode ? `Scan pick list ${expectedPickListCode}` : "Scan pick list barcode"}
+                onChange={(event) => updatePickListScan(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    verifyPickListScan(event.currentTarget.value);
+                  }
+                }}
+              />
+              <BarcodeScanButton title="Scan pick list barcode" onScan={verifyPickListScan} />
+              <Button type="button" variant="outline" disabled={!pickListScan || pickListVerified} onClick={() => verifyPickListScan(pickListScan)}>
+                Verify
+              </Button>
+            </div>
           </div>
-          <p className="mt-1 text-xs text-muted-foreground">{pickListVerified ? "Pick list verified. Scan the directed pallet, or choose a different matching pallet." : "Verify this pick list before confirming a pallet."}</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {pickListVerified
+              ? "Pick list verified. Scan the directed pallet, or choose a different matching pallet."
+              : pickListScan
+                ? "This barcode does not match this execution list. Scan the pick-list label shown above."
+                : "The pick tasks unlock after the pick-list barcode is scanned."}
+          </p>
         </div>
         {!online ? (
           <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
