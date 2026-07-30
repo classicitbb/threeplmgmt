@@ -1489,8 +1489,6 @@ function PickExecutionPage() {
 
   const tasks = data?.pickTasks ?? [];
   const expectedPickListCode = String((data as any)?.pickList?.pick_list_number ?? "");
-  const [pickListScan, setPickListScan] = useState("");
-  const [pickListVerified, setPickListVerified] = useState(false);
   const taskLocationRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const [confirmErrorNonceByTask, setConfirmErrorNonceByTask] = useState<Record<string, number>>({});
   const [pickAnomalyByTask, setPickAnomalyByTask] = useState<Record<string, { availableQuantity: number; requestedQuantity: number } | undefined>>({});
@@ -1617,29 +1615,6 @@ function PickExecutionPage() {
   const allTasksClosed = tasks.length > 0 && tasks.every((t) => !PICK_OPEN_STATUSES.has(t.status));
   const listStatus = (data as any)?.pickList?.status ?? (tasks[0] as any)?.pick_lists?.status;
   const listAlreadyClosed = listStatus === "completed" || listStatus === "cancelled";
-  const verifyPickListScan = (value: string) => {
-    const scanned = normalizeScannerText(value);
-    setPickListScan(scanned);
-    if (!expectedPickListCode || scanned !== expectedPickListCode.toUpperCase()) {
-      setPickListVerified(false);
-      toast.error("Scanned pick list does not match this execution list.");
-      return;
-    }
-    setPickListVerified(true);
-    toast.success("Pick list verified");
-  };
-
-  const updatePickListScan = (value: string) => {
-    const scanned = normalizeScannerText(value);
-    setPickListScan(scanned);
-
-    // Some wedge scanners do not send Enter. Unlock only when the complete
-    // barcode matches this execution list; Enter and the button remain useful
-    // for clear feedback when the wrong label was scanned.
-    const matchesExpectedList = Boolean(expectedPickListCode) && scanned === expectedPickListCode.toUpperCase();
-    setPickListVerified(matchesExpectedList);
-  };
-
   return (
     <AppShell>
       <div className="flex flex-col gap-6">
@@ -1653,33 +1628,6 @@ function PickExecutionPage() {
               Open the assigned list, scan location and pallet, then confirm quantity.
             </HintButton>
           </div>
-          <div className="mt-3 max-w-xl rounded-md border bg-muted/40 p-3">
-            <p className="mb-2 text-sm font-medium">Step 1: verify this pick list</p>
-            <div className="flex gap-2">
-              <Input
-                value={pickListScan}
-                placeholder={expectedPickListCode ? `Scan pick list ${expectedPickListCode}` : "Scan pick list barcode"}
-                onChange={(event) => updatePickListScan(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    verifyPickListScan(event.currentTarget.value);
-                  }
-                }}
-              />
-              <BarcodeScanButton title="Scan pick list barcode" onScan={verifyPickListScan} />
-              <Button type="button" variant="outline" disabled={!pickListScan || pickListVerified} onClick={() => verifyPickListScan(pickListScan)}>
-                Verify
-              </Button>
-            </div>
-          </div>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {pickListVerified
-              ? "Pick list verified. Scan the directed pallet, or choose a different matching pallet."
-              : pickListScan
-                ? "This barcode does not match this execution list. Scan the pick-list label shown above."
-                : "The pick tasks unlock after the pick-list barcode is scanned."}
-          </p>
         </div>
         {!online ? (
           <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
@@ -1704,7 +1652,6 @@ function PickExecutionPage() {
               });
             }}
             pickListCode={expectedPickListCode}
-            pickListVerified={pickListVerified}
             registerLocationRef={(el) => {
               taskLocationRefs.current[task.id] = el;
             }}
@@ -1845,7 +1792,6 @@ function PickTaskCard({
   onClearAnomaly,
   registerLocationRef,
   pickListCode,
-  pickListVerified,
 }: {
   task: any;
   onConfirm: (payload: {
@@ -1863,7 +1809,6 @@ function PickTaskCard({
   onClearAnomaly?: () => void;
   registerLocationRef: (el: HTMLInputElement | null) => void;
   pickListCode: string;
-  pickListVerified: boolean;
 }) {
   const form = useForm({
     defaultValues: {
@@ -1979,10 +1924,6 @@ function PickTaskCard({
       toast.error("Scan the bay/location and pallet before confirming.");
       return;
     }
-    if (!pickListVerified) {
-      toast.error("Scan the pick list barcode before confirming a pick.");
-      return;
-    }
     if (sourceOverrideScanned) {
       toast.warning("This pallet or location differs from the task. Use Pick a different pallet to verify and override it.");
       return;
@@ -2026,10 +1967,6 @@ function PickTaskCard({
   function previewAlternate(value: string) {
     const scanned = normalizeScannerText(value);
     if (!scanned) return;
-    if (!pickListVerified) {
-      toast.error("Scan the pick list barcode before verifying another pallet.");
-      return;
-    }
     setAlternatePalletBarcode(scanned);
     setAlternatePreview(null);
     setAlternateArmed(false);
@@ -2088,7 +2025,7 @@ function PickTaskCard({
                           registerLocationRef(el);
                         }}
                         className="min-h-10 min-w-0 flex-1 transition-shadow duration-300"
-                        disabled={lockForConfirm || !pickListVerified}
+                        disabled={lockForConfirm}
                         placeholder="Scan location barcode"
                         onChange={(event) => {
                           const value = normalizeScannerText(event.target.value.replace(/[\r\n]/g, ""));
@@ -2110,7 +2047,7 @@ function PickTaskCard({
                         <BarcodeScanButton
                           title="Scan Bay/Location Code"
                           onScan={applyLocationScan}
-                          disabled={lockForConfirm || !pickListVerified}
+                          disabled={lockForConfirm}
                           className="w-20"
                         />
                       </div>
@@ -2151,7 +2088,7 @@ function PickTaskCard({
                           palletRef.current = el;
                         }}
                         className="min-h-10 min-w-0 flex-1 transition-shadow duration-300"
-                        disabled={lockForConfirm || !pickListVerified}
+                        disabled={lockForConfirm}
                         placeholder="Scan pallet barcode"
                         onChange={(event) => {
                           onClearAnomaly?.();
@@ -2182,7 +2119,7 @@ function PickTaskCard({
                             confirmRef.current?.focus();
                           }, 50);
                         }}
-                        disabled={lockForConfirm || !pickListVerified}
+                        disabled={lockForConfirm}
                         className="w-20"
                       />
                     </div>
@@ -2196,7 +2133,7 @@ function PickTaskCard({
             </div>
             <div className="lg:col-span-4 rounded-md border border-dashed border-amber-400 bg-amber-50/60 p-3 dark:border-amber-600 dark:bg-amber-950/20">
               {!alternateMode ? (
-                <Button type="button" variant="outline" disabled={!pickListVerified || isPending} onClick={() => setAlternateMode(true)}>
+                <Button type="button" variant="outline" disabled={isPending} onClick={() => setAlternateMode(true)}>
                   Pick a different matching pallet
                 </Button>
               ) : (
@@ -2269,7 +2206,7 @@ function PickTaskCard({
                   type="button"
                   variant="outline"
                   className="w-fit border-amber-500 text-amber-900 hover:bg-amber-100 dark:text-amber-200"
-                  disabled={isPending || !readyToConfirm || !pickListVerified}
+                  disabled={isPending || !readyToConfirm}
                   onClick={() =>
                     onConfirm({
                       taskId: task.id,
@@ -2293,7 +2230,7 @@ function PickTaskCard({
                 confirmPrompt && readyToConfirm && "animate-pulse border border-yellow-300 bg-yellow-300 text-yellow-950 hover:bg-yellow-300",
               )}
               type="submit"
-              disabled={isPending || !readyToConfirm || !pickListVerified}
+              disabled={isPending || !readyToConfirm}
             >
               {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
               Confirm pick
