@@ -6,7 +6,7 @@ vi.mock("@/integrations/supabase/client", () => ({
   supabase: { rpc, from: vi.fn() },
 }));
 
-import { confirmPickTask, PickQuantityAnomalyError } from "@/lib/wms-core";
+import { confirmPickTask, previewPickSourceOverride } from "@/lib/wms-core";
 
 describe("confirmPickTask", () => {
   beforeEach(() => {
@@ -16,27 +16,27 @@ describe("confirmPickTask", () => {
   it("commits a normal pick through the transactional database operation", async () => {
     rpc.mockResolvedValue({ data: { confirmed_quantity: 10, source_override: false }, error: null });
 
-    await expect(confirmPickTask("task-1", "WH3-A-1-05-L05-P1", "PBC-1", 10)).resolves.toMatchObject({ confirmed_quantity: 10 });
+    await expect(confirmPickTask("task-1", "PKL-1", "PBC-1", 10)).resolves.toMatchObject({ confirmed_quantity: 10 });
 
     expect(rpc).toHaveBeenCalledWith("confirm_pick_task", {
       in_task_id: "task-1",
-      in_scanned_location_code: "A-05-L05-P1",
+      in_pick_list_code: "PKL-1",
       in_scanned_pallet_barcode: "PBC-1",
       in_confirmed_quantity: 10,
       in_allow_quantity_anomaly: false,
-      in_source_override_reason: null,
+      in_confirm_source_override: false,
     });
   });
 
-  it("sends the reason only for the server to validate an alternate source", async () => {
+  it("requires an explicit source-override confirmation in the commit payload", async () => {
     rpc.mockResolvedValue({ data: { source_override: true, picked_pallet_id: "pallet-2" }, error: null });
 
-    await confirmPickTask("task-1", "A-06-L05-P1", "PBC-2", 10, false, "Directed pallet was inaccessible");
+    await confirmPickTask("task-1", "PKL-1", "PBC-2", 10, false, true);
 
     expect(rpc).toHaveBeenCalledWith("confirm_pick_task", expect.objectContaining({
-      in_scanned_location_code: "A-06-L05-P1",
+      in_pick_list_code: "PKL-1",
       in_scanned_pallet_barcode: "PBC-2",
-      in_source_override_reason: "Directed pallet was inaccessible",
+      in_confirm_source_override: true,
     }));
   });
 
@@ -46,7 +46,7 @@ describe("confirmPickTask", () => {
       error: { message: "PICK_QTY_ANOMALY: available=6;requested=10" },
     });
 
-    await expect(confirmPickTask("task-1", "A-05-L05-P1", "PBC-1", 10)).rejects.toEqual(
+    await expect(confirmPickTask("task-1", "PKL-1", "PBC-1", 10)).rejects.toEqual(
       expect.objectContaining({
         name: "PickQuantityAnomalyError",
         availableQuantity: 6,
@@ -58,7 +58,7 @@ describe("confirmPickTask", () => {
   it("allows the existing short-pallet recovery only when explicitly confirmed", async () => {
     rpc.mockResolvedValue({ data: { confirmed_quantity: 6, quantity_anomaly_override: true }, error: null });
 
-    await expect(confirmPickTask("task-1", "A-05-L05-P1", "PBC-1", 10, true)).resolves.toMatchObject({ confirmed_quantity: 6 });
+    await expect(confirmPickTask("task-1", "PKL-1", "PBC-1", 10, true)).resolves.toMatchObject({ confirmed_quantity: 6 });
 
     expect(rpc).toHaveBeenCalledWith("confirm_pick_task", expect.objectContaining({
       in_allow_quantity_anomaly: true,
@@ -68,8 +68,20 @@ describe("confirmPickTask", () => {
   it("surfaces server validation failures without attempting client-side inventory writes", async () => {
     rpc.mockResolvedValue({ data: null, error: { message: "This pallet is already directed to another active pick task." } });
 
-    await expect(confirmPickTask("task-1", "A-06-L05-P1", "PBC-2", 10, false, "alternate source")).rejects.toThrow(
+    await expect(confirmPickTask("task-1", "PKL-1", "PBC-2", 10, false, true)).rejects.toThrow(
       "already directed to another active pick task",
     );
+  });
+
+  it("previews the alternate pallet before allowing an override", async () => {
+    rpc.mockResolvedValue({ data: { sku: "SKU-1", requested_quantity: 10, source_override: true }, error: null });
+
+    await expect(previewPickSourceOverride("task-1", "PKL-1", "PBC-2")).resolves.toMatchObject({ source_override: true });
+
+    expect(rpc).toHaveBeenCalledWith("preview_pick_source_override", {
+      in_task_id: "task-1",
+      in_pick_list_code: "PKL-1",
+      in_scanned_pallet_barcode: "PBC-2",
+    });
   });
 });
