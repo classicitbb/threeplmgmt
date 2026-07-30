@@ -1510,19 +1510,19 @@ function PickExecutionPage() {
       locationCode,
       palletBarcode,
       quantity,
-      shortReason,
       override,
+      sourceOverrideReason,
     }: {
       taskId: string;
       locationCode: string;
       palletBarcode: string;
       quantity: number;
-      shortReason?: string;
       override?: boolean;
+      sourceOverrideReason?: string;
     }) => {
       assertOnline();
       try {
-        await confirmPickTask(taskId, locationCode, palletBarcode, quantity, shortReason, override);
+        await confirmPickTask(taskId, locationCode, palletBarcode, quantity, Boolean(override), sourceOverrideReason);
       } catch (err) {
         if (isLikelyNetworkError(err)) {
           throw new Error(OFFLINE_WORK_MESSAGE);
@@ -1537,7 +1537,7 @@ function PickExecutionPage() {
         delete next[variables.taskId];
         return next;
       });
-      toast.success(variables.override ? "Pick confirmed with override — anomaly logged for review" : "Pick task confirmed", {
+      toast.success(variables.sourceOverrideReason ? "Alternate source picked — movement recorded on scanned pallet" : variables.override ? "Pick confirmed with override — anomaly logged for review" : "Pick task confirmed", {
         className: "task-success-toast-rim",
       });
       try { navigator.vibrate?.([60, 40, 120]); } catch { /* noop */ }
@@ -1795,8 +1795,8 @@ function PickTaskCard({
     locationCode: string;
     palletBarcode: string;
     quantity: number;
-    shortReason?: string;
     override?: boolean;
+    sourceOverrideReason?: string;
   }) => void;
   isPending: boolean;
   confirmErrorNonce: number;
@@ -1809,7 +1809,7 @@ function PickTaskCard({
       locationCode: "",
       palletBarcode: "",
       quantity: task.requested_quantity,
-      shortReason: "",
+      sourceOverrideReason: "",
     },
   });
   const locationRef = useRef<HTMLInputElement | null>(null);
@@ -1831,6 +1831,10 @@ function PickTaskCard({
   const scannedLocation = String(form.watch("locationCode") ?? "").trim();
   const scannedPallet = String(form.watch("palletBarcode") ?? "").trim();
   const readyToConfirm = Boolean(scannedLocation && scannedPallet);
+  const sourceOverrideScanned = readyToConfirm && (
+    normalizeRackLocationCode(scannedLocation) !== locationCode
+    || scannedPallet.toUpperCase() !== String(palletBarcode).toUpperCase()
+  );
   const lockForConfirm = confirmPrompt && readyToConfirm;
   const pickListId = String(task.pick_list_id ?? "");
 
@@ -1845,7 +1849,7 @@ function PickTaskCard({
       locationCode: snapshot.locationCode ?? "",
       palletBarcode: snapshot.palletBarcode ?? "",
       quantity: task.requested_quantity,
-      shortReason: "",
+      sourceOverrideReason: "",
     });
     setBayScan(snapshot.bayScan ?? "");
     setConfirmPrompt(Boolean(snapshot.confirmPrompt && snapshot.locationCode && snapshot.palletBarcode));
@@ -1912,11 +1916,16 @@ function PickTaskCard({
       toast.error("Scan the bay/location and pallet before confirming.");
       return;
     }
+    if (sourceOverrideScanned && !String(values.sourceOverrideReason ?? "").trim()) {
+      toast.error("Enter a reason before confirming an alternate pallet or location.");
+      return;
+    }
     onConfirm({
       taskId: task.id,
       locationCode: values.locationCode,
       palletBarcode: values.palletBarcode,
       quantity: wholePalletQuantity,
+      sourceOverrideReason: sourceOverrideScanned ? values.sourceOverrideReason : undefined,
     });
     if (cardRef.current) {
       flashInput(cardRef.current, "green");
@@ -2096,6 +2105,28 @@ function PickTaskCard({
               <span className="text-xs font-medium text-muted-foreground">Full pallet qty</span>
               <span className="font-mono text-base font-semibold">{formatNumber(wholePalletQuantity)}</span>
             </div>
+            {sourceOverrideScanned ? (
+              <FormField
+                control={form.control}
+                name="sourceOverrideReason"
+                render={({ field }) => (
+                  <FormItem className="lg:col-span-2 rounded-md border border-amber-400 bg-amber-50 px-3 py-2 dark:border-amber-600 dark:bg-amber-950/40">
+                    <FormLabel className="text-amber-900 dark:text-amber-200">Alternate source — reason required</FormLabel>
+                    <FormControl>
+                      <Input
+                        {...field}
+                        disabled={isPending}
+                        placeholder="Why is the directed pallet or location being overridden?"
+                        className="bg-background"
+                      />
+                    </FormControl>
+                    <p className="text-xs text-amber-800 dark:text-amber-300">
+                      This pick will be recorded against scanned pallet {scannedPallet} at {normalizeRackLocationCode(scannedLocation)}.
+                    </p>
+                  </FormItem>
+                )}
+              />
+            ) : null}
             {anomaly ? (
               <div className="lg:col-span-4 flex flex-col gap-2 rounded-md border border-amber-400 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-600 dark:bg-amber-950/40 dark:text-amber-200">
                 <p>
@@ -2114,13 +2145,13 @@ function PickTaskCard({
                       taskId: task.id,
                       locationCode: scannedLocation,
                       palletBarcode: scannedPallet,
-                      quantity: anomaly.availableQuantity,
+                      quantity: wholePalletQuantity,
                       override: true,
                     })
                   }
                 >
                   {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                  Override & confirm {formatNumber(anomaly.availableQuantity)}
+                  Override & confirm remaining {formatNumber(anomaly.availableQuantity)}
                 </Button>
               </div>
             ) : null}

@@ -3,18 +3,11 @@ import { supabase } from "@/integrations/supabase/client";
 import {
   db,
   buildPalletCode,
-  formatSupabaseError,
-  throwIfSupabaseError,
   pickListSchema,
-  DB_RETIRED_INVENTORY_STATUS_FILTER,
-  PICK_COMPLETED_INVENTORY_STATUS,
-  type InventoryStatus,
 } from "@/features/shared/core-types";
 import { normalizeRackLocationCode } from "@/features/setup/setup-core";
 import { upsertRecord } from "@/features/admin/admin-core";
 import { createLabelRecord } from "@/features/receiving/receiving-core";
-import { writeSystemLog } from "@/features/system/system-core";
-import { assertNotFrozen } from "@/features/cycle-counts/freeze-core";
 
 /**
  * Splits a requested pick quantity across pallets in the order they're
@@ -222,221 +215,29 @@ export async function confirmPickTask(
   scannedLocation: string,
   scannedPallet: string,
   confirmedQuantity: number,
-  shortReason?: string,
-  override = false,
+  allowQuantityAnomaly = false,
+  sourceOverrideReason?: string,
 ) {
-  const { data: task, error: taskError } = await db("pick_tasks")
-    .select("*")
-    .eq("id", taskId)
-    .single();
-  if (taskError) throw taskError;
-
-  if (!task.pallet_id) {
-    throw new Error("Task is not linked to a pallet.");
-  }
-  if (["completed", "cancelled"].includes(task.status)) {
-    throw new Error("Pick task is already closed. Refresh the pick list.");
-  }
-  if (!Number.isFinite(Number(confirmedQuantity)) || Number(confirmedQuantity) <= 0) {
-    throw new Error("Confirmed pick quantity must be greater than zero.");
-  }
-
-  const [{ data: pallet, error: palletError }, { data: balance, error: balanceError }] = await Promise.all([
-    db("pallets").select("*").eq("id", task.pallet_id).single(),
-    db("inventory_balances").select("*").eq("pallet_id", task.pallet_id).single(),
-  ]);
-
-  if (palletError) throw palletError;
-  if (balanceError) throw balanceError;
-  if (pallet.pallet_barcode !== scannedPallet) {
-    throw new Error("Scanned pallet does not match the task.");
-  }
-
-  const location = balance.location_id
-    ? await db("locations").select("*").eq("id", balance.location_id).single()
-    : { data: null, error: null };
-  if (location.error) throw location.error;
-  if (location.data && normalizeRackLocationCode(location.data.code) !== normalizeRackLocationCode(scannedLocation)) {
-    throw new Error("Scanned location does not match the suggested pick location.");
-  }
-  await assertNotFrozen(balance.location_id, { palletId: pallet.id });
-
-  let nextBalanceQuantity = Number(balance.quantity ?? 0);
-  let fullyDepleted = false;
-  let quantityAnomaly = false;
-
-  // effectiveQuantity is what actually gets debited/recorded. It starts as
-  // the caller's confirmedQuantity, but is clamped down to the pallet's true
-  // available quantity when an override resolves an anomaly below.
-  let effectiveQuantity = Number(confirmedQuantity);
-
-  if (effectiveQuantity > 0) {
-    const trueAvailable = Number(balance.available_quantity ?? 0);
-    const wholePalletQuantity = Number(balance.available_quantity ?? pallet.available_quantity ?? task.requested_quantity ?? 0);
-
-    if (effectiveQuantity > trueAvailable) {
-      // Someone/something else (another pick, transfer, or adjustment) has
-      // debited this pallet since the task was created or the screen was
-      // loaded, so the requested/confirmed quantity can no longer be
-      // fulfilled from this pallet alone.
-      if (!override) {
-        throw new PickQuantityAnomalyError(
-          `Cannot pick ${effectiveQuantity}; only ${trueAvailable} available on this pallet.`,
-          trueAvailable,
-          Number(task.requested_quantity ?? effectiveQuantity),
-        );
-      }
-      if (trueAvailable <= 0) {
-        throw new Error("This pallet has no remaining stock to pick. Cancel or reassign this pick task.");
-      }
-      // Operator re-scanned the pallet and confirmed the true remaining
-      // quantity — proceed with that instead of the stale/expected amount,
-      // and flag the discrepancy so it gets logged below.
-      effectiveQuantity = trueAvailable;
-      quantityAnomaly = true;
-    } else if (effectiveQuantity !== wholePalletQuantity) {
-      throw new Error(`Partial picks are disabled. Confirm the full pallet quantity of ${wholePalletQuantity}.`);
-    }
-
-    const nextAvailable = Math.max(balance.available_quantity - effectiveQuantity, 0);
-    const nextStatus: InventoryStatus = nextAvailable === 0 ? PICK_COMPLETED_INVENTORY_STATUS : "available";
-    fullyDepleted = nextAvailable === 0;
-    const nextPalletQuantity = Math.max(Number(pallet.quantity ?? 0) - effectiveQuantity, 0);
-    nextBalanceQuantity = Math.max(Number(balance.quantity ?? 0) - effectiveQuantity, 0);
-
-    const palletUpdate = await db("pallets")
-      .update(
-        fullyDepleted
-          ? {
-              available_quantity: 0,
-              quantity: 0,
-              reserved_quantity: 0,
-              status: nextStatus,
-              current_location_id: null,
-              is_stored: false,
-            }
-          : {
-              available_quantity: nextAvailable,
-              quantity: nextPalletQuantity,
-              status: nextStatus,
-            },
-      )
-      .eq("id", pallet.id);
-    throwIfSupabaseError(palletUpdate, "Could not debit picked pallet.");
-
-    const balanceUpdate = await db("inventory_balances")
-      .update(
-        fullyDepleted
-          ? {
-              available_quantity: 0,
-              quantity: 0,
-              reserved_quantity: 0,
-              status: nextStatus,
-              location_id: null,
-              zone_id: null,
-            }
-          : {
-              available_quantity: nextAvailable,
-              quantity: nextBalanceQuantity,
-              status: nextStatus,
-            },
-      )
-      .eq("id", balance.id);
-    throwIfSupabaseError(balanceUpdate, "Could not debit picked inventory balance.");
-  }
-
-  const requestedQuantity = Number(task.requested_quantity ?? 0);
-  const autoShortReason = quantityAnomaly && effectiveQuantity < requestedQuantity
-    ? `Override: pallet only had ${effectiveQuantity} available (requested ${requestedQuantity}).`
-    : null;
-  const finalShortReason = shortReason ?? autoShortReason;
-
-  const taskUpdate = await db("pick_tasks")
-    .update({
-      confirmed_quantity: effectiveQuantity,
-      short_reason: finalShortReason,
-      status: finalShortReason ? "exception" : "completed",
-      completed_at: new Date().toISOString(),
-    })
-    .eq("id", taskId);
-  throwIfSupabaseError(taskUpdate, "Could not close pick task after debiting inventory.");
-
-  const pickAudit = await (supabase.rpc as any)("log_audit_event", {
-    in_event_type: "pick",
-    in_entity_table: "pick_tasks",
-    in_entity_id: taskId,
-    in_pallet_id: pallet.id,
-    in_warehouse_id: balance.warehouse_id,
-    in_from_location_id: balance.location_id,
-    in_metadata: {
-      confirmed_quantity: effectiveQuantity,
-      requested_quantity: requestedQuantity,
-      short_reason: finalShortReason,
-      previous_quantity: Number(balance.quantity ?? 0),
-      remaining_quantity: nextBalanceQuantity,
-      location_cleared: fullyDepleted,
-      override: quantityAnomaly,
-    } as any,
+  const { data, error } = await (supabase.rpc as any)("confirm_pick_task", {
+    in_task_id: taskId,
+    in_scanned_location_code: normalizeRackLocationCode(scannedLocation),
+    in_scanned_pallet_barcode: scannedPallet,
+    in_confirmed_quantity: confirmedQuantity,
+    in_allow_quantity_anomaly: allowQuantityAnomaly,
+    in_source_override_reason: sourceOverrideReason?.trim() || null,
   });
-  if (pickAudit.error) console.error("[submitPickTaskLine] log_audit_event failed:", pickAudit.error);
+  if (!error) return data;
 
-  // Notify admins/managers of the pick anomaly via the System Log ("record
-  // count" category) so it can be reviewed alongside other inventory-count
-  // discrepancies. Non-blocking — the pick itself is already committed.
-  if (quantityAnomaly) {
-    const shortfall = Math.max(requestedQuantity - effectiveQuantity, 0);
-    await writeSystemLog({
-      log_type: "record_count",
-      severity: "warning",
-      title: `Pick quantity anomaly overridden — task ${task.task_number ?? taskId}`,
-      message: `Requested ${requestedQuantity}, but pallet ${pallet.pallet_barcode ?? pallet.id} only had ${effectiveQuantity} available at confirm time. Operator overrode the warning and completed the pick for ${effectiveQuantity}${shortfall > 0 ? ` (short by ${shortfall})` : ""}.`,
-      source: "picking",
-      table_name: "pick_tasks",
-      record_count: effectiveQuantity,
-      details: {
-        task_id: taskId,
-        task_number: task.task_number ?? null,
-        pick_list_id: task.pick_list_id ?? null,
-        pallet_id: pallet.id,
-        pallet_barcode: pallet.pallet_barcode ?? null,
-        requested_quantity: requestedQuantity,
-        confirmed_quantity: effectiveQuantity,
-        shortfall,
-      },
-    }).catch((err) => console.error("[confirmPickTask] writeSystemLog anomaly failed:", err));
-  }
-
-  // Roll up the parent pick list if every sibling task is finished.
-  if (task.pick_list_id) {
-    const { data: siblings } = await db("pick_tasks")
-      .select("id, status")
-      .eq("pick_list_id", task.pick_list_id);
-    const allDone = (siblings ?? []).every((row: any) =>
-      ["completed", "cancelled", "exception"].includes(row.status),
+  const message = String(error.message ?? error.details ?? "Pick confirmation failed");
+  const anomaly = /PICK_QTY_ANOMALY:\s*available=([\d.]+);requested=([\d.]+)/i.exec(message);
+  if (anomaly) {
+    throw new PickQuantityAnomalyError(
+      `Cannot pick ${anomaly[2]}; only ${anomaly[1]} available on this pallet.`,
+      Number(anomaly[1]),
+      Number(anomaly[2]),
     );
-    if (allDone && (siblings ?? []).length > 0) {
-      const { data: parent } = await db("pick_lists")
-        .select("id, status, warehouse_id, order_id")
-        .eq("id", task.pick_list_id)
-        .single();
-      if (parent && !["completed", "cancelled"].includes(parent.status)) {
-        await db("pick_lists")
-          .update({ status: "completed" })
-          .eq("id", parent.id);
-        if (parent.order_id) {
-          await db("orders").update({ status: "completed" }).eq("id", parent.order_id);
-        }
-        const completeAudit = await (supabase.rpc as any)("log_audit_event", {
-          in_event_type: "pick_list_completed",
-          in_entity_table: "pick_lists",
-          in_entity_id: parent.id,
-          in_warehouse_id: parent.warehouse_id,
-          in_metadata: {} as any,
-        });
-        if (completeAudit.error) console.error("[confirmPickTask] pick_list rollup audit failed:", completeAudit.error);
-      }
-    }
   }
+  throw new Error(message);
 }
 
 export async function cancelPickList(pickListId: string, reason?: string) {
