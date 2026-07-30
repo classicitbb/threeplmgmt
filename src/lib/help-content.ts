@@ -485,7 +485,7 @@ export const helpArticles: HelpArticle[] = [
       {
         title: "If the Pallet Is Not Where the Task Says",
         content: [
-          "Search Inventory by pallet barcode and check the last known location and movement history. For an eligible same-SKU, same-quantity pallet in the current warehouse, use Pick Execution's alternate-source reason so the override is recorded against the pallet actually picked.",
+          "Search Inventory by pallet barcode and check the last known location and movement history. For an eligible same-SKU, same-quantity pallet in the current warehouse, scan it through Pick Execution, review the source reassignment, then explicitly override and confirm the pick.",
           "If the pallet is physically found somewhere else, use Location Moves or Status Controls as appropriate before returning to pick execution.",
         ],
       },

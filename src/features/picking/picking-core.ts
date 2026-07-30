@@ -5,7 +5,6 @@ import {
   buildPalletCode,
   pickListSchema,
 } from "@/features/shared/core-types";
-import { normalizeRackLocationCode } from "@/features/setup/setup-core";
 import { upsertRecord } from "@/features/admin/admin-core";
 import { createLabelRecord } from "@/features/receiving/receiving-core";
 
@@ -210,21 +209,43 @@ export class PickQuantityAnomalyError extends Error {
   }
 }
 
+export type PickSourcePreview = {
+  sku: string;
+  requested_quantity: number;
+  directed_pallet_id: string;
+  directed_location_id: string | null;
+  scanned_pallet_id: string;
+  scanned_pallet_barcode: string;
+  scanned_location_id: string;
+  scanned_location_code: string;
+  source_override: boolean;
+};
+
+export async function previewPickSourceOverride(taskId: string, pickListCode: string, scannedPallet: string) {
+  const { data, error } = await (supabase.rpc as any)("preview_pick_source_override", {
+    in_task_id: taskId,
+    in_pick_list_code: pickListCode,
+    in_scanned_pallet_barcode: scannedPallet,
+  });
+  if (error) throw new Error(String(error.message ?? error.details ?? "Could not verify the alternate pallet."));
+  return data as PickSourcePreview;
+}
+
 export async function confirmPickTask(
   taskId: string,
-  scannedLocation: string,
+  pickListCode: string,
   scannedPallet: string,
   confirmedQuantity: number,
   allowQuantityAnomaly = false,
-  sourceOverrideReason?: string,
+  confirmSourceOverride = false,
 ) {
   const { data, error } = await (supabase.rpc as any)("confirm_pick_task", {
     in_task_id: taskId,
-    in_scanned_location_code: normalizeRackLocationCode(scannedLocation),
+    in_pick_list_code: pickListCode,
     in_scanned_pallet_barcode: scannedPallet,
     in_confirmed_quantity: confirmedQuantity,
     in_allow_quantity_anomaly: allowQuantityAnomaly,
-    in_source_override_reason: sourceOverrideReason?.trim() || null,
+    in_confirm_source_override: confirmSourceOverride,
   });
   if (!error) return data;
 
