@@ -318,7 +318,7 @@ async function runItem(item: OfflineWorkItem): Promise<void> {
   }
   if (item.kind === "pick") {
     const p = item.payload as OfflinePickPayload;
-    await confirmPickTask(p.taskId, p.locationCode, p.palletBarcode, p.quantity, p.shortReason);
+    await confirmPickTask(p.taskId, p.locationCode, p.palletBarcode, p.quantity, Boolean(p.shortReason));
     return;
   }
   throw new Error(`Unknown offline work kind: ${(item as OfflineWorkItem).kind}`);
