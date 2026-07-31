@@ -1939,10 +1939,13 @@ export type Database = {
           id: string
           location_id: string | null
           order_line_id: string | null
+          original_location_id: string | null
+          original_pallet_id: string | null
           pallet_id: string | null
           pick_list_id: string
           requested_quantity: number
           short_reason: string | null
+          source_reassigned_at: string | null
           staging_location_id: string | null
           status: Database["public"]["Enums"]["task_status"]
           task_number: string
@@ -1957,10 +1960,13 @@ export type Database = {
           id?: string
           location_id?: string | null
           order_line_id?: string | null
+          original_location_id?: string | null
+          original_pallet_id?: string | null
           pallet_id?: string | null
           pick_list_id: string
           requested_quantity?: number
           short_reason?: string | null
+          source_reassigned_at?: string | null
           staging_location_id?: string | null
           status?: Database["public"]["Enums"]["task_status"]
           task_number: string
@@ -1975,10 +1981,13 @@ export type Database = {
           id?: string
           location_id?: string | null
           order_line_id?: string | null
+          original_location_id?: string | null
+          original_pallet_id?: string | null
           pallet_id?: string | null
           pick_list_id?: string
           requested_quantity?: number
           short_reason?: string | null
+          source_reassigned_at?: string | null
           staging_location_id?: string | null
           status?: Database["public"]["Enums"]["task_status"]
           task_number?: string
@@ -2004,6 +2013,27 @@ export type Database = {
             columns: ["order_line_id"]
             isOneToOne: false
             referencedRelation: "order_lines"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pick_tasks_original_location_id_fkey"
+            columns: ["original_location_id"]
+            isOneToOne: false
+            referencedRelation: "location_occupancy_view"
+            referencedColumns: ["location_id"]
+          },
+          {
+            foreignKeyName: "pick_tasks_original_location_id_fkey"
+            columns: ["original_location_id"]
+            isOneToOne: false
+            referencedRelation: "locations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pick_tasks_original_pallet_id_fkey"
+            columns: ["original_pallet_id"]
+            isOneToOne: false
+            referencedRelation: "pallets"
             referencedColumns: ["id"]
           },
           {
@@ -3832,6 +3862,17 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      confirm_pick_task: {
+        Args: {
+          in_allow_quantity_anomaly?: boolean
+          in_confirm_source_override?: boolean
+          in_confirmed_quantity: number
+          in_pick_list_code: string
+          in_scanned_pallet_barcode: string
+          in_task_id: string
+        }
+        Returns: Json
+      }
       delete_client_cascade: { Args: { in_id: string }; Returns: Json }
       delete_email: {
         Args: { message_id: number; queue_name: string }
@@ -3904,6 +3945,14 @@ export type Database = {
       pallet_in_accessible_transfer: {
         Args: { target_pallet_id: string }
         Returns: boolean
+      }
+      preview_pick_source_override: {
+        Args: {
+          in_pick_list_code: string
+          in_scanned_pallet_barcode: string
+          in_task_id: string
+        }
+        Returns: Json
       }
       purge_expired_system_log_archive: { Args: never; Returns: number }
       read_email_batch: {
