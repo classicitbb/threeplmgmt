@@ -9,7 +9,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import {
-  AlertTriangle, AlignLeft, Ban, Building2, Boxes, ChevronRight, ChevronsDownUp,
+  AlertTriangle, Ban, Building2, Boxes, ChevronRight, ChevronsDownUp,
   Layers, LayoutGrid, Loader2, MapPin, MoreHorizontal,
   Pencil, Plus, Printer, Search, Trash2,
 } from "lucide-react";
@@ -652,94 +652,6 @@ function BayNode({
   );
 }
 
-function AisleNode({
-  aisleGroup, nodeKey, zone, warehouseName,
-}: {
-  aisleGroup: AisleGroup;
-  nodeKey: string;
-  zone: ZoneRow;
-  warehouseName: string;
-}) {
-  const { activeTreeNodeKey, expandedNodes, selectTreeNode, toggleNode } = useTCtx();
-  const isOpen = expandedNodes.has(nodeKey);
-  const [printOpen, setPrintOpen] = useState(false);
-  const total = aisleGroup.bays.reduce((s, b) => s + b.levels.reduce((a, l) => a + l.positions.length, 0), 0);
-  const bayItems = useMemo<LabelSheetItem[]>(
-    () => aisleGroup.bays.flatMap((bayGroup) => {
-      const firstLocation = bayGroup.levels.flatMap((level) => level.positions)[0];
-      const bayCode = bayCodeFromLocationCode(firstLocation?.code) ?? "";
-      return bayCode ? [{
-        code: bayCode,
-        title: `Aisle ${aisleGroup.aisle} · Bay ${bayGroup.bay}`,
-        subtitle: `${zone.name} · ${warehouseName}`,
-        aisle: aisleGroup.aisle,
-        bay: bayGroup.bay,
-        temperatureClass: zone.temperature_class,
-      }] : [];
-    }),
-    [aisleGroup.aisle, aisleGroup.bays, warehouseName, zone.name, zone.temperature_class],
-  );
-  return (
-    <TreeRowFlyout
-      nodeKey={nodeKey}
-      menu={(close) => (
-        <TreeRowFlyoutItem disabled={bayItems.length === 0} onSelect={() => { setPrintOpen(true); close(); }}>
-          <Printer className="mr-2 h-3.5 w-3.5" />Print all bay labels
-        </TreeRowFlyoutItem>
-      )}
-    >
-    <Collapsible open={isOpen} onOpenChange={() => toggleNode(nodeKey)}>
-      <CollapsibleTrigger asChild>
-        <div
-          data-tree-key={nodeKey}
-          tabIndex={-1}
-          title={TREE_CONTEXT_HINT}
-          className={cn(
-            "group flex min-h-9 cursor-pointer items-center gap-1 rounded-sm px-1 text-sm outline-none hover:bg-accent hover:text-accent-foreground",
-            activeTreeNodeKey === nodeKey && "bg-amber-400 text-amber-950 hover:bg-amber-400 hover:text-amber-950",
-          )}
-          onClick={() => selectTreeNode(nodeKey)}
-        >
-          <ChevronRight className={cn("h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform", isOpen && "rotate-90")} />
-          <AlignLeft className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-          <span className="flex-1 text-xs">Aisle {aisleGroup.aisle}</span>
-          <span className="mr-1 text-xs text-muted-foreground">{total}</span>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 shrink-0 gap-1 px-1.5 text-xs"
-            disabled={bayItems.length === 0}
-            title={`Print all bay labels for Aisle ${aisleGroup.aisle}`}
-            onClick={(event) => {
-              event.stopPropagation();
-              setPrintOpen(true);
-            }}
-          >
-            <Printer className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Print bays</span>
-          </Button>
-        </div>
-      </CollapsibleTrigger>
-      <CollapsibleContent>
-        <div className="ml-4 border-l border-border pl-2">
-          {aisleGroup.bays.map((bg) => (
-            <BayNode
-              key={bg.bay}
-              bayGroup={bg}
-              nodeKey={`${nodeKey}:b${bg.bay}`}
-              zone={zone}
-              warehouseName={warehouseName}
-              aisle={aisleGroup.aisle}
-            />
-          ))}
-        </div>
-      </CollapsibleContent>
-    </Collapsible>
-    <BayLocationCodesPrintDialog items={bayItems} open={printOpen} onOpenChange={setPrintOpen} />
-    </TreeRowFlyout>
-  );
-}
-
 function ZoneNode({
   zone, warehouseName, warehouseCode, nodeKey,
 }: {
@@ -752,6 +664,7 @@ function ZoneNode({
   const isOpen = expandedNodes.has(nodeKey);
   const zoneLabelCode = prefixedCode(warehouseCode, zone.code);
   const [wizardOpen, setWizardOpen] = useState(false);
+  const [printBaysOpen, setPrintBaysOpen] = useState(false);
 
   const { data: rawLocations = [], isLoading } = useQuery({
     queryKey: ["tree", "locations", zone.id],
@@ -764,6 +677,21 @@ function ZoneNode({
   const aisleGroups = useMemo(
     () => groupIntoTree(isTruncated ? rawLocations.slice(0, 200) : rawLocations),
     [rawLocations, isTruncated],
+  );
+  const bayItems = useMemo<LabelSheetItem[]>(
+    () => aisleGroups.flatMap((aisleGroup) => aisleGroup.bays.flatMap((bayGroup) => {
+      const firstLocation = bayGroup.levels.flatMap((level) => level.positions)[0];
+      const bayCode = bayCodeFromLocationCode(firstLocation?.code) ?? "";
+      return bayCode ? [{
+        code: bayCode,
+        title: `Bay ${bayGroup.bay}`,
+        subtitle: `${zone.name} · ${warehouseName}`,
+        aisle: aisleGroup.aisle,
+        bay: bayGroup.bay,
+        temperatureClass: zone.temperature_class,
+      }] : [];
+    })),
+    [aisleGroups, warehouseName, zone.name, zone.temperature_class],
   );
 
   return (
@@ -779,6 +707,9 @@ function ZoneNode({
           </TreeRowFlyoutItem>
           <TreeRowFlyoutItem onSelect={() => { setDialog({ type: "edit-range", zone }); close(); }}>
             <Pencil className="mr-2 h-3.5 w-3.5" />Edit Location Range
+          </TreeRowFlyoutItem>
+          <TreeRowFlyoutItem disabled={bayItems.length === 0} onSelect={() => { setPrintBaysOpen(true); close(); }}>
+            <Printer className="mr-2 h-3.5 w-3.5" />Print all bay labels
           </TreeRowFlyoutItem>
           <div className="-mx-1 my-1 h-px bg-border" />
           <TreeRowFlyoutItem destructive onSelect={() => { setDialog({ type: "delete", label: `zone \"${zone.name}\" and all its locations`, deleteFn: () => deleteZoneCascade(zone.id) }); close(); }}>
@@ -858,6 +789,9 @@ function ZoneNode({
                 <DropdownMenuItem onSelect={() => setDialog({ type: "edit-range", zone })}>
                   <Pencil className="mr-2 h-3.5 w-3.5" />Edit Location Range
                 </DropdownMenuItem>
+                <DropdownMenuItem disabled={bayItems.length === 0} onSelect={() => setPrintBaysOpen(true)}>
+                  <Printer className="mr-2 h-3.5 w-3.5" />Print all bay labels
+                </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   className="text-destructive focus:text-destructive"
@@ -893,20 +827,22 @@ function ZoneNode({
                   Showing 200 of {rawLocations.length}+ — use Bin Locations for bulk management.
                 </p>
               )}
-              {aisleGroups.map((ag) => (
-                <AisleNode
-                  key={ag.aisle}
-                  aisleGroup={ag}
-                  nodeKey={`${nodeKey}:a${ag.aisle}`}
+              {aisleGroups.flatMap((aisleGroup) => aisleGroup.bays.map((bayGroup) => (
+                <BayNode
+                  key={`${aisleGroup.aisle}:${bayGroup.bay}`}
+                  bayGroup={bayGroup}
+                  nodeKey={`${nodeKey}:a${aisleGroup.aisle}:b${bayGroup.bay}`}
                   zone={zone}
                   warehouseName={warehouseName}
+                  aisle={aisleGroup.aisle}
                 />
-              ))}
+              )))}
             </>
           )}
         </div>
       </CollapsibleContent>
     </Collapsible>
+    <BayLocationCodesPrintDialog items={bayItems} open={printBaysOpen} onOpenChange={setPrintBaysOpen} />
     </TreeRowFlyout>
   );
 }
