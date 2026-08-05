@@ -11,8 +11,45 @@ import { z } from "npm:zod@^3.25.76";
 
 // src/lib/mcp/tools/_supabase.ts
 import { createClient } from "npm:@supabase/supabase-js@^2.106.2";
+function runtimeEnv(name) {
+  const runtime = globalThis;
+  return runtime.Deno?.env?.get?.(name) ?? runtime.process?.env?.[name];
+}
+function firstEnv(names) {
+  for (const name of names) {
+    const value = runtimeEnv(name)?.trim();
+    if (value) return value;
+  }
+  return void 0;
+}
+function supabaseUrl() {
+  const url = firstEnv(["SUPABASE_URL", "VITE_SUPABASE_URL"]);
+  if (!url) throw new Error("SUPABASE_URL is required");
+  return url;
+}
+function supabaseKey() {
+  const direct = firstEnv(["SUPABASE_PUBLISHABLE_KEY", "VITE_SUPABASE_PUBLISHABLE_KEY"]);
+  if (direct) return direct;
+  const keyset = runtimeEnv("SUPABASE_PUBLISHABLE_KEYS");
+  if (keyset) {
+    try {
+      const parsed = JSON.parse(keyset);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        const keys = parsed;
+        const key = [keys.default, ...Object.values(keys)].find(
+          (v) => typeof v === "string" && v.trim().startsWith("sb_publishable_")
+        );
+        if (key) return key.trim();
+      }
+    } catch {
+    }
+  }
+  const legacy = firstEnv(["SUPABASE_ANON_KEY", "VITE_SUPABASE_ANON_KEY"]);
+  if (legacy) return legacy;
+  throw new Error("Supabase publishable/anon key is required");
+}
 function supabaseForUser(ctx) {
-  return createClient(process.env.SUPABASE_URL, process.env.SUPABASE_PUBLISHABLE_KEY, {
+  return createClient(supabaseUrl(), supabaseKey(), {
     global: { headers: { Authorization: `Bearer ${ctx.getToken()}` } },
     auth: { persistSession: false, autoRefreshToken: false }
   });
@@ -45,7 +82,9 @@ var list_warehouses_default = defineTool({
 // src/lib/mcp/tools/search-products.ts
 import { defineTool as defineTool2 } from "npm:@lovable.dev/mcp-js@0.22.0";
 import { z as z2 } from "npm:zod@^3.25.76";
-import { escapePostgrestOrValue } from "npm:@/features/shared/core-types";
+function escapePostgrestOrValue(value) {
+  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
 var search_products_default = defineTool2({
   name: "search_products",
   title: "Search products",

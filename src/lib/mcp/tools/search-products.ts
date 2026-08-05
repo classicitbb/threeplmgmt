@@ -1,7 +1,11 @@
 import { defineTool } from "@lovable.dev/mcp-js";
 import { z } from "zod";
 import { supabaseForUser } from "./_supabase";
-import { escapePostgrestOrValue } from "@/features/shared/core-types";
+
+// Inlined (not imported from "@/...") so the Deno bundle stays self-contained.
+function escapePostgrestOrValue(value: string): string {
+  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
 
 export default defineTool({
   name: "search_products",
