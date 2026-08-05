@@ -45,7 +45,9 @@ var list_warehouses_default = defineTool({
 // src/lib/mcp/tools/search-products.ts
 import { defineTool as defineTool2 } from "npm:@lovable.dev/mcp-js@0.22.0";
 import { z as z2 } from "npm:zod@^3.25.76";
-import { escapePostgrestOrValue } from "npm:@/features/shared/core-types";
+function escapePostgrestOrValue(value) {
+  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
 var search_products_default = defineTool2({
   name: "search_products",
   title: "Search products",
