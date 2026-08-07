@@ -29,7 +29,7 @@ import { z } from "zod";
 
 import { useAuth } from "@/hooks/use-auth";
 import { useTenantPath } from "@/hooks/use-tenant-path";
-import { useFeatureFlags, MODULE_LABELS, STARTER_MODULES, type ModuleKey } from "@/hooks/use-feature-flags";
+import { canAccessCopilot, useFeatureFlags, MODULE_LABELS, STARTER_MODULES, type ModuleKey } from "@/hooks/use-feature-flags";
 import { assertOnline, useNetworkStatus } from "@/hooks/use-network-status";
 import {
   enqueueOfflineWork,
@@ -290,7 +290,7 @@ const DEFAULT_DOCK_TILES: DashboardTileDefinition<ModuleKey>[] = [
   { id: "loading", label: "Loading", size: "sm", moduleKey: "pick-lists" },
   { id: "blocked", label: "Blocked", size: "sm", moduleKey: "pick-lists" },
   { id: "loaded", label: "Loaded", size: "sm", moduleKey: "pick-lists" },
-  { id: "warehouse-brain", label: "Warehouse Brain", size: "lg" },
+  { id: "warehouse-brain", label: "Warehouse Brain", size: "lg", moduleKey: "copilot" },
 ];
 
 const DEFAULT_OFFICE_TILES: DashboardTileDefinition<ModuleKey>[] = [
@@ -299,7 +299,7 @@ const DEFAULT_OFFICE_TILES: DashboardTileDefinition<ModuleKey>[] = [
   { id: "Expiration risk", label: "Expiration risk", size: "lg", moduleKey: "inventory" },
   { id: "DPMO", label: "DPMO", size: "lg", moduleKey: "cycle-counts" },
   { id: "setup-checklist", label: "Setup Checklist", size: "lg", moduleKey: "settings" },
-  { id: "warehouse-brain", label: "Warehouse Brain", size: "lg" },
+  { id: "warehouse-brain", label: "Warehouse Brain", size: "lg", moduleKey: "copilot" },
 ];
 
 export const DEFAULT_FLOOR_LAYOUT: DashboardTileDefinition<ModuleKey>[] = [...DEFAULT_DASHBOARD_CARDS, ...DEFAULT_FLOOR_TILES];
@@ -3343,14 +3343,19 @@ export function shouldRestrictToDefaultWarehouse(roles: string[]) {
 }
 
 export function DashboardPage() {
-  const { profile } = useAuth();
+  const { profile, roles } = useAuth();
   const { flags, isEnabled } = useFeatureFlags();
   const [mode, setMode] = useState<DashboardMode>("floor");
   const [editMode, setEditMode] = useState(false);
   const deviceId = useMemo(() => (typeof window === "undefined" ? "server-render-device" : getOrCreateDeviceId()), []);
-  const floorDefinitions = useMemo(() => filterDashboardTileDefinitions(DEFAULT_FLOOR_LAYOUT, isEnabled), [isEnabled]);
-  const dockDefinitions = useMemo(() => filterDashboardTileDefinitions(DEFAULT_DOCK_LAYOUT, isEnabled), [isEnabled]);
-  const officeDefinitions = useMemo(() => filterDashboardTileDefinitions(DEFAULT_OFFICE_LAYOUT, isEnabled), [isEnabled]);
+  const hasCopilotAccess = canAccessCopilot(roles);
+  const isDashboardModuleEnabled = useCallback(
+    (key: ModuleKey) => isEnabled(key) && (key !== "copilot" || hasCopilotAccess),
+    [hasCopilotAccess, isEnabled],
+  );
+  const floorDefinitions = useMemo(() => filterDashboardTileDefinitions(DEFAULT_FLOOR_LAYOUT, isDashboardModuleEnabled), [isDashboardModuleEnabled]);
+  const dockDefinitions = useMemo(() => filterDashboardTileDefinitions(DEFAULT_DOCK_LAYOUT, isDashboardModuleEnabled), [isDashboardModuleEnabled]);
+  const officeDefinitions = useMemo(() => filterDashboardTileDefinitions(DEFAULT_OFFICE_LAYOUT, isDashboardModuleEnabled), [isDashboardModuleEnabled]);
   const floorDefaults = useMemo(() => tileConfigsFromDefinitions(floorDefinitions), [floorDefinitions]);
   const dockDefaults = useMemo(() => tileConfigsFromDefinitions(dockDefinitions), [dockDefinitions]);
   const officeDefaults = useMemo(() => tileConfigsFromDefinitions(officeDefinitions), [officeDefinitions]);

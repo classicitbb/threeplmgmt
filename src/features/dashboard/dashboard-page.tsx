@@ -31,7 +31,7 @@ import { z } from "zod";
 import { HintButton } from "@/components/hint-button";
 import { useAuth } from "@/hooks/use-auth";
 import { useTenantPath } from "@/hooks/use-tenant-path";
-import { useFeatureFlags, MODULE_LABELS, STARTER_MODULES, type ModuleKey } from "@/hooks/use-feature-flags";
+import { canAccessCopilot, useFeatureFlags, MODULE_LABELS, STARTER_MODULES, type ModuleKey } from "@/hooks/use-feature-flags";
 import { assertOnline, useNetworkStatus } from "@/hooks/use-network-status";
 import {
   enqueueOfflineWork,
@@ -219,15 +219,20 @@ import {
 } from "@/features/shared/ui-shared";
 
 export function DashboardPage() {
-  const { profile } = useAuth();
+  const { profile, roles } = useAuth();
   const { toPath } = useTenantPath();
   const { flags, isEnabled } = useFeatureFlags();
   const [mode, setMode] = useState<DashboardMode>("floor");
   const [editMode, setEditMode] = useState(false);
   const deviceId = useMemo(() => (typeof window === "undefined" ? "server-render-device" : getOrCreateDeviceId()), []);
-  const floorDefinitions = useMemo(() => filterDashboardTileDefinitions(DEFAULT_FLOOR_LAYOUT, isEnabled), [isEnabled]);
-  const dockDefinitions = useMemo(() => filterDashboardTileDefinitions(DEFAULT_DOCK_LAYOUT, isEnabled), [isEnabled]);
-  const officeDefinitions = useMemo(() => filterDashboardTileDefinitions(DEFAULT_OFFICE_LAYOUT, isEnabled), [isEnabled]);
+  const hasCopilotAccess = canAccessCopilot(roles);
+  const isDashboardModuleEnabled = useCallback(
+    (key: ModuleKey) => isEnabled(key) && (key !== "copilot" || hasCopilotAccess),
+    [hasCopilotAccess, isEnabled],
+  );
+  const floorDefinitions = useMemo(() => filterDashboardTileDefinitions(DEFAULT_FLOOR_LAYOUT, isDashboardModuleEnabled), [isDashboardModuleEnabled]);
+  const dockDefinitions = useMemo(() => filterDashboardTileDefinitions(DEFAULT_DOCK_LAYOUT, isDashboardModuleEnabled), [isDashboardModuleEnabled]);
+  const officeDefinitions = useMemo(() => filterDashboardTileDefinitions(DEFAULT_OFFICE_LAYOUT, isDashboardModuleEnabled), [isDashboardModuleEnabled]);
   const floorDefaults = useMemo(() => tileConfigsFromDefinitions(floorDefinitions), [floorDefinitions]);
   const dockDefaults = useMemo(() => tileConfigsFromDefinitions(dockDefinitions), [dockDefinitions]);
   const officeDefaults = useMemo(() => tileConfigsFromDefinitions(officeDefinitions), [officeDefinitions]);

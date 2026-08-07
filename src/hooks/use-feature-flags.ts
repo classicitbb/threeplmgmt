@@ -4,6 +4,8 @@ import { useAuth } from "@/hooks/use-auth";
 import { loadMobileToolbarPreferences, saveMobileToolbarPreferences } from "@/lib/mobile-toolbar-preferences";
 
 export type ModuleKey =
+  | "dashboard"
+  | "copilot"
   | "receiving"
   | "putaway"
   | "inventory"
@@ -25,6 +27,8 @@ export type ModuleKey =
   | "email-log";
 
 export const STARTER_MODULES: Record<ModuleKey, boolean> = {
+  dashboard: true,
+  copilot: true,
   receiving: true,
   putaway: true,
   inventory: true,
@@ -47,6 +51,8 @@ export const STARTER_MODULES: Record<ModuleKey, boolean> = {
 };
 
 const MODULE_LABELS: Record<ModuleKey, { label: string; description: string }> = {
+  dashboard: { label: "Dashboard", description: "Command Center for live warehouse operations" },
+  copilot: { label: "Copilot", description: "Role-aware warehouse recommendations and next actions" },
   receiving: { label: "Receiving", description: "Receive stock and create pallet labels" },
   putaway: { label: "Put-Away", description: "Scan pallets into storage locations" },
   inventory: { label: "Inventory Search", description: "Search and inspect current stock" },
@@ -72,13 +78,24 @@ export { MODULE_LABELS };
 
 const STORAGE_KEY = "wms.modules.v1";
 const TOOLBAR_STORAGE_KEY = "wms.mobile-toolbar.v1";
-export const MAX_TOOLBAR_MODULES = 7;
-const DEFAULT_TOOLBAR_MODULES: ModuleKey[] = ["receiving", "putaway", "inventory", "pick-lists", "location-moves"];
+export const MAX_TOOLBAR_MODULES = 8;
+export const COPILOT_ACCESS_ROLES = ["developer", "admin", "warehouse_manager", "warehouse_supervisor"] as const;
+
+export function canAccessCopilot(roles: string[]) {
+  return roles.some((role) => COPILOT_ACCESS_ROLES.includes(role as (typeof COPILOT_ACCESS_ROLES)[number]));
+}
+
+const DEFAULT_TOOLBAR_MODULES: ModuleKey[] = ["dashboard", "receiving", "putaway", "inventory", "pick-lists", "location-moves"];
+const TOOLBAR_PREFERENCE_MARKER = "__toolbar_v2__";
+
+export function serializeToolbarModules(keys: ModuleKey[]): string[] {
+  return [TOOLBAR_PREFERENCE_MARKER, ...keys.slice(0, MAX_TOOLBAR_MODULES)];
+}
 
 function loadFlags(): Record<ModuleKey, boolean> {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return { ...STARTER_MODULES, ...(JSON.parse(raw) as Record<ModuleKey, boolean>) };
+    if (raw) return { ...STARTER_MODULES, ...(JSON.parse(raw) as Record<ModuleKey, boolean>), dashboard: true };
   } catch {
     // ignore
   }
@@ -86,13 +103,15 @@ function loadFlags(): Record<ModuleKey, boolean> {
 }
 
 function saveFlags(flags: Record<ModuleKey, boolean>) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(flags));
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...flags, dashboard: true }));
 }
 
-function sanitizeToolbarModules(value: unknown): ModuleKey[] {
+export function sanitizeToolbarModules(value: unknown): ModuleKey[] {
   if (!Array.isArray(value)) return [...DEFAULT_TOOLBAR_MODULES];
-  return Array.from(new Set(value.filter((key): key is ModuleKey => typeof key === "string" && key in STARTER_MODULES)))
-    .slice(0, MAX_TOOLBAR_MODULES);
+  const isVersioned = value.includes(TOOLBAR_PREFERENCE_MARKER);
+  const modules = Array.from(new Set(value.filter((key): key is ModuleKey => typeof key === "string" && key in STARTER_MODULES)));
+  if (isVersioned) return modules.slice(0, MAX_TOOLBAR_MODULES);
+  return ["dashboard", ...modules.filter((key) => key !== "dashboard")].slice(0, MAX_TOOLBAR_MODULES);
 }
 
 function toolbarStorageKey(userId?: string) {
@@ -110,7 +129,7 @@ function loadToolbarModules(userId?: string): ModuleKey[] {
 }
 
 function saveToolbarModules(keys: ModuleKey[], userId?: string) {
-  localStorage.setItem(toolbarStorageKey(userId), JSON.stringify(keys.slice(0, MAX_TOOLBAR_MODULES)));
+  localStorage.setItem(toolbarStorageKey(userId), JSON.stringify(serializeToolbarModules(keys)));
 }
 
 type FeatureFlagContextValue = {
@@ -158,6 +177,7 @@ export function useFeatureFlagState(): FeatureFlagContextValue {
   const isToolbarModule = useCallback((key: ModuleKey) => toolbarModules.includes(key), [toolbarModules]);
 
   const setModule = useCallback((key: ModuleKey, enabled: boolean) => {
+    if (key === "dashboard") return;
     setFlags((prev) => {
       const next = { ...prev, [key]: enabled };
       saveFlags(next);
@@ -167,7 +187,7 @@ export function useFeatureFlagState(): FeatureFlagContextValue {
       setToolbarModules((prev) => {
         const next = prev.filter((item) => item !== key);
         saveToolbarModules(next, user?.id);
-        if (user) void saveMobileToolbarPreferences(user.id, next).catch((error) => console.error("[FeatureFlags] could not save mobile toolbar preferences:", error));
+        if (user) void saveMobileToolbarPreferences(user.id, serializeToolbarModules(next)).catch((error) => console.error("[FeatureFlags] could not save mobile toolbar preferences:", error));
         return next;
       });
     }
@@ -178,7 +198,7 @@ export function useFeatureFlagState(): FeatureFlagContextValue {
       const without = prev.filter((item) => item !== key);
       const next = pinned ? [...without, key].slice(0, MAX_TOOLBAR_MODULES) : without;
       saveToolbarModules(next, user?.id);
-      if (user) void saveMobileToolbarPreferences(user.id, next).catch((error) => console.error("[FeatureFlags] could not save mobile toolbar preferences:", error));
+      if (user) void saveMobileToolbarPreferences(user.id, serializeToolbarModules(next)).catch((error) => console.error("[FeatureFlags] could not save mobile toolbar preferences:", error));
       return next;
     });
   }, [user]);
@@ -189,7 +209,7 @@ export function useFeatureFlagState(): FeatureFlagContextValue {
     saveFlags(defaults);
     setToolbarModules([...DEFAULT_TOOLBAR_MODULES]);
     saveToolbarModules(DEFAULT_TOOLBAR_MODULES, user?.id);
-    if (user) void saveMobileToolbarPreferences(user.id, DEFAULT_TOOLBAR_MODULES).catch((error) => console.error("[FeatureFlags] could not save mobile toolbar preferences:", error));
+    if (user) void saveMobileToolbarPreferences(user.id, serializeToolbarModules(DEFAULT_TOOLBAR_MODULES)).catch((error) => console.error("[FeatureFlags] could not save mobile toolbar preferences:", error));
   }, [user]);
 
   return { flags, toolbarModules, isToolbarModule, isEnabled, setModule, setToolbarModule, resetToStarter };

@@ -1025,12 +1025,10 @@ function MobileActionBar({
     const item = items.find((candidate) => candidate.moduleKey === moduleKey && candidate.to !== "/help");
     return item ? [item] : [];
   });
-  const dashboardItem = items.find((item) => item.to === "/dashboard");
   const shortcutItems = favoriteItems.length > 0
     ? favoriteItems
     : items.filter((item) => item.to !== "/help" && item.to !== "/dashboard");
-  // Dashboard stays fixed as the first shortcut. Compact screens have room for it plus four personal favourites.
-  const barItems = dashboardItem ? [dashboardItem, ...shortcutItems].slice(0, 5) : shortcutItems.slice(0, 5);
+  const barItems = shortcutItems.slice(0, 8);
   if (barItems.length === 0) return null;
   const getNavBadgeCount = (route: AppRoute) => routeBadgeCounts[route] ?? 0;
   const hostname = typeof window === "undefined" ? "" : window.location.hostname.toLowerCase();
@@ -1044,9 +1042,11 @@ function MobileActionBar({
   return (
     <nav
       className={cn(
-        "fixed bottom-0 left-0 right-0 z-40 flex h-14 items-center justify-around border-t bg-background/95 px-1 backdrop-blur lg:landscape:hidden",
+        "fixed bottom-0 left-0 right-0 z-40 grid h-14 items-stretch border-t bg-background/95 px-0.5 backdrop-blur lg:landscape:hidden",
         isLocalSession ? "border-border" : "border-emerald-500",
       )}
+      style={{ gridTemplateColumns: `repeat(${barItems.length}, minmax(0, 1fr))` }}
+      onContextMenu={(event) => event.preventDefault()}
       aria-label="Primary mobile navigation"
     >
       {barItems.map((item) => {
@@ -1059,7 +1059,7 @@ function MobileActionBar({
             to={toPath(item.to)}
             aria-label={item.label}
             className={cn(
-              "flex flex-1 flex-col items-center justify-center gap-0.5 rounded-md py-1 text-[10px] font-medium transition-colors",
+              "flex min-w-0 flex-col items-center justify-center gap-0.5 rounded-md px-0.5 py-1 text-[10px] font-medium transition-colors",
               isActive ? "text-primary" : "text-muted-foreground hover:text-foreground",
             )}
           >
@@ -1074,7 +1074,7 @@ function MobileActionBar({
                 </span>
               ) : null}
             </span>
-            <span className="max-w-[64px] truncate">{item.label}</span>
+            <span className="w-full truncate text-center leading-none">{item.label}</span>
           </NavLink>
         );
       })}

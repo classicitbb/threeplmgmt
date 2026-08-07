@@ -66,6 +66,8 @@ vi.mock("@/lib/wms-core", async (importOriginal) => {
 
 vi.mock("@/hooks/use-feature-flags", () => ({
   STARTER_MODULES: {
+    dashboard: true,
+    copilot: true,
     receiving: true,
     putaway: true,
     inventory: true,
@@ -88,7 +90,7 @@ vi.mock("@/hooks/use-feature-flags", () => ({
   },
   useFeatureFlags: () => ({
     isEnabled: () => true,
-    toolbarModules: ["receiving", "putaway", "inventory", "pick-lists", "location-moves", "products", "warehouses"],
+    toolbarModules: ["dashboard", "receiving", "putaway", "inventory", "pick-lists", "location-moves", "products", "warehouses"],
   }),
 }));
 
@@ -172,7 +174,7 @@ describe("AppShell", () => {
     expect(inactiveIcons.some((icon) => icon.getAttribute("class")?.includes("text-accent"))).toBe(false);
   });
 
-  it("keeps Dashboard fixed and uses the first four personal favourites in the mobile shortcut bar", () => {
+  it("renders up to eight personal favourites in the responsive mobile dock", () => {
     renderShell();
 
     const mobileBar = screen.getByRole("navigation", { name: "Primary mobile navigation" });
@@ -181,9 +183,20 @@ describe("AppShell", () => {
     expect(mobileBar).toHaveTextContent("Put-Away");
     expect(mobileBar).toHaveTextContent("Inventory");
     expect(mobileBar).toHaveTextContent("Pick Lists");
-    expect(mobileBar).not.toHaveTextContent("Location Moves");
-    expect(mobileBar).not.toHaveTextContent("Products");
-    expect(mobileBar).not.toHaveTextContent("Warehouses");
+    expect(mobileBar).toHaveTextContent("Location Moves");
+    expect(mobileBar).toHaveTextContent("Products");
+    expect(mobileBar).toHaveTextContent("Warehouses");
+    expect(mobileBar.querySelectorAll("a")).toHaveLength(8);
+  });
+
+  it("suppresses the dock context menu", () => {
+    renderShell();
+
+    const mobileBar = screen.getByRole("navigation", { name: "Primary mobile navigation" });
+    const contextMenuEvent = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+    mobileBar.dispatchEvent(contextMenuEvent);
+
+    expect(contextMenuEvent.defaultPrevented).toBe(true);
   });
 
   it("persists an RF disconnect locally and delivers its supervisor alert after reconnect", async () => {

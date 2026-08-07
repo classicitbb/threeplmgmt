@@ -280,13 +280,13 @@ export const ROLE_DESCRIPTIONS: Record<RoleCode, string> = {
 };
 
 export type ModuleKey =
-  | "receiving" | "putaway" | "inventory" | "location-moves" | "transfers" | "pick-lists"
+  | "dashboard" | "copilot" | "receiving" | "putaway" | "inventory" | "location-moves" | "transfers" | "pick-lists"
   | "products" | "warehouses" | "zones" | "locations" | "users" | "settings"
   | "clients" | "packaging" | "cycle-counts" | "reports" | "status"
   | "system-log" | "email-log";
 
 export const NAVIGATION: Array<{ label: string; to: AppRoute; roles: RoleCode[]; moduleKey?: ModuleKey }> = [
-  { label: "Dashboard", to: "/dashboard", roles: ["developer", "admin", "warehouse_manager", "warehouse_supervisor", "inventory_clerk", "warehouse_operator", "dispatch_driver"] },
+  { label: "Dashboard", to: "/dashboard", roles: ["developer", "admin", "warehouse_manager", "warehouse_supervisor", "inventory_clerk", "warehouse_operator", "dispatch_driver"], moduleKey: "dashboard" },
   { label: "Receiving", to: "/receiving", roles: ["developer", "admin", "warehouse_manager", "warehouse_supervisor", "inventory_clerk"], moduleKey: "receiving" },
   { label: "Put-Away", to: "/putaway-tasks", roles: ["developer", "admin", "warehouse_manager", "warehouse_supervisor", "inventory_clerk", "warehouse_operator"], moduleKey: "putaway" },
   { label: "Inventory", to: "/inventory-search", roles: ["developer", "admin", "warehouse_manager", "warehouse_supervisor", "inventory_clerk", "warehouse_operator"], moduleKey: "inventory" },

@@ -1120,6 +1120,10 @@ function UserProfileRow({
 
 const MODULE_GROUPS: { label: string; keys: ModuleKey[] }[] = [
   {
+    label: "Workspace",
+    keys: ["dashboard", "copilot"],
+  },
+  {
     label: "Core Operations",
     keys: ["receiving", "putaway", "inventory", "pick-lists", "location-moves", "transfers"],
   },
@@ -1143,7 +1147,7 @@ function ModulesSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
           <div>
             <CardTitle>Module Visibility</CardTitle>
             <CardDescription>
-              Hide modules that aren't needed for your operation. Star up to {MAX_TOOLBAR_MODULES} modules for personal shortcuts; smaller screens keep Dashboard fixed and show four favourites. Hidden modules remain fully functional — they just won't appear in the navigation.
+              Hide modules that aren't needed for your operation. Star up to {MAX_TOOLBAR_MODULES} modules for personal shortcuts. Dashboard is always available, but its shortcut is optional. Copilot is available to every role that can access Settings when enabled.
               {!isAdmin && " Only administrators can change module visibility; your shortcut stars are personal."}
             </CardDescription>
           </div>
@@ -1162,7 +1166,8 @@ function ModulesSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
                   const meta = MODULE_LABELS[key];
                   const enabled = flags[key] ?? STARTER_MODULES[key];
                   const pinned = isToolbarModule(key);
-                  const toolbarDisabled = !pinned && (!enabled || toolbarModules.length >= MAX_TOOLBAR_MODULES);
+                  const hasToolbarDestination = NAVIGATION.some((item) => item.moduleKey === key);
+                  const toolbarDisabled = !hasToolbarDestination || (!pinned && (!enabled || toolbarModules.length >= MAX_TOOLBAR_MODULES));
                   return (
                     <div key={key} className="flex items-center justify-between gap-4 rounded-lg border border-border px-4 py-3">
                       <div className="min-w-0">
@@ -1177,16 +1182,17 @@ function ModulesSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
                           className="h-8 w-8"
                           disabled={toolbarDisabled}
                           onClick={() => setToolbarModule(key, !pinned)}
-                          title={pinned ? `Remove ${meta.label} from mobile toolbar` : `Add ${meta.label} to mobile toolbar`}
-                          aria-label={pinned ? `Remove ${meta.label} from mobile toolbar` : `Add ${meta.label} to mobile toolbar`}
+                          title={!hasToolbarDestination ? `${meta.label} does not have a dock shortcut` : pinned ? `Remove ${meta.label} from mobile toolbar` : `Add ${meta.label} to mobile toolbar`}
+                          aria-label={!hasToolbarDestination ? `${meta.label} does not have a dock shortcut` : pinned ? `Remove ${meta.label} from mobile toolbar` : `Add ${meta.label} to mobile toolbar`}
                         >
                           <Star className={cn("h-4 w-4", pinned && "fill-current")} />
                         </Button>
                         <Switch
                           checked={enabled}
                           onCheckedChange={(v) => setModule(key, v)}
-                          disabled={!isAdmin}
+                          disabled={!isAdmin || key === "dashboard"}
                           aria-label={`Toggle ${meta.label}`}
+                          title={key === "dashboard" ? "Dashboard is always enabled" : undefined}
                         />
                       </div>
                     </div>
